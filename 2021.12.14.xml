@@ -1,0 +1,264 @@
+<?xml version="1.0" encoding="utf-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2021.12.14</cwn_date>
+    <cwn_prev>2021.12.07</cwn_prev>
+    <cwn_next>2021.12.21</cwn_next>
+    <cwn_date_text>December 07 to 14, 2021</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>kqueue-ml 0.2.0 and poll 0.1.0</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-kqueue-ml-0-2-0-and-poll-0-1-0/8958/1</cwn_url>
+      <cwn_who>Anurag Soni announced</cwn_who>
+      <cwn_what>
+I'd like to announce new releases for [kqueue-ml](https://github.com/anuragsoni/kqueue-ml/) (version 0.2.0) and an
+initial release of [poll](https://github.com/anuragsoni/poll) (version 0.1.0).
+
+*Kqueue-ml*: Thin bindings to the kqueue event notification system. Changes since the last release:
+
+- Remove dependency on ctypes
+- Limit support to 64 bit systems
+- Adds constant values to be used as filter flags in the public API
+
+Installation: [opam install kqueue](https://opam.ocaml.org/packages/kqueue/)
+
+Caveat: This is again mostly tested on macOS, but I plan to work on testing and fixing bugs for getting the library
+to work well on the various BSD systems, so please open issues if you use it on a BSD system and notice problems
+(Thanks!).
+
+*Poll*: Portable OCaml interface to macOS/Linux/Windows native IO event notification mechanisms
+
+Installation: [opam install poll](https://opam.ocaml.org/packages/poll/poll.0.1.0/)
+
+This is the first release of poll, which builds on top of ~kqueue-ml~ and adds bindings to the system IO event
+notifications on linux and windows to provide a portable polling interface. It uses kqueue on macOS, epoll on linux,
+and uses [wepoll](https://github.com/piscisaureus/wepoll) on windows so it can leverage IOCP on windows instead of
+select. All io events will be level triggered, i.e. there will be a notification as long as the file descriptor being
+watched is ready to read/write.
+
+If you experience any problems, please open an issue on the Github Issue tracker :slightly_smiling_face:
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>SWIPl-OCaml v0.5 - Never write your own unification algorithms again!</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-swipl-ocaml-v0-5-never-write-your-own-unification-algorithms-again/8968/1</cwn_url>
+      <cwn_who>Kiran Gopinathan announced</cwn_who>
+      <cwn_what>
+Hey all! I am just posting to announce a new package I've been working on: OCaml bindings to SWI-Prolog (ver 8.5 or
+higher)!
+
+https://aws1.discourse-cdn.com/standard11/uploads/ocaml/original/2X/b/b5a466fc6bc98f83b6935205ea9b4ff1d16a324d.png
+
+It's currently in the process of being submitted to OPAM, but it's my first time writing a package with bindings to C
+(using ctypes), so some further changes might be needed? maybe?, but you can find the source code repository here:
+[repo](https://gitlab.com/gopiandcode/swipl-ocaml)/[github mirror](https://github.com/Gopiandcode/SWIPL-OCaml).
+
+As a sneak peek of what the API looks like, here's a hello world:
+#+begin_src ocaml
+(* initialise SWIProlog *)
+let () = Swipl.initialise ()
+(* setup the prolog database with some facts *)
+let () = Swipl.load_source "hello :- writeln('hello world')."
+(* construct a Swipl term in OCaml *)
+let hello = Swipl.Syntax.(!"hello")
+(* send the term to the Prolog engine *)
+let () = Swipl.with_ctx @@ fun ctx -> Swipl.call ctx hello
+#+end_src
+
+I've taken care to provide some detailed documentation + quick start guide using odoc (see
+https://gopiandcode.github.io/SWIPL-OCaml/swipl/index.html) - the quick start guide shows a step by step walkthrough
+on using the library to write a type inference algorithm for lambda calculus using OCaml+Prolog (no need to write
+your own UF).
+
+Anyway, hope this might be useful for others - I have spent way too long racking my brains on writing dumb custom
+unification algorithms, but now, no more!
+      </cwn_what>
+      <cwn_who>Kiran Gopinathan later added</cwn_who>
+      <cwn_what>
+Here's another example that might be interesting for those who have experience with SWI-Prolog.
+
+You can even get native interaction with CHR: https://en.wikipedia.org/wiki/Constraint_Handling_Rules is a very
+elegant framework which comes bundled with SWI Prolog that allows users to write complex domain specific constraint
+solving engines in a concise declaritive way.
+
+Here's a CHR system that models the interaction between ~salt~ and ~water~ (basic I know, but look up CHR to see some
+more powerful examples):
+#+begin_src ocaml
+let () = Swipl.load_source "
+:- use_module(library(chr)).
+
+:- chr_constraint salt/0, water/0, salt_water/0.
+
+salt, water &lt;=&gt; salt_water.
+
+reducesTo_(Goal, C) :-
+        call(Goal),
+        call(user:'$enumerate_constraints'(C)).
+reducesTo(Goal, Constraints) :-
+        findall(Constraint, reducesTo_(Goal, Constraint), Constraints).
+"
+#+end_src
+
+Which we can then embed into OCaml using the following code:
+#+begin_src ocaml
+let solve_constraints ls =
+  (* Create a new term variable context *)
+  Swipl.with_ctx (fun ctx ->
+    (* create a term for the result *)
+    let result = Swipl.fresh ctx in
+    (* encode the constraint store *)
+    let goal = encode ls in
+    (* send the query to the Prolog engine *)
+    Swipl.call ctx (reducesTo goal result);
+    (* extract the result *)
+    decode ctx result
+  )
+(* val solve_constraints: t list -> t list *)
+#+end_src
+(Again, some steps have been omitted for brevity, and you should check out the quick start guide for a step by step
+walkthrough).
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>opam 2.1.2</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-opam-2-1-2/8973/1</cwn_url>
+      <cwn_who>Kate announced</cwn_who>
+      <cwn_what>
+We are pleased to announce the minor release of [opam 2.1.2](https://github.com/ocaml/opam/releases/tag/2.1.2).
+
+This opam release consists of [backported](https://github.com/ocaml/opam/issues/4920) fixes, including:
+
+- Fallback on ~dnf~ if ~yum~ does not exist on RHEL-based systems ([#4825](https://github.com/ocaml/opam/pull/4825))
+
+- Use ~--no-depexts~ in CLI 2.0 mode. This further improves the use of opam 2.1 as a drop-in replacement for opam 2.0 in CI, for example with setup-ocaml in GitHub Actions. ([#4908](https://github.com/ocaml/opam/pull/4908))
+
+To upgrade simply run:
+#+begin_src shell
+bash -c "sh &lt;(curl -fsSL https://raw.githubusercontent.com/ocaml/opam/master/shell/install.sh) --version 2.1.2"
+#+end_src
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Set up OCaml 2.0.0-beta10</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-set-up-ocaml-2-0-0-beta10/8974/1</cwn_url>
+      <cwn_who>Sora Morimoto announced</cwn_who>
+      <cwn_what>
+*** Added
+
+- Added "extends" experimentally.
+
+*** Changed
+
+- Remove some hacks as ~--no-depexts~ is now used in CLI 2.0 mode from opam 2.1.2.
+
+https://github.com/ocaml/setup-ocaml/releases/tag/v2.0.0-beta10
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>A hassle-free setup to release binaries for different platforms: the opam release process experiment</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/a-hassle-free-setup-to-release-binaries-for-different-platforms-the-opam-release-process-experiment/8975/1</cwn_url>
+      <cwn_who>Kate announced</cwn_who>
+      <cwn_what>
+On top of the [opam 2.1.2 announcement](https://discuss.ocaml.org/t/ann-opam-2-1-2/8973), I’d like share an
+experiment with the opam release script used for this release.
+
+As you might know, for each releases of opam we provide pre-compiled binaries for ease of use.
+We’ve had a release script which up to this point required a specific setup to get it running correctly. For instance
+we had to setup a local OpenBSD machine (possibliy virtualised), a macOS/x86_64 machine and a macOS/arm64. This setup
+is rather tedious to reproduce.
+
+To improve this situation I’ve experimented over the past week with [QEMU](https://en.wikipedia.org/wiki/QEMU) and
+[[https://en.wikipedia.org/wiki/Rosetta_(software)#Rosetta_2][Rosetta 2]] to make it a "one click script":
+
+https://github.com/ocaml/opam/pull/4947
+
+This change makes so that the script now only requires a macOS/arm64. From there you can:
+- compile locally for macOS/arm64 binaries
+- compile locally for macOS/x86_64 binaries (using Rosetta 2)
+- compile for BSDs (using QEMU)
+- compile for Linux (using Docker)
+
+With this, the [binaries](https://github.com/ocaml/opam/releases/tag/2.1.2) for this release have been compiled with
+this more reproducible setup, and now include FreeBSD/x86_64 binaries as well :sparkles:
+
+If someone wants to have a similar setup to distribute binaries here is the git repository (using Git LFS to store
+the large files). Feel free to use and experiment with it:
+
+https://gitlab.com/kit-ty-kate/qemu-base-images
+
+For now it only has OpenBSD/x86_64 and FreeBSD/x86_64 images but it could theoretically have more. Although I’m not
+accepting PRs for now (for obvious security reasons), I’m open to suggestions to add more platforms. See the
+[README](https://gitlab.com/kit-ty-kate/qemu-base-images/-/blob/master/README.md) for high level details about the
+setup.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Set up OCaml 2.0.0-beta11</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-set-up-ocaml-2-0-0-beta11/9002/1</cwn_url>
+      <cwn_who>Sora Morimoto announced</cwn_who>
+      <cwn_what>
+*** Fixed
+
+- Add support for more styles for the ocamlformat configuration in lint-fmt action.
+
+https://github.com/ocaml/setup-ocaml/releases/tag/v2.0.0-beta11
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>What's the best way to save an huge amount of data in a file</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/whats-the-best-way-to-save-an-huge-amount-of-data-in-a-file/9003/5</cwn_url>
+      <cwn_who>Deep in this thread, Simon Cruanes announced</cwn_who>
+      <cwn_what>
+What a coincidence, I wrote an
+[Avro library](https://github.com/c-cube/ocaml-avro) very recently. The
+paint is still fresh. However, it might be worth giving it a try as it's
+exactly the targeted use case: many rows of relatively simple data,
+encoded as binary; it also supports gzip compression (per "block" of N
+many rows, with N configurable). And there's no need to worry about
+endianess.
+
+It typically uses code generation from a schema (a json file).
+
+There's libraries for Avro in java (with all the Spark ecosystem) and
+also python (see "fastavro").
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>p5scm 0.1.0</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-p5scm-0-1-0/9014/1</cwn_url>
+      <cwn_who>Jason Nielsen announced</cwn_who>
+      <cwn_what>
+I’ve released [p5scm](https://github.com/drjdn/p5scm) which is now up on ~opam~.  It is a scheme-like implementation
+on top of ~camlp5~'s [pa_schemer.ml](https://github.com/camlp5/camlp5/blob/master/etc/pa_schemer.ml) extension.  I
+know that ~camlp5~ isn't the cool kid on the block these days but it is a powerful tool and pretty cool in my
+estimation ;-).
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>nanoid 1.0.0</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-nanoid-1-0-0/9017/1</cwn_url>
+      <cwn_who>mefyl announced</cwn_who>
+      <cwn_what>
+I'm pleased to announce the release of [nanoid 1.0.0](https://github.com/routineco/ocaml-nanoid). NanoID are
+[popular unique ids](https://github.com/ai/nanoid) amongst the javascript ecosystem. This library brings an
+equivalent native implementation and a virtual library to transparently branch between the native implementation and
+the original javascript one. The intent is to enable pieces of code generating such ids to be moved transparently
+between frontend and backend of a web stack.
+
+This is an humble first contribution to gain some experience and will hopefully be followed by more of our internal
+developments.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Here are links from many OCaml blogs aggregated at [[http://ocaml.org/community/planet/][OCaml Planet]].
+
+- [[https://tech.ahrefs.com/monorobot-a-slack-bot-for-monorepos-374260e2ca43?source=rss----303662d88bae--ocaml][Monorobot: a Slack bot for monorepos]]
+- [[http://opam.ocaml.org/blog/blog/opam-2-1-2/][opam 2.1.2 release]]
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

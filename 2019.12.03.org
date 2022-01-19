@@ -1,0 +1,413 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[http://alan.petitepomme.net/cwn/2019.11.26.html][Previous Week]] [[http://alan.petitepomme.net/cwn/index.html][Up]] [[http://alan.petitepomme.net/cwn/2019.12.10.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of November 26 to December 03, 2019.
+
+#+TOC: headlines 1
+
+
+* Irmin 2.0.0 release
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/ann-irmin-2-0-0-release/4746/5
+
+** Continuing this thread, samoht announced
+
+
+And there is now a follow-up blog post, explaining how to use the new GraphQL API available in Irmin2: https://tarides.com/blog/2019-11-27-introducing-irmin-graphql.
+      
+
+
+
+* How viable is delivering binaries linked to Cygwin to Windows customers?
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/how-viable-is-delivering-binaries-linked-to-cygwin-to-windows-customers/4775
+
+** mbacarella asked
+
+
+I’m in the early stages of planning a deliverable binary product that will run on Linux, Mac and Windows.
+
+My brief sniff of the air around the OCaml ecosystem says I should expect to target Cygwin to get Windows going (although there’s impressive work to get native Windows stuff done that can become the preferred approach in a few years).
+
+My experience using Cygwin as an operating environment is that it’s pretty darn sluggish compared to Linux on the same computer.
+
+Why is this? There’s an anecdote that says Cygwin can only fork at about 30-50x a second on Windows, due to how it has to adapt it to work within Windows’ task spawning model. (For contrast, Linux can achieve thousands of forks per second if you play around with it).
+
+I understand from another product developer that when they build binaries to deliver to Windows/Cygwin, they actually cross-compile on Linux because of how slowly the toolchain runs on Cygwin.
+
+That sounds like bad news if you want to do UNIXy things, but for a single standalone application this might not be so bad? I assume if I ship a deliverable to Windows/Cygwin, the end user may enjoy good performance, so long as I’m not spawning tons of processes or relying on fork for multi-programming. Is this a safe assumptions?
+
+Any other gotchas when it comes to OCaml on Cygwin w.r.t. performance?
+
+The app pretty much has real-time gaming requirements (though it’s not a game so can side-step worrying about access to GPUs and what-not). Stated another way, although my application will depend on the POSIX layer offered by Cygwin, I expect it not to crunch POSIX related stuff in the main loop.
+
+How has your experience gone?
+      
+
+** John Whitington replied
+
+
+I have been shipping commercial binaries for Linux (32 and 64 bit), Windows (32 and 64bit) and OS X for years. For example:
+https://github.com/coherentgraphics/cpdf-binaries
+
+And even static or shared libraries in binary form:
+https://github.com/coherentgraphics/cpdflib-binary
+
+On OS X, you need to use MACOSX_DEPLOYMENT_TARGET or similar to make sure your builds will run on older systems. And, in fact, you need to use MACOSX_DEPLOYMENT_TARGET when asking OPAM to compile the OCaml compiler itself. And, you will need to deal with codesigning and notarization. But it’s all doable.
+
+For linux, you may need to build under older linux versions, to make sure that the glibc in use is old enough. This is not an ocaml-specific problem. I have a 64 bit and 32 bit VM with old-ish glibc versions for this purpose.
+
+Under Windows, there are no such backward-compatibility problems. I use the new OCaml for windows system, which comes with OPAM, and is mingw-based. No cygwin remains in the final binary.
+
+For more obscure systems (AIX, HPUX, Sparc etc) customers compile from source
+(with help from me). Not once in more than ten years has anyone cared that it
+was written in OCaml.
+      
+
+** dbuenzli also replied
+
+
+remember that on the Windows native port, the Unix module distributed with OCaml is your POSIX compatibility layer. There are a few entry points to avoid though, the list is at the bottom of [[https://caml.inria.fr/pub/docs/manual-ocaml/libunix.html][this page]].
+      
+
+** nojb also replied
+
+
+At LexiFi our main application is developed and shipped on Windows. We use the msvc port of OCaml. This means that you need Cygwin to develop, but the resulting application is fully native and does not depend on the Cygwin DLL. As @dbuenzli mentioned, the Unix module *is* the POSIX compatibility layer.
+
+Compilation speed is slower on Windows because process creation is slower on Windows as a general rule, but it is manageable (our application has around 2000 modules + Js_of_ocaml + C bindings + C# component).
+
+We don’t have any issues with runtime performance. The ~Unix~ library mentioned above implements Windows support directly without going through any compatibility layer and is quite efficient.
+      
+
+** BikalGurung also replied
+
+
+There is an editor being built in ocaml/reasonml which currently targets windows, linux and macos - https://github.com/onivim/oni2. However, the binary is native windows rather than cygwin derivative. So if you don’t have to use cygwin dependencies then native windows binary could be the way to go.
+
+Also esy - https://github.com/esy/esy makes developing ocaml/reasonml on windows viable.
+      
+
+** keleshev also replied
+
+
+*TLDR*: Install the [[https://fdopen.github.io/opam-repository-mingw/][Mingw port of OCaml 4]], freely use most opam libraries, and compile to native Windows binaries, without licensing issues.
+
+I recommend you read the “Release notes for Windows”:
+https://github.com/ocaml/ocaml/blob/trunk/README.win32.adoc
+
+To summarise, there are three Windows ports:
+
+- Native Microsoft port,
+- Native Mingw port,
+- Cygwin port.
+
+All three require Cygwin for development purposes. I recommend using the Native Mingw, as:
+
+- it *doesn’t* require Visual Studio (it uses a mingw fork of GCC that “cross-compiles” native Windows executables),
+- it *doesn’t* rely on the dreaded cygwin.dll
+- it has good opam support with opam-repository-mingw: https://github.com/fdopen/opam-repository-mingw
+- it has a convenient installer: https://fdopen.github.io/opam-repository-mingw/ 5.
+
+To contrast, Native Microsoft requires Visual Studio, and doesn’t have opam. You can still vendor pure OCaml packages, but as soon as you want to use some C bindings you’re in trouble, because of the “minor” differences between Visual C and GCC. And everything assumes GCC nowadays.
+
+Cygwin port is the one I don’t have experience with, but re-reading the “Release notes for Windows” above it strikes me that it mentions that Cygwin was re-licensed from GPL to LGPL with static linking exception. So it looks like the Cygwin port could be viable for commercial use, but I never tried to statically linked ~cygwin.dll~, and I’m not sure what are the benefits of Cygwin port over the Mingw port.
+      
+
+** dmbaturin also replied
+
+
+With [[https://soupault.neocities.org/][soupault 4]], I decided to ship prebuilt binaries for all platforms including Windows. Mostly to see if I can, all its users I know of are on UNIX-like systems and know how to build from source, but that’s beside the point. :wink:
+
+I can confirm everything @keleshev says: fdopen’s package just works, opam works exactly like it does on UNIX, pure OCaml libraries are trivial to install, and the binaries don’t depend on cygwin.
+Note that “opam switch create” also just works, you can install either MinGW or MSVC compiler versions as opam switches.
+I only ever start the Windows VM to make release builds, and the workflow is exactly the same as on Linux where I’m actually writing code.
+
+My only obstacle on that path was that FileUtils lost its Windows compatibility, but I wanted to use it, so I worked with @gildor478 to make it cross-platform again. Uncovered a bug in the implementation of Unix.utimes in the process, but it’s hardly a commonly used function.
+
+You can also setup AppVeyor builds. It’s not as simple as I wish it would be, but there are projects doing it that you can steal the setup from.
+
+There’s also opam-cross-windows, but it’s very incomplete and needs work to be practical. There are no big obstacles, it just needs work. While files in opam-repository-mingw are normally identical to the default opam repository, the cross one needs small adjustments in every package to specify the toolchain to use, so the required work is mostly a lot of trivial but manual actions. I hope eventually it reaches parity with fdopen’s one and we’ll be able to easily build for Windows without ever touching Windows.
+
+As of static Linux builds, @JohnWhitington’s approach can work, but there’s a better option if you don’t need anything from glibc specifically and don’t link against any C libs: build statically with musl. There’s a ~+musl+static+flambda~ compiler flavour. You need musl and gcc-musl to install it, but after that, just build with ~-ccopt -static~ flag and you get a binary that doesn’t depend on anything.
+      
+
+
+
+* Dune 2.0.0
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/ann-dune-2-0-0/4758
+
+** rgrinberg announced
+
+
+On behalf of the dune team, I’m delighted to announce the release of dune 2.0. This release is the culmination of 4 months of hard work by the dune team and contains new features, bug fixes, and performance improvements . Here’s a selection of new features that I personally find interesting:
+
+- New boostrap procedure that works in low memory environments
+- (~deprecated_library_name~ ..) stanza to properly deprecate old library names
+- (~foreign_library~ ..) stanza to define C/C++ libraries.
+- C stubs directly in OCaml executables
+
+Refer to the change log for an exhaustive list.
+
+We strive for a good out of the box experience that requires no configuration, so we’ve also tweaked a few defaults. In particular, ~$ dune build~ will now build ~@all~ instead of ~@install~, and ocamlformat rules are setup by default.
+
+Lastly, dune 2.0 sheds all the legacy related to jbuilder and will no longer build jbuilder projects. This change is necessary to ease maintenance and make it easier to add new features down the line. There are a few other minor breaking changes. Refer to the change log for the full list. We apologize in advance for any convenience this might cause.
+
+[[https://discuss.ocaml.org/t/ann-dune-2-0-0/4758][Changelog]]
+      
+
+
+
+* Advanced C binding using ocaml-ctypes and dune
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/advanced-c-binding-using-ocaml-ctypes-and-dune/4805
+
+** toots announced
+
+
+I worked on a socket.h binding last summer and had a great experience integrating ocaml-ctypes with dune, I thought that might be of interest to other developers so I wrote about it: https://medium.com/@romain.beauxis/advanced-c-binding-using-ocaml-ctypes-and-dune-cc3f4cbab302
+      
+
+** rgrinberg replied
+
+
+This is a good article. I encourage anyone who writes C bindings with ctypes to study it carefully.
+
+A little bit of advice to shorten your dune files:
+
+#+begin_example
+ (deps    (:gen ./gen_constants_c.exe))
+#+end_example
+
+This line isn’t necessary. Dune is smart enough to know that running a binary in a rule incurs a dependency on it.
+
+#+begin_quote
+    dune has a truly amazing [[https://dune.readthedocs.io/en/latest/cross-compilation.html][support for cross-compiling]], which we do not cover here, but, unfortunately, its primitives for building and executing binaries do not yet cover this use case.
+#+end_quote
+
+Indeed, we don’t have any primitives for running binaries on the target platform. Perhaps we should add some. However, we do in fact have some features in dune to solve this concrete cross compilation problem. As far as I understand, the goal is to obtain some compile time values such as #define constants and field offsets for the target platform. This does not in fact require to run anything on the cross compilation target. In configurator, we have a primitive ~C_define.import~ to extract this information. The end result is that these configurator scripts are completely compatible with cross compilation.
+
+Perhaps this could be generalized to work with ctypes generators as well?
+
+Funny bit of trivia: The hack in configurator required to do this is in fact something I extracted from ctypes itself. The original author is [[https://github.com/whitequark][whitequark]], who in turn wrote it to make ctypes itself amendable to cross compilation.
+      
+
+** emillon then added
+
+
+#+begin_quote
+This does not in fact require to run anything on the cross compilation target. In configurator, we have a primitive ~C_define.import~ to extract this information. The end result is that these configurator scripts are completely compatible with cross compilation.
+#+end_quote
+
+If anybody wants to know more about this bit, I wrote an article about this last year:
+https://dune.build/blog/configurator-constants/
+      
+
+
+
+* Upcoming breaking change in Base/Core v0.14
+:PROPERTIES:
+:CUSTOM_ID: 5
+:END:
+Archive: https://discuss.ocaml.org/t/upcoming-breaking-change-in-base-core-v0-14/4806
+
+** bcc32 announced
+
+
+We’re changing functions in Base that used to use the polymorphic
+variant type ~[ `Fst of 'a | `Snd of 'b ]~ to use ~('a, 'b) Either.t~
+instead. As well as enabling the use of all of the functions in the
+Either module, this makes the functions consistent with other
+functions that already use ~Either.t~, (currently just
+~Set.symmetric_diff~)
+
+The following functions’ types will change:
+- ~Result.ok_fst~
+- ~List.partition_map~
+- ~Map.partition_map~, ~Map.partition_mapi~
+- ~Hashtbl.partition_map~, ~Hashtbl.partition_mapi~
+
+The type of List.partition3_map will not change:
+
+#+begin_example
+val partition3_map
+  :  'a t
+  -> f:('a -> [ `Fst of 'b | `Snd of 'c | `Trd of 'd ])
+  -> 'b t * 'c t * 'd t
+#+end_example
+
+We don’t have a generic ternary variant, and it doesn’t seem worth it
+to mint one just for this purpose.
+
+Since this change is pretty straightforward, we expect that a simple find/replace will be sufficient to update any affected call sites.
+      
+
+
+
+* CI/CD Pipelines: Monad, Arrow or Dart?
+:PROPERTIES:
+:CUSTOM_ID: 6
+:END:
+Archive: https://roscidus.com/blog/blog/2019/11/14/cicd-pipelines/
+
+** Thomas Leonard announced
+
+
+In this post I describe three approaches to building a language for writing CI/CD pipelines. My first attempt used a monad, but this prevented static analysis of the pipelines. I then tried using an arrow, but found the syntax very difficult to use. Finally, I ended up using a light-weight alternative to arrows that I will refer to here as a dart (I don’t know if this has a name already). This allows for static analysis like an arrow, but has a syntax even simpler than a monad.
+
+https://roscidus.com/blog/blog/2019/11/14/cicd-pipelines/
+      
+
+
+
+* Use of functors to approximate F# statically resolved type parameters
+:PROPERTIES:
+:CUSTOM_ID: 7
+:END:
+Archive: https://discuss.ocaml.org/t/use-of-functors-to-approximate-f-statically-resolved-type-parameters/4782
+
+** cmxa asked
+
+
+I am learning OCaml coming from F#. In F#, to calculate the average of an array whose element type supports addition and division, one can write
+
+#+begin_example
+let inline average (arr: 'a[]) : 'a
+    when ^a : (static member DivideByInt : ^a * int -> ^a)
+    and  ^a : (static member (+) : ^a * ^a -> ^a)
+    and  ^a : (static member Zero : ^a)
+    =
+    if Array.length arr = 0 then (LanguagePrimitives.GenericZero) else
+    LanguagePrimitives.DivideByInt (Array.fold (+) (LanguagePrimitives.GenericZero) arr) (Array.length arr)
+#+end_example
+
+My understanding is that in OCaml, one would have a module type like so:
+
+#+begin_src ocaml
+module type Averagable = sig
+  type 'a t
+
+  val divide_by_int : 'a -> int -> 'a
+  val plus : 'a -> 'a -> 'a
+  val zero : 'a
+end
+#+end_src
+
+My question is how the corresponding function would be written:
+
+#+begin_src ocaml
+let average arr =
+  ???
+#+end_src
+      
+
+** smolkaj replied
+
+
+First, ~Averagable~ should look like this:
+
+#+begin_src ocaml
+module type Averagable = sig
+  type t
+  val divide_by_int : t -> int -> t
+  val plus : t -> t -> t
+  val zero : t
+end
+#+end_src
+
+Then average will look something like this:
+
+#+begin_src ocaml
+let average (type t) (module A : Averagable with type t = t) (arr : t array) : t =
+  Array.fold ~init:A.zero ~f:A.plus arr
+#+end_src
+
+(The code above uses Jane Street’s Base/Core library.)
+      
+
+** ivg then added
+
+
+While @smolkaj’s answer is a correct and direct implementation of your F# code, it might be nicer if your code can interplay with existing abstractions in the OCaml infrastructure. For example,
+
+#+begin_src ocaml
+open Base
+
+let average (type a) (module T : Floatable.S with type t = a) xs =
+  Array.fold ~init:0. ~f:(fun s x -> s +. T.to_float x) xs /.
+  Float.of_int (Array.length xs)
+#+end_src
+
+and now it could be used with any existing numeric data in Base/Core
+
+#+begin_src ocaml
+average (module Int) [|1;2;3;4|];;
+- : Base.Float.t = 2.5
+#+end_src
+
+and even adapted to non-numbers,
+
+#+begin_src ocaml
+let average_length = average (module struct
+    include String
+    let to_float x = Float.of_int (String.length x)
+    let of_float _ = assert false
+  end)
+#+end_src
+
+The latter example shows that we requested more interface than need, a cost that we have to pay for using an existing definition. In cases when it matters, you can specify the specific interface, e.g.,
+
+#+begin_src ocaml
+module type Floatable = sig
+  type t
+  val to_float : t -> float
+end
+
+let average (type a) (module T : Floatable with type t = a) xs =
+  Array.fold ~init:0. ~f:(fun s x -> s +. T.to_float x) xs /.
+  Float.of_int (Array.length xs)
+#+end_src
+
+But we reached the point where using first class modules is totally unnecessary. Our interface has only one function, so the following definition of average, is much more natural
+
+#+begin_src ocaml
+let average xs ~f =
+  Array.fold ~init:0. ~f:(fun s x -> s +. f x) xs /.
+  Float.of_int (Array.length xs)
+#+end_src
+
+it has type ~'a array -> f:('a -> float) -> float~ and computes an average of ~f x_i~ for all elements in the array.
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[http://alan.petitepomme.net/cwn/][the archive]] or the [[http://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe [[http://lists.idyll.org/listinfo/caml-news-weekly/][online]].
+
+#+BEGIN_authorname
+[[http://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname

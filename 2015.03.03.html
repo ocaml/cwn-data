@@ -1,0 +1,386 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>OCaml Weekly News</title>
+  </head>
+  <body>
+    <a href="2015.02.24.html">Previous week</a> <a href="index.html">Up</a> <a href="2015.03.10.html">Next week</a><p>Hello</p><p>Here is the latest OCaml Weekly News, for the week of February 24 to March 03, 2015.</p><ol><li><a href="#1">CommonML: An opinionated build/package/develop workflow on top of CommonJS</a></li><li><a href="#2">Match error with abstract types in modules</a></li><li><a href="#3">ocamlnet-4.0.2</a></li><li><a href="#4">CFP: ML Workshop 2015</a></li><li><a href="#5">How to build a library with c++ stubs</a></li><li><a href="#6">Other OCaml News</a></li></ol><a name="1" /><hr /><h3>CommonML: An opinionated build/package/develop workflow on top of CommonJS</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2015-02/msg00153.html">https://sympa.inria.fr/sympa/arc/caml-list/2015-02/msg00153.html</a></p><i>Jordan W announced:</i><br /><pre>
+I'm cross posting my post from the opam-devel list:
+
+Since there is a lot of interest in OCaml from web frontend communities, I
+thought it would be useful to imagine what the ideal development flow for
+this audience would look like. I know there's a ton of progress being made
+on documentation, and build systems, but I thought I would explore the
+problem from the perspective of a frontend developer, which means starting
+with the tooling that they are familiar with. One common tool is
+`CommonJS/package.json`, which is a way to model and organize dependencies
+using a single JSON file per package. The npm command line tools allow you
+to install files to disk based purely on these package.json files.
+
+I created a proof of concept called CommonML, which lets developers use
+their familiar CommonJS workflow with OCaml:
+<a href="https://github.com/jordwalke/CommonML">https://github.com/jordwalke/CommonML</a>
+
+I also took used it as an opportunity to explore what can be done when
+there are opinionated conventions in place. If you have a predictable
+project structure, how can that benefit us? In this case, I created an
+automatic docs builder (with nice styling) and also automatically generate
+IDE autocomplete support for all your dependencies (and your project's
+internal modules).
+
+
+I hope there is at least something we can take away from it that helps
+inform the design of OPAM and related tools.
+
+
+One nice aspect is that with `CommonJS`, there needn't be an authoritative
+package service. Your package.json file can point to arbitrary git URLs if
+you like.  (Note: The npm command line tool is *not* the npm package
+service - they are made by the same organization but one may be used
+without the other). However, this prototype I've built does allow you to
+host OCaml code on npm and depend on it.
+
+By far the nicest thing about developing with `CommonJS` is that you don't
+have to think about module namespace collisions. There is Just One Way to
+namespace modules/packages. This prototype automatically sets up a similar
+namespacing convention for OCaml modules. It's not flexible, and you can't
+customize it, but it always works. It uses module aliases (thank you to Leo
+White for helping me come up with the build conventions).
+
+Another thing I like about the `CommonJS` workflow is that developing
+packages locally is virtually the same as developing against remote
+dependencies. (`npm link` is much like `opam pin` I'm told). When you `npm
+install` dependencies, everything is pulled down into a local
+sandbox(node_modules directory) instead of being installed globally by
+default. If you want to see what versions your local package is seeing,
+just traverse the file system! If you want to reinstall, just delete the
+node_modules directory and then `npm install` again. I believe there is a
+way to get it to use a global package cache so the node_modules might
+contain symlinks to those shared packages - but that's just an
+optimization. There isn't any notion of building in `npm`, so there
+wouldn't be a build cache I believe.
+
+In my quick prototype, every dependency must be compiled at least once for
+the root level project that you are building. This ends up being nice in
+cases where the build flags (such as -g) must be in effect for the
+compilation of all my dependencies - relying on the build flags that you
+*installed* the package with will bite you. But of course, the rebuilding
+approach can end up being super slow. Still, the incremental build times
+are *totally* reasonable since it does try to do some basic incremental
+compilation. I would have used ocamlbuild which probably does a much better
+job, but I needed to write my own totally custom operations in order to get
+the auto-namespacing (with the help of Leo White). I wasn't sure how to do
+that with ocamlbuild, but if I could, I imagine the incremental compilation
+times would be way better.
+
+Either way, for most of the work I do (developing libraries with many other
+small libraries as dependencies) - I could see a development flow like this
+being a worthwhile goal, especially if it makes OCaml much more comfortable
+for a *huge* set of developers. `CommonJS` is likely becoming the most
+popular development flow. It's just a hacky proof of concept, but it was
+fun.
+      </pre><i>Andrew Herron then asked and Jordan W replied:</i><br /><pre>
+&gt; I've been thinking about this a bit, as a JS developer who is experimenting
+&gt; with OCaml (in my non-existant free time). I don't use the CommonJS flow in
+&gt; my day job although we do have many projects which our internal
+&gt; build/dependency system combines with similar results.
+&gt;
+&gt;&gt; I created a proof of concept called CommonML, which lets developers use
+&gt;&gt; their familiar CommonJS workflow with OCaml:
+&gt;&gt; <a href="https://github.com/jordwalke/CommonML">https://github.com/jordwalke/CommonML</a>
+&gt;
+&gt; My initial thoughts were to stick with the OPAM repositories; even if I have
+&gt; to make a local OPAM repo server it seems like leveraging the existing
+&gt; ecosystem is a good idea. My experiments use a dedicated `opam switch` for
+&gt; the project, enforced by the Makefile (which might not scale to multiple
+&gt; projects, but I haven't tried that yet).
+&gt;
+&gt; I can think of one good reason to share OCaml and JS dependencies on the
+&gt; same server though, and that's including a JS library in a js_of_ocaml
+&gt; project. Certainly using a single package.json file to specify both JS and
+&gt; OCaml dependencies is an interesting idea (even if under the hood we
+&gt; eventually find a way to use OPAM for the OCaml projects).
+
+There's certainly a lot of ideas/experiments in CommonML all rolled
+into one. The overarching goal was to just explore the ideal developer
+flow for people who are either used to CommonJS or who appreciate a
+highly sandboxed development model without globals. There's some
+"pointless" goodies thrown in like zero effort merlin support and
+automatic doc generation (which is now being solved in a *much* better
+way by other people more knowledgeable than myself).
+
+CommonML is just a hacky script, but I find it useful to build
+developer tools by starting with the ideal end developer experience
+and performing whatever atrocious hacks I have to in order to create
+it. After I get feedback, I can explore doing it the right way.
+Obviously OPAM is the real deal, and I hope some people can help me
+achieve much of this with OPAM (as it is, or in future versions).
+
+But the most valuable part of the CommonML experiment, actually has
+nothing to do with package managers/sandboxes at all - it's the
+automatic namespacing of dependencies (using module aliases) and
+automatic generation of merlin completion files. You literally only
+have to list a new dependency in your `package.json`, then it will
+resolve all naming conflicts, build correctly, and allow you to
+immediately start autocompleting using merlin. I suspect such a
+seamless experience is only feasible when there are opinionated
+conventions in place. I feel like most people would be satisfied with
+the ones explored in CommonML:
+- namespaced dependencies, non-namespaced internal modules
+(ModuleInsideMyPackage.x, YourPackage.ModuleInsideYourPackage.y) -
+powered by module aliases.
+- "exports" field in `package.json` that determines which modules
+should be publicly available to other packages that depend on you
+(nothing is visible to other packages by default).
+
+I don't know enough about the OCaml build toolchain to solve this in a
+scalable way so I made it work generally enough for a couple of the
+projects that I'm prototyping. I hope the same can be achieved in some
+other more sophisticated build tool. Has anyone seen anything like the
+automatic namespacing I've prototyped here? I couldn't imagine
+developing without it, personally.
+      </pre><a name="2" /><hr /><h3>Match error with abstract types in modules</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2015-02/msg00163.html">https://sympa.inria.fr/sympa/arc/caml-list/2015-02/msg00163.html</a></p><i>Deep in this thread, David Allsopp asked and Gabriel Scherer replied:</i><br /><pre>
+&gt; is there (in theory) a relatively easy kind of annotation which
+&gt; could be added to type 'a t in a signature which would tell the
+&gt; compiler that 'a t and 'b are equal and compatible iff 'a and 'b
+&gt; are equal/compatible but still remain abstract?
+
+Yes, this is exactly the point of "injectivity" which has been
+discussed at length in 
+<a href="http://caml.inria.fr/mantis/view.php?id=5985">http://caml.inria.fr/mantis/view.php?id=5985</a>
+and summarized in a (rather difficult to follow for the non-expert)
+talk by Jacques Garrigue at the OCaml Meeting 2013 in Boston,
+abstract:
+<a href="http://www.math.nagoya-u.ac.jp/~garrigue/papers/injectivity.pdf">http://www.math.nagoya-u.ac.jp/~garrigue/papers/injectivity.pdf</a>
+slides: <a href="https://ocaml.org/meetings/ocaml/2013/slides/garrigue.pdf">https://ocaml.org/meetings/ocaml/2013/slides/garrigue.pdf</a>
+
+It would not be difficult to teach the type-checker about injectivity,
+but there is no concrete syntax in the language to discuss it, and it
+is not easy to design a good one (which is why it has not been added
+yet). The difficult question is whether users should add an extra mark
+to explicitly require injectivity (like we do for covariance for
+example), or whether it should be assumed when using the default (type
+'a t) notation, with an explicit mark to allow *non*-injectivity.
+      </pre><a name="3" /><hr /><h3>ocamlnet-4.0.2</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2015-02/msg00172.html">https://sympa.inria.fr/sympa/arc/caml-list/2015-02/msg00172.html</a></p><i>Gerd Stolpmann announced:</i><br /><pre>
+just released ocamlnet-4.0.2, with some bug fixes (one important).
+
+Note that I had to change the type of Uq_engines.engine (new method
+request_proxy_notification). If you define your own engines, this may
+break your builds. Most users won't be affected by this, though.
+
+Download, changelog and other links under
+<a href="http://projects.camlcity.org/projects/ocamlnet.html">http://projects.camlcity.org/projects/ocamlnet.html</a>
+      </pre><a name="4" /><hr /><h3>CFP: ML Workshop 2015</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2015-02/msg00176.html">https://sympa.inria.fr/sympa/arc/caml-list/2015-02/msg00176.html</a></p><i>Jeremy Yallop announced:</i><br /><pre>
+Higher-order, Typed, Inferred, Strict: ACM SIGPLAN ML Family Workshop
+Thursday September 3, 2015, Vancouver, Canada
+(immediately following ICFP and preceding OCaml Users and Developers Workshop)
+
+Call for papers: <a href="http://www.mlworkshop.org/ml2015/">http://www.mlworkshop.org/ml2015/</a>
+
+ML is a very large family of programming languages that includes Standard
+ML, OCaml, F#, SML#, Manticore, MetaOCaml, JoCaml, Alice ML, Dependent ML,
+Flow Caml, and many others. All ML languages share several fundamental
+traits, besides a good deal of syntax. They are higher-order, strict, mostly
+pure, and typed, with algebraic and other data types. Their type systems are
+derived from Hindley-Milner. The development of these languages has inspired
+a significant body of computer science research and influenced the design of
+many other programming languages, including Haskell, Scala and Clojure,
+Rust, ATS and many others.
+
+ML workshops have been held in affiliation with ICFP continuously since
+2005. This workshop specifically aims to recognise the entire extended ML
+family and to provide a forum for presenting and discussing common issues,
+both practical (compilation techniques, implementations of concurrency and
+parallelism, programming for the Web) and theoretical (fancy types, module
+systems, metaprogramming). The scope of the workshop includes all aspects of
+the design, semantics, theory, application, implementation, and teaching of
+the members of the ML family. We also encourage presentations from related
+languages (such as Scala, Rust, Nemerle, ATS, etc.), to exchange experience
+of further developing ML ideas.
+
+The ML family workshop will be held in close coordination with the OCaml
+Users and Developers Workshop.
+
+Scope
+-----
+
+We acknowledge the whole breadth of the ML family and aim to include
+languages that are closely related (although not by blood), such as Rust,
+ATS, Scala, and Typed Clojure. Those languages have implemented and
+investigated run-time and type system choices that may be worth considering
+for OCaml, F# and other ML languages. We also hope that the exposure to the
+state of the art ML might favourably influence those related
+languages. Specifically, we seek research presentations on topics including
+(but not limited to)
+
+  * Language design: abstraction, higher forms of polymorphism, concurrency,
+    distribution and mobility, staging, extensions for semi-structured data,
+    generic programming, object systems, etc.
+
+  * Implementation: compilers, interpreters, type checkers, partial
+    evaluators, runtime systems, garbage collectors, foreign function
+    interfaces, etc.
+
+  * Type systems: inference, effects, modules, contracts, specifications and
+    assertions, dynamic typing, error reporting, etc.
+
+  * Applications: case studies, experience reports, pearls, etc.
+
+  * Environments: libraries, tools, editors, debuggers, cross-language
+    interoperability, functional data structures, etc.
+
+  * Semantics: operational and denotational semantics, program equivalence,
+    parametricity, mechanization, etc.
+
+Four kinds of submissions will be accepted: Research Presentations,
+Experience Reports, Demos and Informed Positions.
+
+  * Research Presentations: Research presentations should describe new
+    ideas, experimental results, or significant advances in ML-related
+    projects. We especially encourage presentations that describe work in
+    progress, that outline a future research agenda, or that encourage
+    lively discussion. These presentations should be structured in a way
+    which can be, at least in part, of interest to (advanced) users.
+
+  * Experience Reports: Users are invited to submit Experience Reports about
+    their use of ML and related languages. These presentations do not need
+    to contain original research but they should tell an interesting story
+    to researchers or other advanced users, such as an innovative or
+    unexpected use of advanced features or a description of the challenges
+    they are facing or attempting to solve.
+
+  * Demos: Live demonstrations or short tutorials should show new
+    developments, interesting prototypes, or work in progress, in the form
+    of tools, libraries, or applications built on or related to ML and
+    related languages. (You will need to provide all the hardware and
+    software required for your demo; the workshop organisers are only able
+    to provide a projector.)
+
+  * Informed Positions: A justified argument for or against a language
+    feature. The argument must be substantiated, either theoretically
+    (e.g. by a demonstration of (un)soundness, an inference algorithm, a
+    complexity analysis), empirically or by substantial experience. Personal
+    experience is accepted as justification so long as it is extensive and
+    illustrated with concrete examples.
+
+Format
+------
+
+The ML 2015 workshop will continue the informal approach used since
+2010. Presentations are selected from submitted abstracts. There are no
+published proceedings, so contributions may be submitted for publication
+elsewhere. We hope that this format will encourage the presentation of
+exciting (if unpolished) research and deliver a lively workshop atmosphere.
+
+Each presentation should take 20-25 minutes, except demos, which should take
+10-15 minutes. The exact time will be decided based on the number of
+accepted submissions. The presentations will likely be recorded.
+
+Post-proceedings
+----------------
+
+ML 2015 is an informal workshop without proceedings. We are planning to
+publish a post-proceedings and to invite interested authors of selected
+presentations to expand their abstracts for inclusion.
+
+Coordination with the OCaml Users and Developers Workshop
+---------------------------------------------------------
+
+The OCaml workshop is seen as more practical and is dedicated in significant
+part to OCaml community building and the development of the OCaml system. In
+contrast, the ML family workshop is not focused on any language in
+particular, is more research-oriented, and deals with general issues of
+ML-style programming and type systems. Yet there is an overlap, which we are
+keen to explore in various ways. The authors who feel their submission fits
+both workshops are encouraged to mention it at submission time or contact
+the Programme Chairs.
+
+Submission details
+------------------
+
+Submissions should be at most two pages, in PDF format, and printable on US
+Letter or A4 sized paper. A submission should have a synopsis (2-3 lines)
+and a body between 1 and 2 pages, in one- or two-column layout. The synopsis
+should be suitable for inclusion in the workshop programme.
+
+Submissions must be uploaded to the workshop submission website before the
+submission deadline (Monday 18th May, 2015). If you have a question
+concerning the scope of the workshop or the submission process, please
+contact the programme chair.
+
+Important dates
+---------------
+
+Monday 18th May (any time zone)   Abstract submission deadline
+Monday 29th June                  Author notification
+Thursday 3rd September 2015       ML Family Workshop
+
+Programme committee
+-------------------
+
+Damien Doligez (Inria Paris-Rocquencourt, France)
+Suresh Jagannathan (Purdue University, USA)
+Patricia Johann (Appalachian State University, USA)
+Sam Lindley (University of Edinburgh, UK)
+Moe Masuko (Ochanomizu University, Japan)
+Adriaan Moors (Typesafe, USA)
+Scott Owens (University of Kent, UK)
+Jonathan Protzenko (Microsoft Research, USA)
+Martin Sulzmann (Karlsruhe University of Applied Sciences, Germany)
+Jeremy Yallop (University of Cambridge, UK) (PC chair)
+      </pre><a name="5" /><hr /><h3>How to build a library with c++ stubs</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2015-02/msg00178.html">https://sympa.inria.fr/sympa/arc/caml-list/2015-02/msg00178.html</a></p><i>Leonardo Laguna Ruiz asked:</i><br /><pre>
+I’m working on a library which wraps functions and clases written in
+C++. I’m trying to setup a build system based in oasis but I haven’t
+found any example on how to do it.
+
+So far I have been able of compiling my test programs using cmake and
+ocamlbuild. I use cmake to generate a static library out of my C++
+file. Then I call ocamlbuild (from cmake) to generate a object file
+from my main file (main.native.o). Finally I link everything using
+cmake.
+
+I have tried to link the my test program with ocambuild by passing all
+the necessary flags (use stdlib=libc++ and link CoreFoundation and
+IOKit in OS X) but I haven’t succeeded using ocamlbuild (or oasis).
+
+Does anyone has an example on how to build a library that uses C++ code?
+      </pre><i>Ivan Gotovchits replied:</i><br /><pre>
+In BAP project we're building C++ bindings with oasis+ocamlbuild. Look
+at `cxx_rule` in `myocamlbuild.ml.in` file, 
+definitions like `cxx` and `cxx_flags` in `setup.ml.in` and, of
+course, `_oasis`
+
+Feel free to ask any questions,
+
+Regards,
+Ivan
+
+[1]: <a href="https://github.com/BinaryAnalysisPlatform/bap">https://github.com/BinaryAnalysisPlatform/bap</a>        
+      </pre><i>Martin DeMello also replied:</i><br /><pre>
+Not my project, but looks interesting: <a href="https://github.com/JoeDralliam/Ocsfml">https://github.com/JoeDralliam/Ocsfml</a>        
+      </pre><i>ygrek also replied and Peter Zotov added:</i><br /><pre>
+&gt; Here is one -
+&gt; <a href="http://stackoverflow.com/questions/21728826/building-c-code-with-ocamlbuild">http://stackoverflow.com/questions/21728826/building-c-code-with-ocamlbuild</a>
+
+I submitted an issue to make it better:
+<a href="http://caml.inria.fr/mantis/view.php?id=6798">http://caml.inria.fr/mantis/view.php?id=6798</a>
+      </pre><i>Shayne Fletcher also replied:</i><br /><pre>
+​This blog post may be of use
+<a href="http://shayne-fletcher.blogspot.com/2014/02/extending-ocaml-in-c-boostdate-time.html">http://shayne-fletcher.blogspot.com/2014/02/extending-ocaml-in-c-boostdate-time.html</a>​.        
+      </pre><a name="6" /><hr /><h3>Other OCaml News</h3><i>From the ocamlcore planet blog:</i><br /><pre>
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <a href="http://planet.ocaml.org/">http://planet.ocaml.org/</a>.
+
+Part 2: Running your own DNS Resolver with MirageOS:
+  <a href="http://hh360.user.srcf.net/blog/2015/03/part-2-running-your-own-dns-resolver-with-mirageos/">http://hh360.user.srcf.net/blog/2015/03/part-2-running-your-own-dns-resolver-with-mirageos/</a>
+
+Senior Software Engineer at McGraw-Hill Education (Full-time):
+  <a href="http://functionaljobs.com/jobs/8787-senior-software-engineer-at-mcgraw-hill-education">http://functionaljobs.com/jobs/8787-senior-software-engineer-at-mcgraw-hill-education</a>
+      </pre><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

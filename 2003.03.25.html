@@ -1,0 +1,750 @@
+<html><head><meta http-equiv="Content-Type" content="text/html" charset=iso-8859-1"><title>Caml Weekly News</title></head><body>
+
+<a href="2003.03.18.html">Previous week</a> &nbsp; <a href="index.html">Up</a> &nbsp; <a href="2003.04.01.html">Next week</a>
+<pre>
+Hello,
+
+Here is the latest Caml Weekly News, week 18 to 25 March, 2003.
+
+ 1) <a href="#1">toplevel command history/editing?</a>
+ 2) <a href="#2">DocCHM Release</a>
+ 3) <a href="#3">Loop times</a>
+ 4) <a href="#4">Unix.lseek versus Pervasives.pos</a>
+ 5) <a href="#5">Wanted - General Purpose "Glue Logic" Data-Structures</a>
+ 6) <a href="#6">Haskell-like syntax</a>
+ 7) <a href="#7">Announce: Regexp/OCaml syntax extension</a>
+ 8) <a href="#8">camomile-0.3.0 is relased</a>
+ 9) <a href="#9">XML Streams</a>
+10) <a href="#10">Ocurl - A binding for O'Caml to libcurl</a>
+11) <a href="#11">WDialog-2.00 released</a>
+12) <a href="#12">Wtimer-1.0 released</a>
+13) <a href="#13">Cross-platform GUI</a>
+
+<a name="1"/>======================================================================
+ 1) toplevel command history/editing?
+----------------------------------------------------------------------
+Graham Guttocks asked and SooHyoung Oh answered:
+
+&gt; I was surprised to find that the ocaml toplevel doesn't
+&gt; support command history, line editing, etc, with the
+&gt; arrow keys as the Python interpreter does for example.
+&gt; This makes it difficult to interactively test code.
+&gt; Am I missing something?
+
+Please check "ledit" and "ocaml2" in Caml humps pages.
+
+<a name="2"/>======================================================================
+ 2) DocCHM Release
+----------------------------------------------------------------------
+Nicolas Cannasse announced:
+
+I'm pleased to announce the first release of DocCHM : 
+
+DocCHM is a CHM generator for OCamlDoc. It enable you to generate a CHM file
+( Windows CompressedHTML Help file ) instead of the standard HTML output. It
+automaticaly generate the index and the hyperlinks to upper module, types,
+etc. You can then quickly browse the documentation, and search index by
+name.
+
+The full source code & bytecode binaries are available at :
+<a href="http://tech.motion-twin.com">http://tech.motion-twin.com</a>
+
+A link to the CHM documentation generated from the OCaml Standard Library is
+also available.
+
+<a name="3"/>======================================================================
+ 3) Loop times
+----------------------------------------------------------------------
+Daniel M. Albro discussed in this long message:
+(thread start: <a href="http://caml.inria.fr/archives/200303/msg00176.html">http://caml.inria.fr/archives/200303/msg00176.html</a>)
+
+OK, as requested here's a summary email.  I think someone already
+answered you about the input loop (recap -- Input-Output routines
+are so slow that the speed of the loop around them fades into
+insignificance by comparison).
+
+        I was trying to illustrate a point that a "break" statement
+would be a nice addition to the language, but I got distracted a bit   
+into figuring out what is the fastest way to break out of a loop as
+things stand now (as opposed to the best way, which might be different
+from the fastest...).  I did 8 different timing tests, which I will
+present from fastest to slowest:
+
+(1) Tail-recursive function, top-level defined (slightly
+    faster than (2), possibly because the variable ary is
+    more local)
+---------------------------------------------------
+let rec loop ary j =
+  if j = 10 then   
+    ()
+  else if ary.(j) = 5 then
+    ()
+  else
+    loop ary (j + 1)
+
+let _ =
+  let ary = [|1;2;3;4;5;6;7;8;9;10;11;12|] in
+    for i = 1 to 1_000_000_000 do
+      loop ary 0
+    done
+
+real    0m26.787s
+user    0m26.770s
+sys     0m0.010s
+---------------------------------------------
+
+(2) Tail-recursive auxilliary function
+---------------------------------------------
+let _ =
+  let ary = [|1;2;3;4;5;6;7;8;9;10;11;12|] in
+  let rec loop j =
+    if j = 10 then
+      ()
+    else if ary.(j) = 5 then
+      ()
+    else
+      loop (j + 1)
+  in
+    for i = 1 to 1_000_000_000 do
+      loop 0
+    done
+
+real    0m26.823s
+user    0m26.780s
+sys     0m0.020s
+-----------------------------------------------------
+
+(3) For loop with exception pre-built:
+-----------------------------------------------------
+exception Break
+
+let _ =
+  let ary = [|1;2;3;4;5;6;7;8;9;10;11;12|] in
+  let exn = Break in
+    for i = 1 to 1_000_000_000 do
+      try
+        for j = 0 to 9 do
+          if ary.(j) = 5 then
+            raise exn
+        done
+      with Break -&gt; ()
+    done
+
+real    0m28.095s
+user    0m28.070s
+sys     0m0.030s
+------------------------------------------------------
+
+(4) Continuation-passing style
+------------------------------------------------------
+let _ =
+  let ary = [| 1; 2; 3; 4; 5; 6; 7; 8; 9; 10; 11; 12 |] in
+  let rec loop f j =
+    if j = 10 || ary.(j) = 5 then f ()
+    else loop f (j + 1)
+  in
+    let rec outer i =
+      if i &lt;= 1_000_000_000 then
+        loop (fun _ -&gt; outer (i + 1)) 0
+    in
+      outer 1
+
+real    0m29.999s
+user    0m29.890s
+sys     0m0.010s
+------------------------------------------------------------
+
+(5) For loop with exception
+------------------------------------------------------------
+exception Break
+
+let _ =
+  let ary = [|1;2;3;4;5;6;7;8;9;10;11;12|] in
+    for i = 1 to 1_000_000_000 do
+      try
+        for j = 0 to 9 do
+          if ary.(j) = 5 then
+            raise Break
+        done
+      with Break -&gt; ()
+    done
+
+real    0m34.245s
+user    0m34.080s
+sys     0m0.010s
+-----------------------------------------------------
+
+(6) Tail recursive auxilliary function defined inside
+    the outer loop (sometimes, in more complicated cases,
+    this might be an option, I suppose, for example, if
+    the inner loop needs to be a separate function)  
+-----------------------------------------------------
+let _ =
+  let ary = [|1;2;3;4;5;6;7;8;9;10;11;12|] in
+    for i = 1 to 1_000_000_000 do
+      let rec loop j =
+        if j = 10 then
+          ()
+        else if ary.(j) = 5 then
+          ()
+        else
+          loop (j + 1)
+      in
+      loop 0
+    done
+
+real    0m35.188s
+user    0m35.140s
+sys     0m0.040s
+------------------------------------------------------
+
+(7) while loop with references
+------------------------------------------------------
+let _ =
+  let ary = [|1;2;3;4;5;6;7;8;9;10;11;12|] in
+  let j = ref 0 in
+    for i = 1 to 1_000_000_000 do
+      j := 0;
+      while !j &lt; 10 do
+        if ary.(!j) = 5 then
+          j := 10
+        else
+          incr j
+      done
+    done
+
+real    0m39.458s
+user    0m39.440s
+sys     0m0.000s
+------------------------------------------------------
+
+(8) "Higher order functions".  This style is nifty because
+    it's like a break statement that can return a value.
+------------------------------------------------------
+let escape body =
+  let module Fail = struct exception T end in
+  let datum = ref None in
+  let throw v =
+    begin
+      datum := Some v;
+      raise Fail.T
+    end
+  in
+    try
+      body throw
+    with
+        Fail.T -&gt; (match !datum with Some v -&gt; v | None -&gt; assert false)
+
+
+let _ =
+  let ary = [|1;2;3;4;5;6;7;8;9;10;11;12|] in
+    for i = 1 to 1_000_000_000 do
+      escape (fun exit -&gt;
+                for j = 0 to 9 do
+                  if ary.(j) = 5 then exit()
+                done)
+    done
+
+
+real    1m49.178s
+user    1m48.900s
+sys     0m0.280s
+------------------------------------------------------
+
+The main surprise to me was that number (7) was so slow.  Anyway,
+as matters currently stand it looks like tail recursive loops are
+the way to go if you have to have a fast inner loop that can break
+out early.  HOWEVER, I would like to argue that for cases where
+you really want to optimize a loop like this (and where you can't
+radically change the algorithm or data structures, of course), it
+would be really great if the language added a genuine break
+statement (plus some sort of step value for for loops).  As usual,
+my argument is in terms of a timing test.  If you have an inner
+loop that *doesn't* have to break out in the middle, the for loop
+is much faster than a tail recursive loop.  Here are the
+tests:
+
+(1) for loop
+------------------------------------
+let _ =
+  let k = ref 0 in
+    for i = 1 to 1_000_000_000 do
+      k := 0;
+      for j = 1 to 10 do
+        incr k
+      done
+    done
+
+real    0m22.867s
+user    0m22.850s
+sys     0m0.010s
+------------------------------------
+
+(2) tail recursive loop
+------------------------------------
+let _ =
+  let k = ref 0 in
+  let rec loop j =
+    incr k;
+    if j = 10 then () else loop (j + 1)
+  in
+    for i = 1 to 1_000_000_000 do
+      k := 0;
+      loop 1
+    done
+
+real    0m37.105s
+user    0m36.870s
+sys     0m0.200s
+------------------------------------
+
+<a name="4"/>======================================================================
+ 4) Unix.lseek versus Pervasives.pos
+----------------------------------------------------------------------
+Shivkumar Chandrasekaran asked and Xavier Leroy answered:
+
+&gt; It would seem to me that it would be convenient to have 64 bit versions 
+&gt; of seek_in, seek_out, pos_in, pos_out in the Pervasives module. This 
+&gt; would help decouple the Pervasives I/O module a little more from the 
+&gt; Unix module.
+
+You wish was granted in OCaml 3.05 and 3.06: module Pervasives.LargeFile.
+
+And, yes, not mixing Pervasives I/O with Unix I/O is recommended,  
+unless you enjoy puzzles :-)
+
+<a name="5"/>======================================================================
+ 5) Wanted - General Purpose "Glue Logic" Data-Structures
+----------------------------------------------------------------------
+John Gerard Malecki asked and Nicolas Cannasse answered:
+
+&gt; I want to broaden my arsenal of data-structures that interface data
+&gt; between the specific structures that some algorithms require.  Here is 
+&gt; an example of a real problem that I solved too specifically:
+&gt; 
+&gt;   I had an existing reader that produced a list of objects, 'a list.
+&gt; 
+&gt;   I wrote a filter which fractured those items producing 'a list list.
+&gt; 
+&gt;   I then wanted to feed that data to an existing program which builds
+&gt;   a balanced tree top-down.  It expects 'a list which it then passes
+&gt;   to a median finder which prefers its input list to be in random
+&gt;   order.
+&gt; 
+&gt; In the great ocaml tradition this worked just fine and the first time.
+&gt; (What a great language.)  To really test things I then ran it on
+&gt; MOADB, the mother of all data bases, a very large but real-world
+&gt; data-base.
+&gt; 
+&gt; The program broke down in 2 places.  First, List.concat was used to
+&gt; convert the output of the fracturer from 'a list list to 'a list.  Not
+&gt; only is List.concat not tail-recursive but @ (Pervasives.append) is
+&gt; also not tail-recursive.  I modified the fracturer to directly produce
+&gt; 'a list.
+&gt; 
+&gt; Second, the median program has some limitations.  It not only prefers
+&gt; the input to be randomized but while it runs it too constructs some 'a
+&gt; list list.  (Why?  This median program returns not just the median but
+&gt; the set of items lt and gt the median.)  I re-wrote the median program.
+&gt; 
+&gt; I would prefer not to keep re-writing programs and instead have a
+&gt; better collection intermediate data-structures that I can use to glue
+&gt; my programs together efficiently and safely.  One can argue that the
+&gt; median program was already flawed and it was best to re-write it.
+&gt; Still, it would be nice to have a data-structure which the fracturer
+&gt; could produce that not only can deal with large data sets but also has
+&gt; the randomizing property.  Of course I want all this at very little
+&gt; expense as none of these manipulations are germane to the real problem
+&gt; at hand.
+&gt; 
+&gt; I considered having the fracturer build a priority queue over random
+&gt; numbers but all that balancing book-keeping seems expensive.  I guess
+&gt; what I'm looking for are inexpensive data-structures that have
+&gt; properties like
+&gt; 
+&gt;    - fast computation of cardinality
+&gt; 
+&gt;    - fast addition of single elements
+&gt; 
+&gt;    - fast addition of lists of elements
+&gt; 
+&gt;    - fast removal of single elements in random order
+&gt; 
+&gt;    - not choking on a large data size
+&gt; 
+&gt; Any suggestions?  Does anyone have other useful glue-logic
+&gt; data-structures which they use?
+
+We're currently running a project called ExtLib (
+<a href="http://sourceforge.net/projects/ocaml-lib">http://sourceforge.net/projects/ocaml-lib</a> ) than aims at providing thoses
+kind of needed tail-safe data structures, and some other useful modules
+built together as an additionnal standard library.
+Any people interested in helping can join the mailling list.
+
+<a name="6"/>======================================================================
+ 6) Haskell-like syntax
+----------------------------------------------------------------------
+Oleg asked and Andreas Rossberg answered, about Haskell-like syntax:
+
+&gt;As was pointed out to me in private email, Andreas Rossberg might have 
+&gt;something quite close to a usable preprocessor.
+&gt;
+&gt;<a href="http://groups.google.com/groups?hl=en&lr=&ie=UTF-8&selm=3D105596.8FF65D58%40ps.uni-sb.de">http://groups.google.com/groups?hl=en&lr=&ie=UTF-8&selm=3D105596.8FF65D58%40ps.uni-sb.de</a>
+&gt;
+&gt;I'm sending him a copy of this message as a request to share his work.
+
+Back from holidays. ;-)
+
+For people who are really interested I put the last version of the
+sources at
+
+  <a href="http://www.ps.uni-sb.de/~rossberg/hocaml-0.12.tgz">http://www.ps.uni-sb.de/~rossberg/hocaml-0.12.tgz</a>
+
+But please be aware that the code is almost 5 years old, was kind of
+work in progress, and must have experienced a fair amount of bit rot by
+now. Last time I checked it still built, though.
+
+I'm not entirely happy with some of the syntactic decisions I made.
+Also, I'm not sure whether the preprocessor approach really is terribly
+useful for this kind of thing. But if somebody feels like digging into
+it, feel free to contact me for questions.
+
+<a name="7"/>======================================================================
+ 7) Announce: Regexp/OCaml syntax extension
+----------------------------------------------------------------------
+Yutaka Oiwa announced:
+
+I release a camlp4-macro package called Regexp/OCaml.
+
+I believe Objective Caml is a powerful tool not only for writing an
+interpreter and compiler but also for writing casual "script"
+applications which were in a territory of Perl, Python and
+Ruby. However, string decomposition is one of OCaml's weak points when
+compared to those scripting languages: the interfaces of both Str
+module and Pcre module are very primitive and cumbersome if they are
+heavily used.  Regexp/OCaml solves this point by providing syntax
+support for regular expression matching.
+
+Regexp/OCaml provides convenient syntax sugar for regular expression
+match against strings using PCRE/OCaml library. The features of this
+macro package are the following:
+
+    * Convenient syntax: similar to standard match-with expressions 
+    * Binding matching substrings to variables: no more $1, $2, ...
+    * Automagical easy-to-use type-coercion: no flood of int_of_string etc.
+    * Support for optional-patterns: gives string option type etc.
+    * Default values for optional-patterns
+
+For example, parsing an entry for some log file becomes as easy as follows:
+
+  try
+    while true do
+      let line = input_line ic in
+        Regexp.match line with
+          "^((dd):(dd):(dd))[(.*?)] (.*)$"
+           as hour : int, min: int, sec : int, name, line -&gt;
+             let time = hour * 3600 + min * 60 + sec in
+             ...
+        | "^# (.*)$" as meta_info -&gt;
+             ...
+        | _ -&gt; ()
+    done
+  with End_of_file -&gt; ()
+
+This short code parses both line in format like
+  "(00:34:32) [foobar] something" and "# some meta info"
+and binds appropriate data into variables which can be used inside "...".
+Compare the code above with an equivalent without using syntax extension.
+
+Regexp/OCaml is downloadable from the web location
+<a href="http://www.yl.is.s.u-tokyo.ac.jp/~oiwa/caml/">http://www.yl.is.s.u-tokyo.ac.jp/~oiwa/caml/</a> .
+
+In addition to the main macro called pa_regexp_match, the package also
+contains two tiny macros:
+
+ 1) pa_pragma changes an option for loaded camlp4 macros inside source code.
+ 2) pa_once provides "once" construct which evaluates any expression
+    only once per execution (pa_regexp_match uses this internally).
+
+Any comments will be greatly appreciated.
+
+<a name="8"/>======================================================================
+ 8) camomile-0.3.0 is relased
+----------------------------------------------------------------------
+Yamagata Yoriyuki announced:
+
+camomile-0.3.0 is released.  camomile is a Unicode library for ocaml.
+Currently camomile provides
+
+  * Unicode data types.  (Base, UTF8) the Unicode character type and
+  several Unicode string implementations. (abstract type internally
+  implemented as int array, resizable character array, and UTF8
+  encoded normal string.)  Most string API of camomile is a functor over
+  string implementation.  Also it should be easy to add new
+  implementation as OS wch.
+
+  * Character info.  (UCharInfo)
+
+  * Code converter. (CharEncodings)
+  about 200 encodings are supported.  Conversion is either string to
+  string, Unicode string to/from string, OO-channel, and Stream.
+
+  * Unicode normalforms, NFD NFKD NFC NFKC. (Normalform)
+  Due to the presence of combined characters such as accents, Unicode
+  strings have several equivalent representations.  Unicode standard
+  defines several "normal forms" for such cases.  This module provides
+  conversion to such normal forms.
+
+  * Case mappings (CaseMap)
+  Internationalised case mapping.  German eszet, Greek sigma, Turkish i
+  (for Turkish locale) are correctly handled.  (Azeri and Lithuanian
+  supports are implemented but not tested) Behaviour of case mapping
+  can be adjusted by locale.
+
+  * String Comparison (UCol)  
+  Behaviour of comparison also can be adjusted by locale.  By default,
+  it uses Unicode collation algorithm.  (I believe it is the same as
+  Java.)
+
+Changes from 0.2.x are
+
+* Functor design: OO-design is abandoned.  API taking unicode strings
+now becomes functors over unicode string implementation.
+
+* The locale can be specified for case mapping and string comparison.
+
+Still quality of the code is alpha, I think.
+
+Download :
+<a href="http://prdownloads.sourceforge.net/camomile/camomile-0.3.0.tar.bz2">http://prdownloads.sourceforge.net/camomile/camomile-0.3.0.tar.bz2</a>
+
+Homepage : <a href="http://camomile.sourceforge.net">http://camomile.sourceforge.net</a>
+
+camomile comes with a test suite, which includes, among other tests,  
+conformance tests of Unicode standard for collator and normaliser.
+
+test suite :
+<a href="http://prdownloads.sourceforge.net/camomile/blender-0.3.0.tar.bz2">http://prdownloads.sourceforge.net/camomile/blender-0.3.0.tar.bz2</a>   
+
+<a name="9"/>======================================================================
+ 9) XML Streams
+----------------------------------------------------------------------
+Matthew Boyd announced:
+
+As part of a previous project, I have a couple of files for turning  
+basic XML documents (channels) into an XML stream.  It doesn't do
+everything, but if you just need to pull XML tags out of a document,
+then you might find it useful:  <a href="http://www.alve.com/~mattwb/saXml.html">http://www.alve.com/~mattwb/saXml.html</a>
+
+<a name="10"/>======================================================================
+10) Ocurl - A binding for O'Caml to libcurl
+----------------------------------------------------------------------
+Lars Nilsson announced:
+
+I would like to announce the available of Ocurl, an O'Caml[1] binding for
+the libcurl[2] multi-protocol file transfer library.
+
+    <a href="http://sourceforge.net/projects/ocurl/">http://sourceforge.net/projects/ocurl/</a>
+
+The library currently covers the "easy" interface in libcurl. The "multi"
+interface may be incorporated in later versions.
+
+Documentation is rather sparse at this point in time, but the options
+available follow the C interface closely and should hopefully not present a
+too big stumbling block.
+
+Currently it has only been tested (and developed under) Linux, although
+nothing particularly platform dependent is present in the code.
+
+Feedback, questions, etc, is more than welcome.
+
+Ocurl is available under the MIT license (similarly to libcurl).
+
+<a name="11"/>======================================================================
+11) WDialog-2.00 released
+----------------------------------------------------------------------
+Gerd Stolpmann announced:
+
+I have just released WDialog-2.00, the toolkit for dialog-centric web
+applications. This release focuses on the maturity of the APIs, and
+there is also an updated reference manual. See below for a feature list,
+and for a small introduction to get the idea.
+
+WDialog is hosted at Sourceforge, and you find links to all relevant
+documents on the homepage: <a href="http://wdialog.sourceforge.net">http://wdialog.sourceforge.net</a>
+
+As an improvement of the test releases the reference manual can now be
+downloaded as bunch of HTML files, or as a single PDF. (See the download
+section of the homepage.) Of course, the online version is still
+available. The manual has 242 pages, and describes the toolkit in
+detail.
+
+WDialog has already been used to create web applications for our
+customers, and there is now even a free application that bases on it:
+WTimer. See the link
+<a href="http://www.ocaml-programming.de/packages/documentation/wtimer">http://www.ocaml-programming.de/packages/documentation/wtimer</a>
+
+WDialog is a complicated answer for a complex problem. It is not just
+JSP for O'Caml, as it analyzes the problem differently, and comes to
+alternate conclusions. It consists of an XML document type, a
+programming interface, and a certain way of doing things at runtime;
+from this point of view it is an environment for programming web
+applications. This means that there is some kind of philosophy behind
+it, and you will need some time to become productive with it.
+
+Gerd
+
+************
+Feature list
+************
+
+      * Separation of the user interface (UI) definition from the
+        backend program, improving the structure of the application and
+        enabling advanced software engineering processes
+
+      * The UI definition is contained in an XML file, and it describes
+        the whole UI from the overall dialog structure to the style of
+        the individual HTML element
+
+      * The dialogs have built-in persistency for session state. The
+        HTML form elements can be tied to dialog variables reflecting
+        their current state
+
+      * A powerful template system manages the combination of individual
+        HTML fragments to whole pages
+
+      * The dialogs behave like GUI widgets. They visualize the state of
+        the session, and user clicks are treated like events that are
+        handled by programmable callback methods
+
+      * The callbacks are written in a real programming language
+        (Objective Caml, or Perl), making it possible to formulate all
+        algorithms and to use all system resources
+
+      * The application can run as CGI as well as application server
+
+      * The WDialog toolkit itself does not require any database as
+        backend store
+
+      * WDialog preprocesses all web inputs, and ensures that minimum
+        security standards are fulfilled
+
+
+*****************************
+Introduction into the concept
+*****************************
+
+The application is considered as a number of dialogs, i.e. groups of
+interactions that share the same state. Dialogs are defined by terms of
+object-oriented programming. There is a class-like definition for the
+user interface containing which dialog variables exist, and which output
+methods ("pages") can produce visualizations of the dialog state. This
+definition focuses on the user interface as such, and because of this it
+is also known as the "user interface definition". This definition is
+given as an XML file, e.g.
+
+&lt;ui:dialog name="foo" start-page="start"&gt;
+  &lt;ui:variable name="x" type="string"/&gt;
+
+  &lt;ui:page name="start"&gt;
+    &lt;html&gt;
+      &lt;body&gt;
+        One can include all HTML tags in pages, but also special
+        elements generating special contents, and controlling the
+        generation process
+        &lt;ui:text variable="x"/&gt;
+        &lt;ui:button name="q" label="Trigger event 'q'"/&gt;
+      &lt;/body&gt;
+    &lt;/html&gt;
+  &lt;/ui:page&gt;
+&lt;/ui:dialog&gt;
+
+Within the output methods (inside ui:page), one can use normal HTML
+elements intermixed with the special user interface tags that have the
+"ui:" prefix.
+
+Of course, it would not be realistic to write the whole application in a
+language that is restricted by the XML syntax. This works well for the
+I/O part of the application, but not for the algorithmic part, and not
+for the database part. Because of this, there is also a backend program
+that is written in a universal programming language. Usually, there is a
+class for every dialog, and the class defines certain methods that are
+called in certain phases of the overall request processing. In
+particular, one can program "pre actions" that are executed just before
+a page is generated, and "post actions" to handle events resulting from
+mouse clicks. There is a registry saying which class is used for which
+dialog.
+
+Dialog state is made persistant between page invocations. This is done
+by data marshalling; one can either include the marshalled dialog
+literally into the HTML page, or a reference to a backend store. The
+effect is that the dialog variables ("x" in the above example) keep
+their value automatically, it is not necessary to pass them explicitly
+from page to page.
+
+There are special variants of the HTML form interactors like &lt;input&gt;.
+These variants are bound to dialog variables, i.e. they are initialized
+from the current variable state, and user modifications are propagated
+back to the variables. For buttons and hyperlinks, there are variants of
+the standard HTML elements that "send events". WDialog automatically
+recognized when such buttons and links are clicked, and the "event" is
+extracted from the request, and stored as a regular O'Caml value.
+Usually, these events are evaluated by user-written in code in the post
+action method.
+
+This is just a small introduction into the basic concepts, so I do not
+go further here. The reference manual contains some introductory
+chapters, and there are smaller and bigger examples of code that
+hopefully explain arising questions.
+
+<a name="12"/>======================================================================
+12) Wtimer-1.0 released
+----------------------------------------------------------------------
+Gerd Stolpmann announced:
+
+I have just released WTimer-1.0, a web application to manage time
+sheets. It bases on the WDialog toolkit (that happens to be released at
+the same time), and is meant as the production quality sample
+application for WDialog.
+
+You can read more about WTimer here:
+<a href="http://www.ocaml-programming.de/packages/documentation/wtimer">http://www.ocaml-programming.de/packages/documentation/wtimer</a>
+
+Download the tarball here:
+<a href="http://www.ocaml-programming.de/packages/wtimer-1.0.tar.gz">http://www.ocaml-programming.de/packages/wtimer-1.0.tar.gz</a>
+
+<a name="13"/>======================================================================
+13) Cross-platform GUI
+----------------------------------------------------------------------
+Matt Gushee asked and Sergey Goldgaber answered:
+
+&gt; I wonder if anyone has thought about developing an OCaml interface to
+&gt; FOX (www.fox-toolkit.org)? Though I haven't done any serious
+&gt; programming with it yet, I've tried out a couple of FOX applications,
+&gt; and was quite impressed with the quality of the interface. If you
+&gt; read the Goals & Approach statement on the Web site, it's also very
+&gt; impressive.
+&gt; 
+&gt; I think OCaml + FOX could be a winning combination. Unfortunately, I
+&gt; don't know C++, or I'd write the wrapper myself. But if anyone else
+&gt; feels like taking it on, I'm happy to help with testing and
+&gt; documentation.
+
+Looking back through the archives, I see that Andrei Errapart was
+working on just such a project:
+
+<a href="http://caml.inria.fr:80/archives/200210/msg00376.html">http://caml.inria.fr:80/archives/200210/msg00376.html</a>
+
+======================================================================
+Old cwn
+----------------------------------------------------------------------
+
+If you happen to miss a cwn, you can send me a message
+(alan.schmitt@inria.fr) and I'll mail it to you, or go take a look at
+the archive (<a href="http://pauillac.inria.fr/~aschmitt/cwn/">http://pauillac.inria.fr/~aschmitt/cwn/</a>). If you also wish
+to receive it every week by mail, just tell me so.
+
+======================================================================
+
+Alan Schmitt
+</pre></body></html>

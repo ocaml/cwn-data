@@ -1,0 +1,650 @@
+﻿<?xml version="1.0" encoding="ISO-8859-15"?>
+<cwn>
+<cwn_head>
+  <cwn_date>2006.01.24</cwn_date>
+  <cwn_prev>2006.01.17</cwn_prev>
+  <cwn_next>2006.01.31</cwn_next>
+  <cwn_date_text>17 to 24 January, 2006</cwn_date_text>
+</cwn_head>
+<cwn_body>
+  <cwn_entry>
+    <cwn_title>GODI news</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/31976</cwn_url>
+    <cwn_who>Gerd Stolpmann announced</cwn_who>
+    <cwn_what>
+Welcome to GODI news, the newsletter that informs you about updates of
+GODI, the source-based O'Caml distribution.
+
+------------------------------------------------------------
+TABLE OF CONTENTS:
+
+1. GODI releases O'Caml 3.09.1
+2. Where to find more information about GODI
+------------------------------------------------------------
+
+1. GODI RELEASES O'CAML 3.09.1
+
+The project has just released the package repository for O'Caml 3.09.1.
+This is the first released version for the "3.09" branch of the
+distribution.
+
+The "3.08" branch of GODI is still supported. The "3.07" branch is
+discontinued.
+
+Existing installations of GODI can be easily upgraded. To do so, you
+should edit the file godi.conf and set
+
+GODI_SECTION = 3.09
+
+(it was formerly 3.08). The next step is to upgrade the GODI packages
+using the standard mechanism. This works in an almost fully automatic
+way, GODI takes care not to only build the new O'Caml base but also
+rebuilds all dependent libraries. Although well tested, it is
+recommended to save a copy of the old installation before trying the
+update.
+
+To start the update, invoke godi_console in interactive mode, and do:
+
+- Update the list of packages
+- Go into the menu where one can select the packages. Press 'u'
+  to upgrade the packages, and confirm with 'o'. Start the installation
+  as usual.
+- Enjoy the updated installation
+
+It is also possible to do the same from the command-line:
+
+$ godi_console update
+$ godi_console wish -rebuild
+$ godi_console perform -wishes -newer
+$ godi_console wish -reset
+
+Alternatively, you can also bootstrap a new GODI installation, e.g. in
+parallel of the existing installation for 3.08. There is a new bootstrap
+tarball at 
+
+http://www.ocaml-programming.de/packages/godi-bootstrap-20060118.tar.gz
+
+defaulting to the 3.09 release.
+
+2. WHERE TO FIND MORE INFORMATION ABOUT GODI
+
+GODI is a source-based O'Caml distribution. It consists of a framework
+that automatically builds the O'Caml core system, and additionally
+installs a growing number of pre-packaged libraries. GODI is available
+for O'Caml-3.08 and 3.09. It runs on Linux, Solaris, FreeBSD, NetBSD,
+Cygwin, HP-UX, MacOS X.
+
+Advantages of using GODI:
+
+      * Automatic installation of new libraries: GODI knows where a
+        library can be downloaded, which prerequisites are needed to
+        build it, and which commands must be invoked to compile and
+        install it
+      * Complete package management of the installation: A library is
+        installed as a package (a managed set of files), so it is
+        possible to remove it later without any hassle.
+      * GODI implements the necessary logic to upgrade installations:
+        Because of the way O'Caml works, all dependent libraries must be
+        recompiled if a library is upgraded to a newer version. GODI
+        automates this process.
+      * Integration with the operating system: If additional C libraries
+        are needed to build an O'Caml library, and the operating system
+        includes them, they will usually be automatically found and
+        used. Non-standard locations can be configured (there is only
+        one configuration file for the whole installation).
+      * GODI has a menu-based user interface that makes it simple to use
+        even for beginners.
+      * GODI tries to standardize the directory layout of library
+        installations, so it becomes simpler to find files of interest.
+
+GODI currently supports 75 add-on libraries and 15 applications written
+in O'Caml.
+
+Read more on the GODI homepage: http://godi.ocaml-programming.de
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Constraints in module types</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/31981</cwn_url>
+    <cwn_who>Alessandro Baretta asked and Jacques Garrigue answered</cwn_who>
+    <cwn_what>
+&gt; # type foo = [ `Foo of foo ];;
+&gt; type foo = [ `Foo of foo ]
+&gt; # module type BAR = sig type bar constraint bar = [ &gt; foo ] end;;
+&gt; The type constraints are not consistent.
+&gt; Type bar is not compatible with type [&gt; foo ]
+&gt; 
+&gt; Is there a good reason for prohibiting the above declarations? Could I achieve a 
+&gt; similar effect with private row types?
+
+Not a "similar" effect, as the meaning of the above code is: define an
+abstract type bar, and check that this abstract type is unifiable with
+[&gt; foo] (by definition impossible, so this might just be a syntax
+error...)
+
+On the other hand
+
+  module type BAR = sig type bar = private [&gt; foo] end
+
+means "require the type bar to be an instance of type [&gt; foo]".
+I suppose this is what you intended?
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>C interface style question</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/31971</cwn_url>
+    <cwn_who>Thomas Fischbacher asked and Jacques Garrigue answered</cwn_who>
+    <cwn_what>
+&gt; value-type parameters to C functions exported to OCaml should be 
+&gt; registered with CAMLparamX(...). Does this hold in general, or is it 
+&gt; considered acceptable/appropriate to just ignore this for "immediate" 
+&gt; values that do not hold pointers, but, say, int, bool etc. values?
+
+Registration is required to have the GC properly update the values.
+The GC may be called by any allocation.
+So it is only safe not to register a parameter (or a variable) in any
+of the following 4 cases.
+1) you know that it can only hold a non-pointer value (int, bool, ...)
+   (i.e. the GC has nothing to update)
+2) there are no allocations in your function
+3) the parameter is not accessed after the first allocation
+4) for a new variable whose contents is returned, there is no
+   allocation between the setting of the variable and return.
+
+(1) and (2) are relatively easy to see, but (3) and (4) are a bit
+trickier (particularly with side-effecting expressions), so
+it is not a bad idea to register more parameters than strictly
+necessary.
+    </cwn_what>
+    <cwn_who>John Skaller said and Damien Doligez answered</cwn_who>
+    <cwn_what>
+&gt; Unless I'm mistaken, 'registration' with these macros 
+&gt; is never required: these macros are simply a high level 
+&gt; abstraction layer providing convenience and relative safety. 
+&gt; 
+&gt; The Ocaml manual explains all this fairly well IMHO,
+&gt; the low level interface is well documented, Hendrik Tews 
+&gt; version is cool:
+&gt; 
+&gt; http://wwwtcs.inf.tu-dresden.de/~tews/htmlman-3.09/manual032.html
+&gt; 
+&gt; See 18.5.2 -- IMHO the low level interface, whilst requiring
+&gt; more work to apply, is actually easier to understand.
+&gt; 
+&gt; Just one 'BTW': I have seen some code using Field() macro
+&gt; with incorrect C. You must NOT do this:
+&gt; 
+&gt; 	MyType *p = ...
+&gt; 	(MyType*)Field(v,n) = p;
+&gt; 
+&gt; it isn't valid ISO C for *any* type MyType (not even 'value').
+
+Indeed.  My K&amp;R explicitely says: "a cast does not yield an l-value".
+
+&gt; You would have to do it like this:
+&gt; 
+&gt; 	*(MyType**)(void*)&amp;Field(v,n) = p; // **
+
+You should only do this if you want strange GC bugs and random
+crashes, because you are walking around the write barrier and
+that's a bad idea.
+ 
+&gt; However I strongly recommend instead
+&gt; 
+&gt; 	StoreField(v,n,(value)(void*)p);
+&gt;
+
+This is the only way.  Always use Store_field, Store_double_field,
+and Store_double_val.
+
+&gt; The incorrect usage was not detected by older versions of gcc.
+&gt; Gcc 4.x does detect this error. The workaround (**) is
+&gt; the ONLY correct way to cast an lvalue in ISO C. This problem
+&gt; arises in some larger codes where a macro has been used
+&gt; to do the type conversion .. and it appeared to work
+&gt; but was in fact invalid C. For example:
+&gt; 
+&gt; 	#define MyThing(v) (MyType*)Field(v,2)
+&gt; 
+&gt; is not a good idea, since
+&gt; 
+&gt; 	MyThing(v) = ...
+&gt; 
+&gt; is invalid ISO C but may not even produce a warning. You would
+&gt; have to instead say:
+&gt; 
+&gt; 	#define MyThing(v) (*(MyType**)(void*)&amp;Field(v,2))
+&gt; 
+&gt; but it seems better to rewrite your code so values and
+&gt; lvalues are distinguished by usage (eg 'get' and 'set' macros).
+&gt; [The intention of the macros is usually to abstract away the
+&gt; field number]
+    </cwn_what>
+    <cwn_who>Thomas Fischbacher said and Damien Doligez answered</cwn_who>
+    <cwn_what>
+&gt; &gt; Registration is required to have the GC properly update the values.
+&gt; &gt; The GC may be called by any allocation.
+&gt;
+&gt; Just by allocations in the local C code? Is this (and will this always
+&gt; be) a guaranteed property? How about future extensions and  
+&gt; multithreading?
+
+Any allocation performed during the execution of your code.  Including
+context switches and signals, if you're doing begin_blocking_section.
+
+&gt; &gt; So it is only safe not to register a parameter (or a variable) in any
+&gt; &gt; of the following 4 cases.
+&gt; &gt; 1) you know that it can only hold a non-pointer value (int,  
+&gt; &gt; bool, ...)
+&gt; &gt;    (i.e. the GC has nothing to update)
+&gt; &gt; 2) there are no allocations in your function
+&gt; &gt; 3) the parameter is not accessed after the first allocation
+&gt; &gt; 4) for a new variable whose contents is returned, there is no
+&gt; &gt;    allocation between the setting of the variable and return.
+&gt; &gt;
+&gt; &gt; [...]
+&gt;
+&gt; Can I take this as an official position of the OCaml team on the  
+&gt; behaviour
+&gt; of the C interface?
+
+The official position is: none of these is guaranteed to hold in future
+releases.  You should play it safe and register all your local  
+variables.
+
+If you really need all the speed you can get, you might use these tricks
+in the two functions where your program spends all its time, but I'd  
+still advise against it.
+    </cwn_what>
+    <cwn_who>Thomas Fischbacher asked, Olivier Andrieu answered, and Damien Doligez said</cwn_who>
+    <cwn_what>
+&gt; &gt; One more question about this: can I interface a C function in such
+&gt; &gt; a way that it uses an OCaml float array to store its output data,
+&gt; &gt; i.e. pass &amp;(Double_field(ml_output,0)) as a double* "output
+&gt; &gt; parameter"?
+&gt;
+&gt; You can only do this on platform that accept doubles aligned on word
+&gt; boundaries (such as x86). On those platforms, OCaml's config.h
+&gt; undefines ARCH_ALIGN_DOUBLE. So your code might look like this :
+&gt;
+&gt; ,----
+&gt; |   double *c_array;
+&gt; | #ifdef ARCH_ALIGN_DOUBLE
+&gt; |   c_array = /* allocate temporary storage and copy the caml float  
+&gt; array */
+&gt; | #else
+&gt; |   c_array = (double *) ml_array;
+&gt; | #endif
+&gt; |
+&gt; |   /* use c_array */
+&gt; |
+&gt; | #ifdef ARCH_ALIGN_DOUBLE
+&gt; |   free (c_array);
+&gt; | #endif
+&gt; `----
+
+This is correct, except for the way you get the pointer.  You should  
+do it
+properly with &amp;(Double_field(ml_array,0)).  There is no guarantee that
+the value ml_array points to the first element of the array.
+
+Thomas wanted an "out" parameter, and the above code is for an "in"
+parameter, but it should work if you make the obvious changes.
+
+Thomas Fischbacher wrote:
+
+&gt; Is it (= will it always be) permissible to nest Field / Store_field
+&gt; macros?
+
+If you are not doing some strange things, the Store_field will always
+be outermost, and some Fields will be nested inside it.  In that case,
+it is safe.  Otherwise, you're using C macros with arguments that have
+side-effects, and your program will never work anyway :)
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>C-Interface: CAMLreturn and failwith</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/32012</cwn_url>
+    <cwn_who>Christoph Bauer asked and Damien Doligez answered</cwn_who>
+    <cwn_what>
+&gt; a question related to CAMLreturn and failwith in C-Stubcode:
+&gt;
+&gt; Is this code correct:
+&gt;
+&gt; #include &lt;fail.h&gt;
+&gt; ...
+&gt;
+&gt; CAMLprim value prim( value unit )
+&gt; {
+&gt;    CAMLparam0();
+&gt;    CAMLlocal( result );
+&gt;    int error;
+&gt;    /* allocate result, error has an errorcode */
+&gt;    if( error ) failwith( "error");
+&gt;    else CAMLreturn( result );
+&gt; }
+&gt;
+&gt; or should it be
+&gt;
+&gt; CAMLprim value prim( value unit )
+&gt; {
+&gt;    CAMLparam0();
+&gt;    CAMLlocal( result );
+&gt;    int error;
+&gt;    /* allocate result, error has an errorcode */
+&gt;    if( error ) {
+&gt;       caml_local_roots = caml__frame;
+&gt;       failwith( "error");
+&gt;    }
+&gt;    else CAMLreturn( result );
+&gt; }
+
+The first one is correct: failwith will take care of deregistering
+the local roots (actually, the bytecode interpreter does it when
+failwith longjumps to the exception handler).
+
+The second one should work in the current implementation, but it
+may break in the future.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>toplevel with pre-installed printers</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/31993</cwn_url>
+    <cwn_who>Andrej Bauer asked and Jean-Christophe Filliatre answered</cwn_who>
+    <cwn_what>
+&gt; This seems like a trivial question, but I do not know the answer:
+&gt; how do I create either a toplevel (or a shell script which appears to be
+&gt; a toplevel) with pre-installed pretty-printers (and pre-opened modules,
+&gt; for that matter)?
+
+I learnt a trick to do that from David Monniaux's GMP interface.
+
+First define  your pretty-printers using the Ocaml  module Format. For
+instance, the GMP pretty-printers look like
+
+== gmp_pp.ml =========================================================
+open Gmp
+open Format
+let z z = print_string (Z.string_from z)
+let q q = ...
+======================================================================
+
+then introduce another file installing the pretty-printers:
+
+== install_gmp_pp.ml =================================================
+(* This is a hack to install the pretty-printers in the customized toplevel. *)
+
+(* Caml longidents. *)
+type t =
+  | Lident of string
+  | Ldot of t * string
+  | Lapply of t * t
+
+let _ = Topdirs.dir_directory "+creal"
+
+let _ = Topdirs.dir_install_printer Format.std_formatter 
+	  (Obj.magic (Ldot (Lident "Gmp_pp", "z")) : 'a)
+
+let _ = Topdirs.dir_install_printer Format.std_formatter 
+	  (Obj.magic (Ldot (Lident "Gmp_pp", "q")) : 'a)
+======================================================================
+
+Finally,  build your  ocaml toplevel  the usual  way, linking  the two
+files above:
+
+======================================================================
+ocamlgmp: gmp.cma gmp_pp.cmo install_gmp_pp.cmo
+	ocamlmktop -custom -o $@ $^
+======================================================================
+
+I know  this is a  hack (the infamous  Obj.magic is used and  the Caml
+longident  type could change  in a  next ocaml  version) but  it works
+fine.
+    </cwn_what>
+    <cwn_who>Gerd Stolpmann added</cwn_who>
+    <cwn_what>
+&gt; First define  your pretty-printers using the Ocaml  module Format. For
+&gt; instance, the GMP pretty-printers look like
+
+In Ocamlnet, we use a similar trick, but get around Obj.magic:
+
+let exec s =
+  let l = Lexing.from_string s in
+  let ph = !Toploop.parse_toplevel_phrase l in
+  assert(Toploop.execute_phrase false Format.err_formatter ph)
+;;
+
+exec "#install_printer Mimestring.print_s_param;;";;
+exec "#install_printer Neturl.print_url;;";;
+exec "#install_printer Netbuffer.print_buffer;;";;
+exec "#install_printer Netstream.print_in_obj_stream;;";;
+
+This module can be simply compiled to bytecode and can be loaded into
+the toplevel. As we are using findlib, a second trick automates this. In
+META we have
+
+archive(byte,toploop) =
+    "netstring.cma netstring_top.cmo"
+
+where netstring.cma contains the generic code and netstring_top.cma the
+toplevel-specific code. So when the user types #require "netstring" the
+toplevel printers are automatically available.
+    </cwn_what>
+    <cwn_who>code17 also suggested</cwn_who>
+    <cwn_what>
+      I recently worked on a problem about customized toplevel. I need a
+generic toplevel with various kinds of preloaded modules and open them
+beforehand. So I can't produce these toplevels statically using
+ocamlmktop, I have to launch them with various configurations on the
+fly. Maybe this is also your situation. Here are some results I've got
+(especially from the beginner's list, hi Richard Jones :)
+
+Case 1:
+  Suppose your requirement is quite simple: pre-load variant modules,
+  open them, execute some evaluations and primitives without showing the
+  feedback ... and you don't have to do complex interpretation between
+  the user input as well as feedback from the real ocaml toplevel.
+
+  You would probably like to use the undocumented(why?) option "-init",
+  then wrap your executable as a shell script or programs. Use it like the
+  default .ocamlinit except now you can indicate who is the script for
+  initialization. E.g.
+
+  &lt;code&gt;
+  tmp/init.ml:
+
+  # load "bigarray.cma";;
+  open Bigarray.Genarray;;
+  (* You may even delete it after execution, maybe dangerous *)
+  Sys.command "rm tmp/init.ml";;
+  &lt;/code&gt;
+
+  &lt;command&gt;
+  ocaml -init tmp/init.ml
+  &lt;/command&gt;
+
+  &lt;toplevel&gt;
+            Objective Caml version 3.09.0
+
+  # create;;
+  - : ('a, 'b) Bigarray.kind -&gt;
+      'c Bigarray.layout -&gt; int array -&gt; ('a, 'b, 'c) Bigarray.Genarray.t
+  = &lt;fun&gt;
+  # 
+  &lt;/toplevel&gt;
+
+  Obviously you can have different configuration for different toplevels
+  you want, and even produce the configuration on the fly.
+
+Case 2:
+  If you want to do complex interpretation between your user and the
+  real ocaml toplevel, e.g. you want "My own topleve" instead of
+  "Objective Caml version 3.09" showing at the beginning, you want to
+  interpret the user's input secretly before feeding them to the
+  toplevel (maybe camlp4 help to do anything possible here?) and hide or
+  modify feedback from ocaml (maybe personalized pretty printer can
+  solve any problem here?). 
+
+  Either you are quite familiar with toplevel source and hack by
+  yourself, or like me really provide a program acting as translator,
+  i.e. another process active between user and the background running
+  toplevel. Then you can do anything as you want. I've done so, and wish
+  to provide some of the generic functionality as library when I've got
+  time to clean my code.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Again C-Interface: caml_alloc_custom</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/32016</cwn_url>
+    <cwn_who>Christoph Bauer asked and Olivier Andrieu answered</cwn_who>
+    <cwn_what>
+ &gt; Could be here a problem (CAMLparam+CAMLreturn in C-called function):
+ &gt; 
+ &gt; static value copy_tcl_array(int objc,  Tcl_Obj * const * objv)
+ &gt; {
+ &gt;   CAMLparam0 ();
+ &gt;   CAMLlocal2 (result, t);
+ &gt;   int n;
+ &gt; 
+ &gt;   result = Val_int(0);
+ &gt;   for (n = objc-1; n &gt;= 0; --n) {
+ &gt;     t = caml_alloc_small(2,0);
+ &gt;     Field(t, 0) = alloc_tcl_obj( objv[n] );
+                     ^^^^^^^^^^^^^
+
+I guess alloc_tcl_obj creates the custom block. That's wrong because
+the block t you've just allocated with caml_alloc_small is not
+completely initialized yet.
+
+Either do this (safe, higher-level way):
+,----
+|   t = caml_alloc (2, 0);
+|   Store_field (t, 0, alloc_tcl_obj (objv[n]));
+|   Store_field (t, 1, result);
+`----
+
+or that (lower-level) :
+,----
+|   CAMLlocal1(obj);
+|   obj = alloc_tcl_obj (objv[n]);
+|   t = caml_alloc_small (2, 0);
+|   Field (t, 0) = obj;
+|   Field (t, 1) = result;
+`----
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Camlmix 1.3: OCaml-stuffed templates</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/32036</cwn_url>
+    <cwn_who>Martin Jambon announced</cwn_who>
+    <cwn_what>
+I would like to announce the latest version of Camlmix, since it provides 
+a few features that make it useful in a broader range of applications 
+than before. It now includes applications that serve web pages with 
+dynamic contents.
+
+Camlmix is a template processor, which converts text containing 
+embedded OCaml into an OCaml program with embedded text.
+
+Example:
+   This is ocaml version ## print Sys.ocaml_version ##
+   This is ocaml version ##= Sys.ocaml_version ##
+becomes after execution:
+   This is ocaml version 3.09.1
+   This is ocaml version 3.09.1
+
+The main novelty is that a template can now be converted into a 
+regular OCaml source file which provides a "render" function instead of 
+simply executing toplevel expressions when the module is initialized.
+The resulting module can be compiled and included into any OCaml program, 
+and can take advantage of the numerous libraries that are now available 
+for OCaml, including syntax extensions.
+
+Camlmix 1.3.0 can be installed from GODI or downloaded from its home at
+
+   http://martin.jambon.free.fr/camlmix
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Announcing OMake 0.9.6.8</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/32047</cwn_url>
+    <cwn_who>Aleksey Nogin announced</cwn_who>
+    <cwn_what>
+We are proud to announce the latest release of the OMake Build System -
+OMake version 0.9.6.8.
+
+OMake is a build system, similar to GNU make, but with many additional
+features. The home site for OMake is http://omake.metaprl.org/ . OMake
+features include:
+
+   o Support for projects spanning several directories or directory
+     hierarchies.
+
+   o Comes with a default configuration file providing support for
+     OCaml, C and LaTeX projects, or a mixture thereof.
+     Often, a configuration file is as simple as a single line
+
+        OCamlProgram(prog, foo bar baz)
+
+     which states that the program "prog" is built from the files
+     foo.ml, bar.ml, and baz.ml.
+
+   o Fast, reliable, automated, scriptable dependency analysis using
+     MD5 digests.
+
+   o Portability: omake provides a uniform interface on Win32, Cygwin,
+     and Unix systems including Linux and OS X.
+
+   o Builtin functions that provide the most common features of programs
+     like grep, sed, and awk.  These are especially useful on Win32.
+
+   o Full native support for rules that build several files at once.
+
+   o Active filesystem monitoring, where the build automatically
+     restarts whenever you modify a source file.  This can be very
+     useful during the edit/compile cycle.
+
+   o A companion command interpreter, osh, that can be used
+     interactively.
+
+OMake preserves the style of syntax and rule definitions used in
+Makefiles, making it easy to port your project to omake.  There is no
+need to code in perl (cons), or Python (scons).  However, there are a
+few things to keep in mind:
+
+   1. Indentation is significant, but tabs are not required.
+   2. The omake language is functional: functions are first-class
+      and there are no side-effects apart from I/O.
+   3. Scoping is dynamic.
+
+OMake is licensed under a mixture of the GNU GPL license (OMake engine
+itself) and the MIT-like license (default configuration files).
+
+OMake version 0.9.6.8 in minor bugfixes/feature enhancements release.
+The changes in this version include:
+
+  - Fixed a bug in PATH-expansion for pipelines.
+  - Improved the handling of the ".PHONY" nodes.
+  - Added a remove-project-directories function.
+  - Documentation fixes.
+  - A few other bugfixes and improvements.
+
+For a more verbose change log, please visit
+http://omake.metaprl.org/changelog.html#0.9.6.8 .
+
+Source and binary packages of OMake 0.9.6.8 may be downloaded from
+http://omake.metaprl.org/download.html . In addition, OMake may be
+obtained via the GODI packaging system (release lines "3.08", "3.09" and
+"dev").
+
+To try it out, run the command "omake --install" in a project directory,
+and modify the generated OMakefile.
+
+OMake 0.9.6.8 is still an alpha release.  While we have made an effort
+to ensure that it is bug-free, it is possible some functions may not
+behave as you would expect.  Please report any comments and/or bugs to
+the mailing list omake@metaprl.org and/or at http://bugzilla.metaprl.org/
+    </cwn_what>
+  </cwn_entry>
+</cwn_body>
+</cwn>

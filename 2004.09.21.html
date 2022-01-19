@@ -1,0 +1,345 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2004.09.14.html">Previous week</a> <a href="index.html">Up</a> <a href="2004.09.28.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of 14 to 21 September, 2004.</p><ol>
+      <li>
+        <a href="#1">Passing printf format strings to functions</a>
+      </li>
+      <li>
+        <a href="#2">WxWidgets?</a>
+      </li>
+      <li>
+        <a href="#3">Ocaml automation update</a>
+      </li>
+      <li>
+        <a href="#4">Regexp library supporting binding for * and +'s</a>
+      </li>
+    </ol><a name="1" /><hr /><h3>Passing printf format strings to functions</h3><p>Archive: <a href="http://caml.inria.fr/archives/200409/msg00275.html">http://caml.inria.fr/archives/200409/msg00275.html</a></p><i>Erik de Castro Lopo asked and Jean-Christophe Filliatre answered:</i><br /><pre>
+&gt;
+&gt; I've got a little problem which I can't seem to get to the
+&gt; bottom of. The following code snippet won't compile:
+&gt;
+&gt;     let rec print_string_pairs (fmt:string) =
+&gt;         function
+&gt;             [] -&gt; print_endline ""
+&gt;         |    a :: b -&gt;
+&gt;                 Printf.printf fmt (fst a) (snd a) ;
+&gt;                 print_string_pairs fmt b
+&gt;         ;;
+
+A format is not of type "string" but of type "('a,'b,'c) format". Here
+is how you can write such a function:
+
+======================================================================
+let rec print_string_pairs (fmt:(string-&gt;string-&gt;'a,'b,'c) format) =
+  ...
+======================================================================
+
+But the type of fmt can be inferred, thus you can simply write:
+
+======================================================================
+let rec print_string_pairs fmt =
+  ...
+======================================================================
+
+Note that this second version is now polymorphic : it applies to any
+format of type ('a -&gt; 'b -&gt; 'c, out_channel, unit) format and a list
+of type ('a * 'b) list:
+
+======================================================================
+# print_string_pairs "%s-&gt;%s\n" [ ("a", "b") ; ("c", "d") ; ("e", "f") ];;
+a-&gt;b
+c-&gt;d
+e-&gt;f
+
+# print_string_pairs "%d-&gt;%d\n" [ 1,2; 3,4; 5,6 ];;
+1-&gt;2
+3-&gt;4
+5-&gt;6
+======================================================================
+
+ &gt;     let fmt = Printf.sprintf "      %%%ds  ==  %%s\n" 20 ;;
+ &gt;
+ &gt;     print_endline fmt ;;
+ &gt;
+ &gt;     let pairs = [ ("a", "b") ; ("c", "d") ; ("e", "f") ] ;;
+ &gt;
+ &gt;     print_string_pairs fmt pairs ;;
+
+There  is a additional  difficuly here,  because you  want to  build a
+format string  dynamically. With the code  above, fmt will  be of type
+string, and then cannot  be passed to print_string_pairs. As suggested
+by Michael,  you can use format_of_string  to convert a  string into a
+format:
+
+======================================================================
+# let fmt = format_of_string "%20s == %s\n";;
+val fmt : (string -&gt; string -&gt; '_a, '_b, '_c, '_a) format4 = &lt;abstr&gt;
+# print_string_pairs fmt [ ("a", "b") ; ("c", "d") ; ("e", "f") ];;
+                   a == b
+                   c == d
+                   e == f
+======================================================================
+
+But format_of_string  only applies  to a _constant_  string, not  to a
+string built from an evaluation:
+
+======================================================================
+# let fmt = format_of_string (Printf.sprintf "      %%%ds  ==  %%s\n" 20) ;;
+Characters 27-71:
+  let fmt = format_of_string (Printf.sprintf "      %%%ds  ==  %%s\n" 20) ;;
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+This expression has type string but is here used with type
+  ('a, 'b, 'c, 'd) format4
+======================================================================
+
+Indeed, there is  no static way to check that  the resulting format is
+indeed of  type (string-&gt;string-&gt;'a,'b,'c) format.
+    </pre><a name="2" /><hr /><h3>WxWidgets?</h3><p>Archive: <a href="http://caml.inria.fr/archives/200409/msg00320.html">http://caml.inria.fr/archives/200409/msg00320.html</a></p><i>Chris Danx asked and Richard Jones answered:</i><br /><pre>
+&gt; Was looking on the web for an alternative to using GTK+ on Windows (no
+&gt; flames please) and found WxWidgets.  It looks like a quite nice GUI
+&gt; toolkit.  There seemed to be some interest in developing a OCaml binding
+&gt; via Swig according to the net, but I can't find any such binding.
+&gt;
+&gt; Has anyone made such a binding?  If not I was thinking about using swig
+&gt; and the wxpython interfaces as the starting point for a wxwidgets
+&gt; binding for ocaml.  Has anyone tried to do this in the past?  Any
+&gt; thoughts on the issue?
+
+I've looked into this in the past, but we ended up using Gtk +
+Gtk-Wimp on Windows, which worked quite well.  Here are my
+observations on going the WxWindows route though:
+
+(1) WxWindows is pretty good.  (Ah, looking at their website, I see
+they've renamed it to WxWidgets!).  WxWIDGETS is pretty good.  It's a
+very complete way to develop cross-platform applications.  In
+particular, it has platform-specific file and print dialogs, which you
+won't get if you use Gtk.  In fact if you use Gtk you won't get print
+dialogs at all - I had to write my own print dialog for Windows which
+was no fun at all.
+
+(2) There seem to be three decent approaches to using WxWidgets under
+OCaml: Python, Perl or native.  Native is going to be the best, but is
+going to take a heck of a lot of effort.
+
+(3) Python or Perl: it's easiest just to use PyCaml or Perl4Caml to
+interface with the Wx* libraries under those languages.  I don't see
+why you'd want to go through SWIG for this.
+
+(4) Native: definitely the best performance and the cleanest approach,
+however it's lots of work.  (Now of course if you wanted to *hire*
+Merjis to do the work, contact me off-list ... :-)
+    </pre><i>Daan Leijen said:</i><br /><pre>
+I have created a binding from Haskell to wxWidgets, called wxHaskell.
+You can find more information (and nice screenshots) at
+<a href="http://wxhaskell.sourceforge.net">http://wxhaskell.sourceforge.net</a>
+There is also a paper about it at <a href="http://www.cs.uu.nl/~daan/pubs.html">http://www.cs.uu.nl/~daan/pubs.html</a>
+
+I also know that there is a student in France that has made a lot of
+progress
+on an O'Caml binding to wxWidgets (as he contacted me a few times
+about technical issues). He also used the wxEiffel C wrapper (that wxHaskell
+uses)
+
+Personally, I am very impressed with wxWidgets: wxHaskell works
+very well across the main platforms (MacosX, Windows, and GTK)
+and is quite stable. It is also nice that wxWidgets uses native controls
+on each platform, giving an application native look-and-feel.
+
+A particularly pragmatic route to implementing a wxWidgets binding
+to wxHaskell would adapt the wxDirect program of wxHaskell to generate
+O'Caml bindings and just copy the wxHaskell model -- it would fit O'Caml
+quite well, especially when OCaml objects are used to model the C++ classes.
+    </pre><i>Micha answered the OP:</i><br /><pre>
+&gt; Has anyone made such a binding?  If not I was thinking about using swig
+&gt; and the wxpython interfaces as the starting point for a wxwidgets
+&gt; binding for ocaml.  Has anyone tried to do this in the past?  Any
+&gt; thoughts on the issue?
+
+I have started some time ago with this and interfaced a few classes of
+wxwidgets, just to see how it works. I implemented (parts of) the
+application , window and menu classes and parts of the event system ( you can
+use 'connect' to connect ocaml functions to menus events);  So the basic way
+was ok. I just wanted to do something different ;-)
+
+I don't like the swig way so I didn't use it, but it's a pain to go c++ -&gt; c
+-&gt; ocaml, massive typing :-), maybe c++ -&gt; c -&gt; ocamlidl would be better...
+    </pre><i>Basile Starynkevitch also answered:</i><br /><pre>
+&gt; Was looking on the web for an alternative to using GTK+ on Windows (no
+&gt; flames please) and found WxWidgets.  It looks like a quite nice GUI
+&gt; toolkit. ....
+
+There is also the FOX toolkit www.fox-toolkit.org which claims also to be
+both on Unix &amp; Windows. It is a nice (cross-platform) GUI toolkit (in C++)
+also (but there is no Ocaml binding to it).
+
+
+&gt; Has anyone made such a binding?  If not I was thinking about using swig
+&gt; and the wxpython interfaces as the starting point for a wxwidgets
+&gt; binding for ocaml.  Has anyone tried to do this in the past?  Any
+&gt; thoughts on the issue?
+
+If there is a Python binding to it already, you might also consider coding a
+WXwidget "server" by coding (in C) the few hooks to make a program using
+WxWidgets which listen on a pipe (or whatever the Windows equivalent is) for
+Python instructions, and sending back (to your application) some textual
+protocol. I already coded this in GUIS (see
+<a href="http://starynkevitch.net/Basile/guisdoc.html">http://starynkevitch.net/Basile/guisdoc.html</a> for more) for GTK2 (and you can
+borrow some code if you like).
+
+IMHO, the costly coding is to interface all the WXWidget API. If it has been
+done once (for Python) you might try reusing it - either with Swig (for
+Ocaml) or by pluggin a python interpreter. The GUI could even (as GUIS
+suggest) run in a different process than your Ocaml application.
+
+
+NB: I've got no knowledge on Windows, and no significant experience with
+Swig or WxWidgets. So take all above with several grains of salt.
+    </pre><i>SooHyoung Oh answered as well:</i><br /><pre>
+I tried to implement Ocaml binding for wxWidgets
+a few months ago which followed the same method as wxHaskell
+(<a href="http://wxhaskell.sourceforge.net/">http://wxhaskell.sourceforge.net/</a>).
+
+Anyone who has interest in this job can find some comments and tar ball
+at <a href="http://pllab.kaist.ac.kr/~shoh/ocaml/wxcaml/doc/index.html">http://pllab.kaist.ac.kr/~shoh/ocaml/wxcaml/doc/index.html</a> .
+
+There is an example program which uses frame, menubar, menu, statusbar
+widgets.
+
+Current Status:
+I used "ocamlidl" to generat types and functions for ocaml
+which was done without any problem.
+And then I tried to implement "wxcaml" as object-oriented style like LablGtk
+but it required too much time.
+Any comments?
+    </pre><a name="3" /><hr /><h3>Ocaml automation update</h3><p>Archive: <a href="http://caml.inria.fr/archives/200409/msg00057.html">http://caml.inria.fr/archives/200409/msg00057.html</a></p><i>Alex Baretta said:</i><br /><pre>
+skaller wrote:
+&gt; Alex Baretta wrote:
+&gt;
+&gt; &gt; I wish to let you know that the first application of ocaml to realtime
+&gt; &gt; industrial control has succeeded.
+&gt;
+&gt;
+&gt; Nice job! Now we all want to know -- how did the
+&gt; Ocaml GC stand up? How did you tweak it? :)
+&gt;
+
+Sorry for not answering earlier. GC simply is not an issue. We allocate
+a lot, but newly allocated blocks tend to have a very short life. The GC
+is kept latent during PLC rounds and activated between rounds with
+heap compaction disabled. The full_major collection is an order of
+magnitude faster than the cycle time we require, and since we run it
+sistematically between rounds it runs in constant and predictable time.
+
+The only unpredictable latencies are due to heap compaction, but we only
+run heap compaction when the system is known to be in quiescent state
+until user input.
+    </pre><a name="4" /><hr /><h3>Regexp library supporting binding for * and +'s</h3><p>Archive: <a href="http://caml.inria.fr/archives/200409/msg00350.html">http://caml.inria.fr/archives/200409/msg00350.html</a></p><i>Yutaka Oiwa announced:</i><br /><pre>
+From the computer room at ICFP2004 in Snowbird Resort,
+I announce a beta version of my combinator-based
+regular-expression match library which supports
+list (Kleene-*) binding.
+
+This library provide a set of typed "combinators" which can be
+used to construct "regular expression matcher", which tests strings
+against regexps and capture the matched substring in various ways.
+Especially, powerful "repeat" combinator, which corresponds
+to * and + operators in conventional regular expression notation,
+returns all values captured inside as a list value.
+
+For example, the small code below
+
+  open Regexp_pp_ng
+  let s = "1 2 3 4 5" in
+  match_string s (repeat ~sep:spacesA int_decimal) (fun x -&gt; x)
+
+returns [1; 2; 3; 4; 5]: int list.
+
+All combinators are given static types and any mismatch of
+value types and matcher types are statically rejected.
+
+The implementation is available from a subversion repository.
+Using subversion, you can checkout the URL
+
+ <a href="https://www.oiwa.jp/svn/regexp-ocaml/branches/combinators/">https://www.oiwa.jp/svn/regexp-ocaml/branches/combinators/</a>
+
+to get the up-to-date implementation, or you can directly
+access the above address by web browsers to see the latest revision.
+There is also a ViewCVS interface at the following address.
+
+ <a href="http://www.oiwa.jp/viewcvs/regexp-ocaml/branches/combinators/">http://www.oiwa.jp/viewcvs/regexp-ocaml/branches/combinators/</a>
+
+See regexp_pp_ng.mli for interfaces, and regexp_pp_ng_test.ml for
+some example of the use of this library.
+
+It may work partially on some older OCaml, but for real use
+it requires a newer version (3.07 or later) which supports
+the relaxed value restriction.
+
+I plan to construct a neat syntax sugar over this library
+and build a next-generation version of Regexp/OCaml library.
+Any comments are welcome.
+    </pre><i>Skaller asked and Yutaka Oiwa answered:</i><br /><pre>
+&gt; Can you explain why/how Pcre is being used?
+
+The reason is simply current implemenentation convenience.
+It is stable, has enough features (e.g. unlimited number of captures,
+non-capturing groups, much of helper functions and runtime features,
+and is well-performing. My intension is not to implement automata engine
+by myself, at least in near future.
+
+However, as you can see in README in Regexp-OCaml (main version), my
+future plan includes supporting backends other than PCRE/OCaml.
+Having its own regexp parser and limiting regexp syntax to strict
+regular language are the provision for possible future.
+At the time of OCaml 3.07 released, I really considered to support
+the standard Str module, but unfortunately current Str lacks some of
+the features required by current Regexp/OCaml implementation.
+Anyway, backend is backend. And also, frontend is frontend. Period.
+It can be highly independent once it designed so, and my interests
+are mainly in the frontend part. I highly appreciete supports from
+people working on the backend part.
+
+Multilingualization is one in current high-priority to-do list.
+At least one of the users requested me to support EUC-JP patterns,
+and you might be the second person :-)
+I am considering how to support M17N feature: it may depends to
+underlying backends (e.g. Camomile?), or it may be supported solely in the
+frontend layer, by encoding multibyte handling into regexps.
+This trick is used in the Japanese port of Perl interpreter on MS-DOS,
+and (at least) one of Japanese handling module for Perl5.
+# As you can imagine, just using M17N feature of underlying library is
+# not sufficient: internal regexp parser must also modified to accept
+# multibyte-encoded regular expression. This is one of the reason that
+# curent Regexp/OCaml does not support UTF8 option of PCRE/OCaml.
+
+For supporting list-binding of Kleene-stars, I am very interested in
+richer backends which supports such features.  Alain Frisch's recent
+posting has interested me.  There is also a talk with related title in
+ICFP04, although I had not yet read the paper.
+However, I feel at the same time that backend is not a current show-stopper:
+it is truly better to have such backends, but it can be emulated without that,
+As I had shown in the combinators.  I can wait for a while for
+theretical/practical progresses. Current problem is mainly the frontend:
+there are many language-design problems once we introduce nested bindings.
+I already had a discussion with some people in ICFP04, and I hope more.
+    </pre><hr /><h3>Using folding to read the cwn in vim 6+</h3><p>Here is a quick trick to help you read this CWN if you are viewing it using vim (version 6 or greater).</p><pre>:set foldmethod=expr<br />:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'&amp;lt;1':1<br />zM</pre><p>If you know of a better way, please let me know.</p><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right">
+      <i>
+        <a href="http://alan.petitepomme.net/">Alan Schmitt</a>
+      </i>
+    </p><p align="right">
+      <script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script>
+      <script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" />
+      <script src="http://www.google-analytics.com/urchin.js" type="text/javascript" />
+      <script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script>
+    </p></body>
+</html>

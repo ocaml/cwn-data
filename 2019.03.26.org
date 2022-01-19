@@ -1,0 +1,372 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[http://alan.petitepomme.net/cwn/2019.03.19.html][Previous Week]] [[http://alan.petitepomme.net/cwn/index.html][Up]] [[http://alan.petitepomme.net/cwn/2019.04.02.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of March 19 to 26, 2019.
+
+#+TOC: headlines 1
+
+
+* textrazor 0.1
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/ann-textrazor-0-1/3527/1
+
+** Richard Degenne announced
+
+
+I am very proud to announce my very first OCaml package, in the form of ~textrazor~, an OCaml wrapper for the [[https://www.textrazor.com/][TextRazor]] API.
+
+https://github.com/Richard-Degenne/ocaml-textrazor/
+
+This first release supports:
+
+- The main analysis endpoint, with most options and sensible defaults built-in;
+- The account endpoint.
+
+I am sure that a lot can be done to improve the code. Please feel free to comment, open issues or even submit pull requests about anything if you feel like it. :)
+
+I've set up a (non-exhaustive) roadmap of features I will be working on in the coming days. Once again, contributions of any kind are most welcome.
+
+https://github.com/Richard-Degenne/ocaml-textrazor/projects/1
+      
+
+
+
+* 'Rails on OCaml'
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/rails-on-ocaml/3537/1
+
+** Yawar Amin said
+
+
+I'd like to discuss @jasim 's [[https://protoship.io/blog/rails-on-ocaml/][post]] a bit. It's a great conversation starter but it got me thinking that we need to actually look at how such a framework would _look and feel_ from the user's (i.e. the web dev's) perspective. And whenever I think of web dev, the pattern I keep coming back to is the tried-and-true MVC. And I really like how Phoenix has done it, so I keep wanting to borrow some ideas from there. So to me, here's what a nice project layout might look like (this is native so all module names are disambiguated by dune):
+
+#+begin_example
+dune-project
+README.md
+src/
+  dune
+  model/
+    dune
+    User.re
+  service/
+    dune
+    User.re
+  web/
+    controller/
+      dune
+      User.re
+    dune
+    middleware/
+      ...
+    Server.re
+    template/
+      not-found.mustache.html
+      not-found.mustache.json
+#+end_example
+
+And here are a couple of example usages from this imaginary project: https://gist.github.com/yawaramin/f0a24f1b01b193dd6d251e5e43be65e9
+
+So in the above snippet, the main app is set up in ~src/web/Server.re~. What I wanted here was a really minimalistic but also extensible way to set up routes and middlewares. And to me the way that makes the most sense to handle routing in OCaml is pattern-matching (kudos to the ReasonReact team for coming up with that simple and elegant design). So the ~Server~ module is the heart of the app, but this being OCaml, there's no magic involved–the route handlers are just functions from routes and requests to (promises of) responses.
+
+Requests should contain things like the headers, query params, cookies, session, flash, body, etc.
+
+Responses should be constructed programmatically (using ~ReWeb.Response.{make,makeAsync}~) or from ocaml-mustache templates (see ~template/~ subdirectory). The response constructor function should take optional arguments for status, headers, cookies, etc. with appropriate defaults.
+
+Middleware should be functions that take a response and return a promise of _request_ (which might be a _cancelled_ request); in this way they are composeable (much like Elixir's plugs).
+
+I haven't touched on data access here; to be honest I'm not very familiar with the OCaml database libraries at the moment, but I am leaning towards Caqti since it seems to be active, and supports the popular OSS DBs as well as Lwt.
+
+Scaffolding would be great to have and it would be great if dune or opam would let us do that (e.g. ~opam new my-app --scaffold reweb~), but in the meantime we can probably get away with maintaining example starter projects which people can copy to start with.
+
+Lots of this is off the top of my head but what I'm trying to do here is uncover an _ergonomic_ design for a web framework, based on learnings from recent successful frameworks. I think a large part of it would be just giving users a 'blessed stack' of libraries to start with, so they don't have to go hunting throughout the ecosystem and don't have to figure out and set up a project structure from scratch (where does the router go? where do the controllers go? where do I put the tests?). And so on.
+
+P.S. the pattern-matching routers look _really_ nice in OCaml syntax.
+      
+
+** RogerT asked and Yawar Amin replied
+
+
+> Is it the only pattern? In fact, what are all the possible patterns?
+
+Well, for example Eliom has a service-handler pattern for creating endpoints: https://ocsigen.org/eliom/6.6/manual/server-services
+
+There is [[https://github.com/inhabitedtype/ocaml-webmachine][ocaml-webmachine]] which treats endpoints as resources that are exposed according to a state machine.
+
+There's [[https://github.com/mirage/ocaml-cohttp][Cohttp]] which treats the server as a single function that gets run by the event loop. It's up to users to define abstractions on top of that.
+
+So I think there is no shortage of approaches to web servers in OCaml.
+      
+
+** Gabriel Radanne then said
+
+
+> Well, for example Eliom has a service-handler pattern for creating endpoints:
+
+Note that Eliom contains several pieces:
+- The *web framework* indeed promotes this service-handler pattern, although that is fairly lightweight and flexible (and you can basically treat it like cohttp and add your abstraction on top, if you feel like it)
+- The *language*, on the other hand, is almost completely model-agnostic, it only cares about making sure data-transfers between client and servers are well typed, sound, and as easy to do as possible.
+
+So far, the language and the framework are not as separate as I would like, but it's certainly on my todo-list to make all this more modular.
+      
+
+** Jasim A Basheer said
+
+
+Thanks @yawaramin for framing this nicely and continuing the conversation.
+
+In my mind I wanted to design an _ideal_ framework, yet somehow avoid the [[https://en.wikipedia.org/wiki/Second-system_effect][second-system effect]] by basing the design on actual application needs. And so in service to this idealism I have wanted to build a web application in Haskell and borrow the best ideas they have to offer. I think it might never come to pass, so if there are people who know how the Haskell ecosystem approaches this, that'd be great to hear.
+
+Since we have the opportunity to do something from scratch, it might be worth thinking what a futuristic framework should look like. Otherwise we'll have to play catch-up with mature alternatives, repeating their mistakes, and not having anything new and radically better to offer to the world. Working on that kind of a project might not inspire the kind of passion it takes to bring something like this into production.
+
+I think dhh's approach to Rails is worth emulating - [[https://dhh.dk/posts/6-why-theres-no-rails-inc][framework must be extracted, not envisioned]]. So what kind of web applications is Rails ideally suited for, and what kinds does it make it difficult and unwieldy? And how can we have the best of all worlds?
+
+Rails is built as a vehicle for [[https://basecamp.com][Basecamp]], which is a project management software. The major operations are create, read, update, and delete of database records. It is filled with forms, and a simple request-response cycle works well for most of them. The closer the application you're building is to a Basecamp, the more affordances Rails gives you. But if you're building say a WhatsApp clone with Rails, you're going against the grain of the system.
+
+*** ORM
+Since most operations are CRUD, Rails gives significant developer comfort when it comes to database operations, and that is thanks to its ORM. It gives a lazy interface to construct queries - they are first class values - and gets executed only at the last possible moment. Rails follows the ActiveRecord pattern and I prefer it over having to construct SQL statements for mundane stuff. We can always drop down to raw SQL when needed, but for simple reads and updates, I've found ActiveRecord to be more ergonomic.
+
+But would a simple layering like [[https://github.com/mirage/orm][mirage/orm]] be fine, or are Typed ORMs like [[http://pgocaml.forge.ocamlcore.org/][pgocaml]], which extracts database schema info in compile time and makes types out of them, worth looking into? Haskell has multiple such implementations and I hope they have converged on some Do's and Don'ts there.
+
+*** Database Migrations
+
+I think Phoenix, Rails, Django, and even Java with [[https://flywaydb.org/][Flyway]] have all converged over an identical pattern for database migrations and there is no wheel to be reinvented here.
+
+*** Streaming
+
+Rails support streaming by treating the response object as an enumerator. This allows us to build pages that can immediately start sending data back to the client without having to wait till the whole page is built.
+
+*** Concurrency, Evented vs Threaded vs Multi-process
+
+My understanding is quite hazy on this. What is it going to be? I know I don't want every single one of my database call to be a callback, like we're forced to do in Node, which is now papered over by async/await. But is it possible to build non-evented servers on which a WhatsApp can be built?
+
+*** Background Jobs
+
+Do we serialize background jobs outside the application - like in Sidekiq, which stores everything in Redis? Or is it possible to spawn off new processes like in Erlang? How do we scale processes or jobs across multiple servers? How about observability?
+
+*** Templating
+
+Conventional  string-interpolation with partials is much less ergonomic than writing reusable components and dealing with them as HTML tags like in JSX.  It should be possible to use the same code to render pages both on the server and the client -- React+JSX server-side rendering does this really well.
+
+*** Client-side code
+
+Ocsigen seems to allow the ability to write functions that execute on both the client and the server transparently, while allowing context-dependent behavior when necessary. It takes care of maintaining and transferring state to and fro between server and client, eliminating the need to write custom endpoints. I've tried pursuing the documentation and found it difficult to understand, happy to be corrected.
+
+In my experience the majority of client-side code need to be present only on the browser, and treating the code paths separately is clearer to understand. What we need however is a better way to allow data to be passed around, which the next section addresses.
+
+*** Client-side data
+
+Rich web applications require hundreds of JSON endpoints with varying levels of granularity. GraphQL attempts to solve this by creating a declarative API, which express the schema of the data needed by each client request. Interesting waters there.
+
+These are a set of questions I had in my mind when I wrote that post. They are not terribly well thought out, but I'm hoping those with more clarity can chime in.
+      
+
+
+
+* Bucklescript 5.0 released
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/bucklescript-5-0-released/3540/1
+
+** Hongbo Zhang announced
+
+
+See https://bucklescript.github.io/blog/ for more details.
+The cool thing is that you can try it out within 20s everywhere using cloud service like https://c9.io/ \\
+~npm i -g bs-platform && bsb -init test && cd test && bsb~
+      
+
+
+
+* Tablecloth - a new standard library for OCaml and ReasonML
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/tablecloth-a-new-standard-library-for-ocaml-and-reasonml/3528/1
+
+** Paul Biggar announced
+
+
+Hey folks, I've been working on a standard library for OCaml and ReasonML, which has the same API in both. This is to help us with code reuse between our OCaml backend and our ReasonML frontend.
+
+It's called [[https://github.com/darklang/tablecloth][tablecloth]], and we wrote up an announcement [[https://medium.com/darklang/tablecloth-a-new-standard-library-for-ocaml-reasonml-d29a73a557b1][here]].
+
+Would love to folks contributing back to it - if you're interested there's a long list of ways to help.
+      
+
+
+
+* Easy_logging 0.2
+:PROPERTIES:
+:CUSTOM_ID: 5
+:END:
+Archive: https://discuss.ocaml.org/t/easy-logging-0-2/3551/1
+
+** Sapristi announced
+
+
+feeling that there was some lack of logging librairies for OCaml (apart from the Logs module, which was a bit too complicated to use for me), I wrote a (hopefully) both easy to use and yet powerful logging library, taking inspiration from the excellent Python logging package.
+
+Some defaults are provided that allow logging to the stdout and/or files, but it is also possible to redefine you own handlers.
+
+[[https://github.com/sapristi/easy_logging][Sources]] and [[https://sapristi.github.io/easy_logging/easy_logging/][Documentation]] are provided.
+
+Any comment or suggestion would be appreciated.
+      
+
+** Christian Lindig asked and Sapristi replied
+
+
+#+begin_quote
+I believe support for printf-style strings for creating log messages would be useful. Formatting strings even when they are not used because of the log priority can introduce a performance concern, though.
+#+end_quote
+
+I think I will eventually add support for format strings, but for now you can use the logging methods that take a lazy string as an input, for example
+
+#+begin_src ocaml
+     logging#ldebug ( lazy (Printf.sprintf "%s" mystring))
+#+end_src
+
+see [[https://sapristi.github.io/easy_logging/easy_logging/Easy_logging/Logging/class-logger/index.html#lazy-logging-methods][lazy logging methods]].
+      
+
+** Kevin Ji asked
+
+
+How does this compare to [[https://ocaml.janestreet.com/ocaml-core/latest/doc/async_unix/Async_unix/Log/index.html][Async's ~Log~ module]], which is generally used as follows:
+
+#+begin_src ocaml
+    Log.Global.info "Message %d" count
+    Log.Global.warn_s [%message "Issue connecting to db" (db : string)]
+#+end_src
+      
+
+** Sapristi then replied
+
+
+I have never used Async, so I didn't know about that module. It seems quite close to what I had in mind, and provides most of what easy_logging does, and much more.
+
+Instead of instantiating modules (like Log.Global) as so called logging singletons, Easy_logging instantiates logger objects:
+
+#+begin_src ocaml
+    open Easy_logging
+    logger = Logging.make_logger "my_logger" (Some Debug) [Cli Debug];;
+    logger#info "log_message";;
+#+end_src
+
+This is by design, since logger objects are registered and stored at creation (in a Logging module), to be able to modify the log level all logging singletons at runtime (see [[https://sapristi.github.io/easy_logging/easy_logging/index.html#logging][Logging module]] and [[https://sapristi.github.io/easy_logging/easy_logging/examples.html#dyn_logger][example]]).
+(Maybe I'll switch to modules instead of classes as logging singletons, using first-class modules to registration, but for now it's a bit easier for me to go with objects).
+
+The second difference is that a Logging module can be created by a functor over a module of Handlers (things to write to stdout/files/etc), making it easy to define the handlers according to your needs (although Async's log defaults seems quite enough).
+
+Anyway Async's Logging will be a great source of inspiration for me, thanks for pointing it out !
+      
+
+
+
+* OCaml meetup in SF on Tuesday 3/26
+:PROPERTIES:
+:CUSTOM_ID: 6
+:END:
+Archive: https://discuss.ocaml.org/t/ocaml-meetup-in-sf-on-tuesday-3-26/3561/1
+
+** Brandon Kase announced
+
+
+Hey all! We’re hosting an OCaml/ReasonML meetup in SF on Tuesday night (3/26) at 6:30PM. We’ll have food, drinks, and some really interesting talks:
+
+Ben — Shipping a mobile game in ReasonML is not as hard as one might think. This talk will go over our demo-driven approach to developing this game, the small technical difficulties one might encounter and the tough non-technical ones.
+
+Nathan — GADTs (or Generalized Algebraic Data Types) may sound scary at first, but they can be an approachable and useful programming tool, especially for designing good APIs. In this talk, we will go over some examples of how GADTs can be applied to make neater, easier to use programming interfaces.
+
+We’ll also have plenty of time to chat, eat, and hang out. People of all backgrounds / skill levels are welcome, please just RSVP below so we know how much food to get!
+
+https://www.meetup.com/sv-ocaml/events/259940442/
+      
+
+
+
+* Yojson 2.0.0 plans
+:PROPERTIES:
+:CUSTOM_ID: 7
+:END:
+Archive: https://discuss.ocaml.org/t/yojson-2-0-0-plans/3263/34
+
+** Deep in this thread, Stephen Bleazard said
+
+
+On a slightly different topic. I think we should re-factor ppx_deriving_yojson into a library independent core and json library dependent part. Then we can create ppx_deriving_jsonm etc without developing the whole ppx deriver.  From what I have seen this should be pretty staight forward. What do people think?
+      
+
+** Anders Fugmann replied
+
+
+I've actually created a library[1] which does exactly that; a ppx for general type extraction + *drivers* which contains the specific serialization code.  Its mostly feature complete (only inline records and gadt's are not supported yet).
+
+Currently, the library provides drivers for json (yojson, ezjsonm), yaml, msgpack and xml serialization and allows for users to easily create their own.
+
+It supports the same features as ppx_deriving_yojson (incl @key, @name and @default attribute handling) + a few more type constructs (e.g nonrec types), so it can be used as a plugin replacement for ppx_deriving_json [2].
+
+/Anders
+
+[1] https://github.com/andersfugmann/ppx_protocol_conv \\
+[2] The generated json output only differs on ADT type constructors without arguments which are serialized to strings, whereas ppx_deriving_yojson serializes these to singleton lists.
+      
+
+
+
+* iso639 - language codes
+:PROPERTIES:
+:CUSTOM_ID: 8
+:END:
+Archive: https://discuss.ocaml.org/t/ann-iso639-language-codes/3565/1
+
+** Petter A. Urkedal announced
+
+
+This is a new package which provides types which enumerate human languages and language groups according to the ISO-369 standard.  The standard has different parts depending on whether one is dealing with individual and macro languages or groups and families of languages, whether one uses two- or three-letter codes, and some historic quirks.  See [[https://github.com/paurkedal/ocaml-iso639][the project page]] and the [[https://paurkedal.github.io/ocaml-iso639/iso639/Iso639/index.html][API reference]] for further details.
+
+This library is rather mundane, but I think it can help software dealing with multiple languages to make sure a language code is valid, and to make sure different language codes for the same language maps to the same language.  I think the API is more or less in a final form unless there are usability issues which need to be addressed.
+      
+
+
+
+* Other OCaml News
+:PROPERTIES:
+:CUSTOM_ID: 9
+:END:
+** From the ocamlcore planet blog
+
+
+Here are links from many OCaml blogs aggregated at [[http://ocaml.org/community/planet/][OCaml Planet]].
+
+- [[https://mirage.io/blog/MSA01][MirageOS security advisory 01: netchannel 1.10.0]]
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[http://alan.petitepomme.net/cwn/][the archive]] or the [[http://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe [[http://lists.idyll.org/listinfo/caml-news-weekly/][online]].
+
+#+BEGIN_authorname
+[[http://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname

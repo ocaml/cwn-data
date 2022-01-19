@@ -1,0 +1,471 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>OCaml Weekly News</title>
+  </head>
+  <body>
+    <a href="2013.12.31.html">Previous week</a> <a href="index.html">Up</a> <a href="2014.01.14.html">Next week</a><p>Hello</p><p>Here is the latest OCaml Weekly News, for the week of December 31, 2013 to January 07, 2014.</p><p /><ol><li><a href="#1">Core Suite 109.58.00</a></li><li><a href="#2">wrapping a string in an in_channel</a></li><li><a href="#3">OpenGL {3,4} and OpenGL ES {2,3} bindings, testers welcome</a></li><li><a href="#4">How to see an OCaml change in a browser</a></li><li><a href="#5">Other OCaml News</a></li></ol><a name="1" /><hr /><h3>Core Suite 109.58.00</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2014-01/msg00002.html">https://sympa.inria.fr/sympa/arc/caml-list/2014-01/msg00002.html</a></p><i>Jeremie Dimino announced:</i><br /><pre>
+I am pleased to announce the 109.58.00 release of the Core suite.
+
+Starting from 109.55.00, core libraries contain inline benchmark. It
+is now possible to run them:
+
+echo 'let () = Inline_benchmarks.Runner.main ~libname:"core_kernel"' &gt; bench.ml
+ocamlfind ocamlopt -thread -linkpkg -linkall -package str,core_kernel,core_bench.inline_benchmarks bench.ml -o bench
+./bench -benchmarks-runner
+
+Replace core_kernel by the library you want to run benchmarks
+for. Currently only core and core_kernel contain inline benchmark.
+
+In this release the following packages were upgraded:
+
+- async
+- async_extra
+- async_inotify
+- async_kernel
+- async_parallel
+- async_unix
+- core
+- core_bench
+- core_extended
+- core_kernel
+- jenga
+- sexplib
+
+Files and documentation for this release are available on our
+website and all packages are in opam:
+
+<a href="https://ocaml.janestreet.com/ocaml-core/109.58.00/individual/">https://ocaml.janestreet.com/ocaml-core/109.58.00/individual/</a>
+<a href="https://ocaml.janestreet.com/ocaml-core/109.58.00/doc/">https://ocaml.janestreet.com/ocaml-core/109.58.00/doc/</a>
+
+Here is list of changes for this version:
+
+# 109.58.00
+
+## async_extra
+
+- Changed `Cpu_usage` to use `Core.Percent` instead of `float` where
+appropriate.
+- Made `Bus.unsubscribe` check that the subscriber is subscribed to
+the given bus.
+- Made `Log.t` support `with sexp_of`.
+- Fixed `Tcp.on_port 0` to return the port actually being listened on,
+like `Tcp.on_port_chosen_by_os`.
+
+Previously, a serverlistening on `Tcp.on_port 0` would have its
+`Tcp.Server.listening_on` as `0`, which of course is not the port
+the server is listening on.
+
+## async_kernel
+
+- Renamed the `Async_core` library as `Async_kernel`, to parallel
+`Core_kernel`.
+
+Someday `Async_core` will depend only on `Core_kernel`, but not yet.
+- Added a thread-safe queue of "external actions" that is checked
+after each job.
+- Fixed a race condition in `Clock.Event.abort`.
+
+Here is the race condition:
+
+* `Clock.Event.at` adds an alarm, its value is a job (let's call it
+job1) with this run function:
+
+```ocaml
+let fire () `
+t :` Happened;
+Ivar.fill ready `Happened;
+```
+* later a job (let's call it job2) aborting the clock event is queued
+in the async scheduler
+* in the same cycle, the `Timing_wheel.advance_clock` fires the
+alarm and job1 scheduled
+* at this point:
++ job1 and job2 are still pending
++ the alarm was removed so it is invalid
++ the clock event is still in the state `Waiting`
+* job2 is executed before job1: the clock event is still in the
+`Waiting` state, so the abort tries to remove the alarm from the
+timing wheel: CRASH
+
+The bugfix is for `Clock.Event.abort` to check if the alarm has
+already been removed from the timing wheel and if so, don't remove
+it again.
+- Changed `Monitor.try_with` when run with `~rest:\`Ignore`, the
+default, so that the created monitor is detached from the monitor
+tree.
+
+The detached monitor has no parent, rather than being a child of the
+current monitor. This will eliminate recently observed space leaks
+in `Sequencer_table` and `Throttle`, like:
+
+```ocaml
+let leak () =
+let seq = Throttle.Sequencer.create () in
+let rec loop n =
+Throttle.enqueue seq (fun () -&gt;
+loop (n + 1);
+Deferred.unit
+)
+|&gt; don't_wait_for
+in
+loop 0
+```
+- Changed Async's scheduler to pool jobs rather than heap allocate
+them, decreasing the cost of a job by 30-40%.
+
+Changed the main scheduler queue of jobs to be an `Obj_array.t` that
+is essentially a specialized `Flat_queue` (the specialization was
+necessary for speed).
+
+Also, cleaned up the scheduler run-job loop.
+
+With these changes, the cost of a simple job decreases significantly
+(30-40%), across a range of live data sizes. Here are the
+nanoseconds-per-job numbers for a microbenchmark with the old and
+new approaches.
+
+```
+| num live jobs | old ns/job | new ns/job |
+|---------------+------------+------------|
+| 1 | 74 | 53 |
+| 2 | 75 | 47 |
+| 4 | 76 | 41 |
+| 8 | 63 | 39 |
+| 16 | 62 | 38 |
+| 32 | 61 | 37 |
+| 64 | 61 | 37 |
+| 128 | 60 | 37 |
+| 256 | 60 | 38 |
+| 512 | 60 | 38 |
+| 1024 | 60 | 39 |
+| 2048 | 61 | 40 |
+| 4096 | 67 | 41 |
+| 8192 | 65 | 45 |
+| 16384 | 75 | 56 |
+| 32768 | 115 | 67 |
+| 65536 | 171 | 108 |
+| 131072 | 255 | 158 |
+| 262144 | 191 | 130 |
+| 524288 | 216 | 139 |
+| 1048576 | 238 | 152 |
+```
+
+See async/bench/nanos\_per\_job.ml for the benchmark.
+- Removed `debug_space_leaks` from Async's internals. It hadn't been
+used in years.
+
+## async_unix
+
+- Improved fairness of the async scheduler with respect to external
+threads, including I/O done in external threads.
+
+The change is to add a thread-safe queue of "external actions" that
+is checked after each job.
+
+Previously, when a job given to `In_thread.run` finished,
+`In_thread.run` would take the async lock, fill the result ivar and
+run a cycle. The problem is that in some situations, due to poor OS
+scheduling, the helper thread never had a chance to grab the lock.
+Now, `In_thread.run` tries to take the lock:
+
+- if it can it does as before
+- if it can't it enqueues a thunk in the external actions queue and
+wakes up the scheduler
+
+With this change, the helper thread doing an `In_thread.run` will
+always quickly finish once the work is done, and the async scheduler
+will fill in the result ivar as soon as the current job finishes.
+- Fixed `Epoll_file_descr_watcher.invariant` to deal with the timerfd,
+which has the edge-triggered flag set.
+- Added `Writer.write_gen`, a generic functor for blitting directly to
+a writer's buffer.
+
+## core
+
+- Added `Debug.should_print_backtrace : bool ref`, to control whether
+`Debug.am*` functions print backtraces.
+- Added to `Float` inline benchmarks.
+- Moved all of the `Gc` module into `Core_kernel`.
+
+Part of the `Gc` module used to be in `Core` because it used
+threads. But it doesn't use threads anymore, so can be all in
+`Core_kernel`.
+- Improved `Iobuf` support for copying to/from strings and bigstrings.
+
+The new modules are `Iobuf.{Consume,Peek}.To_{bigstring,string}`.
+They match a `Blit`-like interface. We don't yet implement the
+`Blit` interface in all applicable contexts, but do use `Blit.Make`
+and expose some of the operations we want in the forms we expect
+them to take under a `Blit` interface.
+- Added `Linux_ext.Timerfd.to_file_descr`.
+- Added to `Time.next_multiple` an optional argument to control
+whether the inequality with `after` is strict.
+- Added `Time.Zone.local`, a lazily cached `Time.Zone.machine_zone ()`.
+
+This is the first stage in a plan to make explicit timezones more
+pervasive. First, they are made more convenient, by replacing the
+relatively wordy `Time.Zone.machine_zone ()` with `Time.Zone.local`.
+This involves making the underlying timezone type lazy.
+
+The next stage will be to remove `machine_zone` and use
+`Time.Zone.local` everywhere instead. Then (it is hoped) instead of
+`of_local_whatever`, we just say e.g. `of_date_ofday
+Time.Zone.local` and currently-implicitly-local functions will be
+able to switch over to explicit timezones without becoming too
+verbose.
+- Added `Timing_wheel.Alarm.null`.
+- Made `Unix.File_descr.t` have `with sexp`.
+
+Closes janestreet/async_unix#3
+- Fixed OpenBSD compilation failures in C stubs.
+- Fixed `Lock_file.is_locked` to require read permission, not write
+permission, on the lock file.
+- Added to `Unix.mcast_join` an optional `?source:Inet_addr.t` argument.
+
+From pull-request on bitbucket:
+<a href="https://bitbucket.org/janestreet/core/pull-request/1/receive-source-specific-multicast/diff">https://bitbucket.org/janestreet/core/pull-request/1/receive-source-specific-multicast/diff</a>
+
+## core_bench
+
+- Added support for saving inline benchmark measurements to tabular
+files for easy loading into Octave.
+
+## core_extended
+
+- Cleaned up the `Stats_reporting` module
+
+## core_kernel
+
+- Moved all of the `Gc` module into `Core_kernel`.
+
+Part of the `Gc` module used to be in `Core` because it used
+threads. But it doesn't use threads anymore, so can be all in
+`Core_kernel`.
+- Made `Stable.Map` and `Set` have `with compare`.
+- Added `String.rev`.
+
+Closes janestreet/core#16
+
+We will not add `String.rev_inplace`, as we do not want to encourage
+mutation of strings.
+- Made `Univ_map.Key` equivalent to `Type_equal.Id`.
+- Added `Univ.view`, which exposes `Univ.t` as an existential, `type t
+= T : 'a Id.t * 'a -&gt; t`.
+
+Exposing the existential makes it possible to, for example, use
+`Univ_map.set` to construct a `Univ_map.t`from a list of `Univ.t`s.
+
+This representation is currently the same as the underlying
+representation, but to make changes to the underlying representation
+easier, it has been put in a module `Univ.View`.
+      </pre><a name="2" /><hr /><h3>wrapping a string in an in_channel</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2014-01/msg00003.html">https://sympa.inria.fr/sympa/arc/caml-list/2014-01/msg00003.html</a></p><i>Martin DeMello asked and Gerd Stolpmann replied:</i><br /><pre>
+&gt; Does OCaml have any equivalent to ruby's StringIO, to wrap an
+&gt; in_channel around a string and then treat it as if it were a file?
+
+With the standard library this is not possible.
+
+When I need such a feature, I normally use OCamlnet's channel objects:
+
+<a href="http://projects.camlcity.org/projects/dl/ocamlnet-3.7.3/doc/html-main/Netchannels_tut.html">http://projects.camlcity.org/projects/dl/ocamlnet-3.7.3/doc/html-main/Netchannels_tut.html</a>
+
+<a href="http://projects.camlcity.org/projects/dl/ocamlnet-3.7.3/doc/html-main/Netchannels.html">http://projects.camlcity.org/projects/dl/ocamlnet-3.7.3/doc/html-main/Netchannels.html</a>
+
+<a href="http://www.ocaml-programming.de/rec/IO-Classes.html">http://www.ocaml-programming.de/rec/IO-Classes.html</a>
+      </pre><i>Hezekiah M. Carty also suggested:</i><br /><pre>
+Batteries provides something similar with its BatIO.input_string
+function. It returns the Batteries equivalent to an in_channel.
+      </pre><i>John Whitington also suggested:</i><br /><pre>
+Here's another example of wrapping IO around strings, bigarrays, etc as
+a record of functions:
+
+<a href="https://github.com/johnwhitington/camlpdf/blob/master/pdfio.ml">https://github.com/johnwhitington/camlpdf/blob/master/pdfio.ml</a>
+
+Here's a type:
+
+type input =
+  {pos_in : unit -&gt; pos;
+   seek_in : pos -&gt; unit;
+   input_char : unit -&gt; char option;
+   input_byte : unit -&gt; int;
+   in_channel_length : pos;
+   set_offset : pos -&gt; unit;
+   caml_channel : in_channel option;
+   source : string}
+
+It's good to add the 'source' field - which is an arbitrary string for
+debugging purposes. Of course, if the input came from a file, we would
+use the file name.
+
+The caml_channel field optionally stores a channel this input was
+derived from. So, we can still drill down and use fast functions from
+the standard library such as Pervasives.really_input.
+
+(The set_offset field is a nasty PDF-related hack: a PDF file can have
+garbage bytes preceding the header, and PDF absolute byte offsets are
+offsets from the header, so every read and write might have to be
+offset)
+
+Functions in records as an abstraction don't seem to be a speed problem.
+The use of option-returning functions like input_char above rather than
+exception-raising ones or minus-one-as-exception functions like
+input_byte above is big, though, if the data processed is large enough,
+due to garbage collection.
+      </pre><a name="3" /><hr /><h3>OpenGL {3,4} and OpenGL ES {2,3} bindings, testers welcome</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2014-01/msg00008.html">https://sympa.inria.fr/sympa/arc/caml-list/2014-01/msg00008.html</a></p><i>Daniel Bünzli announced:</i><br /><pre>
+I made thin, low-level, ocaml-ctypes bindings to OpenGL 3.{2,3},
+4.{0,1,2,3,4} and OpenGL ES {2,3}. They are automatically generated
+from the offical XML representation of the OpenGL Registry [1].
+
+These bindings are neither tested nor used and interfaces are still
+subject to change. Testers are welcome; report any problems you may
+encounter on github's infrastructure. Have a look at the readme to
+understand how these libraries are structured:
+
+  <a href="https://github.com/dbuenzli/tgls/blob/master/README.md#supported-opengl-versions">https://github.com/dbuenzli/tgls/blob/master/README.md#supported-opengl-versions</a>
+
+The documentation of the bindings is here:
+
+  <a href="http://erratique.ch/software/tgls/doc/">http://erratique.ch/software/tgls/doc/</a>
+
+To install (only tested on osx with OpenGL 3.2 and linux or raspberry 
+pi with OpenGL ES 2 so far) you'll need `curl` and `xmlm` installed on 
+your system. This is only for this pre-release, actual distribution will
+have the generated bindings. Then:
+
+  opam repo add erratique-u <a href="http://erratique.ch/software/opam/unreleased">http://erratique.ch/software/opam/unreleased</a>
+  opam update &amp;&amp; opam install xmlm tgls
+
+Sample code (needs tsdl, `opam install tsdl`), is in the directory 
+`opam config var tgls:doc`.
+
+If you want to hack the source first have a read at:
+
+  <a href="https://github.com/dbuenzli/tgls/blob/master/DEVEL.md">https://github.com/dbuenzli/tgls/blob/master/DEVEL.md</a> 
+
+then:
+
+  git clone <a href="http://github.com/dbuenzli/tgls">http://github.com/dbuenzli/tgls</a> 
+  cd tgls &amp;&amp; ./build support &amp;&amp; ./build trigl3.native &amp;&amp; ./trigl3.native
+
+A few notes:
+
+* This time the cryptic acronym is [T]hin bindings to Open[GL] librarie[S].
+  No need to waste everybody's time with alternate name suggestions:
+  it won't change. 
+
+* ocaml-ctypes was used as this was the shortest path to get the
+  work done, using it should also solve the problem of getting the
+  OpenGL function pointers. However the support for reading and making
+  sense of the OpenGL registry being done, regular OCaml stubs could
+  also be generated in the future if ctypes turns out to be a
+  bottleneck.
+
+* There's one OCaml library per major OpenGL release (which correspond
+  to GPU hardware generations). Such a library has all the entry
+  points and enumerants for supporting all the core (and only core)
+  profiles of each minor releases of the major release. If you are
+  programming with let's say 4.3 context it's your duty not to use a
+  4.4 entry point/enumerant.
+
+* I tried to include the C OpenGL libraries link flags in the OCaml ones
+  so that OCamler's can just use the package with ocamlfind to
+  build. Please report anything that may be missing. The current logic
+  is as follows. On Darwin for tgl{3,4} we link against the OpenGL
+  framework and nothing is done for tgles{2,3}. On linux pkg-config is
+  used when packages can be found: gl for tgl{3,4}, glesv2 for tgles2
+  and glesv3 (does that exist ?) for tgles3. Raspberry pi is like
+  linux but tgles2 links to the pi's GLESv2 library located in
+  /opt/vc/lib (would be nice from them to use pkg-config). 
+
+
+* A single type represents all GLenums. Types for subsets could 
+  be devised to enhance the signature/documentation of functions. This
+  was not done for now since it seems the data from the registry is
+  not clean/up to date (according to the registry's manual). However,
+  the documentation links to the entry point's documentation and
+  indicates the name of argument variables which should help to invoke
+  the functions correctly (could have automatically derived labelled
+  arguments but I thought that doing so systematically would result in
+  a cumbersome API).
+
+* The binding is very raw and can be unsafe. It could
+  be made safer by either:
+
+  1) Making more manual work, checking some bounds, automatically
+     deriving some arguments for sizes. Doing that automatically in
+     general is non trivial: for OpenGL 4.4 there are ~300 out of ~550
+     entry points with pointer arguments, the registry has an
+     attribute that should describe how the length of the pointer is
+     to be determined but according to the registry's manual its
+     syntax is poorely defined.
+
+  2) Devising higher-level APIs that ensure type safety. 
+
+  I tend to lean in favour of 2) OpenGL being so low-level and
+  tiresome (rendering a colored triangle in "modern" OpenGL is a few
+  hunderds of loc) that you'll anyway build an abstraction
+  (a.k.a. rendering engine) on top of it.
+
+* Binding generation is almost entirely automatic and type directed. 
+  At the moment for OpenGL 4.4 there are only 7 out of 543 entry
+  points that are manually devised. One thing that did require manual
+  work though, was to enrich the registry information to indicate
+  whenever null pointers can be specified for pointer arguments to map
+  them to option types as the registry does unfortunately not specify that.
+
+* There's no direct for support compatibility profiles or extensions. 
+  Nowadays it's easy enough to use directly ocaml-ctypes (extensions
+  usually add only a few entry points and/or enumerants). Alternatively 
+  tgls' generation infrastructure could be used as the extensions are also 
+  described in the registry but that may be overkill (some steps have been 
+  done in that direction but it's not a priority right now for me).
+
+I hope tgls can be a good starting point to get up to date OCaml
+OpenGL bindings as work for supporting new versions should be minimal
+provided they update the XML registry (which they should do since they
+use it to generate the C headers). A first release will be done in a
+few months, after the bindings will have been used a little bit by
+myself. Meanwhile your feedback is welcome. 
+
+Best,
+
+Daniel
+
+[1] <a href="http://www.opengl.org/registry/#specfiles">http://www.opengl.org/registry/#specfiles</a>
+      </pre><a name="4" /><hr /><h3>How to see an OCaml change in a browser</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2014-01/msg00014.html">https://sympa.inria.fr/sympa/arc/caml-list/2014-01/msg00014.html</a></p><i>Jakob Lichtenberg asked and Jeremy Yallop replied:</i><br /><pre>
+&gt; How can I look at source code change for:
+&gt;
+&gt;                 PR#5312: command-line arguments @reponsefile auto-expansion
+&gt; feature
+&gt;
+&gt; In a web browser?
+
+You can find it here:
+
+    <a href="https://github.com/ocaml/ocaml/commit/8c9ef9f24">https://github.com/ocaml/ocaml/commit/8c9ef9f24</a>
+
+(Searching for the PR number by running 'git log --grep=5312' in a
+clone of the OCaml repository returns the revision number, 8c9ef9f24.)
+      </pre><a name="5" /><hr /><h3>Other OCaml News</h3><i>From the ocamlcore planet blog:</i><br /><pre>
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <a href="http://planet.ocaml.org/">http://planet.ocaml.org/</a>.
+
+OCaml: the bugs so far:
+  <a href="http://roscidus.com/blog/blog/2014/01/07/ocaml-the-bugs-so-far/">http://roscidus.com/blog/blog/2014/01/07/ocaml-the-bugs-so-far/</a>
+
+When QuickCheck Fails Me:
+  <a href="http://www.mega-nerd.com/erikd/Blog/CodeHacking/Haskell/quickcheck_fail.html">http://www.mega-nerd.com/erikd/Blog/CodeHacking/Haskell/quickcheck_fail.html</a>
+
+Presenting Decks:
+  <a href="http://openmirage.org/blog/decks-n-drums">http://openmirage.org/blog/decks-n-drums</a>
+
+Fedora 21 has a working OCaml ARM64:
+  <a href="http://rwmj.wordpress.com/2013/12/31/fedora-21-has-a-working-ocaml-arm64/">http://rwmj.wordpress.com/2013/12/31/fedora-21-has-a-working-ocaml-arm64/</a>
+      </pre><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

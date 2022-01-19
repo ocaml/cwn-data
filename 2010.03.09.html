@@ -1,0 +1,510 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2010.03.02.html">Previous week</a> <a href="index.html">Up</a> <a href="2010.03.16.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of March 02 to 09, 2010.</p><ol><li><a href="#1">gc overhead</a></li><li><a href="#2">MetaOCaml lives!</a></li><li><a href="#3">Encoding an extensible parse tree and subtyping within OCaml</a></li><li><a href="#4">NaCl/OCaml (OCaml as a client-side web programming language)</a></li><li><a href="#5">Commercial Users of Functional Programming - call for participation</a></li><li><a href="#6">Other Caml News</a></li></ol><a name="1" /><hr /><h3>gc overhead</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/1eed3e0c978e47f2#">http://groups.google.com/group/fa.caml/browse_thread/thread/1eed3e0c978e47f2#</a></p><i>Warren Harris asked and Sylvain Le Gall replied:</i><br /><pre>
+&gt; I would like to determine what percentage of my application's cpu time
+&gt; is spent in the garbage collector (for tuning purposes, but also just
+&gt; to monitor the overhead). Is there any way to obtain this information
+&gt; short of using gprof? Additional information provided by Gc.stat would
+&gt; be ideal, or perhaps a Gc.alarm that was called at the beginning of
+&gt; the gc cycle, but neither of these seem to exist.
+
+You can have a look at:
+<a href="http://ocamlviz.forge.ocamlcore.org">http://ocamlviz.forge.ocamlcore.org</a>
+
+This allow to instrument your code and watch GC activity. I think that
+with a little a little help on program side, you can be quite precise
+about GC without using gprof at all. This should also be more
+lightweight than gprof.
+	   </pre><i>Edgar Friendly then said:</i><br /><pre>
+I'd like to add my personal experience with ocamlviz - it's a great program,
+and has helped me a ton find unexpected performance. It has very good
+functions for starting and stopping timers that the gui can monitor in
+realtime, and associating these with counts of how many times your program
+reached a certain point can give good understanding of function call cost.
+It's memory profiler makes a very pretty graph of how much memory is in use by
+your program. I've also gotten started using its ability to watch the live
+value of ref values to monitor the state of the program easier than
+[eprintf]s, especially monitoring the state of many variables at once. It's
+very fast and the ability to debug over the network has come in handy more
+than once.
+
+This said, I've wanted to measure GC overhead with it, and found it lacking in
+that regard. If anyone finds a way to do this, I'm interested.
+
+I've not done much with its tree viewer, and the hashtbl monitor only
+indicated that the Hashtbl.t I was using had an amazingly horrible hash, and
+was filling only 3% of its buckets, and had thousands of entries in a few
+buckets. I tried to fix the hash, but ended up switching to a Map.
+
+Lastly, the ability to mark in memory certain values and have it count the
+total usage and/or count of those values seems interesting, but gets quite
+slow. I've not had much luck with it.
+
+Overall, good job.  But is it going to die or stay maintained?
+	   </pre><i>Sylvain Le Gall replied:</i><br /><pre>
+Well, I hope it will stay maintained. At least source code, bugs and
+release on the forge will stay there for a long time (I can make promise
+on this part). And whenever current developpers become inactive,
+OCamlCore.org administrators can move ownership to other (with notice to
+current owner, of course):
+<a href="http://www.ocamlcore.org/philosophy/">http://www.ocamlcore.org/philosophy/</a> (point 4)
+
+But anyway, this kind of tool is targeted at debugging on the first
+place. It is not a mandatory piece of a software/library. You can lie
+without it, when you have finished your job debugging/profiling your
+program.
+
+So I would say that long term maintainance should not bother user for
+now. It is actually something that is lightweight and that works. To my
+mind this is enough to consider using it.
+
+If a lot of people start using it, it is highly probable that it will
+stay maintained.
+	   </pre><i>Peter Hawkins suggested and Warren Harris replied:</i><br /><pre>
+&gt; I would have recommended using oprofile on linux, which I greatly
+&gt; prefer to GCC's built-in profiling support for profiling C programs.
+&gt; It has a low and tunable overhead, and because it's a sampling
+&gt; profiler it doesn't perturb the results anywhere near as much as
+&gt; standard profiling instrumentation.
+&gt; 
+&gt; Unfortunately last time I checked it had poor OCaml support (no
+&gt; support for unwinding the OCaml call stack, so no context-sensitivity
+&gt; in the profiles). That said, you probably don't need
+&gt; context-sensitivity to determine the fraction of execution time spent
+&gt; in the GC.
+
+Peter - gprof with ocaml works quite well:
+<a href="http://caml.inria.fr/pub/docs/manual-ocaml/manual031.html">http://caml.inria.fr/pub/docs/manual-ocaml/manual031.html</a>
+	   </pre><i>Peter Hawkins then replied:</i><br /><pre>
+I'm fully aware of gprof and ocaml's support of profiling.
+
+OCaml's profiling support works by adding calls to the _mcount library
+function at the entry point to every compiled function, which takes
+approximately 10 instructions on x86 (pushes and pops to save
+registers, and a call instruction). The _mcount function records
+function call counts, and is also responsible for producing the call
+graph. Separately, the profile library samples the program counter at
+some frequency, which lets us work out in which functions the program
+is spending its time.
+
+Using OCaml's profiling support has three problems:
+1) programs compiled with profiling are slower, and
+2) the profiling instrumentation itself distorts the resulting profile, and
+3) the call graph accounting is inaccurate.
+
+Let's discuss each of these in turn:
+
+Problem (1) is simply that your program has extra overhead from all of
+those _mcount calls, which occur on every function invocation. You
+can't turn them off, and you can't make them happen less frequently.
+It's an all-or-nothing proposition. It would be unusual to include
+profiling instrumentation in a production system.
+
+Problem (2) is a little more subtle. Recall that the profiling
+instrumentation adds ~10 instructions to the start of each function,
+regardless of its size. For a large function, this may be a negligible
+overhead. For a small function, say one that was only 5 or 10
+instructions in size to begin with, that is a substantial overhead.
+Since we determine how much time is spent in each function by sampling
+the program counter, small and frequently called functions will appear
+to take relatively longer than larger functions in the resulting
+profile. Small functions are common in OCaml code so we should see an
+appreciable amount of distortion.
+
+Problem (3) is a criticism of the _mcount mechanism in general. For
+each function f(), the profiler knows (a) how long we spent executing
+f() in total, and (b) how many times each of f()'s callers invoked
+f(). We do not know how much time f() spent executing on behalf of any
+given caller. If we assume that all of f()'s invocations took
+approximately the same amount of time, then we can use the caller
+counts to approximate the time spent executing f() on behalf of each
+caller. However, the assumption that f() always takes approximately
+the same amount of time is not necessarily a good one. I think it's an
+especially bad assumption in a functional program.
+
+These problems are avoided by using a sampling profiler like oprofile
+or shark, which samples an _uninstrumented_ binary at  a particular
+frequency. Because the binary is unmodified, we can turn profiling on
+and off on a running system, avoiding point (1); furthermore we can
+adjust the sampling rate so profiling overhead is low enough to be
+tolerable. Since there is no instrumentation added to the program, the
+resulting profile does not suffer from the distortion of point (2).
+Some profilers (e.g. shark on Mac OS X) can deal with point (3) as
+well --- all we need to do is record a complete stack trace at
+sampling time.
+
+My point was that oprofile or one of its cousins (e.g. shark) is
+probably adequate for your needs. You can set the sampling rate low
+enough that your service can run more or less as normal. To determine
+GC overhead, you simply need to look at the total amount of time spent
+in the various GC functions of the runtime.
+	   </pre><i>Warren Harris then replied and David MENTRE	said:</i><br /><pre>
+&gt; Thanks, this is excellent info. I've been using both gprof and shark and
+&gt; understand the tradeoffs. I really was looking for a way to just provide a
+&gt; simple live "gc overhead" number that we could graph along with a bunch of
+&gt; other server health stats for our zenoss monitors.
+
+So simply enable gprof on OCaml binaries and look at the total
+fraction of time spent in OCaml GC functions!
+
+<a href="http://caml.inria.fr/pub/ml-archives/caml-list/2003/01/e8ee9d44073ff9cb7d257fef86bc8f53.en.html">http://caml.inria.fr/pub/ml-archives/caml-list/2003/01/e8ee9d44073ff9cb7d257fef86bc8f53.en.html</a>
+	   </pre><i>Olivier Andrieu	replied to the original post:</i><br /><pre>
+Here's what I use to measure GC overhead in my programs.
+There's a small modification to the runtime, so as to track the time
+spent in caml_minor_collection, and a helper ml module. It tracks and
+prints the time spent between calls to the start() and stop() function
+of the helper module, as well the number of collections, number of
+bytes allocated, etc.
+
+It is rather coarse-grained of course. I use it to profile the
+different parts of a compiler: parsing, typing, optimizations, code
+generation, etc.
+
+(Please see the archive link to download the attached files.)
+	   </pre><a name="2" /><hr /><h3>MetaOCaml lives!</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/098357ea26046912#">http://groups.google.com/group/fa.caml/browse_thread/thread/098357ea26046912#</a></p><i>Oleg announced:</i><br /><pre>
+This is to announce BER MetaOCaml, a streamlined version of
+MetaOCaml. BER MetaOCaml is a conservative extension of OCaml with
+the primitive type of code values, and three basic multi-stage
+expression forms: Brackets, Escape, and Run. BER MetaOCaml implements
+the type system based on environment classifiers to type-check
+expressions that produce and run code values. BER MetaOCaml makes no
+other changes to the OCaml language, remaining fully compatible with
+the underlying OCaml system. BER MetaOCaml is current with the
+byte-code OCaml release 3.11.2.
+
+BER MetaOCaml is based on an earlier version of MetaOCaml developed by
+Walid Taha, Cristiano Calcagno, and Edward Pizzi, with the help and
+advice of Xavier Leroy.
+
+The goal of the BER MetaOCaml project is to reduce as much as possible
+the differences between MetaOCaml and the mainline OCaml, to make it
+easier to keep MetaOCaml up-to-date and ensure its long-term
+viability. We aim to find the most harmonious way of integrating
+staging with OCaml, with the remote hope that some of the changes
+would make it to the main OCaml branch. Therefore BER MetaOCaml is
+distributed as a set of patches to OCaml plus a separate library
+ber-metaocaml. The patched OCaml is responsible for producing and
+type-checking code values. Processing code values -- printing,
+executing, compiling to byte-code, to native code, to C, etc. are to
+be done in the `user-level,' library code. Programmers may write new
+ways of processing code values -- for example, to compile them to LLVM
+or JavaScript -- without modifying OCaml or BER MetaOCaml.
+
+This message announces the first stable version of byte-code
+BER MetaOCaml.  Light testing confirms that BER MetaOCaml is
+backwards-compatible with MetaOCaml, handling previously written
+MetaOCaml code exactly as it was.
+
+Currently BER MetaOCaml is restricted to byte-code. Support for the
+native code compilation is of high priority. However, better ways of
+handling cross-stage persistent values have to be investigated first.
+Camlp4 is not yet extended to support MetaOCaml's special forms,
+bracket and escape. Offshoring is temporarily disabled; it is meant to
+be separated into a dedicated `user-level' library.
+
+The BER MetaOCaml distribution can be downloaded from
+       <a href="http://okmij.org/ftp/ML/ber-metaocaml.tar.gz">http://okmij.org/ftp/ML/ber-metaocaml.tar.gz</a>
+
+To install BER MetaOCaml, one needs a configured version of OCaml
+3.11.2. The installation involves patching the OCaml distribution,
+bootstrapping the system, and compiling the ber-metaocaml library and the
+BER MetaOCaml toplevel. The patched OCaml compiler is fully
+source-compatible with OCaml and can process OCaml code, with staging
+constructs or without. The patched OCaml compiler can compile into
+native code (although such sources may not contain any staging
+constructs at the moment). Please see the INSTALL and README files in
+the BER MetaOCaml distribution for more details.
+
+The number of patched OCaml files may appear high. First of all, BER
+MetaOCaml modifies 23 fewer files compared to the original
+MetaOCaml. There are plans and hunches to reduce the number of the
+patched files further. Many of the modifications are quite
+trivial. For example, since BER MetaOCaml extends the AST data type
+with staging constructs, any code that processes AST has to be
+modified (at least, to ignore the extra AST variants). One would
+imagine that quite a lot of code in a compiler deals with AST.
+
+I am indeed interested in problem reports, questions and
+suggestions. Please follow-up to metaocaml-hackers-l@mailman.rice.edu,
+or mail me privately.
+
+I am very grateful to Walid Taha, Jacques Carette, and Chung-chieh
+Shan for many helpful discussions, suggestions and advice.
+	   </pre><a name="3" /><hr /><h3>Encoding an extensible parse tree and subtyping within OCaml</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/0a7900499f7714ed#">http://groups.google.com/group/fa.caml/browse_thread/thread/0a7900499f7714ed#</a></p><i>Joe asked:</i><br /><pre>
+    Is there a good way to encode a parse tree in OCaml where the terms
+    in the parse tree can be extended later?  Essentially, it would be
+    nice not to represent the trees for different grammars separately
+    so that code for type checking, evaluation, or pretty printing can
+    be reused.  I'm including one possible solution below that seems to
+    work reasonably well, but I'm interested in whether this can be
+    done better.  The two things that would be nice to improve upon the
+    example are preventing statements such as "bad" where improper
+    trees are created.  It would also be nice to have the OCaml type
+    system flag an error on the line with "`Junk". Though, it does give
+    a warning now.
+
+Joe
+
+type base = [`Int of int];;
+type 'a basic= [base | `Add of 'a*'a | `Sub of 'a*'a ];;
+type 'a ext= ['a basic | `Mul of 'a*'a];;
+
+type basic'=('a basic as 'a) basic;;
+type ext'=('a ext as 'a) ext;;
+
+let (x:'a basic)=`Add (`Int 1,`Int 2);;
+let (y:'a ext)=`Mul (x,`Int 3);;
+let (z:'a basic)=`Add (`Int 3,x);;
+let w=`Add (`Mul (`Int 1,`Int 2),`Int 3);;
+let (bad:'a basic)=`Add (1,2);;
+
+
+let pp x=
+   let rec pp (x:ext') =
+       match x with
+       | `Int x-&gt; Printf.printf "%d" x
+       | `Add (x,y) -&gt;
+           pp x; Printf.printf "+"; pp y
+       | `Sub (x,y) -&gt;
+           pp x; Printf.printf "-"; pp y
+       | `Mul (x,y) -&gt;
+           pp x; Printf.printf "*"; pp y
+       | `Junk -&gt; Printf.printf "BAD!"
+   in
+   pp (x :&gt; ext');Printf.printf "\n"
+;;
+
+let eval x=
+   let rec eval (x:basic')=
+       match x with
+       | `Int x -&gt; x
+       | `Add (x,y) -&gt; (eval x) + (eval y)
+       | `Sub (x,y) -&gt; (eval x) - (eval y)
+   in
+   eval (x:&gt;basic')
+;;
+	   </pre><i>Markus Mottl suggested:</i><br /><pre>
+&gt; type basic'=('a basic as 'a) basic;;
+&gt; type ext'=('a ext as 'a) ext;;
+
+This could also be written as:
+
+ type basic' = basic' basic
+ type ext' = ext' ext
+
+Cyclic types are acceptable to the compiler if the cycle is on
+polymorphic variants.
+
+&gt; let (x:'a basic)=`Add (`Int 1,`Int 2);;
+&gt; let (y:'a ext)=`Mul (x,`Int 3);;
+&gt; let (z:'a basic)=`Add (`Int 3,x);;
+&gt; let w=`Add (`Mul (`Int 1,`Int 2),`Int 3);;
+&gt; let (bad:'a basic)=`Add (1,2);;
+
+When solving the problem with "bad", type constraints are your friend.
+ Just define type 'basic" as e.g.:
+
+ type 'a basic= [base | `Add of 'a*'a | `Sub of 'a*'a ] constraint 'a
+= [&gt; base];;
+
+To fix the "Junk" problem, you may need to specify the type for one of
+the patterns, e.g.:
+
+      match x with
+      | (`Int x : ext')-&gt; Printf.printf "%d" x
+      ...
+
+But the function itself is not extensible.  To achieve this, you'll
+have to define it in a similar way as we did for the type by
+introducing another parameter to "tie the recursive knot".  E.g.
+(ignore incorrect printing of arithmetic expressions):
+
+ let pp_base (`Int n) = Printf.printf "%d" n
+
+ let pp_basic pp = function
+   | #base as base -&gt; pp_base base
+   | `Add (l, r) -&gt; pp l; Printf.printf "+"; pp r
+   | `Sub (l, r) -&gt; pp l; Printf.printf "-"; pp r
+
+ let pp_ext pp = function
+   | #basic as basic -&gt; pp_basic pp basic
+   | `Mul (l, r) -&gt; pp l; Printf.printf "*"; pp r
+
+ let rec pp_basic' basic' = pp_basic pp_basic' basic'
+ let rec pp_ext' ext' = pp_ext pp_ext' ext'
+
+You will need to constrain a pattern with a type again if you want to
+make sure that the pattern match fails in the right place (match case)
+if unsupported tags are added.  You could also turn warnings into
+errors, which should also fail on the "unused match case" then.
+
+IMHO, these features of polymorphic variants are the best thing since
+sliced bread, since they allow for elegant extensibility of e.g.
+recursive DSLs.
+	   </pre><a name="4" /><hr /><h3>NaCl/OCaml (OCaml as a client-side web programming language)</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/0624ae9e41bad6a5#">http://groups.google.com/group/fa.caml/browse_thread/thread/0624ae9e41bad6a5#</a></p><i>Jeremy Bem announced:</i><br /><pre>
+I'm pleased to announce the initial release of NaCl/OCaml, a version
+of the native-code OCaml compiler whose output can be validated as
+safe to run over the web.  Together with the "Native Client" plug-in
+under development at Google, this means that OCaml can now be used for
+client-side web programming!
+
+For more about Native Client, see <a href="http://code.google.com/p/nativeclient/">http://code.google.com/p/nativeclient/</a>.
+
+For NaCl/OCaml, including a ray tracer demo, see
+<a href="http://code.google.com/p/nacl-ocaml/">http://code.google.com/p/nacl-ocaml/</a>.
+
+Feedback is welcome and appreciated.  Please feel free to email me,
+report bugs at the project website, or email
+nacl-ocaml-discuss@googlegroups.com .
+	   </pre><i>Daniel Bünzli	asked and Jeremy Bem replied:</i><br /><pre>
+&gt; Interesting contribution.
+&gt;
+&gt; Maybe this is more a question about native client but could you
+&gt; elaborate on the kind of constraints nacl puts on the client code.
+&gt; Which libraries can be used ? The standard library ? str.cmxa ?
+&gt; unix.cmxa ? Third party pure caml modules ? C bindings ? etc.
+
+I hope to post more documentation, but in a nutshell:
+
+standard library: Yes, but file operations are typically unavailable
+at the NaCl level and will fail.
+
+Str (and Num): I haven't included these yet, but I intend to.
+
+Unix: Similar capabilities are provided by the "Service" library
+instead.  This seemed slightly more in keeping with the NaCl
+underpinnings than hacking Unix into submission.
+
+Third party OCaml modules should be compilable and usable, just use
+"nacl-ocamlopt" in place of "ocamlopt".  Of course complex libraries
+may present complications in practice (e.g. if they try to access the
+filesystem).
+
+C bindings: it should be possible to interface with C code as per the
+OCaml manual, again substituting "nacl-ocamlopt" for "ocamlopt".  The
+NaCl-specific libraries that are included (such as "Multimedia")
+provide a template that can be emulated.
+	   </pre><i>Vincent Balat said:</i><br /><pre>
+Very interesting! We will try to make Eliom Client (the client side
+programming framework for Ocsigen) work on it.
+
+A summary of solutions to use Ocaml for client side programming:
+ - OcamlJs (by Jake Donham): compiler OCaml -&gt; JS
+ - O'Browser (by Benjamin Canou): Ocaml virtual machine written in JS
+ - NaCl/Ocaml: native code! (but requires Native client to be installed and
+only x86 for now)
+ - and there may also be a compiler Ocaml bytecode -&gt; JS soon ;-)
+	   </pre><a name="5" /><hr /><h3>Commercial Users of Functional Programming - call for participation</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/22e821c64a67a567#">http://groups.google.com/group/fa.caml/browse_thread/thread/22e821c64a67a567#</a></p><i>Yaron Minsky announced:</i><br /><pre>
+The following is the call for participation for CUFP, the Commerical Users of
+Functional Programming workshop that is co-located with ICFP. If you have
+experience using OCaml (or another functional language) in a practical
+application, consider submitting a proposal to give a talk about it at CUFP!
+
+Also, check out the new CUFP website: <a href="http://cufp.org">http://cufp.org</a>
+
+Without further ado:
+
+CUFP 2010 Call For Participation
+================================
+
+Functional programming languages have been a hot topic of academic
+research for over 35 years, and have seen an ever larger practical
+impact in settings ranging from tech startups to financial firms to
+biomedical research labs.  At the same time, a vigorous community of
+practically-minding functional programmers has come into existence.
+
+CUFP is designed to serve this community.  The annual CUFP workshop is
+a place where people can see how others are using functional
+programming to solve real world problems; where practitioners meet and
+collaborate; where language designers and users can share ideas about
+the future of their favorite language; and where one can learn
+practical techniques and approaches for putting functional programming
+to work.
+ 
+Giving a CUFP Talk
+------------------
+ 
+If you have experience using functional languages in a practical
+setting, we invite you to submit a proposal to give a talk at the
+workshop.  We're looking for two kinds of talks:
+
+**Experience reports** are typically 25 minutes long, and aim to inform
+participants about how functional programming plays out in real-world
+applications, focusing especially on lessons learned and insights
+gained. Experience reports don't need to be highly technical;
+reflections on the commercial, management, or software engineering
+aspects are, if anything, more important. You do not need to submit a
+paper!
+
+**Technical talks** are expected to be 30-45 minutes long, and should
+focus on teaching the audience something about a technical technique
+or methodology, from the point of view of someone who has seen it play
+out in practice.  These talks could cover anything from techniques for
+building functional concurrent applications, to managing dynamic
+reconfigurations, to design recipes for using types effectively in
+large-scale applications.  While these talks will often be based on a
+particular language, they should be accessible to a broad range of
+functional programmers.
+
+If you are interested in offering a talk, or nominating someone to do
+so, send an e-mail to francesco(at)erlang-consulting(dot)com or
+yminsky(at)janestreet(dot)com by 15 May 2010 with a short description
+of what you'd like to talk about or what you think your nominee should
+give a talk about. Such descriptions should be about one page long.
+ 
+There will be no published proceedings, as the meeting is intended to
+be more a discussion forum than a technical interchange.
+
+Program Committee
+-----------------
+
+* Francesco Cesarini, Erlang Training and Consulting (Co-Chair)
+* Tim Dysinger, Sonian Networks
+* Alain Frisch, LexiFi
+* Nick Gerakines, Chegg
+* Adam Granicz, IntelliFactory
+* Amanda Laucher
+* Romain Lenglet, Google Japan
+* Yaron Misky, Jane Street (Co-Chair)
+* Mary Sheeran, Chalmers
+* Don Stewart, Galois
+* Dean Wampler, DRW Trading
+
+More information
+----------------
+
+For more information on CUFP, including videos of presentations from
+previous years, take a look at the CUFP website at <a href="http://cufp.org">http://cufp.org</a>.
+	   </pre><a name="6" /><hr /><h3>Other Caml News</h3><i>From the ocamlcore planet blog:</i><br /><pre>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <a href="http://planet.ocamlcore.org/">http://planet.ocamlcore.org/</a>.
+
+Liquidsoap-full 0.9.2-2 and ocaml-cry 0.1.2:
+  <a href="http://blog.rastageeks.org/spip.php?article58">http://blog.rastageeks.org/spip.php?article58</a>
+
+OCaml CSV 1.2:
+  <a href="http://caml.inria.fr/cgi-bin/hump.cgi?contrib=447">http://caml.inria.fr/cgi-bin/hump.cgi?contrib=447</a>
+
+OCamlEditor 1.2 released:
+  <a href="http://forge.ocamlcore.org/forum/forum.php?forum_id=553">http://forge.ocamlcore.org/forum/forum.php?forum_id=553</a>
+
+OCaml-FPDF:
+  <a href="https://forge.ocamlcore.org/projects/ocamlfpdf/">https://forge.ocamlcore.org/projects/ocamlfpdf/</a>
+
+ocaml batteries included 1.1.0 is in debian now:
+  <a href="http://upsilon.cc/~zack/blog/posts/2010/03/ocaml_batteries_included_1.1.0_is_in_debian_now/">http://upsilon.cc/~zack/blog/posts/2010/03/ocaml_batteries_included_1.1.0_is_in_debian_now/</a>
+
+Reading Camlp4, part 5: filters:
+  <a href="http://ambassadortothecomputers.blogspot.com/2010/03/reading-camlp4-part-5-filters.html">http://ambassadortothecomputers.blogspot.com/2010/03/reading-camlp4-part-5-filters.html</a>
+      </pre><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

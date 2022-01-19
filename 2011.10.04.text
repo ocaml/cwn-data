@@ -1,0 +1,347 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of September 27 to October 04, 2011.
+
+1) Weird GC behaviour
+2) ODT 2.0 released
+3) New York City OCaml Users Group
+4) lablgtk-react preview
+5) Other Caml News
+
+========================================================================
+1) Weird GC behaviour
+Archive: <https://sympa-roc.inria.fr/wws/arc/caml-list/2011-09/msg00205.html>
+------------------------------------------------------------------------
+** Thomas Fischbacher asked:
+
+The example below shows GC behaviour which in my view is somewhat
+weird: I am building two very similar sorts of hash tables that map
+variant types to strings. The parameter "works" (which gets passed
+through from the "demo" to the "setup" function) allows one to choose,
+when calling the script, whether it behaves properly or shows weird
+behaviour.
+
+For Rtag, inlining get_rtag does not make a difference, but for Ftag,
+inlining the get_ftag call breaks things both with the interpreter and
+compiler, but in different ways.
+
+So... my question is: is there a documented reliable way to avoid this
+sort of funny behaviour?!?
+
+=================================
+type funny_tag = Ftag of string;;
+
+type funny_ref = Rtag of string ref;;
+
+let get_ftag s = Ftag s;;
+
+let get_rtag s = Rtag (ref s);;
+
+let fin_str ht k =
+  let Ftag s = k in
+  let () = Printf.printf "Removing str '%s'\n%!" s in
+  Hashtbl.remove ht k
+;;
+
+let fin_ref ht k =
+  let Rtag rs = k in
+  let () = Printf.printf "Removing ref '%s'\n%!" !rs in
+  Hashtbl.remove ht k
+;;
+
+
+let setup works =
+  let ht_str = Hashtbl.create 17 in
+  let ht_ref = Hashtbl.create 17 in
+  let (funny_str, funny_ref) =
+  if works
+    then (get_ftag "funny",get_rtag "funny")
+    else (Ftag "funny", Rtag (ref "funny"))
+  in
+(* Note that they keys used below are equal but not identical to the entities above *) 
+  let () = Hashtbl.add ht_str (Ftag "funny") "situation" in
+  let () = Hashtbl.add ht_ref (Rtag (ref "funny")) "situation" in
+  let () = Gc.finalise (fin_str ht_str) funny_str in
+  let () = Gc.finalise (fin_ref ht_ref) funny_ref in
+  ((ht_str,ht_ref),(funny_str,funny_ref))
+;;
+
+let left (p,q) = p;;
+
+let demo works =
+  let (ht_str,ht_ref) = left (setup works) in
+(* Note that I drop the references on the keys that have finalizers registered. *) 
+  let () = Gc.full_major () in
+  let () = Gc.compact () in
+Printf.printf "ht_str entries: %d ht_ref entries: %d\n%!" (Hashtbl.length ht_str) (Hashtbl.length ht_ref) 
+;;
+
+let () = demo (Array.length Sys.argv > 1 && Sys.argv.(1) = "magic");;
+
+
+(* === Behaviour ===
+
+$ ocaml gc_bug.ml
+Removing ref 'funny'
+ht_str entries: 1 ht_ref entries: 0
+
+$ ocaml gc_bug.ml magic
+Removing ref 'funny'
+Removing str 'funny'
+ht_str entries: 0 ht_ref entries: 0
+
+$ ocamlopt -o gc_bug gc_bug.ml
+
+$ ./gc_bug
+Fatal error: exception Invalid_argument("Gc.finalise")
+
+$ ./gc_bug magic
+Removing ref 'funny'
+Removing str 'funny'
+ht_str entries: 0 ht_ref entries: 0
+
+$ ocaml
+        Objective Caml version 3.12.0
+
+#
+
+$ uname -prs
+FreeBSD 9.0-BETA3 amd64
+
+============ *)
+      
+** Damien Doligez replied:
+
+> For Rtag, inlining get_rtag does not make a difference, but for Ftag,
+> inlining the get_ftag call breaks things both with the interpreter and
+> compiler, but in different ways.
+
+That's the key.
+
+>  if works
+>    then (get_ftag "funny",get_rtag "funny")
+>    else (Ftag "funny", Rtag (ref "funny"))
+>  in
+
+In this expression, you have four interesting subexpressions.  Three of
+them involve calling some function with "funny" as argument, and these
+functions allocate values that point to the "funny" string.  These values
+are heap-allocated and behave as you expect.
+
+The fourth one is (Ftag "funny").  This is a constant expression and its
+evaluation does not allocate in the heap.  Since it's constant, it's
+allocated once by the compiler, and every time you execute this code
+it's the same value that is returned.
+
+In byte-code it's still allocated in the heap, but at load-time, and
+a reference to it is hidden in the closure of the enclosing function.
+Hence, it never gets deallocated:
+
+> $ ocaml gc_bug.ml
+> Removing ref 'funny'
+> ht_str entries: 1 ht_ref entries: 0
+
+You don't get the "Removing str 'funny'" message because the value
+stays alive throughout program execution.
+
+In native code, it's even more optimized: the value is "allocated" at
+compile time as constant data outside the heap.  Hence, you can't even
+register a finalizer for it:
+
+> $ ocamlopt -o gc_bug gc_bug.ml
+> 
+> $ ./gc_bug
+> Fatal error: exception Invalid_argument("Gc.finalise")
+
+
+Only heap data can be finalized.
+
+So you have to be aware of the difference between (get_ftag "funny") and
+(Ftag "funny") because they don't have exactly the same semantics: a call
+to get_ftag is guaranteed to allocate a new block each time.
+      
+** Thomas Fischbacher then asked and Damien Doligez replied:
+
+Others have mostly answered your questions, but to be complete I want
+to add the following:
+
+> How come (Ftag "funny") is regarded as constant while
+> (Rtag (ref "funny")) is not?
+
+The difference here is that (ref "funny") is a function call.  The
+compiler doesn't know that the "ref" function just allocates a record.
+
+> After all, strings are mutable in OCaml,
+> so there really is not that much of a conceptual difference between a
+> string and a string ref in that respect:
+
+You should rather look at the analogy between strings and arrays, but
+as Gabriel said, string literals are very rarely mutated in practice,
+so it makes more sense to have "funny" return the same string instead
+of allocating.
+
+> But the problem I think I have with OCaml is: there just seems to be no
+> way to properly express the conceptual difference between '(1 2 3 4 5)
+> and (list 1 2 3 4 5): All I can say above is: Ftag "Hello".
+
+You should say (Ftag (String.copy "Hello")) if you want a fresh mutable
+string.  I wouldn't recommend appending "" or using Obj.dup (yuck!)
+
+I agree it was a mistake to make strings mutable, but we have to live
+with it for the time being.  If you want to be perfectly safe, you can
+wrap all string literals with String.copy in your program.
+      
+========================================================================
+2) ODT 2.0 released
+Archive: <https://sympa-roc.inria.fr/wws/arc/caml-list/2011-09/msg00218.html>
+------------------------------------------------------------------------
+** Emmanuel Dieul announced:
+
+This mail announces the new release of ODT: 2.0. 
+ODT (OCaml Development Tools) is an Eclipse plug-in for OCaml.
+
+Yes, ODT is still alive. All releases are not always announced on this 
+mailing list, as ODT might not be enough developed to be really useful
+for industrial developments.
+
+However, after a long period of development and tests, the 2.0 release
+came out. It brings new functionalities, like separate and conditional 
+compilation and camlp4 support. It also becomes more mature.
+
+ODT needs a lot of feedback to be more robust, and also to decide
+the development priorities.
+
+Don't hesitate to try ODT, even for fun. ODT can be installed as explained
+into the install notes (<http://ocamldt.free.fr/spip.php?article5>). 
+The tutorial has also been rewritten and screenshots have been updated.
+The release news (with more technical information) is available at 
+<http://ocamldt.free.fr/spip.php?breve23>.
+      
+========================================================================
+3) New York City OCaml Users Group
+Archive: <https://sympa-roc.inria.fr/wws/arc/caml-list/2011-09/msg00241.html>
+------------------------------------------------------------------------
+** Ashish Agarwal announced:
+
+We are pleased to announce a users group for OCaml programmers in the
+New York City area. Our goal is simply to have a forum where OCaml
+programmers can connect with each other when desired. Everyone is
+welcome to host a talk on any OCaml related topic, propose a casual
+get together just to meet people, or anything else you think OCaml
+programmers will want to do.
+
+We are hosting the group on meetup.com:
+<http://www.meetup.com/NYC-OCaml/>. The site is configured to let anyone
+create an event on their own, but feel free to contact the organizers
+first if you would like.
+
+Our first meetup is scheduled for Oct 12, where we will discuss Ocsigen.
+      
+========================================================================
+4) lablgtk-react preview
+Archive: <https://sympa-roc.inria.fr/wws/arc/caml-list/2011-10/msg00006.html>
+------------------------------------------------------------------------
+** Adrien Nader announced:
+
+I am pleased and relieved to announce lablgtk-react, a project to ease
+the use of Functional Reactive Programming (FRP) for lablgtk-based
+graphical user interfaces.
+
+Currently, the project is available as a preview but I am happy with the
+way it is looking and with the programming style it offers and have
+decided to announce it in order to receive feedback and comments.
+Installation is not perfect and best thing for new codes is to try from
+the src/tests directory.
+
+Put simply, FRP makes it possible to write functional code whose inputs
+and arguments originate from imperative event sources. For instance, you
+can have a button and execute functional code each time it is clicked,
+carrying a state of the button between presses. As such, it really only
+benefits functional languages.
+
+Currently, the source distribution contains one example: browser_test.
+It creates a tab-based web browser where tabs are elements in a zipper
+and are themselves updated in a functional way. The state which models
+the browsing session is currently quite simple: the page title and the
+page URI. However, the page title is shown in the tab label and in the
+window title, it is also possible to move tabs around and the code is
+_simple_.
+
+My ultimate goal is to make a browser that I can call "intelligent" and
+spend time on the interesting part instead of becoming mad because of
+the UI.
+
+Also, don't forget that OCaml is multi-paradigm: choose the right one for
+each task and don't hesitate to mix them.
+
+The only dependency is lablgtk2. You can use any FRP implementation that
+provides "create" and "fold" (a very simple and mostly untested one is
+provided as "MiniFRP" in the source). The example uses lablwebkit[1].
+
+The project website includes some more infos and a longer introduction:
+  <http://lablgtk-react.forge.ocamlcore.org>
+
+[1] lablwebkit-1.4.0 (compatible with webkit-gtk >= 1.4.0) is available at
+  <http://forge.ocamlcore.org/frs/download.php/702/lablwebkit-1.4.0.tar.gz>
+      
+** He later added:
+
+I forgot to mention that you need lablgtk2's adrien/mix branch for the
+examples (and only for the examples iirc).
+
+There are two reasons. It uses some additional API, especially
+#as_something methods and "notify::foo" signals. lablwebkit also
+requires a bug fix that it not merged into master yet.
+
+Also, godi users are a bit privileged with lablgtk and lablwebkit
+since they have an option in lablgtk's configuration to use the
+sources from the <http://git.ocamlcore.org/lablgtk/lablgtk.git> git repo
+and the adrien/mix branch directly.
+For lablwebkit, <http://notk.org/~adrien/godi-lablwebkit.tar.gz> can be
+extracted to $GODIPREFIX/build/godi, along with the sources I linked
+being put in $GODIPREFIX/build/distfiles.
+
+Generally speaking, installation of lablwebkit is done through
+ocamlfind and you will need the various development packages for
+webkit-gtk in case your distribution splits packages.
+
+Packaging of everything will be improved over the time of course (use
+of OASIS everywhere is planned).
+      
+========================================================================
+5) Other Caml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocamlcore.org/>.
+
+A mailing list for Core:
+  <http://ocaml.janestcapital.com/?q=node/98>
+
+Senior Engineer (Java, OCaml, Scala, Datalog) at Contemplate (Full-time):
+  <http://functionaljobs.com/jobs/79/senior-engineer-java-ocaml-scala-datalog-at-contemplate>
+
+An Outing to CUFP 2011:
+  <http://www.openmirage.org/blog/an-outing-to-cufp>
+
+Ocsigen: bugfixes release 2.0.1:
+  <http://ocsigen.org/>
+
+Yield, Continue:
+  <http://alaska-kamtchatka.blogspot.com/2011/09/yield-continue.html>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

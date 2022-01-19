@@ -1,0 +1,564 @@
+<?xml version="1.0" encoding="utf-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2020.05.26</cwn_date>
+    <cwn_prev>2020.05.19</cwn_prev>
+    <cwn_next>2020.06.02</cwn_next>
+    <cwn_date_text>May 19 to 26, 2020</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>Hannes Mehnert interview about MirageOS and OCaml by Evrone</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/hannes-mehnert-interview-about-mirageos-and-ocaml-by-evrone/5784/1</cwn_url>
+      <cwn_who>Elizabeth Lvova announced</cwn_who>
+      <cwn_what>
+https://evrone.com/hannes-mehnert-interview
+      </cwn_what>
+      <cwn_who>Guillaume Munch-Maccagnoni then asked</cwn_who>
+      <cwn_what>
+Thank you @elizabethlvova for this link.
+
+Hi @hannes, and other MirageOS developers if they know the answer. I am curious about the soft real-time
+applications.
+
+- What kind of latency do you target, and what kind of latency does OCaml allows you to achieve? Are there concrete evaluations about it in the context of MirageOS? (Bonus internet points if they are public so as to be referenced in a paper, that would be very helpful to me!)
+- I have learnt on this discuss that low-latency can be obtained in OCaml by writing in a special style where you promote very little. Do you sometimes have to pay attention to your allocation patterns when you program for MirageOS? Have you ever had to profile an application for latency, and fix it by changing allocation patterns?
+      </cwn_what>
+      <cwn_who>Hannes Mehnert replied</cwn_who>
+      <cwn_what>
+I am not sure whether there's anyone focussing on low-latency MirageOS unikernels. My goal is to first get robust and
+sustainable infrastructure. I have been playing a bit with an old version of statmemprof to figure out allocation
+profiles (and landmarks for profiling code), but I am not aware of any in-depth allocation analysis. The closest I am
+aware of is httpaf's motivational benchmarks https://github.com/inhabitedtype/httpaf#performance. Also
+https://github.com/mirage/mirage/pull/968 in respect to our IP stack, but I still feel there's room for improvement
+(such as using String/Byte instead of Bigarray; avoid allocation of small structures when sending data).
+      </cwn_what>
+      <cwn_who>Following several questions, Anil Madhavapeddy replied</cwn_who>
+      <cwn_what>
+*** Bikal Lem said
+#+begin_quote
+It is interesting you mentioned this. Isn’t the usage of bigarray more efficient than String/bytes? I think httpaf
+uses bigstringaf and faraday which seems to pervasively use bigarray as its primary buffer data structure. Isn’t this
+a performant choice?
+#+end_quote
+
+This is a good question, and it's helpful to understand what each datastructure is backed by, and what operations are
+inefficient.
+
+- ~Bigarray~ is a pointer to externally allocated memory of arbitrary length. It supports creating smaller views of the same memory without copying it, which is implemented at the [OCaml runtime level](https://github.com/ocaml/ocaml/blob/trunk/runtime/caml/bigarray.h#L78). Accessing data within bigarrays is fast thanks to some compiler primitives which allow for endian-neutral parsing and serialisation, implemented by [ocplib-endian](https://github.com/OCamlPro/ocplib-endian).
+- Bigarrays are extremely convenient for network IO, since they support everything needed for minimal copying of data from the OS.  You can exchange memory pages directly from the OS into the OCaml heap, and process them. Unfortunately, one operation is critically slow here -- creating a substring. Bigarray's provenance was originally to interop better with Fortran-style HPC code, where the size and dimensionality of arrays is generally large.  For IO, we just want really speedy 1-dimension arrays, and in this usecase Bigarray substring creation is very slow due to the underlying reference counting. Thus [cstruct](https://github.com/mirage/ocaml-cstruct) was born, which keep a single underlying Bigarray structure and allocates [small OCaml records](https://github.com/mirage/ocaml-cstruct/blob/master/lib/cstruct.mli#L143) on the minor heap for subviews. These are cheap to create and GC, and the underlying data is not copied unless requested.
+- Strings are immutable and sit in the OCaml heap, and require a data copy from the outside world into them.  Under some circumstances (usually small allocations) they can be more performant.
+- Buffers are a resizable String, and efficient if you need to concatenate lots of data of unknown size.
+
+So the final answer, as with many systems performance problems about what is "efficient" depends on your allocation
+patterns. For transmitting data, there is often a number of small pieces of data that are combined onto a set of
+pages for the write path. In this case, a hybrid of "in-heap" assembly using small strings followed by blitting into
+a Bigarray is reasonable. For reading, parsing directly from a Bigarray into a cstruct works well.
+
+*** Yotam Barnoy said
+#+begin_quote
+Compared to string/byte, Bigarray doesn’t have much of an advantage. Allocation is always relatively expensive, and
+accessing it requires going through the C API,
+#+end_quote
+
+This is basically all incorrect; please see above. Accessing Bigarrays can be done via builtin compiler primitives
+that make it fast. And the point of using them is to avoid multiple small allocations, especially on the read path.
+
+*** Guillaume Munch-Maccagnoni asked
+#+begin_quote
+- What kind of latency do you target, and what kind of latency does OCaml allows you to achieve? Are there concrete evaluations about it in the context of MirageOS? (Bonus internet points if they are public so as to be referenced in a paper, that would be very helpful to me!)
+#+end_quote
+
+The basic approach to low latency OCaml hasn't really changed much in the last few decades. You just need to minimise
+allocation to maximise GC throughput, and OCaml makes it fairly easy to write that sort of low level code.  Two
+papers that might be helpful:
+
+- ["Melange: Towards a functional internet"](https://www.tjd.phlegethon.org/words/eurosys07-melange.pdf), EuroSys 2007. Contains a latency analysis of an SSH and DNS server _vs_ C equivalents, and some techniques on writing low-latency protocol parsers.  These days, we do roughly the same thing with ppx's and cstructs, without the DSL in the way.
+- ["Jitsu: Just-in-Time Summoning of Unikernel;s"](https://www.usenix.org/system/files/conference/nsdi15/nsdi15-paper-madhavapeddy.pdf), NSDI 2015.  This shows the benefits of whole-system latency control -- you can mask latency by doing some operations concurrently, which is easy to do in unikernels and hard in a conventional OS.
+
+We've never really built systems in the "soft realtime" sense so far -- for example no video transmission system or
+isochronous Bluetooth implementations. Internet protocols are very resilient to variable latency, although of course
+we want to keep things as low as possible.  I've been looking into multipath multicast video transmission in Mirage
+recently due to the current work-at-home situation, so that might change soon depending on how it goes :slight_smile:
+
+One thing that has changed in the past decade is the [steadily improving latency
+profile](https://blog.janestreet.com/building-a-lower-latency-gc/) of the OCaml GC, which has only been improving
+thanks to @damiendoligez's steady work. That has let us get away with not directly addressing latency much in Mirage
+itself, as every upgrade of the compiler is a pleasant improvement.
+
+*** Calascibetta Romain said
+#+begin_quote
+I just would like to add a _pro_ about ~bigarray~, due to the fact that a ~bigarray~ can not move in your heap, we
+have the ability to release the runtime lock for some computations such as _hash algorithms_ as ~digestif~ does:
+
+https://github.com/mirage/digestif/pull/70
+
+About MirageOS, we currently mostly use [~cstruct~](https://github.com/mirage/ocaml-cstruct) which has an other
+difference with ~bigarray~, the underlying record. Such design is to be more efficient when we do a ~sub~ operation
+as @ivg said here: https://discuss.ocaml.org/t/working-with-a-huge-data-chunks/3955/10?u=dinosaure
+
+However, the question to choose ~Bytes.t~ or ~Cstruct.t~ (or ~Bigstring.t~ ) is a bit hard and it really depends on
+your context - and, as @xavierleroy said :slight_smile: :
+
+&gt; Mirage people don’t seem to care, as they allocate small bigarrays like crazy.
+#+end_quote
+
+And indeed, @xavierleroy is right that we allocate like crazy, with the caveat that this only really happens on the
+transmission path of most protocols. Reads tend to go through a more minimal copy discipline.
+
+We certainly do care about this, but it has to be fixed upstream in OCaml as we have reached the limits of what we
+can practically do with Bigarray -- I am hoping that multicore OCaml is the perfect time to [unify all these IO
+approaches](https://discuss.ocaml.org/t/ann-a-dynamic-checker-for-detecting-naked-pointers/5805/15?u=avsm) in that
+direction as part of that effort. Mirage will benefit from whatever happens there eventually.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>A dynamic checker for detecting naked pointers</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-a-dynamic-checker-for-detecting-naked-pointers/5805/1</cwn_url>
+      <cwn_who>KC Sivaramakrishnan announced</cwn_who>
+      <cwn_what>
+We're happy to release an OCaml compiler switch for dynamically detecting naked pointers in the code.
+
+*** Naked pointers in OCaml
+
+A naked pointer is a pointer outside the OCaml heap without a valid header. A header outside the heap is said to be
+valid if it is colored black. OCaml does [permit naked
+pointers](https://caml.inria.fr/pub/docs/manual-ocaml/intfc.html#ss:c-outside-head) to word-aligned addresses.
+However, the presence of naked pointers incurs overhead in the garbage collector (GC). Whenever the  GC intends to
+follow a pointer, it must check that the pointer is indeed in the OCaml heap. The GC consults a page table that
+maintains the list of pages currently used by the heap and only follows the pointer if it belongs to one of the
+pages. As you can imagine, this adds some overhead in the GC. For the multicore GC, maintaining a page table that
+remains consistent when multiple domains are allocating and running GC in parallel would necessitate some
+synchronization around the page table for reading and writing to it. It is quite likely that this cost will be
+prohibitive.
+
+Luckily, OCaml already has a ~no-naked-pointer~ mode where the compiler *assumes* that the code does not have naked
+pointers, and hence, does not consult the page table for following pointers during GC ([except ~Closure_tag~
+objects](https://github.com/ocaml/ocaml/pull/8984)). The ~no-naked-pointer~ mode is a configure-time option, enabled
+by configuring the compiler with ~--disable-naked-pointers~. Multicore OCaml compiler does not use a page table in
+its implementation currently.
+
+*** Dynamic Check for naked pointers
+
+With the aim of migrating to ~no-naked-pointer~ mode as the default in future releases of OCaml, eventually paving
+the way for upstreaming multicore support, we're happy to release a variant of OCaml 4.10.0 with a dynamic checker
+for the presence of naked pointers in the code. [OCaml PR#9534](https://github.com/ocaml/ocaml/pull/9534) has the
+discussion around this checker. This variant can be installed with:
+
+#+begin_example
+$ opam update
+$ opam switch create 4.10.0+nnpcheck
+$ eval $(opam env)
+#+end_example
+
+Once the variant is installed, you can install your favorite libraries using ~opam~ and run your program to get a
+report of naked pointers. Let us look at an example. We know that ~frama-c~ has naked pointers.
+
+#+begin_example
+$ opam install frama-c
+$ frama-c
+Out-of-heap pointer at 0x55fc1e2754d8 of value 0x55fc1e3a0cc0 has non-black head (tag=144)
+Out-of-heap pointer at 0x55fc1e275600 of value 0x55fc1e3a0cc0 has non-black head (tag=144)
+Out-of-heap pointer at 0x55fc1e2754d8 of value 0x55fc1e3a0cc0 has non-black head (tag=144)
+Out-of-heap pointer at 0x55fc1e275600 of value 0x55fc1e3a0cc0 has non-black head (tag=144)
+Out-of-heap pointer at 0x55fc1e2754d8 of value 0x55fc1e3a0cc0 has non-black head (tag=144)
+Out-of-heap pointer at 0x55fc1e275600 of value 0x55fc1e3a0cc0 has non-black head (tag=144)
+Out-of-heap pointer at 0x55fc1e2754d8 of value 0x55fc1e3a0cc0 has non-black head (tag=144)
+Out-of-heap pointer at 0x55fc1e275600 of value 0x55fc1e3a0cc0 has non-black head (tag=144)
+Out-of-heap pointer at 0x55fc1e2754d8 of value 0x55fc1e3a0cc0 has non-black head (tag=144)
+Out-of-heap pointer at 0x55fc1e275600 of value 0x55fc1e3a0cc0 has non-black head (tag=144)
+Out-of-heap pointer at 0x55fc1e2754d8 of value 0x55fc1e3a0cc0 has non-black head (tag=144)
+Out-of-heap pointer at 0x55fc1e275600 of value 0x55fc1e3a0cc0 has non-black head (tag=144)
+#+end_example
+
+The checker prints warnings to standard error with the address that contains the naked pointer, the naked pointer and
+the reason why the warning was raised.
+
+*** Finding the sources
+
+While the warnings are useful for indentifying that the program has naked pointer, it does not help with finding the
+source of the naked pointer in code. For this, we recommend the use of [~rr~](https://github.com/mozilla/rr). ~rr~ is
+record and replay framework that wraps around the familiar ~gdb~ interface. We can debug the error above as follows:
+
+#+begin_example
+$ rr frama-c
+rr: Saving execution to trace directory ~/home/kc/.local/share/rr/frama-c-5'.
+Out-of-heap pointer at 0x55fc1e2754d8 of value 0x55fc1e3a0cc0 has non-black head (tag=144)
+Out-of-heap pointer at 0x55fc1e275600 of value 0x55fc1e3a0cc0 has non-black head (tag=144)
+Out-of-heap pointer at 0x55fc1e2754d8 of value 0x55fc1e3a0cc0 has non-black head (tag=144)
+Out-of-heap pointer at 0x55fc1e275600 of value 0x55fc1e3a0cc0 has non-black head (tag=144)
+Out-of-heap pointer at 0x55fc1e2754d8 of value 0x55fc1e3a0cc0 has non-black head (tag=144)
+Out-of-heap pointer at 0x55fc1e275600 of value 0x55fc1e3a0cc0 has non-black head (tag=144)
+Out-of-heap pointer at 0x55fc1e2754d8 of value 0x55fc1e3a0cc0 has non-black head (tag=144)
+Out-of-heap pointer at 0x55fc1e275600 of value 0x55fc1e3a0cc0 has non-black head (tag=144)
+Out-of-heap pointer at 0x55fc1e2754d8 of value 0x55fc1e3a0cc0 has non-black head (tag=144)
+Out-of-heap pointer at 0x55fc1e275600 of value 0x55fc1e3a0cc0 has non-black head (tag=144)
+Out-of-heap pointer at 0x55fc1e2754d8 of value 0x55fc1e3a0cc0 has non-black head (tag=144)
+Out-of-heap pointer at 0x55fc1e275600 of value 0x55fc1e3a0cc0 has non-black head (tag=144)
+$ rr replay
+(rr) watch *(value*)0x55fc1e2754d8
+Hardware watchpoint 1: *(value*)0x55fc1e2754d8
+(rr) c
+Continuing.
+
+Hardware watchpoint 1: *(value*)0x55fc1e2754d8
+
+Old value = 1
+New value = 94541327240384
+0x000055fc1dab48f8 in camlUnmarshal__entry () at src/libraries/datatype/unmarshal.ml:72
+72      src/libraries/datatype/unmarshal.ml: No such file or directory.
+#+end_example
+
+This corresponds to the naked pointer at
+https://github.com/Frama-C/Frama-C-snapshot/blob/master/src/libraries/datatype/unmarshal.ml#L72.
+
+*** Fixing naked pointers
+
+The recommended way of fixing naked pointers is to [wrap them in an OCaml object with ~Custom_tag~ or ~Abstract_tag~
+(as appropriate)](https://caml.inria.fr/pub/docs/manual-ocaml/intfc.html#ss:c-outside-head).
+
+*** Limitations
+
+The dynamic analysis only work on AMD64 backend with GCC and Clang. It has been known to work on Linux and MacOS.
+~rr~ currently requires an Intel CPU with Nehalem (2010) or later microarchitecture.
+
+*** Credits
+
+The analysis was originally proposed by Mark Shinwell (@mshinwell).
+      </cwn_what>
+      <cwn_who>KC Sivaramakrishnan added</cwn_who>
+      <cwn_what>
+As @gasche had mentioned earlier, the no-naked-pointers mode was already there in OCaml and it is known to work on
+all the platforms that OCaml was supported. Hence, it was a reasonable path to pursue for Multicore.
+
+The concurrent minor collector in Multicore OCaml uses the virtual address space trick, but only for the minor heap
+area. It needs contiguous 4GB reserved for 128 domains, each with max 16MB minor heap arena. This can be modified at
+compiler configure time. For comparison the minor heap is 2MB by default in OCaml and so 16MB should be quite enough.
+We hadn't considered this trick for the major heap in Multicore.
+
+However, given our experimental evaluation (see [paper](https://arxiv.org/abs/2004.11663)), we have chosen not to
+pursue concurrent minor collector for the initial version of multicore support to be upstreamed. The alternative
+stop-the-world parallel minor collector scales better and does not break the C FFI. The parallel minor collector does
+not need the virtual address space trick.
+
+Given that the space for the entire heap should be reserved, how would it work on 32-bit architectures, and does it
+have an impact on system tooling. Looking forward to reading @gadmm's RFC.
+      </cwn_what>
+      <cwn_who>Stephen Kell asked and Anil Madhavapeddy replied</cwn_who>
+      <cwn_what>
+#+begin_quote
+As someone with an interest in cross-language interop, I like naked pointers. So I’m interested in design choices
+that might make the “our heap or not?” check fast, and in reasons why impls might not go for them. Feel free to
+answer “read the paper”, but I was thinking you could do something like reserve a big contiguous chunk of VAS for
+OCaml heaps’ use, and then the test could be a simple shift and compare. Would that be viable?
+#+end_quote
+
+Please do note that this isn't a performance improvement for OCaml -- this very much a correctness fix.  The failure
+case is as follows:
+
+- a naked pointer is created using ~malloc~ on the C heap and held in the OCaml heap
+- the external region is ~free~'d, but the naked pointer is still held in some OCaml heap.
+- the GC ~malloc~s to expand, and that recently freed C memory becomes part of the OCaml heap
+- the GC then follows the naked pointer by treating it as an OCaml value, since the page table indicates that it is within the OCaml heap.  However, the memory the naked pointer is aimed at is not necessarily a valid OCaml value as it was formerly a C pointer.
+- memory corruption ensues
+
+The only way to really avoid this is by only holding naked references to static or global C values, which is a pretty
+minority usecase. As @lpw25 notes, you can hold them safely by wrapping them in custom blocks, which is entirely safe
+as it gives the GC a reliable way to determining what's going on.
+
+As for the question about a contiguous VA, this should work fine on 64-bit, where you have the luxury of such use of
+the address space. I built a version of this a decade ago for OCaml/Xen in early Mirage, which you can find evaluated
+in the [HotCloud 2010 paper](http://mort.io/publications/pdf/hotcloud10-lamp.pdf) (Figure 4).  It's pretty
+straightforward, but the problems come from balancing external memory pressure (from C allocations) with the OCaml
+allocation.  This can be adjusted with an obvious use of ~sbrk~ or ~realloc~ to grow or shrink the contiguous memory,
+while being careful to keep other memory allocations away from the OCaml area.
+
+The current strategy will need to be maintained for 32-bit architectures however, which are very much supported (e.g.
+armv7).  For those, there is very little wiggle room to hold a contiguous VA and so the current multicore approach
+lets us preserve a unified memory representation.
+
+One observation I had when I read @stephenrkell's excellent essay is how strange our current memory allocation
+mechanisms are in operating systems.  We have conflated cooperative scheduling across components with enforcing
+protection from mutually untrusted control flow in the same language.  For example, we have the system C malloc
+competing with the OCaml GC which competes with the kernel memory allocator.  I've been sketching out a possible
+solution in multicore OCaml towards this:
+
+- We move away from ~Bigarray~ to a specialised ~Extvalue~ that handles external pages in a separate region of memory.  Bigarray currently offers too much functionality (subarrays and proxies) which slows it down due to dropping into the C FFI.
+- The ~Extvalue~ is backed by a bundled slab allocator that works in a contiguous region of memory, disjoint from the OCaml heap.
+- The compiler provides primitives for very fast translation of values in and out of the ~Extvalue~ (as it does currently for ~Bigarray~).
+- C libraries linked in with OCaml also use this memory allocator for their own mallocs. This will require some trickery (static compilation or LD_PRELOAD initially), but it means that all the allocations associated with a particular "task" (from OCaml to C or Rust code) can be batched together.
+- This approach lets us improve multicore memory locality greatly, as every modern machine has significant NUMA effects (see this [FOSDEM 2013 talk](https://www.youtube.com/watch?v=Ss4pUbq09Lw)), and cooperatively allocate memory. It also leaves open the possibility of separate isolation mechanisms (such as ARM memory domains or Intel MPK) _across_ tasks in a large heap.
+
+Please note that the above is still only at the experimental stage as I'm still evaluating it, but it does have the
+advantage of degrading gracefully if the system malloc has to be used (e.g. if OCaml is embedded as a library, noone
+expects 10GBs gigabit levels of network performance).  From an ecosystem perspective, I don't think anyone really
+wants to maintain the current hybrid world of a multitude of ~Bigarray~-based overlays, such as cstruct or bigstring.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>ANN: Releases of ringo</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-releases-of-ringo/5605/2</cwn_url>
+      <cwn_who>Raphaël Proust announced</cwn_who>
+      <cwn_what>
+Version 0.4 of ~ringo~ is now available in ~opam~. This version includes bug-fixes, minor (sometimes breaking)
+interface and semantics improvements, and, most importantly, a ~ringo-lwt~ package.
+
+~ringo-lwt~ provides wrapper for using caches in an Lwt-heavy application. Specifically, it provides a functor that
+transform a Ringo cache into a Ringo-lwt cache featuring:
+
+- ~val find_or_replace : 'a t -&gt; key -&gt; (key -&gt; 'a Lwt.t) -&gt; 'a Lwt.t~ which helps avoid race conditions,
+- _automatic cleanup_ by which promises that are rejected are removed from the table automatically.
+
+Additional functors for option (with automatic cleanup of ~None~) and result (with automatic cleanup of ~Error~) are
+also provided.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Solidity parser in OCaml with Menhir</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2020-05/msg00026.html</cwn_url>
+      <cwn_who>David Declerck announced</cwn_who>
+      <cwn_what>
+We just released a parser &amp; printer for the Solidity language:
+https://medium.com/dune-network/a-solidity-parser-in-ocaml-with-menhir-e1064f94e76b
+
+Solidity is one of the most used languages for smart contracts, and
+popularized by the Ethereum blockchain. This work is a step towards
+native support of Solidity in the Dune Network blockchain, and developed
+in a partnership between Origin-Labs and OCamlPro. The library is
+released under LGPLv3 with Static Linking exception.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Browsing source with merlin (and tuareg) the right way?</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/browsing-source-with-merlin-tuareg-the-right-way/5776/2</cwn_url>
+      <cwn_who>Luc_ML asked</cwn_who>
+      <cwn_what>
+Browsing the source of your own program and libraries and of other people's libraries is a key for being able to
+smoothly program and also to attract more people to OCaml.
+
+Am I the only one that find this it so archaic programming in OCaml with Emacs/Tuareg? (compared to other mainstream
+PLs IDE and (integrated) tooling).
+
+Can you share your (Emacs) OCaml IDE setup or give some advice?
+This should also be of interest for new comers to OCaml that may find IDE support neither easy nor fantastic.
+      </cwn_what>
+      <cwn_who>Anton Kochkov</cwn_who>
+      <cwn_what>
+You can check out:
+- [Visual Studio Code](https://code.visualstudio.com/) + [OCaml platform plugin](https://marketplace.visualstudio.com/items?itemName=ocamllabs.ocaml-platform) - see https://discuss.ocaml.org/t/ann-vscode-platform-plugin-0-5-0/5752
+- Emacs + [lsp-mode](https://github.com/emacs-lsp/lsp-mode) + [ocaml-lsp](https://github.com/ocaml/ocaml-lsp) - for now it's experimental though.
+
+https://aws1.discourse-cdn.com/standard11/uploads/ocaml/original/2X/3/3dc0a6e4735273399a0c61a25806a6e8ac327ab6.png
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>New release of Cucumber ML 1.0.3</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-new-release-of-cucumber-ml-1-0-3/5813/1</cwn_url>
+      <cwn_who>Christopher Yocum announced</cwn_who>
+      <cwn_what>
+I am pleased to announce the release of [Cucumber ML](https://github.com/cucumber/cucumber.ml) 1.0.3.  Cucumber ML is
+a library that brings [Behavior Driven Development](https://en.wikipedia.org/wiki/Behavior-driven_development) to
+OCaml via [Cucumber](https://docs.cucumber.io/).  Essentially, Cucumber is a way to communicate using plain language
+between software development teams and non-developer stakeholders that can be turned into code to be executed.
+
+This release updates the underlying dependency on the gherkin language parser,
+[gherkin-c](https://github.com/cucumber/gherkin-c) up-to-date with the latest version of that library (7.0.4).  This
+will deal with those pesky compile errors.  Just a note here, that you will need to installed the gherkin parser as a
+shared object (aka a shared library) on your system for Cucumber ML to link against.
+
+*** Roadmap
+
+There are a bunch of things that I could be doing and here are a couple that I will be thinking about in the near
+future:
+
+- Releasing the library via OPAM for ease of install
+- A more flexible Reporting structure that user can extend via functors with some sensible defaults to choose from
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>New OCaml books?</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/new-ocaml-books/5789/5</cwn_url>
+      <cwn_who>Continuing this thread, Daniil Baturin announced</cwn_who>
+      <cwn_what>
+I'm working on a free culture book. The preview is at https://ocaml-book.baturin.org and the source is at
+https://github.com/dmbaturin/ocaml-book
+
+It's under CC-BY-SA so it belongs to the community—it can be a living document that people can keep up to date even
+if original authors abandon it. It's also supposed to be a collaborative project, but almost no one is collaborating
+so far. ;)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Integer division behaviour</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/integer-division-behaviour/5815/1</cwn_url>
+      <cwn_who>Daniil Baturin asked</cwn_who>
+      <cwn_what>
+Number theoretically correct integer division is supposed to work so that ~(N / K) + (N mod K) = N~.
+I was very surprised to see that it's not how ~(/) : int → int~ works!
+
+#+begin_src ocaml
+# 3 mod 2 ;;
+- : int = 1
+#+end_src
+
+Now, two questions. What is the justification for this behaviour? And does anything provid real integer division?
+      </cwn_what>
+      <cwn_who>Gaëtan Gilbert corrected</cwn_who>
+      <cwn_what>
+Surely you mean ~((N / K) * K) + (N mod K) = N~?
+      </cwn_what>
+      <cwn_who>Aaron L. Zeng replied</cwn_who>
+      <cwn_what>
+I assume you meant to include an example with negative numbers?
+
+#+begin_src ocaml
+# 3 mod 2;;
+- : int = 1
+# (-3) mod 2;;
+- : int = -1
+# 3 mod (-2);;
+- : int = 1
+# (-3) mod (-2);;
+- : int = -1
+#+end_src
+
+The ~mod~ operator always has the same sign as the numerator.  I think this is for historical reasons, although I
+don't know whether to point the finger at C, or x86, or something even earlier.
+
+If you use Base, the ~%~ operator gives you the Euclidean modulo operator that I think you're looking for.  Its
+result always has the same sign as the denominator.  This operator is basically equivalent to:
+
+#+begin_src ocaml
+let (%) x y =
+  let z = x mod y in
+  if z &lt; 0 then z + y else z
+#+end_src
+      </cwn_what>
+      <cwn_who>threepwood also replied</cwn_who>
+      <cwn_what>
+This is a "feature" in most programming languages and I think actually corresponds to the standard way division is
+implemented in the CPU itself (so it has little to do with OCaml). How this was allowed to become the standard I do
+not know.
+
+One thing is that I get the impression that people who are not familiar with number theory find the following result
+extremely  counter-intuitive : ~(-3) / 2 = -2~
+
+I believe it is because they think of integer division as an approximation of real division, rather than as being its
+own special thing, and from this perspective it makes no sense that making a number negative should change the
+result. They expect the identities that hold of real division (like ~(a*b) / c = a * (b/c)~) to also hold for integer
+division. (I say "they" not to belittle the perspective, I totally see where they are coming from.)
+
+But then if you have ~(-3) / 2 = -1~, you need to have ~(-3) mod 2 = -1~ to preserve the relation between ~/~ and
+~mod~ that you mention (so you'll note that the relation does hold in this system).
+
+I tend to think that the behaviour where ~mod~ never returns anything negative, in addition to being what a
+mathematician would expect, is strictly more useful (for what I believe to be the typical use case of modulo over
+negative numbers in programming, which is indexing into a circular buffer). And I also think that you almost never
+divide negative numbers, so the useful behaviour for ~mod~ should have taken priority when deciding how all this
+works, and whether ~/~ is intuitive or not does not matter much in practice. But I have no idea who took that
+decision and whether such issues were even considered.
+      </cwn_what>
+      <cwn_who>Daniel Bünzli then said</cwn_who>
+      <cwn_what>
+[This paper](https://dl.acm.org/doi/pdf/10.1145/128861.128862) which discusses various definitions of ~div~ and ~mod~
+in programming languages may be of interest.
+      </cwn_what>
+      <cwn_who>threepwood replied</cwn_who>
+      <cwn_what>
+Thanks for this! So the one found in OCaml and most languages is T-division (for truncating) and the one I called
+more useful is E-division (for Euclidean) which the paper argues for. It says that T-division is found in Ada, that
+Lisp has two modulo operators, one that does T-division and one that does F-division (halfway between T and E, and
+works for the circular buffer case), and that Algol and Pascal break the relation between div and mod by doing
+T-division for div and E-division for mod (if I got it right). Interesting stuff.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>New release of tablecloth</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-new-release-of-tablecloth/5818/1</cwn_url>
+      <cwn_who>Paul Biggar announced</cwn_who>
+      <cwn_what>
+I’ve just released a new version of [tablecloth](https://github.com/darklang/tablecloth) - an easy-to-use,
+comprehensive standard library that has the same API on all OCaml/ReasonML/Bucklescript platforms.
+
+0.0.7 is a pretty decent release, including many new functions in the List, Array, Int, Float, Option, and Result
+modules, as well as the addition of a new Fun module and support for the latest version of bs-platform for the
+bucklescript version of tablecloth.
+
+See [the tablecloth github repo](https://github.com/darklang/tablecloth) for installation instructions, or read the
+full [changelog](https://github.com/darklang/tablecloth/blob/master/Changelog.md), or the [original
+announcement](https://medium.com/darklang/tablecloth-a-new-standard-library-for-ocaml-reasonml-d29a73a557b1) of
+tablecloth for motivation.
+
+In addition, Dean Merchant and I have agreed to merge his [Standard](https://github.com/Dean177/reason-standard)
+library into tablecloth. Dean has done a significant amount of the work in tablecloth since the original release, and
+we plan to release a version 0.0.8 after merging the two code bases together. Dean is now a maintainer of tablecloth.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Language abstractions and scheduling techniques for efficient execution of parallel algorithms on multicore hardware</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/language-abstractions-and-scheduling-techniques-for-efficient-execution-of-parallel-algorithms-on-multicore-hardware/5822/1</cwn_url>
+      <cwn_who>Arthur Charguéraud announced</cwn_who>
+      <cwn_what>
+The Multicore OCaml team has made significant progress in the recent years. There now seems to be interest in working
+on the high-level parallelism constructs. Such constructs are also tightly connected to the problem of controlling
+the granularity of parallel tasks.
+
+I've been working on parallel constructs and granularity control from 2011 to 2019, together with Umut Acar and Mike
+Rainey. We published a number of papers, each of them coming with theoretical bounds, an implementation, and
+evaluation on state-of-the-art benchmark of parallel algorithms.
+
+While we mainly focused on C++ code, I speculate that nearly all of our ideas could be easily applied to Multicore
+OCaml. Porting these ideas would deliver what seems to be currently missing in Multicore OCaml for efficiently
+implementing a large class of parallel algorithms.
+
+Gabriel Scherer and François Pottier recently suggested to me that it appears timely to share these results with the
+OCaml community. I'll thus try to give an easily-accessible, OCaml-oriented introduction to the results that we have
+produced. Note, however, that most of the ideas presented would apply essentially to another other programming
+language that aims to support nested parallelism.
+
+I plan to cover the semantics of high-level parallelism constructs, to describe and argue for work-stealing
+scheduling, to present a number of tricks that are critical for efficiency, and to advertise for our modular,
+provably-efficient approach to granularity control. I'll post these parts one after the other, as I write them.
+
+- [Part 1 in PDF](http://www.chargueraud.org/research/2020/multicore/src/part1.pdf)
+- [Other formats](http://www.chargueraud.org/research/2020/multicore/index.php)
+
+Other parts will be published in the coming weeks or months.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Release 1.2 of HoCL</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-release-1-2-of-hocl/5837/1</cwn_url>
+      <cwn_who>jserot announced</cwn_who>
+      <cwn_what>
+This is to announce release 1.2 of [HoCL](https://github.com/jserot/hocl), a functional language for describing
+dataflow process networks.
+
+*HoCL*
+- can describe *hierarchical* and/or *parameterized* graphs
+- support two styles of description : *structural* and *functional*
+- use *polymorphic type inference* to check graphs
+- supports the notion of *higher order wiring functions* for describing and encapsulating *graph patterns*
+- supports several dataflow semantics (SDF, PSDF, ..) by means of annotations.
+
+*HoCL* is entirely written in *OCaml*.
+
+Documentation (including a [tutorial](https://github.com/jserot/hocl/tree/master/doc/tutorial.pdf), the underlying
+formal [semantics](https://github.com/jserot/hocl/tree/master/doc/semantics.pdf) and a general introduction on the
+[principles](https://github.com/jserot/hocl/tree/master/doc/fgd.pdf) of functional graph description) can be found
+[here](https://github.com/jserot/hocl/tree/master/doc).
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Here are links from many OCaml blogs aggregated at [[http://ocaml.org/community/planet/][OCaml Planet]].
+
+- [[http://math.andrej.com/2020/05/25/mechanizing-meta-theory-in-beluga/][Every proof assistant: Beluga]]
+- [[https://mirage.io/blog/tls-1-3-mirageos][TLS 1.3 support for MirageOS]]
+- [[http://www.ocamlpro.com/2020/05/19/ocaml-solidity-parser-with-menhir/][A Solidity parser in OCaml with Menhir]]
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

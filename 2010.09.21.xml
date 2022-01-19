@@ -1,0 +1,325 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2010.09.21</cwn_date>
+    <cwn_prev>2010.09.14</cwn_prev>
+    <cwn_next>2010.09.28</cwn_next>
+    <cwn_date_text>September 14 to 21, 2010</cwn_date_text>
+  </cwn_head>
+	<cwn_body>
+	  <cwn_entry>
+      <cwn_title>Create a constraint between variant type and data list</cwn_title>
+      <cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/172ab0d7ea227bd8#</cwn_url>
+      <cwn_who>Sylvain Le Gall asked</cwn_who>
+      <cwn_what>
+I would like to somehow enforce that a variant type is associated with 
+an entry in a data list. 
+
+For example, 
+
+I would like to define: 
+
+type license = GPL | LGPL 
+
+and 
+
+let data = [ GPL, "GNU Public license"; 
+             LGPL, "GNU Lesser General Public license" ] 
+
+I would like to enforce that all variants of license are in the 
+association list. 
+
+I have tried to use polymorphic variants, but don't see how to enforce 
+this constraint. 
+
+The point, is that if I add a new variant to license (e.g. BSD3), the 
+compiler output an error because this new variant is not in data list. 
+
+Any ideas ? If you need to use another type expression rather than 
+variant, please do so, as long as I am able to link the license type 
+and data list. 
+      </cwn_what>
+      <cwn_who>bluestorm suggested</cwn_who>
+      <cwn_what>
+I do not have a direct solution to your problem. 
+
+If you want to associate a data with each case, you can use a pattern 
+matching, wich will do the exhaustiveness check : 
+
+let to_string : license -&gt; _ = function 
+| `GPL -&gt; "GPL" 
+| `LGPL -&gt; "LGPL" 
+
+You will be warned if you add (or remove) some licenses and forget to 
+change the function. 
+
+You may, however, want to have a list of all licenses values, instead 
+of a case-handling on each value. I don't know how you could have the 
+compiler check completeness for you, but if you really want that 
+check, there is an extra-linguistic method : declare your value 
+without giving it a type annotation, so that the compiler will infer 
+the covered case, then use a script outside the program, calling 
+"ocamlc -i" to check the inferred signature, and comparing it to you 
+datatype declaration. 
+
+Finally, I have a third solution based on code generation : given my 
+first solution (turning the association list into a function), what 
+you need is only a list of all the constructors (and you can build 
+your assoc list with List.map (fun x -&gt; x, assoc_function x)). This 
+can easily be generated from the datatype declaration using direct 
+camlp4, or Markus Mottl's type-conv ( 
+http://www.ocaml.info/home/ocaml_sources.html#toc11 ). 
+      </cwn_what>
+      <cwn_who>Oleg suggested</cwn_who>
+      <cwn_what>
+In other words, you would like a set of values of a distinct type, 
+each of which is associated with a printable string. One should be 
+able to add to the set in some `authorized way'; one should not be 
+able to make a value of that distinct type in an unauthorized way 
+(that is, by accident). Right? 
+
+It seems the following solution then would satisfy the specification: 
+
+module LICENSE : sig 
+  type t 
+  val print_lic : t -&gt; string 
+  val gpl  : t 
+  val lgpl : t 
+  (* more can be added *) 
+end = struct 
+  type t = string 
+  let print_lic x = x 
+  let gpl  = "GNU Public license" 
+  let lgpl = "GNU Lesser General Public license" 
+end;; 
+
+(* Usage example *) 
+type package = {pkg_name : string; pkg_lic : LICENSE.t};; 
+let packages = [{pkg_name = "gcc";    pkg_lic = LICENSE.gpl}; 
+                {pkg_name = "lgpled"; pkg_lic = LICENSE.lgpl}] 
+;; 
+let rec pr_lics = function [] -&gt; () 
+ | {pkg_lic = l}::t -&gt; Printf.printf "%s\n" (LICENSE.print_lic l); 
+                       pr_lics t 
+;; 
+let rec all_of_lic l = function [] -&gt; [] 
+  | {pkg_name = name; pkg_lic = l'}::t when l' == l -&gt; name :: all_of_lic l t 
+  | _::t -&gt; all_of_lic l t 
+;; 
+
+all_of_lic LICENSE.lgpl packages;; 
+
+One can't overlook specifying the description string. One can't create 
+new values of the type LICENSE.t `by accident' (the only possible 
+values of the type are the ones exported by the module). 
+      </cwn_what>
+      <cwn_who>Maxence Guesdon suggested</cwn_who>
+      <cwn_what>
+Here is another solution, based on oug[1]. The idea is to:
+1. make oug analyse your source files and dump the result,
+2. write a program loading the dump and performing the checks you want.
+
+Here is an example, which performs 1. and 2., with only one source file
+"foo.ml".
+
+=== myoug.ml
+let (data, _) = Ouglib.Analyze.analyze ["foo.ml"];;
+
+let number_variants =
+ Ouglib.Lang.filter_elements data
+   (Ouglib.Lang.Name
+    {
+      Ouglib.Lang.sel_name = "Foo.number.*" ;
+      sel_kind = [ Ouglib.Data.Type_field ] ;
+    }
+   )
+;;
+
+let numbers_list_id =
+ match
+   Ouglib.Lang.filter_elements data
+     (Ouglib.Lang.Name
+      {
+        Ouglib.Lang.sel_name = "Foo.numbers" ;
+        sel_kind = [ Ouglib.Data.Value ] ;
+      }
+     )
+ with
+   [id] -&gt; id
+ | _ -&gt; assert false
+;;
+
+let graph = data.Ouglib.Data.graph ;;
+let created_by_numbers_list =
+ let l = Ouglib.Graph.succ graph numbers_list_id in
+ let f acc (id, k) =
+   match k with
+     Ouglib.Data.Create -&gt; id :: acc
+   | _ -&gt; acc
+ in
+ List.fold_left f [] l
+;;
+
+let (_,missing) =
+ List.partition (fun id -&gt; List.mem id created_by_numbers_list) number_variants
+;;
+
+match missing with
+ [] -&gt; exit 0
+| _ -&gt;
+   let b = Buffer.create 256 in
+   Ouglib.Dump.print_element_list data b  missing;
+   prerr_endline
+     (Printf.sprintf "The following constructors are not present in Foo.numbers:\n%s"
+      (Buffer.contents b)
+     );
+   exit 1
+;;
+=== /myoug.ml ==
+
+=== foo.ml ===
+type number = One | Two | Three | Four;;
+
+let numbers = [ One, 1 ; Two, 2 ];;
+=== /foo.ml ==
+
+Compilation of myoug.ml to myoug.x:
+# ocamlc -I +oug str.cma toplevellib.cma oug.cma -o myoug.x myoug.ml 
+
+Launching myoug.x gives the following:
+The following constructors are not present in Foo.numbers:
+f Foo.number.Three
+f Foo.number.Four
+
+Of course, you can adapt the program to fit your needs: have a makefile
+target to create the oug dump and use this dump in various checking
+programs, or in one program performing various checks.
+
+Hope this helps,
+
+Maxence
+
+[1] http://home.gna.org/oug/index.fr.html
+      </cwn_what>
+      <cwn_who>Finally, Sylvain Le Gall said</cwn_who>
+      <cwn_what>
+Thank you for all your answer. I pick the one from oleg@okmij.org, I
+hide the license with a type and the creation of license is done in the
+module. The to_string/from_string is done by registering extra data in
+an Hashtable.
+
+See the implementation here.
+http://darcs.ocamlcore.org/cgi-bin/darcsweb.cgi?r=oasis;a=headblob;f=/src/oasis/OASISLicense.mli
+http://darcs.ocamlcore.org/cgi-bin/darcsweb.cgi?r=oasis;a=headblob;f=/src/oasis/OASISLicense.ml
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>LablGtk 2.14.2</cwn_title>
+      <cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/e56d92a25216b3e7#</cwn_url>
+      <cwn_who>Jacques Garrigue announced</cwn_who>
+      <cwn_what>
+Following a number of bug fixes, and particularly a serious
+incompatibility in ocaml 3.12 (due to the fixing of an old typing
+bug), here is a new release of LablGtk2, the ocaml interface to the
+Gtk+ GUI library and friends (glade, rsvg, gnomecanvas, gnomedruid,
+panel, gtkspell, gtksourceview2.)
+
+You can find it at:
+
+ http://wwwfun.kurims.kyoto-u.ac.jp/soft/olabl/lablgtk.html
+
+The windows release will have to wait for a windows version of ocaml
+3.12...
+
+
+$Id: CHANGES 1528 2010-09-17 08:38:54Z garrigue $
+
+In Lablgtk-2.14.2:
+
+2010.09.09 [Jacques]
+ * add GtkCurve (but it is deprecated since 2.20)
+
+2010.08.16 [Jacques]
+ * rename g_value_{get,set}_variant, as the name is used by recent
+   versions of glib (reported by Florent Monnier)
+
+2010.07.25 [Jacques]
+ * add changed signal to cell_renderer_combo (reported by Dmitry Bely)
+
+2010.07.23 [Jacques]
+ * copy GtkTreePath arguments in callbacks, as reported by Benjamin.
+
+2010.06.25 [Jacques]
+ * remove gtkInit.cmo from gdk_pixbuf_mlsource, no need to
+   initialize Gtk as Gobject is sufficient 
+ * protect GtkThread callbacks against exceptions, and provide a
+   function to process messages inside a different main loop.
+ * add -nothinit option to lablgtk2, since Quartz cannot run the main
+   loop in a different thread (one should just call GtkThread.main).
+   See dialog-thread.ml for an example.
+
+2010.06.08 [Jacques]
+ * correct interfaces due to the fixing of an unsoundness bug in ocaml 3.12
+   (cf. &lt;http://caml.inria.fr/mantis/view.php?id=4824&gt;) 
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>ancient module</cwn_title>
+      <cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/6b19493f7d449b91#</cwn_url>
+      <cwn_who>Yoann Padioleau asked, Richard Jones replied, and Gerd Stolpmann said</cwn_who>
+      <cwn_what>
+&gt; &gt; I am trying to use your Ancient module to avoid having the garbage
+&gt; &gt; collector spends lots of time iterating over huge data in memory. It
+&gt; &gt; works quite well for arrays but for hashtbl I have some problems
+&gt; &gt; where I am not able to find back keys that were clearly in the
+&gt; &gt; original hashtbl (before Ancient.mark it).
+&gt; &gt;
+&gt; &gt; In the doc it says: 
+&gt; &gt; 
+&gt; &gt; (1) Ad-hoc polymorphic primitives (structural equality, marshalling
+&gt; &gt; and hashing) do not work on ancient data structures, meaning that you
+&gt; &gt; will need to provide your own comparison and hashing functions.  
+&gt; 
+&gt; The issue is described by Xavier Leroy:
+&gt; http://caml.inria.fr/pub/ml-archives/caml-list/2006/09/977818689f4ceb2178c592453df7a343.en.html
+&gt; 
+&gt; As far as my understanding goes, what happens is that the OCaml
+&gt; compare function (or some C equivalent in the runtime) looks at the
+&gt; two string pointers and decides that since both are out of the normal
+&gt; heap they are just opaque objects.  Thus it won't compare the content
+&gt; of the strings, but will just do pointer equality.  This massively
+&gt; breaks assumptions in some ordinary OCaml code, in this instance in
+&gt; Hashtbl.
+
+There is now a way to change this. You can call caml_page_table_add
+(since 3.11) to explicitly declare a memory region as containing Ocaml
+values. The polymorphic comparison, the hash primitive, and marshalling
+work then.
+
+There is support for this in Ocamlnet-3:
+
+http://projects.camlcity.org/projects/dl/ocamlnet-3.0.3/doc/html-main/Netsys_mem.html#VALvalue_area
+      </cwn_what>
+    </cwn_entry>
+	  <cwn_entry>
+      <cwn_title>Other Caml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocamlcore.org/&gt;.
+
+Compiler tip:
+  &lt;http://gaiustech.wordpress.com/2010/09/20/ocaml-compiler-errors/&gt;
+
+Code folding in Emacs:
+  &lt;http://gaiustech.wordpress.com/2010/09/20/code-folding-in-emacs/&gt;
+
+Onotify:
+  &lt;https://forge.ocamlcore.org/projects/onotify/&gt;
+
+Parametric Modular Programming:
+  &lt;http://alaska-kamtchatka.blogspot.com/2010/09/parametric-modular-programming.html&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

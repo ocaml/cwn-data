@@ -1,0 +1,370 @@
+Hello,
+
+Here is the latest OCaml Weekly News, for the week of November 22 to 29, 2016.
+
+1) Uucd 4.0.0, Uucp 2.0.0, Uunf 2.0.0, Uuseg 1.0.0, Uutf 1.0.0
+2) Empty polymorphic variant set
+3) Compressing stream in Async.Tcp.Server
+4) OCaml version 4.04.0 is released.
+5) Camlp5 6.17 released (and moved to github)
+6) Other OCaml News
+
+========================================================================
+1) Uucd 4.0.0, Uucp 2.0.0, Uunf 2.0.0, Uuseg 1.0.0, Uutf 1.0.0
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2016-11/msg00076.html>
+------------------------------------------------------------------------
+** Daniel Bünzli announced:
+
+Unicode 9.0.0 was released on the 21rst of june 2016. It adds 7'500 new
+characters to the standard.
+
+Cantabrigians will be delighted to substitute their frenetic use of MAN IN
+BUSINESS SUIT LEVITATING (U+1F574, Unicode 7.0.0) by the new MAN IN TUXEDO
+character (U+1F935, Unicode 9.0.0). See [0] for more details about all the
+additions.
+
+Accordingly the libraries mentioned at the end of this email had to be updated.
+These are all incompatible releases as they now all support the new Uchar.t type
+that is part of the standard library since 4.03 (usable before by using the
+uchar OPAM/ocamlfind compatibility package). They also all compile with
+-safe-string. See the individual release notes for more details about upgrading
+--- a few functions were dropped to avoid duplicate functionality with those of
+the new Uchar module.
+
+If Unicode still puzzles you, remember that Uucp's documentation has an absolute
+minimal Unicode introduction [1] and a few biased tips [2] to handle Unicode in
+OCaml.
+
+Best,
+
+Daniel
+
+[0] <http://blog.unicode.org/2016/06/announcing-unicode-standard-version-90.html>
+[1] <http://erratique.ch/software/uucp/doc/Uucp.html#uminimal>
+[2] <http://erratique.ch/software/uucp/doc/Uucp.html#tips>
+
+# Uucd 4.0.0
+Unicode character database decoder for OCaml.
+<http://erratique.ch/software/uucd>
+<https://github.com/dbuenzli/uucd/blob/v4.0.0/CHANGES.md#v400-2016-06-26-cambridge-uk>
+
+# Uucp 2.0.0
+Unicode character properties for OCaml.
+<http://erratique.ch/software/uucp>
+<https://github.com/dbuenzli/uucp/blob/v2.0.0/CHANGES.md#v200-2016-11-23-zagreb>
+
+# Uunf 2.0.0
+Unicode text normalization for OCaml.
+<http://erratique.ch/software/uunf>
+<https://github.com/dbuenzli/uunf/blob/v2.0.0/CHANGES.md#v200-2016-11-23-zagreb>
+
+# Uuseg 1.0.0
+Unicode text segmentation for OCaml.
+<http://erratique.ch/software/uuseg>
+<https://github.com/dbuenzli/uuseg/blob/v1.0.0/CHANGES.md#v100-2016-11-23-zagreb>
+
+# Uutf 1.0.0
+Non-blocking streaming Unicode codec for OCaml.
+<http://erratique.ch/software/uutf>
+<https://github.com/dbuenzli/uutf/blob/v1.0.0/CHANGES.md#v100-2016-11-23-zagreb>
+      
+========================================================================
+2) Empty polymorphic variant set
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2016-11/msg00081.html>
+------------------------------------------------------------------------
+** Julien Blond asked:
+
+Let's try something :
+
+$ ocaml
+OCaml version 4.03.0
+
+# let _ : [] list = [];;
+Characters 9-10:
+let _ : [] list = [];;
+
+Error: Syntax error
+# type empty = [];;
+type empty = []
+# let _ : empty list = [];;
+- : empty list = []
+# 
+
+Does anyone know if there is a reason to forbid the empty polymorphic variant
+set in type expressions or if it's a bug ?
+      
+** David Allsopp then replied:
+
+As you've observed, [] is a variant constructor since 4.03.0 - see GPR#234
+(<https://github.com/ocaml/ocaml/pull/234>). The GPR contains references and
+comments as to the motivation for this.
+
+What's your desired use for the type of the non-extensible empty polymorphic variant?
+
+Possibly related, you can define a general type for a list of polymorphic variants:
+
+let (empty : [> ] list) = []
+
+or
+
+let (length : [> ] list -> int) = List.length;;
+length [`Foo; `Bar];;
+length [42];;
+
+if that's what you were after?
+      
+** Julien Blond then asked and Gabriel Scherer replied:
+
+> Yes, i knew the variant constructor but, somehow i didn't realize i was
+> precisely using it for my mind was focused on the polymorphic variant list
+> :)
+>
+> In fact, i wondered if a generic result type like this
+>
+> type ('a, 'b) result = Ok of 'a | Error of 'b
+>
+> that we can see in several library could be used to specify a "safe" result
+> which could have type something like ('a, []) result. One could encode 'b as
+> some error list at type level but it needs some complicated type management
+> and i'm targeting OCaml beginners for which i just want them to be careful
+> about non nominal results.
+
+I would agree that OCaml lacks a convenient way to define the empty
+type. (It used to be possible using the revised syntax, which uses
+braces to delimit (non-polymorphic) variant definitions, but this was
+ruled out by sanity checks introduced in OCaml 4.02).
+
+One way is to use GADTs to create an impossible type:
+
+  type 'a onlybool = Bool : bool onlybool
+  type empty = int onlybool
+
+  let extract : ('a, empty) result -> 'a = function Ok x -> x
+
+Since 4.03 (April 2016), it is possible to explicitly write a
+so-called "refutation case", of the form "<pattern> -> .", to say that
+a given case cannot happen -- it is an error if the type-checker
+cannot verify it:
+
+  <https://caml.inria.fr/pub/docs/manual-ocaml/extn.html#sec241>
+
+  let extract : ('a, empty) result -> 'a = function
+    | Ok x -> x
+    | Error _ -> .
+
+I would support the idea of having a built-in "empty" type to
+represent a variant type with no constructor -- but then I am probably
+biased in favor of the empty type.
+      
+** Markus Mottl also suggested:
+
+My preferred way of representing the empty type is as follows:
+
+  type void = { void : 'a. 'a }
+
+This allows you to do:
+
+  type t = A | B of void
+
+  let f = function
+    | A -> "A"
+    | B { void } -> void
+
+This can come in handy for e.g. partially implementing type
+definitions.  Instead of raising exceptions in branches you cannot
+implement yet, you just simply return "void", which unifies with
+anything.  Since there is provably no way to create a value that would
+end up in that branch, this is safe.  Once you complete the argument
+definition for tag B, the compiler will detect all code locations that
+depend on that branch.
+      
+** Andreas Rossberg asked and Gabriel Scherer replied:
+
+> Isn?t [an abstract type definition] a sufficiently convenient way to define an
+> empty type?
+
+It is not, because this is treated as a type whose definition is
+unknown, rather that as a type that is known to have no inhabitant.
+This is of course the only possible interpretation when (type empty)
+occurs in a signature/declaration; but I think that having abstract
+definitions be interpreted essentially as abstract declarations is
+good design -- although I'm not completely sure how close exactly the
+type-checker considers them today.
+
+I also believe that this kind of declarations is used to define types
+populated by the FFI -- with values coming from C -- which justifies
+this stricter interpretation.
+
+I forgot to point out, in my message above, that the (Error _ -> .)
+case expresses intent, but is not necessary as the type-checker (in
+recent OCaml versions) understands that the pattern-matching without
+this case is exhaustive. One way to notice the difference is to try
+with Andreas' definition, which the type-checker complains about:
+
+ # type empty;;
+ # let extract : ('a, empty) result -> 'a = function Ok x -> x;;
+ Warning 8: this pattern-matching is not exhaustive.
+ Here is an example of a case that is not matched:
+ Error _
+ val extract : ('a, empty) result -> 'a = <fun>
+      
+** Yaron Minsky then said:
+
+For what it's worth, Core_kernel's Nothing.t type is an impossible
+type in Gabriel's sense. It effectively uses this pattern:
+
+module Equal = struct
+  type (_,_) t = Equal : ('a,'a) t
+end
+
+type nothing = (unit,int) Equal.t
+
+let f (x:(unit,nothing) result) =
+  match x with
+  | Ok () -> ()
+      
+** Markus Mottl then said and Gabriel Scherer replied:
+
+> Interesting, somehow it had escaped my attention that match case
+> elimination also applies to ordinary sum types if they have GADT
+> arguments.  I thought that this was only supported for GADTs.  In that
+> case the "nothing" approach, though requiring an explicit type
+> annotation, might be an even neater solution.
+
+It used to be the case that the only way to get the type-checker to
+reason on which constructors of a GADT can or cannot happen from type
+information was to have one of the constructors of this GADT to occur
+explicitly in the pattern-matching. The code above would thus have
+beeen warned as non-exhaustive as the type-checker could not "see"
+that the missing case, namely _, was in fact equivalent to (Error _),
+and that there was no possible constructor to fill that last wildcard.
+(Doing a case-analysis on the possible patterns a "_" could be
+decomposed into is called "exploding" the wildcard.)
+
+Jacques Garrigue gave at talk at the 2015 ML workshop on the question
+of: how much wildcard should we explode when analyzing
+pattern-matchings?
+
+  GADTs and exhaustiveness: looking for the impossible
+  Jacques Garrigue and Jacques Le Normand
+  2015
+  <http://www.mlworkshop.org/gadts-and-exhaustiveness-looking-for-the-impossible.pdf>
+  <https://youtu.be/vyZ4Bvogil4>
+
+If we explode wildcards as long as the type says we can, we can
+non-terminate on recursive types. If we explode wildcard too much, the
+performance of type-checking can suffer a lot. If we don't explode
+enough, we are unable to check exhaustiveness effectively.
+
+Jacques and Jacques' idea was to let people write pattern to say "this
+case cannot happen", and that would serve two roles at once: indicate
+author's intent in tricky case (an aspect of language design whose
+importance cannot be understated), and also serve as "exploding hints"
+for the type-checker, who would explode as deeply as those refutation
+patterns directed it to -- plus one more, if I remember correctly.
+This is highly similar to Agda's "absurd patterns".
+
+The rest of the discussion, including a lengthy but ultimately fairly
+satisfying syntax bike-shedding session, can be found on Mantis:
+  <https://caml.inria.fr/mantis/view.php?id=6437>
+
+> I wonder whether the type checker could be made to identify such match
+> case elimination opportunities with the previously mentioned "empty"
+> and "void" type definitions, too, which are obviously unpopulated.
+
+I think we don't want to be in the business of arbitrary proof search
+for emptyness or inhabitation. For GADTs there are well-understood
+notion of equations, (in)compatible types that naturally lead to the
+type-checker detecting some cases as impossible -- so these
+"elimination opportunities" are intrisic to GADTs as a feature. Adding
+heuristics to detect other notions of non-inhabitation sounds risky.
+Do we have strong use-cases for this?
+      
+========================================================================
+3) Compressing stream in Async.Tcp.Server
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2016-11/msg00080.html>
+------------------------------------------------------------------------
+** Paolo Donadeo asked and Francois Beranger answered:
+
+> Hi all, I'm writing a simple client/server application using Async.Rpc.
+> The skeletons of the client and server is essentially derived from the
+> examples available on line.
+> 
+> Since the messages are highly compressible, I would like to use ZLib
+> (e.g. Cryptokit) but I can't figure out how.
+
+I have some using-cryptokit compression example in there (function zlib):
+
+<https://github.com/UnixJunkie/daft/blob/master/src/socket_wrapper.ml>
+      
+** Yaron Minsky also replied:
+
+This is a good question. I think there isn't an especially nice
+solution for this, but one can write an alternate transport satisfying
+this interface:
+
+<https://github.com/janestreet/async_rpc_kernel/blob/master/src/transport_intf.ml>
+
+that does the compression, which should be enough. But this is not
+nicely pre-packaged functionality. It would be nice to have that, and
+PRs are certainly welcome...
+      
+========================================================================
+4) OCaml version 4.04.0 is released.
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2016-11/msg00103.html>
+------------------------------------------------------------------------
+** Continuing this old thread, Gabriel Scherer said:
+
+Another less good news: 4.04.0 has a regression in Unix.create_process
+on some Windows machines, when using 64bits builds of OCaml.
+
+  <https://github.com/ocaml/ocaml/pull/912>
+  <https://caml.inria.fr/mantis/view.php?id=7422>
+
+For 64bits Windows users, it is probably best to wait for a bugfix
+release before upgrading to OCaml 4.04.
+      
+========================================================================
+5) Camlp5 6.17 released (and moved to github)
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2016-11/msg00111.html>
+------------------------------------------------------------------------
+** Daniel de Rauglaudre announced:
+
+Camlp5 6.17 compabible with latest version of OCaml has been released.
+Access for download at
+   <https://camlp5.github.io/>
+
+Note: Camlp5 is now accomodated by github. Please submit your bugs
+and feature requests as issues
+   <https://github.com/camlp5/camlp5/issues>
+
+Pull requests are welcome.
+      
+========================================================================
+6) Other OCaml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Here are links from many OCaml blogs aggregated at OCaml Planet,
+<http://ocaml.org/community/planet/>.
+
+Unicode 9.0.0 refresh
+ <http://erratique.ch/software>
+
+OCaml EFL 1.18.0 released
+ <http://forge.ocamlcore.org/forum/forum.php?forum_id=946>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

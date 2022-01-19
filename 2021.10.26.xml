@@ -1,0 +1,609 @@
+<?xml version="1.0" encoding="utf-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2021.10.26</cwn_date>
+    <cwn_prev>2021.10.19</cwn_prev>
+    <cwn_next>2021.11.02</cwn_next>
+    <cwn_date_text>October 19 to 26, 2021</cwn_date_text>
+    <cwn_extra_head></cwn_extra_head>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>OCaml MOOC, third edition</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ocaml-mooc-third-edition/2458/5</cwn_url>
+      <cwn_who>Alain announced</cwn_who>
+      <cwn_what>
+https://archive.org/details/fun_ocaml_mooc
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Release of ocaml-sf/learn-ocaml:0.13.0</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-release-of-ocaml-sf-learn-ocaml-0-13-0/8577/7</cwn_url>
+      <cwn_who>Continuing this thread, Vincent Laviron announced</cwn_who>
+      <cwn_what>
+The video is up:
+https://www.irill.org/videos/seminaires2021/IRILL-seminaire-Louis-Gesbert-2021-10-07.html
+The talk is in French with English slides.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>First release of ~conan~, the detective to recognize your file</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-first-release-of-conan-the-detective-to-recognize-your-file/8655/1</cwn_url>
+      <cwn_who>Calascibetta Romain announced</cwn_who>
+      <cwn_what>
+*** Conan, an OCaml detective to recognize your file
+
+I'm glad to announce the first experimental release of [~conan~](https://github.com/mirage/conan). This tool/library
+helps us to recognize the [MIME type](https://en.wikipedia.org/wiki/Media_type) of a given file. More concretely, ~conan~ is a reimplementation of the
+command ~file~:
+#+begin_src shell
+$ file --mime image.png
+image/png
+#+end_src
+
+This tool was made to replace our old [ocaml-magic-mime](https://github.com/mirage/ocaml-magic-mime) project which recognizes the type of the MIME type of the
+given file _via_ its extension and a static database. However, a security problem remains: ~ocaml-magic-mime~ trusts
+on the user's input.
+
+The MIME type of a file is *not* a user's input (like the file name). It's a property of the file itself. A more
+secure way to recognize the type of the file is to introspect contents and compare it with a given database to
+possibly recognize the MIME type.
+
+So, ~file~ and specially ~libmagic~ work like that. They have a ~magic~ database which describes some magic numbers
+about some formats. Then, they traverse contents of the given file and compare inner values with what its expected
+from a certain MIME type.
+
+*** The goal of Conan / ~ocaml-magic-mime~
+
+The main problem with this approach is the inherent assumption that we manipulate a file from a file-system. However,
+as we said many times, MirageOS does not have, at first, a file-system (but you can add one if you want).
+
+This is why we made ~ocaml-magic-mime~ to be able to recognize MIME type of _something_ (a file, a simple ~string~, a
+stream, etc.).
+
+You are probably wondering why we need to recognize the MIME type?
+
+In many protocols such as HTTP or emails, we are able to transfer files. The usual way is to let the sender tell the
+MIME type of the transfered files. A concrete example is the ~Content-Type~ field used by HTTP. Indeed, it tells the
+client the MIME type of the given document - and by this way, the client is able to open this document with the right
+application.
+
+This is where ~libmagic~ comes in and tries to recognize the MIME type as the part of the request's processes of the
+server to transfer an image for example.
+
+We aim to have less and less C codes, so we started to re-implement ~file~ as our tool to recognize files and let our
+HTTP server inform the MIME type to the client. Then, instead of trusting the extension of the given file and our
+database, we started to propose something _more secure_.
+
+Finally, we took the opportunity to re-use the existing database (under the 2-clause BSD license) for our project
+(and provide a simple tool ~conan.file~ which does the same thing than ~file~). So the challenge was to enable to
+parse and process this database - and create a little DSL in OCaml to describe format of files.
+
+*** Into MirageOS
+
+With this DSL, we are able to serialize a given database (as the ~libmagic~ database) as a simple OCaml value which
+can be linked to a larger program such as an unikernel. In this way, we are able to create a full unikernel which is
+able to recognize MIME type of some contents.
+
+The goal is bigger than that because such little piece of software, as we said, is used by many protocols. Of course,
+our goal is to integrate our ~conan~ library into our HTTP server and be enable it to transfer files regardless of
+extensions/user's inputs.
+
+You can see an example here: [unikernel.ml](https://github.com/mirage/conan/blob/381b7e8622397f0093e40884ecc4a713b282c6d1/unikernel/unikernel.ml)
+
+We made an optimization into the given database to keep only MIME informations. Indeed, ~file~ tells more than MIME
+type. It gives a full description of the file such as the size of the image or the bitrate of the music. Of course,
+for a programmatic use, these informations is useless. So we deleted all of these informations and we finally are
+able to make a simple statically-linked unikernel of ~6.5 Mb.
+
+*** Re-update an old project
+
+The ~file~ command is **pretty** old (1987) and it's implemented with C. A standard of the DSL does not really exists
+and, of course, it does not take the advantage of a type system such as OCaml. Indeed, the DSL consists into:
+1) an offset into the given file
+2) a "type" of the value at this offset
+3) a test to compare this value
+4) a part of the resultat description which can print the value
+
+For an OCaml developper, it's sure that we can not mix potatoes and carrot for our salad (even if it's
+[good](http://m.middleeastkitchen.com/salads/tunisiancarrotpotato.html)). Indeed, for us, the value has a type ~'a~, the test must be ~'a -> 'a -> bool~ and the description
+must take an ~'a~ value to print it.
+
+So ~conan~ (despite [~Format~](https://ocaml.org/meetings/ocaml/2013/slides/vaugon.pdf)) is a nice example of the GADT power to keep along the process the same type as long
+as we are able to prove that the description of a format is _well typed_. When we started to implement the DSL, we
+focused on its implementation via GADTs to keep the type information and to be not wrong when we want to compare
+value from the given file and the database - of course, we tweak some details about the description which rely on the
+C-like ~printf~.
+
+This is the major advantage between ~file~ and ~conan~ where we are more reliable about what we consume and what we
+do to recognize a file.
+
+Then, as we said and specially for the MirageOS project, we decided to abstract _syscalls_ (or functions to get
+values from a file) to be able to use ~conan~ into an unikernel. It's more about design and ~conan~ is obviously
+compatible with ~lwt~, ~async~ (or ~multicore~). But it let an usage of the file recognition in many contexts
+(MirageOS, Linux or Windows?).
+
+Finally, such design splits well the project into multiples part where the core is only about the DSL and derivation
+of ~conan~ (such as ~conan-unix~ or ~conan-lwt~) are more about accesses &amp; file representation into specific
+contexts.
+
+As other MirageOS projects, we implemented a fuzzer which checks that the recognition never breaks the control flow
+via an exception from an unimplemented feature and we tried to implement tests as much as we can.
+
+*** Status of the project
+
+The project is usable as its first release. However, we did not implemented the whole ~libmagic~ because:
+1) it's not really essential for our purpose
+2) it's buggy from the type-system point-of-view
+
+That mostly means that, given the ~libmagic~'s database, we are not sure to handle all cases. And it's probable that
+an error still occurs for some patterns. But this is where you come. We definitely need a large usage of ~conan~ to
+improve it _via_ an interaction loop between you and us.
+
+So we advise you that ~conan~ can fails and you should be aware about its usage. However, we ensure that we want to
+improve it by times and we need you to help us about that.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Software Engineer Position at OCamlPro (France)</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/job-internship-software-engineer-position-at-ocamlpro-france/8665/1</cwn_url>
+      <cwn_who>Fabrice Le Fessant announced</cwn_who>
+      <cwn_what>
+OCamlPro is a Paris-based company devoted to the promotion of the
+OCaml language in the industry, as a way to make industrial software
+more reliable. In the last 10 years, OCamlPro contributed many
+developments to the OCaml community, from open-source tooling (like
+the OPAM package manager, ocp-indent, Flambda compiler optimizations,
+Learn-OCaml website, etc.) to new industrial projects like the Tezos
+blockchain.
+
+We are looking for motivated OCaml (and Rust) programmers in our two
+main axis of development:
+
+- OCaml Software Development: we develop software in OCaml and Rust
+  for our customers, with a focus on reliability and language
+  design. We are working on a large range of applications, so
+  developers with a broad knowledge and experience in various domains
+  are highly welcome. We hire both junior developers, starting at the
+  M2 level, to senior developers with longer experience in the
+  industry.
+
+  For M2 students, we propose internships (check
+  https://www.ocamlpro.com/fr/recrutement-ocamlpro/ for updates !)
+
+- Formal Methods Development: we develop formal methods software and
+  use them in industrial contexts for software verification. Our work
+  is currently mostly focused around the use of the Why3 toolchain,
+  the development of SMT solvers, and their application to the
+  verification of real programs, such as Solidity smart contracts in
+  the FreeTON blockchain. We usually hire developers with PhDs in
+  formal methods, and M2 students interested in research internships
+  followed by industrial Phds.
+
+Our team is mostly based in Paris, but we are remote-friendly as soon as
+regular stays in Paris are possible for team building.
+
+Please email your resume or C.V. and a description of some of your
+best accomplishments to: contact@ocamlpro.com
+
+http://www.ocamlpro.com/
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>New version of Try OCaml</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-new-version-of-try-ocaml/8666/1</cwn_url>
+      <cwn_who>OCamlPro announced</cwn_who>
+      <cwn_what>
+OCamlPro is happy to announce a new version of [TryOCaml](https://try.ocaml.pro/)!
+
+It features the latest version of OCaml, allows easy sharing of snippets of code and brings many other usability
+improvements besides a renewed stylesheet.
+
+https://gitlab.ocamlpro.com/OCamlPro/learn-ocaml
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Well Typed Router (wtr, wtr-ppx) v3.0.0 released</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-well-typed-router-wtr-wtr-ppx-v3-0-0-released/8675/1</cwn_url>
+      <cwn_who>Bikal Lem announced</cwn_who>
+      <cwn_what>
+I am pleased to announce v3.0.0 release of ~wtr (Well Typed Router)~ . ~wtr~ is a trie-based router for OCaml HTTP
+web applications.
+
+v3.0.0 introduces a set of combinators(functions) for specifying routes/router. This is in addition to the ~ppx~
+mechanism which is now available in a separate package ~wtr-ppx~.  Let me give you a small example of the new
+functionalities.
+
+Let's assume we want to match the following HTTP target/url:
+#+begin_example
+/hello/true?i=233&amp;s=str1
+/hello/false?i=-1234&amp;s=str2
+#+end_example
+This is how it can be implemented via the new combinators:
+
+#+begin_src ocaml
+let target2 = Wtr.(exact "hello" / bool /? qint "i" / qstring "s" /?. ())
+#+end_src
+and correspondingly via the ppx:
+#+begin_src ocaml
+let target2 = {%routes|  /hello/:bool?i=:int&amp;s=:string  |} about_page
+#+end_src
+Other notable changes are:
+- Addition of ~pretty printers~ of routes and router to aid in the debugging and usage in ~utop~
+- Massive overhaul of the documentation which include both the prose and the addition of examples/samples.
+
+ 
+
+- [Manual/API](https://lemaetech.co.uk/wtr/)
+- [v3.0.0 Changes](https://github.com/lemaetech/wtr/blob/main/CHANGES.md#v300-2021-10-20)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>containers 3.6</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-containers-3-6/8677/1</cwn_url>
+      <cwn_who>Simon Cruanes announced</cwn_who>
+      <cwn_what>
+Containers 3.6 has just been merged on opam. Containers is a stdlib extension (not replacement) that aims at being
+lightweight, fast, and modular. This release comes with a renaming of ~CCOpt~ to ~CCOption~ (and associated
+deprecation, although it will not happen before 4.0), along with bugfixes and a revamp of the ~CCParse~ module.
+
+The new ~CCParse~ is a small library of parser combinators that ships directly with ~containers~, and is intended for
+small parsers (where ~scanf~ would be used otherwise, typically). In particular, I've tried to make it possible to
+mix "regular" forward parsers, and ad-hoc parsers based on splitting input on tokens (e.g. splitting into lines,
+splitting on a separator like ~,~, etc.). The API is
+[here](https://c-cube.github.io/ocaml-containers/3.6/containers/CCParse/index.html) and there are some examples:
+- a [tiny S-expression parser](https://github.com/c-cube/ocaml-containers/blob/master/examples/ccparse_sexp.ml)
+- an [IRC log parser](https://github.com/c-cube/ocaml-containers/blob/master/examples/ccparse_irclogs_real.cond.ml) (for weechat logs) that also illustrates the use of let-operators.
+
+This module is still pretty experimental, so feedback is very welcome. Special thanks to @Fardale for his review.
+
+Changelog and release are [here](https://github.com/c-cube/ocaml-containers/releases/tag/v3.6).
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>ocaml-annot for binary annotations</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-ocaml-annot-for-binary-annotations/8683/1</cwn_url>
+      <cwn_who>rixed announced</cwn_who>
+      <cwn_what>
+If, like me, you loved the convenience of [ocaml-annot](https://github.com/avsm/ocaml-annot) from a time where
+annotations were stored as mere text files, you might want to try
+[ocaml-bin-annot](https://github.com/rixed/ocaml-bin-annot), that does about the same thing with binary annotations.
+
+In other words, ~bin-annot -type lineno colno file.cmt~ will print the type at the given location, which comes handy
+in an editor and much simpler to configure than merlin.
+
+I haven't tested on many cases or many compilers yet though, it's still only a one day project so do not expect too
+much.
+
+The main differences that I can see between ~annot~ and ~bin-annot~:
+
+- ~bin-annot~ is tied to a specific version of the OCaml compiler because of Marshalled cmt files, whereas ~annot~ can be installed once and forgotten;
+- ~bin-annot~ is ten times larger than ~annot~, again because it has to embed the compiler libs.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>shuttle v0.3.1 released</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-shuttle-v0-3-1-released/8684/1</cwn_url>
+      <cwn_who>Anurag Soni announced</cwn_who>
+      <cwn_what>
+I'd like to announce the release of version 0.3.1 of [shuttle](https://github.com/anuragsoni/shuttle).
+
+Installation: ~opam install shuttle~
+
+*Shuttle* provides an API for buffered I/O for applications using
+[async](https://opensource.janestreet.com/async/). It fills the same role as the Reader/Writer modules from async,
+but only supports file descriptors that support non blocking IO. Feature parity with the reader/writer modules is a
+non-goal.
+
+The library grew out of experiments in replacing manually orchestrated buffer management in some of my older async
+based applications. The goal is to have a high level api that gives a similar api as reader/writer modules, while
+providing a little more control over how/when the writes are scheduled. Credits for the idea go to the Janestreet
+engineers and their implementation of a low latency transport that's used in ~async_rpc~.
+
+The initial release consists of:
+
+1. Shuttle -> This is the core library that contains the channel implementation
+2. Shuttle_ssl -> Encrypted channels using ~async_ssl~
+3. Shuttle_http -> Httpaf driver that uses ~shuttle~ instead of ~httpaf-async~. Experimental module mostly used for testing, and some performance benchmarks.
+
+*Additional Notes:*
+
+- The httpaf driver has been contributed as a candidate for the http benchmarks maintained by the ocaml-multicore project -> https://discuss.ocaml.org/t/multicore-ocaml-september-2021-effect-handlers-will-be-in-ocaml-5-0/8554#benchmarks-22
+- For most use-cases people should still default to the Reader/Writer modules from async_unix. They are battle tested and cover a lot more use-cases.
+- Future work will involve adding a driver for ~ocaml-tls~, and adding minimal windows support mostly to allow at-least being able to build/develop shuttle based libraries on windows.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Generating static and portable executables with OCaml</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/generating-static-and-portable-executables-with-ocaml/8405/9</cwn_url>
+      <cwn_who>Continuing this old thread, Robin Björklin announced</cwn_who>
+      <cwn_what>
+Thanks for a great article!
+
+If anyone is curious what a complete example looks like I published a project with Github actions to release a static
+binary here: https://github.com/rbjorklin/throttle-fstrim
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>"Parsing" terms into a well-typed representation: a GADT puzzle</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/parsing-terms-into-a-well-typed-representation-a-gadt-puzzle/8688/1</cwn_url>
+      <cwn_who>gasche explained</cwn_who>
+      <cwn_what>
+The haskell reddit had [a GADT programming
+puzzle](https://www.reddit.com/r/haskell/comments/qent02/parse_debruijn_indices/) yesterday, and I wrote a solution
+in OCaml which I thought could be worth sharing. (For a primer on GADTs, see [the tutorial in the
+manual](https://ocaml.org/manual/gadts-tutorial.html).)
+
+*** The problem
+
+The author has a GADT that represents well-scoped, well-typed lambda-terms, which is nice as it captures the
+structure of the data very well.
+
+#+begin_src ocaml
+type ('e, 'a) idx =
+  | Zero : (('e * 'a), 'a) idx
+  | Succ : ('e, 'a) idx -> ('e * 'b, 'a) idx
+
+type ('e, 'a) texp =
+  | Var : ('e, 'a) idx -> ('e, 'a) texp
+  | Lam : (('e * 'a), 'b) texp -> ('e, 'a -> 'b) texp
+  | App : ('e, 'a -> 'b) texp * ('e, 'a) texp -> ('e, 'b) texp
+#+end_src
+
+With this representation, ~'e~ represents a type environment, and ~'a~ represents the type of a term. For example,
+~fun (x : 'a) -> fun (y : 'b) -> x~ would be written as ~Lam (Lam (Var (Succ Zero)))~, whose type is ~('e, 'a -> 'b
+-> 'a) texp~: in any environment ~'e~, this term has type ~'a -> 'b -> 'a~. The result of the function ~y~ is
+represented by ~Var (Succ Zero)~, of type ~(('e * 'a) * 'b, 'a) texp~: in an environment that extends ~'e~ with a
+first variable of type ~'a~ and a second variable of type ~'b~, this term has type ~'a~. ~Zero~ means "the last
+variable introduced in the context", and ~Succ Zero~ means "the variable before that", so here the variable of type
+~'a~. (This representation of variables by numbers, with 0 being the last variable, is standard in
+programming-language theory, it is called "De Bruijn indices".)
+
+*Problem*: we have seen how to express a fixed, well-typed term, but how could we turn an arbitrary term provided
+at runtime (say, as a s-expression or a parse-tree) into this highly-structured implementation?
+
+Implementing a parser for lambda-terms is rather standard, but here we are trying to do the next step, to implement a
+"parser" from a standard AST to this well-typed GADT representation.
+
+Suppose we start from the following representation, which may have been "parsed" from some input string from a
+standard parser:
+
+#+begin_src ocaml
+type uty =
+  | Unit
+  | Arr of uty * uty
+
+type uexp =
+  | Var of int
+  | Lam of uty * uexp
+  | App of uexp * uexp
+#+end_src
+
+Can we write a function that converts an ~uexp~ (untyped expression) into a ~('e, 'a) texp~ (typed expression) for
+some ~'a~?
+
+If you want to take this post as a puzzle for yourself, feel free to stop here and try to solve the problem. In the
+next section I'm going to explain just the high-level details of my solution (types and type signatures), so you can
+still have fun implementing the actual functions. The post ends with my full code.
+
+*** Sketch of a solution
+
+**** Singleton datatypes
+
+To "parse" an untyped expression into a well-typed GADT, we are in fact implementing a type-checker. We can think of
+implementing a type-checker without any GADT stuff: we need to traverse the type, maintain information about the
+typing environment, and sometimes check equalities between types (for the application form ~App(f, arg)~, the input
+type of ~f~ must be equal to the type of ~arg~). Then the general idea is to do exactly the same thing, in a
+"type-enriched" way: our code needs to propagate type-level information to build our GADT at the same time.
+
+For example, instead of an "untyped" representation of the environment, that would be basically ~uty list~, we will
+use a GADT-representation of the environment, with the same runtime information but richer static types:
+
+#+begin_src ocaml
+type 'a ty =
+  | Unit : unit ty
+  | Arr : 'a ty * 'b ty -> ('a -> 'b) ty
+
+type 'e env =
+  | Empty : unit env
+  | Cons : 'e env * 'a ty -> ('e * 'a) env
+#+end_src
+
+Notice in particular how ~'a ty~ gives a dynamic/runtime value that encodes the content of the type ~'a~. (I made the
+choice to restrict the language type system to a single base type, ~Unit~; we could add more constants/primitive
+types, but embedding any OCaml type would be more difficult for reasons that will show up soon.)
+
+**** Typeful equality checking
+
+We cannot write OCaml code that checks, at runtime, whether ~'a~ and ~'b~ are the same type, but we can check whether
+two values of type ~'a ty~ and ~'b ty~ are equal. In fact, when they are, we can even get a *proof* (as a GADT) that
+~'a = 'b~:
+
+#+begin_src ocaml
+(* a value of type ('a, 'b) eq is a proof that ('a = 'b) *)
+type (_, _) eq = Refl : ('a, 'a) eq
+
+exception Clash
+(* ensures that (a = b) or raises Clash *)
+let rec eq_ty : type a b . a ty -> b ty -> (a, b) eq = ...
+#+end_src
+
+**** Existential packing
+
+Our type-checking function will get a type environent ~'e env~ and an untyped expression ~uexp~, and it should
+produce some ~('e, 'a) texp~ -- or fail with an exception. But if the ~uexp~ is produced at runtime, we don't know
+what its type ~'a~ will be. To represent this, we use an "existential packing" of our type ~('e, 'a) texp~:
+
+#+begin_src ocaml
+type 'e some_texp = Exp : 'a ty * ('e, 'a) texp -> 'e some_texp
+#+end_src
+
+The type ~'e some_texp~ morally expresses ~exists 'a. ('e, 'a) texp~; this is a standard GADT programming pattern.
+
+ Notice the ~'a ty~ argument, which gives us a runtime witness/singleton for the type ~'a~: ~'a~ is unknown, but we
+have a dynamic representation of it that we can use for printing, equality checking etc. (And our unknown ~'a~ is
+restricted to the subset of types that can be valid parameters of ~'a ty~.) This is a standard extension of the
+standard pattern, which one may call "existential packing with dynamic witness".
+
+In fact, we will need "existential packings" of some other GADTs that
+will be dynamically produced by our type-checker.
+
+#+begin_src ocaml
+type some_ty = Ty : 'a ty -> some_ty
+type 'e some_idx = Idx : 'a ty * ('e, 'a) idx -> 'e some_idx
+#+end_src
+
+We can "parse" an untyped ~uty~ value into a well-typed ~'a ty~ value, in fact its existential counterpart ~some_ty~:
+
+#+begin_src ocaml
+let rec check_ty : uty -> some_ty = function
+  ...
+#+end_src
+
+**** Type-checking functions
+
+Given a type environment ~'e env~, we can "typecheck" an untyped variable (De Bruijn index) of type ~int~ into a
+well-typed representation ~('e, 'a) idx~ for some unknown ~'a~ determined at runtime.
+
+#+begin_src ocaml
+exception Ill_scoped
+let rec check_var : type e . e env -> int -> e some_idx =
+  fun env n ->
+    ...
+#+end_src
+
+If the integer ~n~ is out of bounds (negative or above the environment size), the function raises an ~Ill_scoped~
+exception. It is not standard to use untyped exception for error-handling in this kind of programs, but extremely
+convenient -- it lets us write ~let (Idx (ty, var)) = check_var env n in ...~, instead of having to both with
+options, ~result~ or some other error monad. There is not enough information in our exceptions to provide decent
+error messages, but who needs decent error messages, right?
+
+Finally we can write the main typechecking function for expressions:
+
+#+begin_src ocaml
+exception Ill_typed
+let rec check : type a e. e env -> uexp -> e some_texp =
+  fun env exp ->
+    ...
+#+end_src
+
+Example:
+
+#+begin_src ocaml
+# check Empty (Lam (Unit, Lam (Unit, Var 1)));;
+- : unit some_texp =
+Exp (Arr (Unit, Arr (Unit, Unit)), Lam (Lam (Var (Succ Zero))))
+#+end_src
+
+**** Full code
+
+#+begin_src ocaml
+(* well-typed representations *)
+type ('e, 'a) idx =
+  | Zero : (('e * 'a), 'a) idx
+  | Succ : ('e, 'a) idx -> ('e * 'b, 'a) idx
+
+type ('e, 'a) texp =
+  | Var : ('e, 'a) idx -> ('e, 'a) texp
+  | Lam : (('e * 'a), 'b) texp -> ('e, 'a -> 'b) texp
+  | App : ('e, 'a -> 'b) texp * ('e, 'a) texp -> ('e, 'b) texp
+
+let example = Lam (Lam (Var (Succ Zero)))
+
+(* untyped representations *)
+type uty =
+  | Unit
+  | Arr of uty * uty
+
+type uexp =
+  | Var of int
+  | Lam of uty * uexp
+  | App of uexp * uexp
+
+(* singleton types to express type-checking *)
+type 'a ty =
+  | Unit : unit ty
+  | Arr : 'a ty * 'b ty -> ('a -> 'b) ty
+
+type 'e env =
+  | Empty : unit env
+  | Cons : 'e env * 'a ty -> ('e * 'a) env
+
+(* existential types *)
+type some_ty = Ty : 'a ty -> some_ty
+type 'e some_idx = Idx : 'a ty * ('e, 'a) idx -> 'e some_idx
+type 'e some_texp = Exp : 'a ty * ('e, 'a) texp -> 'e some_texp
+
+(* dynamic type equality check *)
+type (_, _) eq = Refl : ('a, 'a) eq
+exception Clash
+let rec eq_ty : type a b . a ty -> b ty -> (a, b) eq
+    = fun ta tb -> match (ta, tb) with
+    | (Unit, Unit) -> Refl
+    | (Unit, Arr _) | (Arr _, Unit) -> raise Clash
+    | (Arr (ta1, ta2), Arr (tb1, tb2)) ->
+      let Refl = eq_ty ta1 tb1 in
+      let Refl = eq_ty ta2 tb2 in
+      Refl
+
+(* "checking" a type (no failure) *)
+let rec check_ty : uty -> some_ty = function
+  | Unit -> Ty Unit
+  | Arr (ta, tb) ->
+    let (Ty ta) = check_ty ta in
+    let (Ty tb) = check_ty tb in
+    Ty (Arr (ta, tb))
+
+(* "checking" a variable *)
+exception Ill_scoped
+let rec check_var : type e . e env -> int -> e some_idx =
+  fun env n ->
+    match env with
+    | Empty -> raise Ill_scoped
+    | Cons (env, ty) ->
+      if n = 0 then Idx (ty, Zero)
+      else
+        let (Idx (tyn, idx)) = check_var env (n - 1) in
+        Idx (tyn, Succ idx)
+
+(* "checking" an input expression *)
+exception Ill_typed
+let rec check : type a e. e env -> uexp -> e some_texp =
+  fun env exp ->
+    match exp with
+    | Var n ->
+      let (Idx (ty, n)) = check_var env n in
+      Exp (ty, Var n)
+    | Lam (tya, exp') ->
+      let (Ty tya) = check_ty tya in
+      let (Exp (tyb, exp')) = check (Cons (env, tya)) exp' in
+      Exp (Arr (tya, tyb), Lam exp')
+    | App (exp_f, exp_arg) ->
+      let (Exp (ty_f, exp_f)) = check env exp_f in
+      let (Exp (ty_arg, exp_arg)) = check env exp_arg in
+      begin match ty_f with
+        | Unit -> raise Ill_typed
+        | Arr (ty_arg', ty_res) ->
+          let Refl = eq_ty ty_arg ty_arg' in
+          Exp (ty_res, App (exp_f, exp_arg))
+      end
+#+end_src
+      </cwn_what>
+      <cwn_who>Calascibetta Romain then said</cwn_who>
+      <cwn_what>
+I just would like to extend a bit your fantastic tutorial with a "toy" which does what you explain:
+https://github.com/mirage/mirage-lambda It's an unikernel which takes a lambda-calculus (via ~protobuf~) and try to
+_map_ it into a GADT - however, this lambda-calculus is much more complex than yours. Then, it executes the given
+GADT "safely" and returns the result. The most interesting part is this file:
+
+https://github.com/mirage/mirage-lambda/blob/master/src/typedtree.mli
+
+Note that it's an old toy (and I don't have enough times to upgrade it - but if someone want, I will happy to merge
+their PRs). The initial idea was to take a lambda-calcul such as [1ml](https://people.mpi-sws.org/~rossberg/1ml/) and map it to a GADT to finally use
+[malfunction](https://github.com/stedolan/malfunction) to emit OCaml bytecode and make my new best toy language.
+
+However, I did not yet make a time machine to save my time and continue such interesting side-project :) !
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

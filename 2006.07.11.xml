@@ -1,0 +1,223 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2006.07.11</cwn_date>
+    <cwn_prev>2006.07.04</cwn_prev>
+    <cwn_next>2006.07.18</cwn_next>
+    <cwn_date_text>July 04 to 11, 2006</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>A global exception handler...</cwn_title>
+      <cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/45fbdd2e388b6b4f/c02a6e728f30451c#c02a6e728f30451c</cwn_url>
+      <cwn_who>Jonathan Roewen asked, Till Varoquaux suggested, and Nicolas Pouillard answered</cwn_who>
+      <cwn_what>
+&gt; &gt; Is it possible to register a global exception handler? 
+
+&gt; &gt; I suppose I could just nest everything inside one giant function if I 
+&gt; &gt; really had to, but I like my toplevel expressions ;-) 
+
+&gt; CamlP4 might come in handy here. I'm guessing you could rewrite your 
+&gt; program so that all your toplevel expressions are in one main () 
+&gt; function using camlp4. It would have some limitations though: for 
+&gt; instance your exception handler could not use anything defined in main 
+&gt; (unless you where using references). I'm guessing it's not so bad 
+&gt; because whatever happens you cannot have a global exception handler 
+&gt; relying to much on stuff defined in your programm. 
+
+
+Here is a simple Camlp4 filter that written for the new Camlp4 version (CVS) : 
+$ cat global_handler.ml 
+open Camlp4.PreCast; 
+
+value ghost = Loc.ghost; 
+
+value global_handler_ref = ref &lt;:expr@ghost&lt;&gt;&gt;; 
+
+value find_global_handler = object 
+  inherit Ast.map as super; 
+  method str_item st = do { 
+    match st with 
+    [ &lt;:str_item&lt; value global_handler = $f$ &gt;&gt; -&gt; global_handler_ref.val := f 
+    | _ -&gt; () ]; 
+    super#str_item st 
+  }; 
+end; 
+
+AstFilters.register_str_item_filter 
+  (fun st -&gt; 
+    let _ = find_global_handler#str_item st in 
+    &lt;:str_item@ghost&lt; try let module Main = struct $st$ end in () 
+                      with e -&gt; $global_handler_ref.val$ e &gt;&gt;); 
+
+$ ocamlc -I +camlp4 -c -pp camlp4rf global_handler.ml 
+
+$ cat global_handler_test.ml 
+open Format;; 
+let f1 x = printf "f1 %d@." x;; 
+let f2 x = printf "f2 %f@." x;; 
+let f3 x = printf "f3 %s@." x;; 
+f1 1;; 
+f2 1.1;; 
+f3 "1.1.1";; 
+raise (Failure "test");; 
+let global_handler e = 
+  (* Note that I need to give the complete name for eprintf since 
+     Format is not opened in the new environment of global_handler. *) 
+  Format.eprintf "global_handler: %s@." (Printexc.to_string e) 
+
+$ ocamlc -pp 'camlp4o global_handler.cmo' global_handler_test.ml 
+
+$ ./a.out 
+f1 1 
+f2 1.100000 
+f3 1.1.1 
+global_handler: Failure("test") 
+
+$ camlp4o global_handler.cmo -printer OCaml global_handler_test.ml 
+try 
+  let module Main = 
+    struct 
+      open Format 
+      let f1 x = printf "f1 %d@." x 
+      let f2 x = printf "f2 %f@." x 
+      let f3 x = printf "f3 %s@." x 
+      let _ = f1 1 
+      let _ = f2 1.1 
+      let _ = f3 "1.1.1" 
+      let _ = raise (Failure "test") 
+      let global_handler e = 
+        (* Note that I need to give the complete name for eprintf since 
+     Format is not opened in the new environment of global_handler. *) 
+        Format.eprintf "global_handler: %s@." (Printexc.to_string e) 
+    end 
+  in () 
+with 
+| e -&gt; 
+    (fun e -&gt; Format.eprintf "global_handler: %s@." (Printexc.to_string e)) e 
+      </cwn_what>
+      <cwn_who>Jonathan Roewen asked and Nicolas Pouillard answered</cwn_who>
+      <cwn_what>
+> Ah, defining a module inside a function is a neat trick! I didn't 
+> think of that. Well, I guess it couldn't hurt to do that with all the 
+> modules which could cause trouble at runtime... 
+
+> Can I build the new camlp4 with 3.09.2 tools? 
+
+
+In fact camlp4 will be part of OCaml 3.10 distribution, so it's better 
+to try it directly like that, instead of mixing them with 3.09.2. 
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>"Hello web" please</cwn_title>
+      <cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/b7f086eb86e92d7d/a6d4126e2473ed53#a6d4126e2473ed53</cwn_url>
+      <cwn_who>Jonathan Hayward asked and Christophe TROESTLER answered</cwn_who>
+      <cwn_what>
+&gt; I'm trying to figure out how to use CamlGI with OCaml, [...] 
+
+
+CamlGI code has been integrated into the Netcgi component 
+&lt;https://gps.dynxs.de/wwwsvn/trunk/code/src/netcgi/?root=lib-ocamlnet2&gt; 
+of OcamlNet-2 &lt;https://gps.dynxs.de/openapps/svnindex.cgi&gt;, please use 
+that instead. 
+&gt; [...] script that [...] prints a webpage saying only "Yes", "No", 
+&gt; "Other" or "Undefined" depending on whether the CGI variable "foo" 
+&gt; has value 1, 0, some other defined value, or is undefined (never 
+&gt; mind about multiple values)? 
+
+You can find examples in the examples/ directory (add.ml is a very 
+simple one).  As for the specific example you desire, it is attached. 
+It is maybe a bit more complex that you expected because it 
+demonstrates additional features (text escaping, setting the header, 
+buffered output). 
+Hope it helps, 
+ChriS 
+
+[   hello.ml ] 
+open Netcgi 
+
+let text = Netencoding.Html.encode_from_latin1 
+  (* This function encodes "&lt;", "&gt;", "&amp;", double quotes, and Latin 1 
+     characters as character entities.  E.g. text "&lt;" = "&amp;lt;", and 
+     text "ä" = "&amp;auml;" *) 
+
+(* Normally you would use a template system instead of this *) 
+let html_page (cgi:cgi) title html = 
+  let out = cgi#out_channel#output_string in 
+  out "&lt;!DOCTYPE html PUBLIC \"-//W3C//DTD HTML 4.0//EN\" \ 
+        \"http://www.w3.org/TR/REC-html40/strict.dtd\"&gt;\n"; 
+  out ("&lt;html&gt;\n&lt;head&gt;&lt;title&gt;" ^ text title ^"&lt;/title&gt;&lt;/head&gt; 
+&lt;body&gt;\n"); 
+  out html; 
+  out "&lt;/body&gt;\n&lt;/html&gt;" 
+
+let main (cgi:cgi) = 
+  cgi#set_header 
+    ~cache:`No_cache 
+    ~content_type:"text/html; charset=\"iso-8859-1\"" 
+    (); 
+  let foo = cgi#argument_value "foo" 
+  let html = match foo with 
+    | "1" -&gt; "Yes" 
+    | "0" -&gt; "No" 
+    | _ -&gt; "Undefined" in 
+  html_page cgi foo html 
+
+(* You can buffer or not the output.  If buffered you can rollback 
+   (useful in case of error). You can replace Netcgi_cgi.run by 
+   another connector entry point (FCGI, SCGI, AJP, Apache mod). *) 
+let () = 
+  let buffered _ ch = new Netchannels.buffered_trans_channel ch in 
+  Netcgi_cgi.run ~output_type:(`Transactional buffered) main 
+      </cwn_what>
+      <cwn_who>Jonathan Hayward then asked and Christophe TROESTLER answered</cwn_who>
+      <cwn_what>
+&gt; I've been urged to use Netcgi from OcamlNet-2 from 
+&gt; http://www.ocaml-programming.de/packages/ocamlnet-2.2test2.tar.gz . 
+
+Ok.  I was pointing you to the subversion repository so you can browse 
+the files and see whether that is what you need.  You can download the 
+files with 
+  svn co https://gps.dynxs.de/svn/lib-ocamlnet2/trunk/ lib-ocamlnet2 
+
+&gt; When I tried to configure OcamlNet2 it said it needed PCRE -- and even 
+&gt; though I installed what was labelled as PCRE from 
+&gt; ftp://ftp.csx.cam.ac.uk/pub/software/programming/pcre/ , OcamlNet-2 refused 
+&gt; to configure because it couldn't recognize PCRE as being installed, and when 
+&gt; I commented out the test for PCRE in the configure it still couldn't find 
+&gt; it. 
+
+You need the OCaml interface to the C library.  Get it here: 
+        http://ocaml.info/home/ocaml_sources.html#toc13 
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>in and out channels into memory</cwn_title>
+      <cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/a51bfd3a3691d587/db3a36d648594394#db3a36d648594394</cwn_url>
+      <cwn_who>Jim Miller asked and Richard Jones answered</cwn_who>
+      <cwn_what>
+&gt; Is there a way in OCaml to read and write into memory using in and out 
+&gt; channels in the standard distribution?  It seems like there are functions 
+&gt; for converting everything else to in and out channels but I can't seem to 
+&gt; find anything for writing into and out of memory.  If there isn't something 
+&gt; already, is there a function for creating new in and out channels? 
+
+Not for the in/out_channel in the standard distribution. 
+However if you can change the code to use the IO class types defined 
+here (http://www.ocaml-programming.de/rec/IO-Classes.html) then you 
+can use something like input_string from the Netstring library: 
+
+ let s = "1\n2\n3\n4" in 
+ let ch = new input_string s in 
+ ch#input_line () 
+
+If you can't change the code, then the best you can do might be to 
+read and write a temporary file (see: Filename.open_temp_file). 
+
+Another alternative from the std lib is Buffer, but that also requires 
+changing the code. 
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

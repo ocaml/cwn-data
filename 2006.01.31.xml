@@ -1,0 +1,107 @@
+﻿<?xml version="1.0" encoding="ISO-8859-15"?>
+<cwn>
+<cwn_head>
+  <cwn_date>2006.01.31</cwn_date>
+  <cwn_prev>2006.01.24</cwn_prev>
+  <cwn_next>2006.02.07</cwn_next>
+  <cwn_date_text>24 to 31 January, 2006</cwn_date_text>
+</cwn_head>
+<cwn_body>
+  <cwn_entry>
+    <cwn_title>hints for internationalization</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/32050</cwn_url>
+    <cwn_who>Basile Starynkevitch asked and Sylvain Le Gall suggested</cwn_who>
+    <cwn_what>
+&gt; Do you have practical hints regarding the l18n or i18n of an application
+&gt; (specifically, an application to be runnable either in french or in
+&gt; english)?
+&gt; 
+&gt; Any practical hints are welcome. In particular, it seems to me that the
+&gt; novel features of the Printf module could help in particular the format string
+&gt; substitution eg printf "%(%d %s)" (I don't know what should come next) .... 
+&gt; 
+&gt; In other words, I'm seeking advices and examples of how to use advanced
+&gt; Printf (&amp; Scanf) features to code a bi-lingual application.
+&gt; 
+&gt; Maybe a Printf mini-HOWTO might be helpful?
+&gt; 
+&gt; What about gettext (or other equivalent?)
+
+There is ocaml-gettext, if you need a gettext library.
+
+http://le-gall.net/sylvain/ocaml-gettext.html
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>On Store_field()</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/31971</cwn_url>
+    <cwn_who>Continuing the thread from last week, Thomas Fischbacher said and Olivier Andrieu answered</cwn_who>
+    <cwn_what>
+ &gt; What you *actually* forgot to tell people is that OCaml
+ &gt; unfortunately lacks a macro with which one can store C pointers to
+ &gt; alloc_final allocated blocks. If one writes to those using e.g.
+ &gt; 
+ &gt;   ml_vector = alloc_final(2, finalize_vector, 1, 10);
+ &gt;   Store_field(ml_vector, 1,(value)vector);
+ &gt; 
+ &gt; with vector being a C pointer to a structure, this may or may not
+ &gt; lead to random crashes at very unexpected places - because (as I
+ &gt; think now) the Store_field macro will be over-eager trying to tell
+ &gt; the GC about the value stored - which it should just ignore in this
+ &gt; particular case!
+ &gt; 
+ &gt; Indeed, this has been discussed before, I think:
+ &gt; 
+ &gt; http://groups.google.de/group/fa.caml/msg/60ace9405fcf60c0?dmode=source&amp;hl=de
+ &gt; 
+ &gt; So, I would strongly suggest introducing a macro that behaves like this:
+ &gt; 
+ &gt; #define Store_c_field(block,offset,x) (Field(block,offset)=(value)x)
+ &gt; 
+ &gt; so that one could then use
+ &gt; 
+ &gt;   Store_c_field(ml_vector, 1,vector);
+ &gt; 
+ &gt; I actually just spent a full week tracking down precisely this
+ &gt; issue in a not particularly trivial C library interface I am
+ &gt; building right now.  After looking in the weirdest places, ensuring
+ &gt; it's not an issue with the library wrapped, or the trickier pieces
+ &gt; of my own code, I even started patching debugging code into the
+ &gt; OCaml bytecode's GC and rebuilding...
+ &gt; 
+ &gt; So, *please* do the world a great favour and tell people about that
+ &gt; issue in the C interface documentation!
+
+Well, it already does:
+,----
+| Rule 3   Assignments to the fields of structured blocks must be done
+| with the Store_field macro (for normal blocks) or Store_double_field
+| macro (for arrays and records of floating-point numbers). Other
+| assignments must not use Store_field nor Store_double_field. 
+`----
+Final (aka custom) blocks are not structured blocks but raw blocks
+(not traced by the GC), so assignements to those blocks falls in the
+"other assignments" category.
+
+A good way to deal with custom blocks in the C code is to create a
+small struct type and access the content of the block through this type.
+
+struct custom_foo_bar {
+  foo *pointer1;
+  bar *pointer3;
+};
+
+value alloc_foo_bar (foo *f, bar *b)
+{
+  value v;
+  struct custom_foo_bar *s;
+  v = alloc_custom (&amp;foo_bar_ops, sizeof struct custom_foo_bar, 1, 10);
+  s = Data_custom_val (v);
+  s-&gt;p1 = f;
+  s-&gt;p2 = b;
+  return v;
+}
+    </cwn_what>
+  </cwn_entry>
+</cwn_body>
+</cwn>

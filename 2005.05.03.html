@@ -1,0 +1,315 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2005.04.26.html">Previous week</a> <a href="index.html">Up</a> <a href="2005.05.10.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of 26 April to 03 May, 2005.</p><ol>
+      <li>
+        <a href="#1">Engineer position at Cristal@INRIA</a>
+      </li>
+      <li>
+        <a href="#2">Type inference question</a>
+      </li>
+      <li>
+        <a href="#3">Savonet releases liquidsoap 0.2.0</a>
+      </li>
+      <li>
+        <a href="#4">New tutorial on Camlp4: "How to customize the syntax of OCaml, using Camlp4"</a>
+      </li>
+      <li>
+        <a href="#5">Mini ray tracer</a>
+      </li>
+      <li>
+        <a href="#6">Changes on equality between 3.06 and 3.08.3</a>
+      </li>
+      <li>
+        <a href="#7">pftdbns 0.2.2</a>
+      </li>
+      <li>
+        <a href="#8">Bantam: a lightweight file manager for X11</a>
+      </li>
+    </ol><a name="1" /><hr /><h3>Engineer position at Cristal@INRIA</h3><p>Archive: <a href="http://caml.inria.fr/pub/ml-archives/caml-list/2005/04/38663b36c2e7971eebe0dd989798f3cd.en.html">http://caml.inria.fr/pub/ml-archives/caml-list/2005/04/38663b36c2e7971eebe0dd989798f3cd.en.html</a></p><i>Michel Mauny announced:</i><br /><pre>
+Please forward this announce to whom might be interested.
+
+INRIA-Rocquencourt (Cristal group) is seeking for an engineer whose
+task will be to develop a specific version of the Caml language in
+partnership with an an IT manufacturer. More information at
+<a href="http://quincy.inria.fr/ing-en.html">http://quincy.inria.fr/ing-en.html</a> .
+    </pre><a name="2" /><hr /><h3>Type inference question</h3><p>Archive: <a href="http://caml.inria.fr/pub/ml-archives/caml-list/2005/04/33ea2e8128a2d90f6a1514d180dc6271.en.html">http://caml.inria.fr/pub/ml-archives/caml-list/2005/04/33ea2e8128a2d90f6a1514d180dc6271.en.html</a></p><i>Julien Verlaguet asked and Jean-Christophe Filliatre answered:</i><br /><pre>
+&gt; I have the following function definition :
+&gt; 
+&gt; let myfun param=
+&gt;    let res=Marshal.from_channel stdin [] in
+&gt;      if res=param then
+&gt;        res
+&gt;      else res
+&gt; 
+&gt; I was expecting : myfun : 'a -&gt; 'a
+&gt; 
+&gt; I got instead : myfun : 'a -&gt; 'b
+&gt; 
+&gt; Is it normal ?
+
+Yes.  "Marshal.from_channel stdin  []" has  type 'a  and this  type is
+generalized  in the  let/in  construct, giving  res  the type  "forall
+'a. 'a". In the test "res = param", the type of res is instanciated on
+the type of param, but this does not affect the type of the result.
+
+It would be better if  Marshal.from_channel would be given a type that
+cannot  be generalized ('_a)  but I  don't think  that the  ocaml type
+system can do this.
+
+Anyway, it is  always a good idea to use a  type constraint when using
+marshalling functions, as in
+
+        let (x : tau) = Marshal.from_channel ...
+    </pre><i>Mark Shinwell then asked and Jacques Garrigue answered:</i><br /><pre>
+&gt; &gt; Yes.  "Marshal.from_channel stdin  []" has  type 'a  and this  type is
+&gt; &gt; generalized  in the  let/in  construct, giving  res  the type  "forall
+&gt; &gt; 'a. 'a". In the test "res = param", the type of res is instanciated on
+&gt; &gt; the type of param, but this does not affect the type of the result.
+&gt; 
+&gt; I can understand this behaviour in a case such as the following:
+&gt; 
+&gt;         let f v =
+&gt;           let r = fun x -&gt; x in
+&gt;             if r = v then r else r
+&gt; 
+&gt; where as you say the (non-trivial) type scheme assigned to r is
+&gt; instantiated multiple times, yielding ('a -&gt; 'a) -&gt; 'b -&gt; 'b for f.
+&gt; 
+&gt; However, in the Marshal example above, we have
+&gt; 
+&gt;         Marshal.from_channel stdin []
+&gt; 
+&gt; in the first part of the "let".  In the SML terminology, this is not a
+&gt; "nonexpansive expression"[*] (unlike "fun x -&gt; x").  Therefore, I would
+&gt; have thought that the appearance of such an expression here would
+&gt; prohibit generalisation (in order to prevent possible unsoundness in the
+&gt; presence of mutable state).  This is presumably not the case in OCaml:
+&gt; can someone explain why?
+&gt; 
+&gt; Mark
+&gt; 
+&gt; [*] <a href="http://www.smlnj.org//doc/Conversion/types.html">http://www.smlnj.org//doc/Conversion/types.html</a>
+
+Because ocaml now uses an improvement of the so-called "value restriction".
+Rather than refusing to generalize any variable in expansive
+expressions, it generalizes covariant ones, as they cannot be
+used in an unsound way.
+(See "Relaxing the value restriction" at
+ <a href="http://wwwfun.kurims.kyoto-u.ac.jp/~garrigue/papers/">http://wwwfun.kurims.kyoto-u.ac.jp/~garrigue/papers/</a>)
+
+What we see here is a consequence of that for functions which
+are known as typing holes: any function that returns a totally
+unconstrained result (as input_value or Obj.magic) allows this result
+to be generalized. Actually, for Obj.magic this is a good thing: you
+sometimes want the result to be polymorphic (this is not a real
+function anyway). For input_value this is subject for discussion, but
+anyway this function is a glaring hole in the type system... maybe we
+should have a way to explicitly require its result to be annotated
+with a ground type!
+    </pre><a name="3" /><hr /><h3>Savonet releases liquidsoap 0.2.0</h3><p>Archive: <a href="http://caml.inria.fr/pub/ml-archives/caml-list/2005/04/620595164517ee253e0c180d5eaaa0b7.en.html">http://caml.inria.fr/pub/ml-archives/caml-list/2005/04/620595164517ee253e0c180d5eaaa0b7.en.html</a></p><i>David Baelde announced:</i><br /><pre>
+The Savonet project aims at building a complex web-radio system,
+completely written in OCaml.
+
+We are proud to finally release the first stable version of liquidsoap,
+the heart of the Savonet system! Not only is it stable, it is also very
+rich, as demonstrated by examples on our website. Unfortunately, we
+can't make a public demonstration web-radio. Gentoo ebuilds are
+available, and Debian packages should be released soon. Check on our
+website:
+
+<a href="http://savonet.sourceforge.net">http://savonet.sourceforge.net</a>
+
+Here's a list of the released packages, featuring newly released
+sub-projects and many major bug fixes:
+
+* liquidsoap-0.2.0
+  Programmable and extensible audio stream generator,
+  allows any kind of audio manipulation.
+
+* ocaml-dtools-0.1.1
+  Utilies for logging, configuration,
+  and startup/shutdown services of your OCaml applications.
+
+* ocaml-ftp-0.1.0
+  FTP file access.
+
+* ocaml-smbclient-0.1.0
+  Bindings for libsmbclient, for Samba file access.
+
+* ocaml-fetch-0.1.0
+  Transparent remote/local file access.
+
+* ocaml-mad-0.1.3
+  Bindings for libmad, for encoding/decoding MP3.
+
+* ocaml-mp3id3-0.2.0
+  For reading Mp3Id3 tags.
+
+* ocaml-vorbis-0.2.0
+  Bindings for libvorbis+libogg, for encoding/decoding Ogg/Vorbis.
+
+* ocaml-shout-0.2.0
+  Bindings for shout2 library for streaming ogg/mp3 audio data.
+
+* ocaml-ssl-0.2.0
+  Bindings for libssl, provinding secure sockets.
+
+Thanks to all that work, liquidsoap is a very powerful and flexible
+audio streaming language, abstracting over format, protocol, stream
+generation, manipulation and output. Allowing arbitrarily deep-nested
+composition of streams and easy extensibility, it gives you more power
+than you need for creating an original web-radio. But liquidsoap is
+still very light and easy to use, in the Unix tradition of many simple
+strong components working together.
+
+The web-radio we're running accepts user requests, and then search in
+a database for matching songs. The database feeder is not yet released,
+but is available on CVS. Other unmaintained parts of the project are a
+website and an OCaml IRC bot, making easy the user requests and playlist
+querying. Instead we're currently using an unpublished Perl hack. All of
+these components were expected to communicate using libsavonet, using
+authentification, and directly exchanging caml values over network.
+
+Hope our project interests a few of you,
+and demonstrate that OCaml is a great real-life programming language.
+    </pre><a name="4" /><hr /><h3>New tutorial on Camlp4: "How to customize the syntax of OCaml, using Camlp4"</h3><p>Archive: <a href="http://caml.inria.fr/pub/ml-archives/caml-list/2005/04/0cb1293570b0f1fd9d36e904eeee929e.en.html">http://caml.inria.fr/pub/ml-archives/caml-list/2005/04/0cb1293570b0f1fd9d36e904eeee929e.en.html</a></p><i>Martin Jambon announced:</i><br /><pre>
+I am pleased to announce the availability of this new online resource:
+
+  "How to customize the syntax of OCaml, using Camlp4"
+
+URL: <a href="http://martin.jambon.free.fr/extend-ocaml-syntax.html">http://martin.jambon.free.fr/extend-ocaml-syntax.html</a>
+    </pre><a name="5" /><hr /><h3>Mini ray tracer</h3><p>Archive: <a href="http://caml.inria.fr/pub/ml-archives/caml-list/2005/04/d22b1761efb27d7b182cb9eabf245e1c.en.html">http://caml.inria.fr/pub/ml-archives/caml-list/2005/04/d22b1761efb27d7b182cb9eabf245e1c.en.html</a></p><i>Jon Harrop announced:</i><br /><pre>
+I just knocked up a little ray tracer in OCaml to test its viability for the 
+shootout:
+
+  <a href="http://www.ffconsultancy.com/free/ray_tracer/">http://www.ffconsultancy.com/free/ray_tracer/</a>
+
+Here, it traces a 768^2 image of 66,430 spheres in 22.51s on a 1.2GHz 
+Athlon-Thunderbird and in 7.24s on a 1.8GHz Athlon 64.
+
+I've boiled it down to 94 LOC and posted it to the shootout mailing list.
+    </pre><a name="6" /><hr /><h3>Changes on equality between 3.06 and 3.08.3</h3><p>Archive: <a href="http://caml.inria.fr/pub/ml-archives/caml-list/2005/04/677f99f4fc250f84c4b36c7594f137a9.en.html">http://caml.inria.fr/pub/ml-archives/caml-list/2005/04/677f99f4fc250f84c4b36c7594f137a9.en.html</a></p><i>Olivier Michel asked and Damien Doligez answered:</i><br /><pre>
+&gt; I just noticed the following change in Ocaml between release 3.06 and 
+&gt; 3.08.3, as far
+&gt; as equality on records is concerned :
+&gt;
+&gt; # type toto = { b : int -&gt; int; };;
+&gt; type toto = { b : int -&gt; int; }
+&gt; # let a = { b = (fun x -&gt; x) } ;;
+&gt; val a : toto = {b = &lt;fun&gt;}
+&gt; # a = a;;
+&gt; Exception: Invalid_argument "equal: functional value".
+&gt;
+&gt;
+&gt; Is this supposed to be a bug, or a feature ? Will future releases of 
+&gt; Ocaml follow
+&gt; the new way of handling equality between records or the old one ?
+
+New feature.  Carefully thought out.  Well documented.  Ultimately 
+caused by a strange wart of the IEEE floating-point standards.
+
+You should use the "compare" function if you want the old behaviour.
+    </pre><i>Alex Baretta said:</i><br /><pre>
+Keep in mind that in 3.06 physical equality (==) implied structural 
+equality (=). Now, (=) now longer checks for (==), so no functional 
+value can be found to be structurally equal to any other functional 
+value. The following line illustrates this point.
+
+# (=) (=) (=);;
+Exception: Invalid_argument "equal: functional value".
+
+Actually, an interesting question related to this one is why the 
+following line behaves as it does.
+
+# (==) (==) (==);;
+- : bool = false
+    </pre><i>Olivier Andrieu answered and Marcin Kowalczyk added:</i><br /><pre>
+&gt; Probably because == is defined by an "external" in pervasives.ml,
+&gt; not a regular function definition. So here, when you use (==),
+&gt; you're building three closures.
+
+Two. OCaml materializes function objects corresponding to external
+functions each time they are used instead of once at the point of
+their definition (presumably because it assumes that usually they are
+not passed as first-class objects at all), but application of such
+function doesn't need the function object but jumps straight to its
+machine code.
+    </pre><i>Jon Harrop then said:</i><br /><pre>
+# let f = (==) in (==) f f;;
+- : bool = true
+
+Interesting. I don't like it, but it's interesting. :-)
+    </pre><a name="7" /><hr /><h3>pftdbns 0.2.2</h3><p>Archive: <a href="http://caml.inria.fr/pub/ml-archives/caml-list/2005/04/29ca2e908ec620baea6f17300835ae5b.en.html">http://caml.inria.fr/pub/ml-archives/caml-list/2005/04/29ca2e908ec620baea6f17300835ae5b.en.html</a></p><i>Oliver Bandel announced:</i><br /><pre>
+I have to announce a tool which is useful in sorting/listing/moving files.
+
+It's name "pftdbns" is a short hand for "put files to directories (sorted) by name structure".
+
+It takes filenames, maps each char of the filename into a char, representing
+the charclass of it (a..z and A..Z -&gt; "l" (letter), 0...9 -&gt; "d" (digit" and so on).
+
+Thsi yields to an easy way of sorting files by names, based upon file-naming
+with certain filenaming-conventions.
+
+So, for example  "hello.txt" and "ballo.txt" are part of the same name structure,
+as well as "1001.txt" and "8251.txt" but also "8251.jpg" are of the same name
+structure.
+
+The default behaviour is to move files into directories. The names of the directories
+are choosen from the string, which represents the name structure.
+
+But since version 0.2.2 this defaulkt behaviour can be overriden, so that the
+files will not be moved, but only the names (or names and the namestructure strings)
+will be printed.
+
+So, I hope you enjoy this program, and I think if you have to handle a lot
+of files, this will be very helpful.
+
+You can find the tool here:
+        <a href="ftp://www.belug.org/new/user/ob/Programs/Tools/pftdbns/">ftp://www.belug.org/new/user/ob/Programs/Tools/pftdbns/</a> 
+
+There also is a README in this directory, so that you can read more details.
+
+A description can also be found here:
+   <a href="http://www.belug.org/~ob/ftp-area.html">http://www.belug.org/~ob/ftp-area.html</a> 
+
+pftdbns uses the GPL-license.
+    </pre><a name="8" /><hr /><h3>Bantam: a lightweight file manager for X11</h3><p>Archive: <a href="http://caml.inria.fr/pub/ml-archives/caml-list/2005/05/cca768b52b2c21cf6ba35ad3558bf17e.en.html">http://caml.inria.fr/pub/ml-archives/caml-list/2005/05/cca768b52b2c21cf6ba35ad3558bf17e.en.html</a></p><i>Matt Gushee announced:</i><br /><pre>
+[ ... written in OCaml, of course! ]
+
+To make a long story short: I couldn't find a file manager that had just 
+the right combination of features, so I created Bantam. It attempts to 
+be a fast, light, unobtrusive productivity aid for power users of 
+POSIX/X11 systems. Important features include:
+
+  * An arbitrary number of directory views
+  * Single-keystroke commands
+  * Internal text file viewer
+  * Configurable interface to external viewers and editors
+  * A minimum of visual clutter (i.e. no icons, etc.)
+
+Bantam 0.1 is now available in source and Linux binary packages. The 
+binary should work on any system with Tcl/Tk 8.4 installed. If you have 
+any trouble installing or running it, *please* let me know.
+
+The Bantam home page is <a href="http://matt.gushee.net/software/bantam/">http://matt.gushee.net/software/bantam/</a> .
+    </pre><hr /><h3>Using folding to read the cwn in vim 6+</h3><p>Here is a quick trick to help you read this CWN if you are viewing it using vim (version 6 or greater).</p><pre>:set foldmethod=expr<br />:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'&amp;lt;1':1<br />zM</pre><p>If you know of a better way, please let me know.</p><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right">
+      <i>
+        <a href="http://alan.petitepomme.net/">Alan Schmitt</a>
+      </i>
+    </p><p align="right">
+      <script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script>
+      <script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" />
+      <script src="http://www.google-analytics.com/urchin.js" type="text/javascript" />
+      <script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script>
+    </p></body>
+</html>

@@ -1,0 +1,292 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[http://alan.petitepomme.net/cwn/2019.04.23.html][Previous Week]] [[http://alan.petitepomme.net/cwn/index.html][Up]] [[http://alan.petitepomme.net/cwn/2019.05.07.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of April 23 to 30, 2019.
+
+#+TOC: headlines 1
+
+
+* FYI: Writing Network Drivers in High-Level Languages
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://sympa.inria.fr/sympa/arc/caml-list/2019-04/msg00067.html
+
+** Oliver Bandel announced
+
+
+Writing Network Drivers in High-Level Languages
+  How to write drivers in Rust, go, C#, Swift, Haskell, and OCaml
+https://fosdem.org/2019/schedule/event/writing_network_drivers_in_high_level_languages/
+
+
+Treiber in High-Level Programmiersprachen
+  https://media.ccc.de/v/eh19-189-treiber-in-high-level-programmiersprachen
+      
+
+
+
+* orewa 0.1.0, a redis binding (initial release)
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/ann-orewa-0-1-0-a-redis-binding-initial-release/3723/1
+
+** Marek Kubica announced
+
+
+For a while I was frustrated by the somewhat lacking state of Redis support in OCaml especially when it comes to supporting Async so I decided to reinvent the wheel again and see how a binding to Redis would look like if it was designed with non-blocking execution in focus.
+
+The result is [[https://github.com/Leonidas-from-XIV/orewa/][Orewa]], which I have released as ~0.1.0~ recently. So far it supports most or even all of the Redis 5.0 string operations and a somewhat randomly picked set of other instructions.
+
+There are a couple of considerations I had when building it:
+
+ * Be non-blocking first. It supports Async for now since that is what I use and what is lacking the most in the current ecosystem. I tried to be thread-safe, we'll see if I was successful in doing so.
+ * Avoid exceptions to avoid unwanted surprises.
+ * Have a somewhat typesafe API. The Redis protocol is mostly stringly-typed and this binding tries to wrap this into a bit of a more typed interface:
+    * No distinction between millisecond and second resolution commands, you specify the duration as a timespan and ~Orewa~ does the rest
+    * The results are parsed into the expected data type if possible
+    * The arguments try to reduce the possible misuse. There is still some misuse possible, so this current release tries to strike a balance of typing vs similarity with the Redis documentation
+
+The documentation [[https://leonidas-from-xiv.github.io/orewa/][is on GitHub]] and it is [[https://opam.ocaml.org/packages/orewa/orewa.0.1.0/][installable from OPAM]].
+      
+
+
+
+* Unicode support improvements in zed, lambda-term and utop
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://sympa.inria.fr/sympa/arc/caml-list/2019-04/msg00070.html
+
+** ZAN DoYe announced
+
+
+We are working on improving unicode support in zed, lambda-term and utop.
+
+These new improvements retrofit the concept of what the essential
+element should be, from UChar.t, an individual unicode character to
+Zed_char.t, a new type representing a glyph in the unicode standard. So
+non-latin script and combined glyphes will be better supported.
+
+For more information and the preview releases of these projects, see
+https://github.com/ocaml-community/lambda-term/issues/2#issuecomment-487348878
+      
+
+
+
+* initial release of ppx_cstubs
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/ann-initial-release-of-ppx-cstubs/3708/1
+
+** fdopen announced
+
+
+It is my pleasure to announce the first release of [[https://github.com/fdopen/ppx_cstubs][ppx_cstubs]]!
+
+ppx_cstubs is ppx-based preprocessor for quick and dirty stub generation with [[https://github.com/ocamllabs/ocaml-ctypes][ctypes]]. It creates two files from a single OCaml file: a file with c stub code and a ml file with all additional boilerplate code.
+
+The preprocessor abuses ~external~ declarations that are not used in regular code. Instead of OCaml types, values of type [[https://github.com/ocamllabs/ocaml-ctypes/blob/b19b190ad5083d03130dd67508705da77c1c5089/src/ctypes/ctypes_types.mli#L17][Ctypes.typ]] are used inside the declarations:
+
+#+begin_src C
+/* function prototypes */
+int puts(const char *s);
+char *getenv(const char *name);
+#+end_src
+
+To access the functions above from OCaml, you simply repeat the prototype in OCaml syntax and with appropriate ~Ctypes.typ~ values:
+
+#+begin_src ocaml
+external puts: string -> int = "puts"
+external getenv: string -> string_opt = "getenv"
+
+let () = (* regular code *)
+  match getenv "HOME" with
+  | None -> ()
+  | Some s ->
+    let i = puts s in
+    ...
+#+end_src
+
+As a slight extension of the scheme above, you can also label your parameters, annotate external (~%c~) and write a few lines of C code:
+
+#+begin_example
+external%c flush_printf : str:string -> i64:int64_t -> bool = {|
+  int r = printf("first param:%s; second param:%" PRId64 "\n", $str, $i64);
+  if ( r < 0 ) {
+    return false;
+  }
+  r = fflush(stdout);
+  return (r == 0); /* `return` is mandatory, unless your function is void */
+|} [@@ release_runtime_lock]
+/* other possible attributes are [@@ noalloc] and [@@ return_errno] */
+
+let () =
+  let r : bool = flush_printf ~str:"Hello World" ~i64:4L in
+  ...
+#+end_example
+
+This way several switches between the OCaml runtime and C are avoided. This has various advantages:
+
+- Intermediate results can be stored on the C stack. They don't need to be allocated on the heap and wrapped in a way to appease the OCaml runtime.
+
+- the c compiler can better optimise your code.
+
+- constant parameters don't need to exposed to OCaml, just to pass them to the C function.
+
+- you often have to write (and generate) less code, if you don't create wrappers for every c function and type, but just wrap snippets of C code.
+
+Further possibilities, [[https://github.com/fdopen/ppx_cstubs/tree/master/examples][examples]], and limitations are described in the project's [[https://github.com/fdopen/ppx_cstubs/blob/master/README.md][README]].
+      
+
+
+
+* Dune, cross compilation, and Raspberry Pi
+:PROPERTIES:
+:CUSTOM_ID: 5
+:END:
+Archive: https://discuss.ocaml.org/t/dune-cross-compilation-and-raspberry-pi/3722/1
+
+** Yaron Minsky asked
+
+
+I'm thinking of doing some home projects for doing stuff like driving LEDs from a Raspberry Pi using OCaml.  Is there a good way of doing this with a cross compiler via OCaml? Or do I need to install OCaml and build my executables on the Pi?  I know that there was some work to get cross compilation working properly with Dune, but I don't know how to do it in practice.
+      
+
+** Nicolás Ojeda Bär replied
+
+
+Not exactly your question, but you may be interested in
+https://github.com/dbuenzli/rpi-boot-ocaml
+      
+
+** Jérémie Dimino also replied
+
+
+Currently, the cross compilation story with dune is as follow: once you have setup one of the cross-compiling environments available on https://github.com/ocaml-cross, you can cross-compile with dune as follow:
+
+#+begin_src shell
+$ dune build -x windows,android,ios ...
+#+end_src
+
+This will create ~_build/default.windows~, ~_build/default.android~ and so on.
+
+The longest step is building/installing the cross-compiler. You don't need a special dune to cross compile.
+      
+
+** Anil Madhavapeddy also replied
+
+
+If you're working on a Mac/Win, then a cheap and cheerful way to get an rPI-compatible environment is to use Docker for Mac/Win, which transparently do CPU emulation via ~qemu-user-static~ and binfmt.
+
+#+begin_example
+$ docker run -it ocaml/opam2-staging:debian-9-ocaml-4.08-linux-arm32v7
+opam@fdd0cc1ae238:~/opam-repository$ uname -a
+Linux fdd0cc1ae238 4.9.125-linuxkit #1 SMP Fri Sep 7 08:20:28 UTC 2018 armv7l GNU/Linux
+opam@fdd0cc1ae238:~/opam-repository$ ocamlc -config|grep arch
+architecture: arm
+opam@fdd0cc1ae238:~/opam-repository$ opam install -y dune
+<...etc>
+#+end_example
+
+You can save the binary results of the build by adding a ~-v <yourrepo>:/home/opam/src~ to mount a local volume within the ARM container.  This will be a pretty slow option, but probably faster than compiling within the rPi3.
+      
+
+
+
+* Searching for functions
+:PROPERTIES:
+:CUSTOM_ID: 6
+:END:
+Archive: https://discuss.ocaml.org/t/searching-for-functions/3698/17
+
+** Continuing this thread, gndl said
+
+
+Even if the project looks asleep, it may be interesting to mention it here : [[https://github.com/camlspotter/ocamloscope.2][https://github.com/camlspotter/ocamloscope.2]].
+      
+
+** Frédéric Bour also said
+
+
+Merlin has a search feature, ~:MerlinSearch~ in vim or ~M-x merlin-search~ in emacs.
+The command takes a query which is a list of type names prefixed by ~-~ or ~+~:
+- ~-~ for the type of values you have and the function you are looking for can consume
+- ~+~ for values you would like to get.
+
+For instance, ~:MerlinSearch -int +string~ gives you ways to transform an integer to a string:
+#+begin_example
+string_of_int                             V int -> string
+Bytes.create                              V int -> bytes
+BytesLabels.create                        V int -> bytes
+String.create                             V int -> bytes
+StringLabels.create                       V int -> bytes
+Big_int.approx_big_int                    V int -> Big_int.big_int -> string
+Num.approx_num_exp                        V int -> Num.num -> string
+Num.approx_num_fix                        V int -> Num.num -> string
+Ratio.approx_ratio_exp                    V int -> Ratio.ratio -> string
+Ratio.approx_ratio_fix                    V int -> Ratio.ratio -> string
+...
+#+end_example
+
+Parametric types are flattened (only variance is considered), so ~String.concat~ can be found with ~-string -list +string~. I haven't thought about filtering based on the name of values, but this should be easy to implement in a future version of merlin, e.g. ~env -string +string~ for finding string transformers that contains "env" in their name.
+
+The UI has not seen much work and the search is blocking, which is not super convenient, help is welcome to improve that :).
+      
+
+** UnixJunkie then asked and Frédéric Bour replied
+
+
+> Does it search through all the opam-installed libraries?
+Or just the currently opened project?
+
+It searches only in the project scope. This is a proof-of-concept, but it can easily be enhanced to do opam-wide search (I didn't think about it because that I never felt the need).
+Also, the search space can easily be indexed (while right now it is doing linear search), so performance should not be a problem at scale. I need to talk to @dbuenzli about that :).
+
+>  Why not support plain type signatures like int -> string, why do you need the - and +?
+
+With the current spec, the search is directed by variance which more accurately reflects the flow of information than a mere ~->~. If it is just about syntax, of course the query language can be reworked, it is just frontend work (similarly, Hoogle does not strictly search by signature and do some approximation).
+
+By relying only on variance, values are found even if they execute in a different monad, are written in a continuation passing-style or need more contexts (e.g. a context value).
+Results can then be ranked by relevance (though that bit has subjective elements in it).
+      
+
+
+
+* Other OCaml News
+:PROPERTIES:
+:CUSTOM_ID: 7
+:END:
+** From the ocamlcore planet blog
+
+
+Here are links from many OCaml blogs aggregated at [[http://ocaml.org/community/planet/][OCaml Planet]].
+
+- [[https://mirage.io/blog/MSA02][MirageOS security advisory 02: mirage-xen < 3.3.0]]
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[http://alan.petitepomme.net/cwn/][the archive]] or the [[http://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe [[http://lists.idyll.org/listinfo/caml-news-weekly/][online]].
+
+#+BEGIN_authorname
+[[http://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname

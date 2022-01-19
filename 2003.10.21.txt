@@ -1,0 +1,270 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of 14 to 21 October, 2003.
+
+1) perl4caml 0.3.0 - Call Perl libraries from OCaml
+2) Weird behavior with nan's and min/max
+3) ViM support for ocamldebug
+4) a patch to support + and * in ocamlyacc
+5) ipv6, any news?
+
+==============================================================================
+1) perl4caml 0.3.0 - Call Perl libraries from OCaml
+------------------------------------------------------------------------------
+** Richard Jones announced:
+
+I'm pleased to announce the first working release of perl4caml
+(0.3.0).  This small wrapper allows you to call Perl libraries from
+Objective CAML programs.
+
+There is a low-level interface which allows you to call or evaluate
+Perl directly, and there are high-level object-oriented interfaces to
+some CPAN libraries.  Currently I have wrapped libwww-perl
+(LWP::UserAgent), HTTP::* and the Google API (Net::Google), because
+these are what I'm using.  I hope that other people can contribute
+high-level wrappers to any Perl libraries they might find useful -
+wrappers are quite easy to write.
+
+Perl4caml is distributed under GNU LGPL with the OCaml linking
+exception.
+
+You can get it here:
+
+http://www.merjis.com/developers/perl4caml/
+
+==============================================================================
+2) Weird behavior with nan's and min/max
+------------------------------------------------------------------------------
+** Yaron Minsky asked and Xavier Leroy answered:
+
+> Now here's the weird bit.  I decided I wanted a polymorphic comparison
+> that wouldn't have this problem.  But this is a little harder than it
+> seems, since it turns out that specialized float version of equality is
+> different from the polymorphic version.
+
+Yes, it's a long-standing bug for which we haven't yet a good
+solution.  More exactly, there are two problematic solutions:
+
+1- Fix polymorphic equality so that it behaves like IEEE equality on floats,
+i.e. it always returns false when one of its arguments is NaN.
+The problem is that this breaks the implication
+        x == y  imply  x = y
+and thus the current implementation of polymorphic equality needs to
+be made less efficient.  Currently, x = y starts by testing x == y
+and returns true if the pointer equality holds.  But this could be the
+wrong result according to the new specification, since x can contain
+an NaN somewhere.  Hence, polymorphic equality would have to traverse
+its two arguments even when they are physically the same.  The
+performance impact of this change on real programs is unknown.
+
+2- As J M Skaller proposed, change the behavior of polymorphic
+equality and its version specialized to floats so that nan = nan
+and nan <> x if x <> nan.  Similar changes need to be done on the
+<>, <= and >= tests for consistency.  IEEE comparisons would then have to be
+provided as separate primitives.  This preserves the implication
+x == y ==> x = y.  But the machine code generated for =, <>, <= and >=
+over floats will have to be a lot less efficient than it is now, since
+all processors implement float comparisons as per IEEE.
+
+Coming back to your proposed workaround:
+
+> # let raw_min = min
+> val raw_min : 'a -> 'a -> 'a = <fun>
+> # let min x y =
+>   if not (y = y) then y
+>   else if not (x = x) then x
+>   else raw_min x y
+> ;;
+
+A way to make this work would be to replace the "not (x = x)" tests
+by calls to the following function (of type 'a -> bool):
+
+let is_obj_nan x =
+  Obj.tag (Obj.repr x) = Obj.double_tag &&
+  (let f = (Obj.magic x : float) in not (f = f))
+
+Not pretty, I agree.
+
+** Following a long discussion, Yaron Minsky asked and Xavier Leroy answered:
+
+> > Doesn't the polymorphic comparison have to be a total order?
+
+Pervasive.compare must be a total order, so it would need to throw an
+exception if its arguments are unordered (e.g. one is "nan").
+The other comparisons (=, <, etc) could implement a partial order,
+returning "false" in the "unordered" case (except for <>, which should
+return "true" in this case).
+
+> This kind of wigs me out too.  For example, do the set and map data
+> structures depend on this total order property?  What happens when I
+> stick in a data structure which contains some floats somewhere in it,
+> and some of those floats are nan's?  Does the data structure continue to
+> work at all?  It totally wigs me out.
+
+Sets and maps require a total order, so, yes, in the current
+implementation, strange things can happen with "nan" used as set
+elements or map keys.  Again, throwing an "unordered" exception in
+Pervasives.compare would avoid the problem.
+
+Note, however, that it doesn't make much sense to use floats as set
+elements or map keys, due to the inherently approximate nature of floats.
+E.g. does the set {1.0; 1.0+.epsilon} have 1 or 2 elements?
+
+> I wish there was some sensible way around it.  Probably the thing I
+> would like best is for calculations that produce nans to throw
+> exceptions.  But from what I've heard so far, this doesn't appear to be
+> possible.
+
+The IEEE standard specifies both behaviors: return nan or cause a
+floating-point trap, and says that there should be an API to choose
+the desired behavior.  Most processors implement the two behaviors,
+controlled by some status bit somewhere.
+
+The first problem is that there is no standard C API to select the
+desired behavior (even ISO C 99 isn't terribly clear on this).  So,
+everyone stays in the "nans, no traps" mode.
+
+> Here's another question:  is it possible to catch floating point
+> exceptions such as division by zero?  It seems like that might be another
+> way of dealing with this.  I thought catching SIGFPE would do it, but I
+> tried and I couldn't seem to get it triggered.  Is it possible to convert
+> floating point exceptions to ocaml exceptions?
+
+That's the second problem.  Trapping a synchronous signal (such as
+SIGFPE) and turning it into a Caml exception is quite hard and
+non-portable.  Caml manages to deal with asynchronous signals by
+delaying their delivery until a safe point is reached, but obviously
+this doesn't work for synchronous, program-generated signals.
+E.g. what to do if the SIGFPE comes from C code running in "blocking
+section" mode?
+
+==============================================================================
+3) ViM support for ocamldebug
+------------------------------------------------------------------------------
+** Stefano Zacchiroli announced:
+
+I failed in learning the few emacs keybindgs I need in order to use
+ocamldebug under emacs ... Needing a handy front end for ocamldebug for
+a poor vimer in emacsists world :), I've written a small tool that
+permits to use ocamldebug with gvim.
+
+It's available, for feedback, bug reports, and contributions, here:
+
+  http://bononia.it/zack/wowcamldebug.en.html
+
+==============================================================================
+4) a patch to support + and * in ocamlyacc
+------------------------------------------------------------------------------
+** Andrew Lenharth announced:
+
+I find myself having to often implement rules such as:
+
+foo_plus: foo {[$1]} | foo foo_plus {$1::$2} ;
+foo_star: foo_plus {$1} | {[]} ;
+
+in my parsers.  To get rid of this annoyance, here
+is a patch that add support for * and + to ocamlyacc.
+
+http://vilya.homelinux.net/~andrewl/ocamlyacc_p1.diff
+
+it is a bit hackish, but even limited support for * and + makes
+writting grammers less painful.
+
+I modify get_name to check for + and *, and rewrite the name
+it finds if those exist.  It also adds appropriate rules to a
+buffer to implement the rewritten name.  I change the read character
+rutine such that at EOF I switch to the buffer holding the generated
+rules.  This has been tested not to break the bootstrapping system.
+
+An example:
+
+%token <int> INT_LITERAL
+%token EOF
+
+%start main /* entry point */
+%type <int list> main
+
+%%
+main:
+  INT_LITERAL+ EOF {$1}
+  ;
+
+==============================================================================
+5) ipv6, any news?
+------------------------------------------------------------------------------
+** Yaron M. Minsky asked and Xavier Leroy answered:
+
+> I'm wondering if there's any news on the ipv6 front.  I understand that
+> 3.07 has no support in it.  I've been getting some complaints from users
+> of my software looking for IPv6, and I'm wondering what other people are
+> doing to provide such support.
+
+No IPv6 support yet.  It would be a worthwhile addition, but I admit
+to have no familiarity with the IPv6 API.  I got the impression that there
+are some variations on the IPv6 API among Unix systems, which would be
+a pain, but I may be wrong.
+
+** Francois Rouaix added:
+
+Back in 1997 or so, Francis Dupont wrote a layer of C to interface IPv6
+calls to Caml. IIRC, the OCaml API was mostly unchanged (compared to
+usual Unix network API), and hence a few of the network apps we had in
+those days (especially MMM and the V6 proxy) were then used
+(essentially as-is) in IPv6 interoperability tests on FreeBSD.
+Maybe Francis still has some code in a drawer :
+Francis.Dupont@enst-bretagne.fr
+Otherwise, http://www.google.com/search?q=mmm+ipv6&ie=UTF-8&oe=UTF-8
+might get you enough pieces to put it back together...
+
+** Gregoire Henry also added:
+
+I've make some works this summer, trying to respect basic sockets RFC.
+It's based on Unix module from ocaml-3.06.
+
+http://www.pps.jussieu.fr/~henry/ip6/socket6-20031020.tgz
+
+it's early works, but feedbacks would be nice.
+
+> I got the impression that there are some variations on the IPv6 API among 
+> Unix systems, which would be a pain, but I may be wrong.
+
+Basic API is now a standard, and i've test on FreeBSD and Linux.
+Indeed, i can see some differences in constant for socket options
+and DNS request :
+some are not defined on linux.
+
+** Olivier Andrieu replied to Gregoire Henry:
+
+I did some of this too : http://oandrieu.nerim.net/ocaml/#ipv6 .
+
+I noticed you used a inet6_addr type for addresses. It's possible to
+reuse the inet_addr type and have the C code discriminate between the
+two by the string length. That way the sockaddr type wouldn't need to
+be extended. But then you can't specify the flowinfo field (and I
+don't know how to support it in this case).
+
+==============================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+
+If you know of a better way, please let me know.
+
+==============================================================================
+Old cwn
+------------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@inria.fr) and I'll mail it to you, or go take a look at
+the archive (http://pauillac.inria.fr/~aschmitt/cwn/) or the RSS feed of the 
+archives (http://pauillac.inria.fr/~aschmitt/cwn/cwn.rss). If you also wish to 
+receive it every week by mail, just tell me so.
+
+==============================================================================
+
+Alan Schmitt

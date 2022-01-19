@@ -1,0 +1,364 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of May 28 to June 04, 2013.
+
+1) OPAM and packaging
+2) ~/.opam design
+3) opam packages wrapped inside a spec file
+4) A modern meta programming system for OCaml
+5) Interfacing with QtQuick 2.0 from Qt5, RFC
+6) Ocamlnet-3.6.4
+7) automatic extaction of the .mli (and a little more) from the .ml
+8) Other Caml News
+
+========================================================================
+1) OPAM and packaging
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-05/msg00145.html>
+------------------------------------------------------------------------
+** Very deep in this thread, Chet Murthy said and Christophe Troestler replied:
+
+> OK.  A little more.  OPAM is already a tremendous improvement.  But to
+> really make it possible to build -systems- in Ocaml, you have to be
+> able to distribute collections of programs, config, and libraries,
+> across multiple (admittedly identical) machines.  And distribute
+> updates to same.  OPAM is in some ways like BSD ports -- it works
+> great for maintaining single machines from source-code.
+> 
+> But what's needed is a way to maintain -many- machines, and to
+> distribute updates in a granular manner that be -managed- -- rolled
+> forward, rolled back, with full knowledge of which versions of which
+> packages are being installed.  And everything with -zero- version
+> skew.  So any nondeterminism happened at buiild-time -- by
+> deploy-time, all machines are getting identical files with identical
+> timestamps.
+> 
+> It's a tall order, b/c OPAM will need to figure out how to capture
+> enough of the environment (in order to check it on the target machine
+> where a binary is installed) to verify whether it's safe to install
+> that binary.  But boy would it be nice.
+> 
+> And as a bonus, we could wrapper opam in the debian apparatus (I
+> think) and get a really nice way to turn opam packages into debian
+> packages.
+
+Those interested in that should help Sylvain to develop oasis2debian¹
+and other helpers.  Oasis has rich metadata and can be the "root" from
+which packages are created (there is also oasis2opam² which usually
+performs a better job than humans ;-) ).
+
+¹ <https://github.com/ocaml/oasis2debian>
+² <https://github.com/ocaml/oasis2opam>
+      
+** Thomas Gazagnaire then added:
+
+We are indeed in the process of experimenting with that idea (see [1]).
+Nothing is ready yet, but that's definitely something we are interested in.
+
+The hard part is (as always) to keep track of the correct external
+dependencies (such as the available shared C libraries available at the time
+of build). A good first approximation is to say that the external
+dependencies never change, but that's obviously not very safe to rely on that
+assumption too much, so we are thinking of keeping track of the result given
+by ldd as well.
+
+[1] <https://github.com/venator/opam/blob/binary/src/core/opamBinary.ml>
+      
+========================================================================
+2) ~/.opam design
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-05/msg00242.html>
+------------------------------------------------------------------------
+** Sébastien Dailly asked and Thomas Gazagnaire replied:
+
+> Maybe is the subject now closed, and I'm answering too late, but I'll
+> greatly appreciate if opam could follow the XDG Directory design[1] :
+>
+> $XDG_CONFIG_HOME/opam (default ~/.config/opam) for the configuration
+> $XDG_DATA_HOME/opam (default ~/.local/opam) for the package and all datas
+>
+> This allow to stop the polution in the users ~ , and give the user a way to
+> define it's own path.
+>
+> [1] <http://standards.freedesktop.org/basedir-spec/basedir-spec-latest.html>
+
+The subject is not closed at all, and we might move in this direction in
+future releases of OPAM. See for instance [1]
+
+The current design has a lot of advantages (the main one being that you can
+remove your ~/.opam if you want restart from scratch) and it can be tweaked
+to have a global installation (see [2,3], even if the tweak is not very well
+documented). But yes, for some configurations (such as shared NFS homedirs),
+the current situation is not perfect and it would be nice to be able to
+separate the data from the configuration bits. Luckily, all the paths used by
+OPAM are defined in [4] so they can be changed without too much hassle.
+
+[1] <https://github.com/OCamlPro/opam/issues/401>
+[2] <https://github.com/OCamlPro/opam/issues/398>
+[3] <https://github.com/OCamlPro/opam-repository/issues/746>
+[4] <https://github.com/OCamlPro/opam/blob/master/src/core/opamPath.ml>
+      
+========================================================================
+3) opam packages wrapped inside a spec file
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-05/msg00261.html>
+------------------------------------------------------------------------
+** Florent Monnier said, Francois Berenger asked, and Florent Monnier replied:
+
+>> For fun I've played with wrapping an opam package inside a rpm package.
+>> I just have to tar.gz the package directory and in the .spec file, sed
+>> the archive field for a file:// path (because not allowed to get
+>> something from outside) seded with the archives in the SOURCES
+>> directory of the rpm package. I init Opam and repo remove the internet
+>> one (again nothing from outside), then install in the path that
+>> rpmbuild wants.
+>> There is still one detail that won't be able to be done by a script
+>> it's when there's a C lib dependency, because Opam don't provide yet
+>> any feature for this. But this will probably come for 2.0. So it's
+>> potentially possible to create .rpm's for all Opam packages with
+>> almost no or very few human work. This kind of rpm's won't fit the
+>> Mageia packaging policy though, but we could change it to allow this,
+>> or put an unofficial rpm repo somewhere else.
+
+Here is the early result of playing with this:
+<http://www.linux-nantes.org/%7Efmonnier/ocaml/opam/wrap-rpm/>
+you can see it's only the opam package wrapped inside a .spec file.
+
+A more clean solution would of course to make an opam2spec script to
+really create a .spec file that would look very close to a human made
+.spec file. But I think that this second solution would need more
+human work thant the dirty one. This second would maybe even take as
+many time as if it's completely made by hand because there would be
+more details to edit I think.
+
+And the dirty wrap method has also the advantage to stay very close to
+the original one.
+
+> Will this procedure be automated?
+
+This one seems to give an acceptable result.
+(only README LICENSE and api-doc are missing)
+I guess this one could be used as a template by a script for the others.
+
+> Automatic creation of RPMs from OPAM packages.
+> I am very interested by this.
+
+need to add the homepages and licenses fields in opam files if we want
+this script to be able to fill the equivalent fields of the .spec
+files.
+Also the C lib dependency needs to be found to add the BuildRequires fields.
+Otherwise it seems that most of it can be automated.
+      
+========================================================================
+4) A modern meta programming system for OCaml
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-06/msg00002.html>
+------------------------------------------------------------------------
+** Hongbo Zhang announced:
+
+I am very happy to announce a preview of Fan (<http://bobzhang.github.io/Fan/>).
+
+Fan is a compile-time metaprogramming system for OCaml, inspired from Camlp4,
+it's a combination of OCaml and Lispy macros. It shares the same syntax with
+OCaml.
+
+There is a paper (<http://www.seas.upenn.edu/~hongboz/main.pdf>) about the
+overview of Fan's architecture (Fan is evolving everyday, the paper may be a bit
+out-dated :-))
+
+Fan has a very flexible architecture, which means features are very easy to be
+added.  I am very happy to support the feature proposed here, especially since
+it's still in pre-alpha-status.
+
+As a pretty large software, documentation is indeed lacking, just be a little
+patient, I would try to come up with some docs these days.
+      
+========================================================================
+5) Interfacing with QtQuick 2.0 from Qt5, RFC
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-06/msg00007.html>
+------------------------------------------------------------------------
+** Continuing an old thread, Kakadu said:
+
+'Hello world' tutorial have become longer and more copy-pastable. See you on
+github pages: <http://kakadu.github.io/lablqt/qtquick-helloworld.html>
+      
+========================================================================
+6) Ocamlnet-3.6.4
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-06/msg00010.html>
+------------------------------------------------------------------------
+** Gerd Stolpmann announced:
+
+I've just released Ocamlnet-3.6.4. This is a maintenance release
+including:
+
+- New configure options for PCRE (-enable-full-pcre, -enable-pcre).
+There is also documentation about the PCRE issue in Regexp.html
+(remember that PCRE is no longer the default regexp engine).
+- More documentation for Netmulticore: Netmcore_basics
+- New Netplex module for mailboxes: Netplex_mbox.
+- netcgi2-apache builds against apache-2.4
+
+plus various smaller fixes and additions.
+
+For a full description, see the ChangeLog.
+
+Get Ocamlnet, read the manual etc. from
+<http://projects.camlcity.org/projects/ocamlnet.html>
+      
+========================================================================
+7) automatic extaction of the .mli (and a little more) from the .ml
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-06/msg00015.html>
+------------------------------------------------------------------------
+** Deep in this thread, Francois Berenger asked and Alain Frisch replied:
+
+I've created a proof-of-concept implementation of such a tool as part of the
+"extension_points" branch, which introduces a syntax for attributes on various
+syntactic items (including type declarations and value bindings).
+
+Note that I *don't* endorse the idea of generating .mli files automatically :-)
+
+
+Here is the code:
+
+<http://caml.inria.fr/cgi-bin/viewvc.cgi/ocaml/branches/extension_points/experimental/frisch/nomli.ml?revision=HEAD&view=markup>
+
+and an example:
+
+<http://caml.inria.fr/cgi-bin/viewvc.cgi/ocaml/branches/extension_points/experimental/frisch/test_nomli.ml?revision=HEAD&view=markup>
+
+> - I think there should be tags in the .ml file as comments
+> that say "export this" to the .mli.
+
+
+Encoding annotations in comments is very fragile, because they are not kept by
+the parser in the generated Parsetree, and it is not well-defined to which
+component each component refers to. ocamldoc uses comments, and as a
+consequence, it does not combine well with preprocessors (Camlp4/Camlp5/Fan/ppx
+extensions cannot generate documentation fragments, and it is likely that they
+break existing ones). A version of ocamldoc based on attributes of the
+extension_points branch would be much more robust (and simple). I've written
+another toy POC implementation of a mini-ocamldoc based on attributes:
+
+<http://caml.inria.fr/cgi-bin/viewvc.cgi/ocaml/branches/extension_points/experimental/frisch/minidoc.ml?revision=HEAD&view=markup>
+
+<http://caml.inria.fr/cgi-bin/viewvc.cgi/ocaml/branches/extension_points/experimental/frisch/testdoc.mli?revision=HEAD&view=markup>
+
+
+(experimental/frisch/Makefile in the extenstion_point branch contains everything
+to compile and run these little demos.)
+      
+** Francois Berenger then asked and Alain Frisch replied:
+
+> - being able to assign priorities to things exported in the
+>    .mli file (to re-order the .mli in some way that makes it easier to
+>    grasp). I think floats should be used and the priority assigned
+>    should be shown in the .mli so that users can quickly see what
+>    priority they need to change in the .ml to obtain the order
+>    they want in the .mli
+
+Yes, it's quite easy to add some priority information as an extra 
+argument to the [@mli] attribute.  (That said, since extension_points is 
+not yet merged in the official version, I don't think it's worth 
+spending time on the prototype right now.)
+
+Showing the priority in the .mli (in the form of attributes) is 
+straightforward (currently, the source syntax pretty-printer 
+pprintast.ml does not support printing attributes, but this will be fixed).
+
+> - can you also handle the transfer of ocamldoc comments in the .ml
+>    to the .mli
+
+In this form, this is very tricky, because the tool is based on the 
+result of the OCaml parser which does not store the ocamldoc comments. 
+The tool would need to steal from ocamldoc the (complex) logic required 
+to re-parse the source code, extract the attributes, attach them to 
+components of the parsetree/typedtree.
+
+What is doable is to have the tool accept more attributes (or more 
+arguments to the [@mli] attribute) representing text to be used as 
+ocamldoc comments in the generated .mli.  Instead of producing an AST 
+for the generated signatures (which is then pretty-printed), the tool 
+would directly emit the content of the .mli (with ocamldoc attributes).
+
+
+> (I read later that you also have a final solution
+>    for ocamldoc too)?
+
+Certainly not!  I'm only suggesting that a tool similar to ocamldoc 
+could be based on attributes, and that it would be more robust and much 
+easier to implement.  But designing and implementing this tool is still 
+a serious engineering task, and unless someone puts the required 
+manpower in this project, this is not going to happen.
+      
+** David Allsopp also asked and Alain Frisch replied:
+
+> I have wondered if this problem is perhaps looked at the wrong way
+> around - in other words, the complaint takes the form "how can we
+> export to the .mli file automatically" rather than "how can we
+> *import* from the .ml file automatically". The thing I do find
+> irritating maintaining .mli/.ml files is having to type anything out
+> twice - and for the most part that means fully exported type
+> declarations. Say you have a simple module:
+
+I'd rather do it the other way around: maintain the type declaration in 
+the .mli and import it in the .ml file.
+
+And, guess what, there is also a POC of such a tool in the 
+extension_points branch.  It allows you to write in the .ml file:
+
+   type t = [%copy_typedef]
+
+to copy the concrete definition from the .mli file.  This also works for 
+module types, and you can also import a definition from another .ml or 
+.mli file:
+
+   module type S = [%copy_typedef]
+   type loc = [%copy_typedef "../../parsing/location.mli" t]
+
+
+The [%id ...] syntax is the other new syntactic feature introduced by 
+the extension_points branch (in addition to attributes).  Contrary to 
+attributes which annotate already well-formed code and which can thus be 
+ignored by the type-checker, [%...] extensions can used in place of an 
+expression, type, pattern, etc, and they need to be expanded by a -ppx 
+rewriter.
+
+
+
+The tool:
+
+<http://caml.inria.fr/cgi-bin/viewvc.cgi/ocaml/branches/extension_points/experimental/frisch/copy_typedef.ml?revision=HEAD&view=markup>
+
+And an example:
+
+<http://caml.inria.fr/cgi-bin/viewvc.cgi/ocaml/branches/extension_points/experimental/frisch/test_copy_typedef.mli?revision=HEAD&view=markup>
+
+<http://caml.inria.fr/cgi-bin/viewvc.cgi/ocaml/branches/extension_points/experimental/frisch/test_copy_typedef.ml?revision=HEAD&view=markup>
+      
+========================================================================
+8) Other Caml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocaml.org/>.
+
+Flowing faster: saving the cloud:
+  <http://scattered-thoughts.net/blog/2013/06/02/flowing-faster-saving-the-cloud/>
+
+Flowing faster: backing up:
+  <http://scattered-thoughts.net/blog/2013/06/01/flowing-faster-backing-up/>
+
+Presence at the second OCaml-Paris Meetup:
+  <http://gallium.inria.fr/blog/second-ocaml-paris-meetup>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

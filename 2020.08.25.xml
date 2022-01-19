@@ -1,0 +1,990 @@
+<?xml version="1.0" encoding="utf-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2020.08.25</cwn_date>
+    <cwn_prev>2020.08.18</cwn_prev>
+    <cwn_next>2020.09.01</cwn_next>
+    <cwn_date_text>August 18 to 25, 2020</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>Dune 2.7.0</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-dune-2-7-0/6255/1</cwn_url>
+      <cwn_who>Rudi Grinberg announced</cwn_who>
+      <cwn_what>
+On behalf of the dune team, I'm pleased to announce the release of dune 2.7.0.
+This release adds a couple of important features and many bug fixes. I'll just briefly summarize the
+two features, and let our improved documentation elaborate on the details.
+
+The first one is first class support for instrumentation tools such as bisect_ppx and landmarks. This
+is one of the most requested dune features ever, and we're pleased to show you all what [we've come up
+with](https://dune.readthedocs.io/en/latest/instrumentation.html)
+
+Special thanks to @stephanieyou &amp; @nojb for implementing this feature. Many thanks to @aantron for
+tirelessly iterating on the end user experience with us.
+
+While the features is looking quite good already, we consider it a "first take" on this subject. We
+welcome your experience reports and feature requests.
+
+The second feature we're introducing this release is dune's cram testing framework. The cram framework
+is our secret weapon for making dune (relatively) bug free. I'll soon write up a dedicated post to give
+you a flavour of how it works. To those who can't wait, there's a [new section
+(https://dune.readthedocs.io/en/latest/tests.html#cram-tests) in the documentation that explains
+everything.
+
+As always, the change log is replicated below for your convenience.
+
+Happy Hacking.
+
+*** 2.7.0 (13/08/2020)
+
+- Write intermediate files in a ~.mdx~ folder for each ~mdx~ stanza
+  to prevent the corresponding actions to be executed as part of the ~@all~
+  alias (#3659, @NathanReb)
+
+- Read Coq flags from ~env~ (#3547 , fixes #3486, @gares)
+
+- Allow bisect_ppx to be enabled/disabled via dune-workspace. (#3404,
+  @stephanieyou)
+
+- Formatting of dune files is now done in the executing dune process instead of
+  in a separate process. (#3536, @nojb)
+
+- Add a ~--debug-artifact-substution~ flag to help debug problem with
+  version not being captured by ~dune-build-info~ (#3589,
+  @jeremiedimino)
+
+- Allow the use of the ~context_name~ variable in the ~enabled_if~ fields of
+  executable(s) and install stanzas. (#3568, fixes #3566, @voodoos)
+
+- Fix compatibility with OCaml 4.12.0 when compiling empty archives; no .a file
+  is generated. (#3576, @dra27)
+
+- ~$ dune utop~ no longer tries to load optional libraries that are unavailable
+  (#3612, fixes #3188, @anuragsoni)
+
+- Fix dune-build-info on 4.10.0+flambda (#3599, @emillon, @jeremiedimino).
+
+- Allow multiple libraries with ~inline_tests~ to be defined in the same
+  directory (#3621, @rgrinberg)
+
+- Run exit hooks in jsoo separate compilation mode (#3626, fixes #3622,
+  @rgrinberg)
+
+- Add (alias ...), (mode ...) fields to (copy_fields ...) stanza (#3631, @nojb)
+
+- (copy_files ...) now supports copying files from outside the workspace using
+  absolute file names (#3639, @nojb)
+
+- Dune does not use ~ocamlc~ as an intermediary to call C compiler anymore.
+  Configuration flags ~ocamlc_cflags~ and ~ocamlc_cppflags~ are always prepended
+  to the compiler arguments. (#3565, fixes #3346, @voodoos)
+
+- Revert the build optimization in #2268. This optimization slows down building
+  individual executables when they're part of an ~executables~ stanza group
+  (#3644, @rgrinberg)
+
+- Use ~{dev}~ rather than ~{pinned}~ in the generated ~.opam~ file. (#3647,
+  @kit-ty-kate)
+
+- Insert correct extension name when editing ~dune-project~ files. Previously,
+  dune would just insert the stanza name. (#3649, fixes #3624, @rgrinberg)
+
+- Fix crash when evaluating an ~mdx~ stanza that depends on unavailable
+  packages. (#3650, @CraigFe)
+
+- Fix typo in ~cache-check-probablity~ field in dune config files. This field
+  now requires 2.7 as it wasn't usable before this version. (#3652, @edwintorok)
+
+- Add ~"odoc" {with-doc}~ to the dependencies in the generated ~.opam~ files.
+  (#3667, @kit-ty-kate)
+
+- Do not allow user actions to capture dune's stdin (#3677, fixes #3672,
+  @rgrinberg)
+
+- ~(subdir ...)~ stanzas can now appear in dune files used via ~(include ...)~.
+  (#3676, @nojb)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Cram - Tests on Short Notice</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/cram-tests-on-short-notice/6256/1</cwn_url>
+      <cwn_who>Rudi Grinberg announced</cwn_who>
+      <cwn_what>
+Does it seem like writing unit tests is endlessly boring and time consuming? Does your test suite
+require constant attention and tweaking, and yet the stream of bugs never seems to end? I feel the same
+way. Moreover, if I would knew how much time I would spend writing unit tests, I most likely would have
+picked a different profession. There has to be a better way.
+
+In this post, I'd like to share one better way for testing binaries. A way that allows you to add new
+test cases in seconds, avoid writing manual assertions, and makes it easy to write self documenting
+tests by non technical users. The catch? You must upgrade to dune 2.7 and enable the new ~cram~
+extension:
+
+#+begin_example
+$ cat dune-project
+(lang dune 2.7)
+(cram enable)
+#+end_example
+
+Now dune will treat every file and directory that ends with ~.t~ as a cram test.
+
+Let's create a trivial test ~wc.t~ to test the word counting utility:
+
+#+begin_example
+Test the behavior of wc.t. Any line that doesn't start with 2 spaces
+is a comment (like this one).
+#+end_example
+
+Next, we'll create a sample file to feed to wc:
+
+#+begin_example
+Note the two spaces before the command:
+  $ cat &gt;sample.txt &lt;&lt;EOF
+  &gt; a
+  &gt; b
+  &gt; c
+  &gt; EOF
+#+end_example
+
+The command above creates a file with 3 lines. Note the leading 2 spaces and the ~$~ denoting a
+command. We also use the heredoc syntax to pipe multiple lines to ~cat~.
+
+We'll finally write a test that makes sure that ~wc~ works.
+#+begin_example
+Count the lines:
+  $ wc -l sample.txt
+#+end_example
+
+Note how we didn't mention the expected output anywhere. This is where secret sauce comes in. We just
+run the test with dune:
+
+#+begin_example
+$ dune runtest
+ |  $ wc -l sample.txt
++|         3 sample.txt
+#+end_example
+
+And dune is helpful enough to fill in the output for us after promoting:
+
+#+begin_example
+$ dune promote
+$ dune runtest # now the tests pass
+#+end_example
+
+If we modify the ~wc~ utility to give a different result, the test will now fail because the command
+produced a different output. This style of testing is called expectation (or snapshot) testing. Here
+this style is dressed up in a shell like syntax to give us the [cram](https://bitheap.org/cram/) test.
+
+Dune 2.7 offers full support for this style, and we recomend it to all users. Do cram tests scale? In
+the dune project, this is our main testing mechanism and we have over 200 cram tests in [our test
+suite](https://github.com/ocaml/dune/tree/master/test/blackbox-tests/test-cases). We use this approach
+to test and document both new features and regressions. So far we've been very satisfied with this
+approach, and we're happy to share it with our users.
+
+As usual, there's far too much to describe in a single blog post. The rest is thoroughly documented in
+our [manual](https://dune.readthedocs.io/en/stable/tests.html#cram-tests)
+
+I look forward to answer any questions you might have about cram.
+      </cwn_what>
+      <cwn_who>Guillaume Bury asked and Craig Ferguson replied</cwn_who>
+      <cwn_what>
+#+begin_quote
+What would be the canonical way to express as a cram test a run of a binary that is expected to fail
+(i.e. non zero exit code), while also comparing the output (e.g. for testing error reporting of a
+compiler-like program).
+#+end_quote
+
+Cram has a ~[ .. ]~ syntax for expecting a particular exit code:
+
+#+begin_example
+  $ dune build cycle.exe
+  Error: Dependency cycle detected between the following libraries:
+     "a" in _build/default
+  -> "b" in _build/default
+  -> "c" in _build/default
+  -> "a" in _build/default
+  -> required by library "c" in _build/default
+  -> required by executable cycle in dune:17
+  [1]
+#+end_example
+
+(Example taken from Dune
+[here](https://github.com/ocaml/dune/blob/master/test/blackbox-tests/test-cases/lib-errors.t/run.t#L3-L14).)
+
+If the error code isn't as expected, it's shown in the diff:
+
+#+begin_src diff
+ |Cycle detection
+ |---------------
+ |
+ |  $ dune build cycle.exe
+ |  Error: Dependency cycle detected between the following libraries:
+ |     "a" in _build/default
+ |  -> "b" in _build/default
+ |  -> "c" in _build/default
+ |  -> "a" in _build/default
+ |  -> required by library "c" in _build/default
+ |  -> required by executable cycle in dune:17
+-|  [2]
++|  [1]
+#+end_src
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OCaml 4.11.0 released</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ocaml-4-11-0-released/6265/2</cwn_url>
+      <cwn_who>octachron announced</cwn_who>
+      <cwn_what>
+I have the pleasure of announcing the release of OCaml version 4.11.0,
+dedicated to the memory of Blaise Pascal on the anniversary of his death.
+
+Some of the highlights in this release are:
+
+- Statmemprof: a new statistical memory profiler
+- A new instrumented runtime that logs runtime statistics in a standard format
+- A native backend for the RISC-V architecture
+- Improved backtraces that refer to function names
+- Support for recursive and yet unboxed types
+- A quoted extension syntax for ppxs.
+- Many quality of life improvements
+- Many bug fixes.
+
+The full list of change can be found in the changelog below:
+
+*** OCaml 4.11.0 (19 August 2020)
+(Changes that can break existing programs are marked with a  "*breaking change" warning)
+
+**** Runtime system:
+
+- [#9096](https://github.com/ocaml/ocaml/issues/9096): Print function names in backtraces.\\
+  Old output:\\
+  &gt; Called from file "foo.ml", line 16, characters 42-53
+
+  New output:\\
+  &gt; Called from Foo.bar in file "foo.ml", line 16, characters 42-53
+
+  (Stephen Dolan, review by Leo White and Mark Shinwell)
+
+- [#9082](https://github.com/ocaml/ocaml/issues/9082): The instrumented runtime now records logs in the CTF format.
+  A new API is available in the runtime to collect runtime statistics,
+  replacing the previous instrumented runtime macros.
+  Gc.eventlog_pause and Gc.eventlog_resume were added to allow user to control
+  instrumentation in a running program.
+  See the manual for more information on how to use this instrumentation mode.
+  (Enguerrand Decorne and Stephen Dolan, with help and review from
+  David Allsopp, Sébastien Hinderer, review by Anil Madhavapeddy,
+  Nicolás Ojeda Bär, Shakthi Kannan, KC Sivaramakrishnan, Gabriel Scherer,
+  Guillaume Munch-Maccagnoni, Damien Doligez, Leo White, Daniel Bünzli
+  and Xavier Leroy)
+
+- [#9230](https://github.com/ocaml/ocaml/issues/9230), [#9362](https://github.com/ocaml/ocaml/issues/9362): Memprof support for native allocations.
+  (Jacques-Henri Jourdan and Stephen Dolan, review by Gabriel Scherer)
+
+- [#8920](https://github.com/ocaml/ocaml/issues/8920), [#9238](https://github.com/ocaml/ocaml/issues/9238), [#9239](https://github.com/ocaml/ocaml/issues/9239), [#9254](https://github.com/ocaml/ocaml/issues/9254), [#9458](https://github.com/ocaml/ocaml/issues/9458): New API for statistical memory profiling
+  in Memprof.Gc. The new version does no longer use ephemerons and allows
+  registering callbacks for promotion and deallocation of memory
+  blocks.
+  The new API no longer gives the block tags to the allocation callback.
+  (Stephen Dolan and Jacques-Henri Jourdan, review by Damien Doligez
+   and Gabriel Scherer)
+
+- [#9353](https://github.com/ocaml/ocaml/issues/9353): Reimplement ~output_value~ and the ~Marshal.to_*~ functions
+  using a hash table to detect sharing, instead of temporary in-place
+  modifications.  This is a prerequisite for Multicore OCaml.
+  (Xavier Leroy and Basile Clément, review by Gabriel Scherer and
+  Stephen Dolan)
+
+- [#9119](https://github.com/ocaml/ocaml/issues/9119): Make [caml_stat_resize_noexc] compatible with the [realloc]
+  API when the old block is NULL.
+  (Jacques-Henri Jourdan, review by Xavier Leroy)
+
+- [#9233](https://github.com/ocaml/ocaml/issues/9233): Restore the bytecode stack after an allocation.
+  (Stephen Dolan, review by Gabriel Scherer and Jacques-Henri Jourdan)
+
+- [#9249](https://github.com/ocaml/ocaml/issues/9249): restore definition of ARCH_ALIGN_INT64 in m.h if the architecture
+  requires 64-bit integers to be double-word aligned (autoconf regression)
+  (David Allsopp, review by Sébastien Hinderer)
+
+- [#9259](https://github.com/ocaml/ocaml/issues/9259): Made ~Ephemeron.blit_key~ and ~Weak.blit~ faster. They are now
+  linear in the size of the range being copied instead of depending on the
+  total sizes of the ephemerons or weak arrays involved.
+  (Arseniy Alekseyev, design advice by Leo White, review by François Bobot
+  and Damien Doligez)
+
+- [#9279](https://github.com/ocaml/ocaml/issues/9279): Memprof optimisation.
+  (Stephen Dolan, review by Jacques-Henri Jourdan)
+
+- [#9280](https://github.com/ocaml/ocaml/issues/9280): Micro-optimise allocations on amd64 to save a register.
+  (Stephen Dolan, review by Xavier Leroy)
+
+- [#9426](https://github.com/ocaml/ocaml/issues/9426): build the Mingw ports with higher levels of GCC optimization
+  (Xavier Leroy, review by Sébastien Hinderer)
+
+- [ *breaking change* ] [#9483](https://github.com/ocaml/ocaml/issues/9483): Remove accidental inclusion of &lt;stdio.h&gt; in &lt;caml/misc.h&gt;
+  The only release with the inclusion of stdio.h has been 4.10.0
+  (Christopher Zimmermann, review by Xavier Leroy and David Allsopp)
+
+- [#9282](https://github.com/ocaml/ocaml/issues/9282): Make Cconst_symbol have typ_int to fix no-naked-pointers mode.
+  (Stephen Dolan, review by Mark Shinwell, Xavier Leroy and Vincent Laviron)
+
+- [#9497](https://github.com/ocaml/ocaml/issues/9497): Harmonise behaviour between bytecode and native code for
+  recursive module initialisation in one particular case (fixes [#9494](https://github.com/ocaml/ocaml/issues/9494)).
+  (Mark Shinwell, David Allsopp, Vincent Laviron, Xavier Leroy,
+  Geoff Reedy, original bug report by Arlen Cox)
+
+- [#8791](https://github.com/ocaml/ocaml/issues/8791): use a variable-length encoding when marshalling bigarray dimensions, avoiding overflow.
+  (Jeremy Yallop, Stephen Dolan, review by Xavier Leroy)
+
+**** Code generation and optimizations:
+
+- [#9441](https://github.com/ocaml/ocaml/issues/9441): Add RISC-V RV64G native-code backend.
+  (Nicolás Ojeda Bär, review by Xavier Leroy and Gabriel Scherer)
+
+- [#9316](https://github.com/ocaml/ocaml/issues/9316), [#9443](https://github.com/ocaml/ocaml/issues/9443), [#9463](https://github.com/ocaml/ocaml/issues/9463), [#9782](https://github.com/ocaml/ocaml/issues/9782): Use typing information from Clambda for mutable Cmm variables.
+  (Stephen Dolan, review by Vincent Laviron, Guillaume Bury, Xavier Leroy,
+  and Gabriel Scherer; temporary bug report by Richard Jones)
+
+- [#8637](https://github.com/ocaml/ocaml/issues/8637), [#8805](https://github.com/ocaml/ocaml/issues/8805), [#9247](https://github.com/ocaml/ocaml/issues/9247), [#9296](https://github.com/ocaml/ocaml/issues/9296): Record debug info for each allocation.
+  (Stephen Dolan and Jacques-Henri Jourdan, review by Damien Doligez,
+   KC Sivaramakrishnan and Xavier Leroy)
+
+- [#9193](https://github.com/ocaml/ocaml/issues/9193): Make tuple matching optimisation apply to Lswitch and Lstringswitch.
+  (Stephen Dolan, review by Thomas Refis and Gabriel Scherer)
+
+- [#9392](https://github.com/ocaml/ocaml/issues/9392): Visit registers at most once in Coloring.iter_preferred.
+  (Stephen Dolan, review by Pierre Chambart and Xavier Leroy)
+
+- [#9549](https://github.com/ocaml/ocaml/issues/9549), [#9557](https://github.com/ocaml/ocaml/issues/9557): Make -flarge-toc the default for PowerPC and introduce
+  -fsmall-toc to enable the previous behaviour.
+  (David Allsopp, report by Nathaniel Wesley Filardo, review by Xavier Leroy)
+
+**** Language features
+
+- [#8820](https://github.com/ocaml/ocaml/issues/8820), [#9166](https://github.com/ocaml/ocaml/issues/9166): quoted extensions: {%foo|...|} is lighter syntax for
+  [%foo {||}], and {%foo bar|...|bar} for [%foo {bar|...|bar}].
+  (Gabriel Radanne, Leo White, Gabriel Scherer and Pieter Goetschalckx,
+   request by Bikal Lem)
+
+- [#7364](https://github.com/ocaml/ocaml/issues/7364), [#2188](https://github.com/ocaml/ocaml/issues/2188), [#9592](https://github.com/ocaml/ocaml/issues/9592), [#9609](https://github.com/ocaml/ocaml/issues/9609): improvement of the unboxability check for types
+  with a single constructor. Mutually-recursive type declarations can
+  now contain unboxed types. This is based on the paper
+    https://arxiv.org/abs/1811.02300
+  (Gabriel Scherer and Rodolphe Lepigre,
+   review by Jeremy Yallop, Damien Doligez and Frédéric Bour)
+
+- [#1154](https://github.com/ocaml/ocaml/issues/1154), [#1706](https://github.com/ocaml/ocaml/issues/1706): spellchecker hints and type-directed disambiguation
+  for extensible sum type constructors
+  (Florian Angeletti, review by Alain Frisch, Gabriel Radanne, Gabriel Scherer
+  and Leo White)
+
+- [#6673](https://github.com/ocaml/ocaml/issues/6673), [#1132](https://github.com/ocaml/ocaml/issues/1132), [#9617](https://github.com/ocaml/ocaml/issues/9617): Relax the handling of explicit polymorphic types.
+  This improves error messages in some polymorphic recursive definition,
+  and requires less polymorphic annotations in some cases of
+  mutually-recursive definitions involving polymorphic recursion.
+  (Leo White, review by Jacques Garrigue and Gabriel Scherer)
+
+- [#9232](https://github.com/ocaml/ocaml/issues/9232): allow any class type paths in #-types,
+  For instance, "val f: #F(X).t -> unit" is now allowed.
+  (Florian Angeletti, review by Gabriel Scherer, suggestion by Leo White)
+
+**** Standard library:
+
+- [#9077](https://github.com/ocaml/ocaml/issues/9077): Add Seq.cons and Seq.append
+  (Sébastien Briais, review by Yawar Amin and Florian Angeletti)
+
+- [#9235](https://github.com/ocaml/ocaml/issues/9235): Add Array.exists2 and Array.for_all2
+  (Bernhard Schommer, review by Armaël Guéneau)
+
+- [#9226](https://github.com/ocaml/ocaml/issues/9226): Add Seq.unfold.
+   (Jeremy Yallop, review by Hezekiah M. Carty, Gabriel Scherer and
+   Gabriel Radanne)
+
+- [#9059](https://github.com/ocaml/ocaml/issues/9059): Added List.filteri function, same as List.filter but
+  with the index of the element.
+  (Léo Andrès, review by Alain Frisch)
+
+- [#8894](https://github.com/ocaml/ocaml/issues/8894): Added List.fold_left_map function combining map and fold.
+  (Bernhard Schommer, review by Alain Frisch and github user @cfcs)
+
+- [#9365](https://github.com/ocaml/ocaml/issues/9365): Set.filter_map and Map.filter_map
+  (Gabriel Scherer, review by Stephen Dolan and Nicolás Ojeda Bär)
+
+- [#9248](https://github.com/ocaml/ocaml/issues/9248): Add Printexc.default_uncaught_exception_handler
+  (Raphael Sousa Santos, review by Daniel Bünzli)
+
+- [#8771](https://github.com/ocaml/ocaml/issues/8771): Lexing: add set_position and set_filename to change (fake) the initial tracking position of the lexbuf.
+   (Konstantin Romanov, Miguel Lumapat, review by Gabriel Scherer,
+    Sébastien Hinderer, and David Allsopp)
+
+- [#9237](https://github.com/ocaml/ocaml/issues/9237): ~Format.pp_update_geometry ppf (fun geo -> {geo with ...})~
+  for formatter geometry changes that are robust to new geometry fields.
+  (Gabriel Scherer, review by Josh Berdine and Florian Angeletti)
+
+- [#7110](https://github.com/ocaml/ocaml/issues/7110): Added Printf.ikbprintf and Printf.ibprintf
+  (Muskan Garg, review by Gabriel Scherer and Florian Angeletti)
+
+- [#9266](https://github.com/ocaml/ocaml/issues/9266): Install pretty-printer for the exception Fun.Finally_raised.
+  (Guillaume Munch-Maccagnoni, review by Daniel Bünzli, Gabriel Radanne,
+   and Gabriel Scherer)
+
+**** Other libraries:
+
+- [#9106](https://github.com/ocaml/ocaml/issues/9106): Register printer for Unix_error in win32unix, as in unix.
+  (Christopher Zimmermann, review by David Allsopp)
+
+- [#9183](https://github.com/ocaml/ocaml/issues/9183): Preserve exception backtrace of exceptions raised by top-level phrases
+  of dynlinked modules.
+  (Nicolás Ojeda Bär, review by Xavier Clerc and Gabriel Scherer)
+
+- [#9320](https://github.com/ocaml/ocaml/issues/9320), [#9550](https://github.com/ocaml/ocaml/issues/9550): under Windows, make sure that the Unix.exec* functions
+  properly quote their argument lists.
+  (Xavier Leroy, report by André Maroneze, review by Nicolás Ojeda Bär
+   and David Allsopp)
+
+- [#9490](https://github.com/ocaml/ocaml/issues/9490), [#9505](https://github.com/ocaml/ocaml/issues/9505): ensure proper rounding of file times returned by
+  Unix.stat, Unix.lstat, Unix.fstat.
+  (Xavier Leroy and Guillaume Melquiond, report by David Brown,
+   review by Gabriel Scherer and David Allsopp)
+
+**** Tools:
+
+- [#9283](https://github.com/ocaml/ocaml/issues/9283), [#9455](https://github.com/ocaml/ocaml/issues/9455), [#9457](https://github.com/ocaml/ocaml/issues/9457): add a new toplevel directive ~#use_output "&lt;command&gt;"~ to
+  run a command and evaluate its output.
+  (Jérémie Dimino, review by David Allsopp)
+
+- [#6969](https://github.com/ocaml/ocaml/issues/6969): Argument -nocwd added to ocamldep
+  (Muskan Garg, review by Florian Angeletti)
+
+- [#8676](https://github.com/ocaml/ocaml/issues/8676), [#9594](https://github.com/ocaml/ocaml/issues/9594): turn debugger off in programs launched by the program
+  being debugged
+  (Xavier Leroy, report by Michael Soegtrop, review by Gabriel Scherer)
+
+- [#9057](https://github.com/ocaml/ocaml/issues/9057): aid debugging the debugger by preserving backtraces of unhandled exceptions.
+  (David Allsopp, review by Gabriel Scherer)
+
+- [#9276](https://github.com/ocaml/ocaml/issues/9276): objinfo: cm[x]a print extra C options, objects and dlls in the order given on the cli. Follow up to [#4949](https://github.com/ocaml/ocaml/issues/4949).
+  (Daniel Bünzli, review by Gabriel Scherer)
+
+- [#463](https://github.com/ocaml/ocaml/issues/463): objinfo: better errors on object files coming
+  from a different (older or newer), incompatible compiler version.
+  (Gabriel Scherer, review by Gabriel Radanne and Damien Doligez)
+
+- [#9181](https://github.com/ocaml/ocaml/issues/9181): make objinfo work on Cygwin and look for the caml_plugin_header
+  symbol in both the static and the dynamic symbol tables.
+  (Sébastien Hinderer, review by Gabriel Scherer and David Allsopp)
+
+- [ *breaking change* ] [#9197](https://github.com/ocaml/ocaml/issues/9197): remove compatibility logic from [#244](https://github.com/ocaml/ocaml/issues/244) that was designed to
+  synchronize toplevel printing margins with Format.std_formatter,
+  but also resulted in unpredictable/fragile changes to formatter
+  margins.
+  Setting the margins on the desired formatters should now work.
+  typically on ~Format.std_formatter~.
+  Note that there currently is no robust way to do this from the
+  toplevel, as applications may redirect toplevel printing. In
+  a compiler/toplevel driver, one should instead access
+  ~Location.formatter_for_warnings~; it is not currently exposed
+  to the toplevel.
+  (Gabriel Scherer, review by Armaël Guéneau)
+
+- [#9207](https://github.com/ocaml/ocaml/issues/9207), [#9210](https://github.com/ocaml/ocaml/issues/9210): fix ocamlyacc to work correctly with up to 255 entry
+  points to the grammar.
+  (Andreas Abel, review by Xavier Leroy)
+
+- [#9482](https://github.com/ocaml/ocaml/issues/9482), [#9492](https://github.com/ocaml/ocaml/issues/9492): use diversions (@file) to work around OS limitations
+  on length of Sys.command argument.
+  (Xavier Leroy, report by Jérémie Dimino, review by David Allsopp)
+
+- [#9552](https://github.com/ocaml/ocaml/issues/9552): restore ocamloptp build and installation
+  (Florian Angeletti, review by David Allsopp and Xavier Leroy)
+
+**** Manual and documentation:
+
+- [#9141](https://github.com/ocaml/ocaml/issues/9141): beginning of the ocamltest reference manual
+  (Sébastien Hinderer, review by Gabriel Scherer and Thomas Refis)
+
+- [#9228](https://github.com/ocaml/ocaml/issues/9228): Various Map documentation improvements: add missing key argument in
+  the 'merge' example; clarify the relationship between input and output keys
+  in 'union'; note that find and find_opt return values, not bindings.
+  (Jeremy Yallop, review by Gabriel Scherer and Florian Angeletti)
+
+- [#9255](https://github.com/ocaml/ocaml/issues/9255), [#9300](https://github.com/ocaml/ocaml/issues/9300): reference chapter, split the expression grammar
+  (Florian Angeletti, report by Harrison Ainsworth, review by Gabriel Scherer)
+
+- [#9325](https://github.com/ocaml/ocaml/issues/9325): documented base case for ~List.for_all~ and ~List.exists~
+  (Glenn Slotte, review by Florian Angeletti)
+
+- [#9410](https://github.com/ocaml/ocaml/issues/9410), [#9422](https://github.com/ocaml/ocaml/issues/9422): replaced naive fibonacci example with gcd
+  (Anukriti Kumar, review by San Vu Ngoc, Florian Angeletti, Léo Andrès)
+
+- [#9541](https://github.com/ocaml/ocaml/issues/9541): Add a documentation page for the instrumented runtime;
+  additional changes to option names in the instrumented runtime.
+  (Enguerrand Decorne, review by Anil Madhavapeddy, Gabriel Scherer,
+   Daniel Bünzli, David Allsopp, Florian Angeletti,
+   and Sébastien Hinderer)
+
+- [#9610](https://github.com/ocaml/ocaml/issues/9610): manual, C FFI: naked pointers are deprecated, detail the
+  forward-compatible options for handling out-of-heap pointers.
+  (Xavier Leroy, review by Mark Shinwell, David Allsopp and Florian Angeletti)
+
+- [#9618](https://github.com/ocaml/ocaml/issues/9618): clarify the Format documentation on the margin and maximum indentation
+  limit
+  (Florian Angeletti, review by Josh Berdine)
+
+- [#8644](https://github.com/ocaml/ocaml/issues/8644): fix formatting comment about @raise in stdlib's mli files
+  (Élie Brami, review by David Allsopp)
+
+- [#9327](https://github.com/ocaml/ocaml/issues/9327), [#9401](https://github.com/ocaml/ocaml/issues/9401): manual, fix infix attribute examples
+  (Florian Angeletti, report by David Cadé, review by Gabriel Scherer)
+
+- [#9403](https://github.com/ocaml/ocaml/issues/9403): added a description for warning 67 and added a "." at the end of
+  warnings for consistency.
+  (Muskan Garg, review by Gabriel Scherer and Florian Angeletti)
+
+- [#7708](https://github.com/ocaml/ocaml/issues/7708), [#9580](https://github.com/ocaml/ocaml/issues/9580): Ensure Stdlib documentation index refers to Stdlib.
+  (Stephen Dolan, review by Florian Angeletti, report by Hannes Mehnert)
+
+**** Compiler user-interface and warnings:
+
+- [#9712](https://github.com/ocaml/ocaml/issues/9712): Update the version format to allow "~".
+  The new format is "major.minor[.patchlevel][(+|~)additional-info]",
+  for instance "4.12.0~beta1+flambda".
+  This is a documentation-only change for the 4.11 branch, the new format
+  will be used starting with the 4.12 branch.
+  (Florian Angeletti, review by Damien Doligez and Xavier Leroy)
+
+- [#1664](https://github.com/ocaml/ocaml/issues/1664): make -output-complete-obj link the runtime native c libraries when
+  building shared libraries like ~-output-obj~.
+  (Florian Angeletti, review by Nicolás Ojeda Bär)
+
+- [#9349](https://github.com/ocaml/ocaml/issues/9349): Support [@inlined hint] attribute.
+  (Leo White, review by Stephen Dolan)
+
+- [#2141](https://github.com/ocaml/ocaml/issues/2141): generate .annot files from cmt data; deprecate -annot.
+  (Nicolás Ojeda Bär, review by Alain Frisch, Gabriel Scherer and Damien
+  Doligez)
+
+- [ *breaking change* ] [#7678](https://github.com/ocaml/ocaml/issues/7678), [#8631](https://github.com/ocaml/ocaml/issues/8631): ocamlc -c and ocamlopt -c pass same switches to the C
+  compiler when compiling .c files (in particular, this means ocamlopt
+  passes -fPIC on systems requiring it for shared library support).
+  (David Allsopp, report by Daniel Bünzli, review by Sébastien Hinderer)
+
+- [#9074](https://github.com/ocaml/ocaml/issues/9074): reworded error message for non-regular structural types
+  (Florian Angeletti, review by Jacques Garrigue and Leo White,
+   report by Chas Emerick)
+
+- [#8938](https://github.com/ocaml/ocaml/issues/8938): Extend ocamlopt option "-stop-after" to handle "scheduling" argument.
+  (Greta Yorsh, review by Florian Angeletti and Sébastien Hinderer)
+
+- [#8945](https://github.com/ocaml/ocaml/issues/8945), [#9086](https://github.com/ocaml/ocaml/issues/9086): Fix toplevel show directive to work with constructors
+  (Simon Parry, review by Gabriel Scherer, Jeremy Yallop,
+  Alain Frisch, Florian Angeletti)
+
+- [#9107](https://github.com/ocaml/ocaml/issues/9107): improved error message for exceptions in module signature errors
+  (Gabriel Scherer, review by Florian Angeletti)
+
+- [#9208](https://github.com/ocaml/ocaml/issues/9208): -dno-locations option to hide source locations (and debug events)
+  from intermediate-representation dumps (-dfoo).
+  (Gabriel Scherer, review by Vincent Laviron)
+
+- [#9393](https://github.com/ocaml/ocaml/issues/9393): Improve recursive module usage warnings
+  (Leo White, review by Thomas Refis)
+
+- [#9486](https://github.com/ocaml/ocaml/issues/9486): Fix configuration for the Haiku operating system
+  (Sylvain Kerjean, review by David Allsopp and Sébastien Hinderer)
+
+**** Internal/compiler-libs changes:
+
+- [#9021](https://github.com/ocaml/ocaml/issues/9021): expose compiler Longident.t parsers
+  (Florian Angeletti, review by Gabriel Scherer)
+
+- [#9452](https://github.com/ocaml/ocaml/issues/9452): Add locations to docstring attributes
+  (Leo White, review by Gabriel Scherer)
+
+- [#463](https://github.com/ocaml/ocaml/issues/463): a new Misc.Magic_number module for user-friendly parsing
+  and validation of OCaml magic numbers.
+  (Gabriel Scherer, review by Gabriel Radanne and Damien Doligez)
+
+- [#1176](https://github.com/ocaml/ocaml/issues/1176): encourage better compatibility with older Microsoft C compilers by
+  using GCC's -Wdeclaration-after-statement when available. Introduce
+  Caml_inline to stop abuse of the inline keyword on MSVC and to help ensure
+  that only static inline is used in the codebase (erroneous instance in
+  runtime/win32.c removed).
+  (David Allsopp, review by Oliver Andrieu and Xavier Leroy)
+
+- [#8934](https://github.com/ocaml/ocaml/issues/8934): Stop relying on location to track usage
+  (Thomas Refis, review by Gabriel Radanne)
+
+- [#8970](https://github.com/ocaml/ocaml/issues/8970): separate value patterns (matching on values) from computation patterns
+  (matching on the effects of a copmutation) in the typedtree.
+  (Gabriel Scherer, review by Jacques Garrigue and Alain Frisch)
+
+- [#9060](https://github.com/ocaml/ocaml/issues/9060): ensure that Misc.protect_refs preserves backtraces
+  (Gabriel Scherer, review by Guillaume Munch-Maccagnoni and David Allsopp)
+
+- [#9078](https://github.com/ocaml/ocaml/issues/9078): make all compilerlibs/ available to ocamltest.
+  (Gabriel Scherer, review by Sébastien Hinderer)
+
+- [#9079](https://github.com/ocaml/ocaml/issues/9079): typecore/parmatch: refactor ppat_of_type and refine
+  the use of backtracking on wildcard patterns
+  (Florian Angeletti, Jacques Garrigue, Gabriel Scherer,
+   review by Thomas Refis)
+
+- [#9081](https://github.com/ocaml/ocaml/issues/9081): typedtree, make the pat_env field of pattern data immutable
+  (Gabriel Scherer, review by Jacques Garrigue, report by Alain Frisch)
+
+- [#9178](https://github.com/ocaml/ocaml/issues/9178), [#9182](https://github.com/ocaml/ocaml/issues/9182), [#9196](https://github.com/ocaml/ocaml/issues/9196): refactor label-disambiguation (Typecore.NameChoice)
+  (Gabriel Scherer, Thomas Refis, Florian Angeletti and Jacques Garrigue,
+   reviewing each other without self-loops)
+
+- [#9321](https://github.com/ocaml/ocaml/issues/9321), [#9322](https://github.com/ocaml/ocaml/issues/9322), [#9359](https://github.com/ocaml/ocaml/issues/9359), [#9361](https://github.com/ocaml/ocaml/issues/9361), [#9417](https://github.com/ocaml/ocaml/issues/9417), [#9447](https://github.com/ocaml/ocaml/issues/9447): refactor the
+  pattern-matching compiler
+  (Thomas Refis and Gabriel Scherer, review by Florian Angeletti)
+
+- [#9211](https://github.com/ocaml/ocaml/issues/9211), [#9215](https://github.com/ocaml/ocaml/issues/9215), [#9222](https://github.com/ocaml/ocaml/issues/9222): fix Makefile dependencies in
+  compilerlibs, dynlink, ocamltest.
+  (Gabriel Scherer, review by Vincent Laviron and David Allsopp)
+
+- [#9305](https://github.com/ocaml/ocaml/issues/9305): Avoid polymorphic compare in Ident
+  (Leo White, review by Xavier Leroy and Gabriel Scherer)
+
+- [#7927](https://github.com/ocaml/ocaml/issues/7927): refactor val_env met_env par_env to class_env
+  (Muskan Garg, review by Gabriel Scherer and Florian Angeletti)
+
+- [#2324](https://github.com/ocaml/ocaml/issues/2324), [#9613](https://github.com/ocaml/ocaml/issues/9613): Replace the caml_int_compare and caml_float_compare
+  (C functions) with primitives.
+  (Greta Yorsh, review by Stephen Dolan and Vincent Laviron)
+
+- [#9246](https://github.com/ocaml/ocaml/issues/9246): Avoid rechecking functor applications
+  (Leo White, review by Jacques Garrigue)
+
+- [#9402](https://github.com/ocaml/ocaml/issues/9402): Remove ~sudo:false~ from .travis.yml
+  (Hikaru Yoshimura)
+
+- [ *breaking change* ] [#9411](https://github.com/ocaml/ocaml/issues/9411): forbid optional arguments reordering with -nolabels
+  (Thomas Refis, review by Frédéric Bour and Jacques Garrigue)
+
+- [#9414](https://github.com/ocaml/ocaml/issues/9414): testsuite, ocamltest: keep test artifacts only on failure.
+  Use KEEP_TEST_DIR_ON_SUCCESS=1 to keep all artifacts.
+  (Gabriel Scherer, review by Sébastien Hinderer)
+
+**** Build system:
+
+- [#9250](https://github.com/ocaml/ocaml/issues/9250): Add --disable-ocamltest to configure and disable building for
+  non-development builds.
+  (David Allsopp, review by Sébastien Hinderer)
+
+**** Bug fixes:
+
+- [#7520](https://github.com/ocaml/ocaml/issues/7520), [#9547](https://github.com/ocaml/ocaml/issues/9547): Odd behaviour of refutation cases with polymorphic variants
+  (Jacques Garrigue, report by Leo White, reviews by Gabriel Scherer and Leo)
+
+- [#7562](https://github.com/ocaml/ocaml/issues/7562), [#9456](https://github.com/ocaml/ocaml/issues/9456): ocamlopt-generated code crashed on Alpine Linux on
+  ppc64le, arm, and i386.  Fixed by turning PIE off for musl-based Linux
+  systems except amd64 (x86_64) and s390x.
+  (Xavier Leroy, review by Gabriel Scherer)
+
+- [#7683](https://github.com/ocaml/ocaml/issues/7683), [#1499](https://github.com/ocaml/ocaml/issues/1499): Fixes one case where the evaluation order in native-code
+  may not match the one in bytecode.
+  (Nicolás Ojeda Bär, report by Pierre Chambart, review by Gabriel Scherer)
+
+- [#7696](https://github.com/ocaml/ocaml/issues/7696), [#6608](https://github.com/ocaml/ocaml/issues/6608): Record expression deleted when all fields specified
+  (Jacques Garrigue, report by Jeremy Yallop)
+
+- [#7741](https://github.com/ocaml/ocaml/issues/7741), [#9645](https://github.com/ocaml/ocaml/issues/9645): Failure to report escaping type variable
+  (Jacques Garrigue, report by Gabriel Radanne, review by Gabriel Scherer)
+
+- [#7817](https://github.com/ocaml/ocaml/issues/7817), [#9546](https://github.com/ocaml/ocaml/issues/9546): Unsound inclusion check for polymorphic variant
+  (Jacques Garrigue, report by Mikhail Mandrykin, review by Gabriel Scherer)
+
+- [#7897](https://github.com/ocaml/ocaml/issues/7897), [#9537](https://github.com/ocaml/ocaml/issues/9537): Fix warning 38 for rebound extension constructors
+  (Leo White, review by Florian Angeletti)
+
+- [#7917](https://github.com/ocaml/ocaml/issues/7917), [#9426](https://github.com/ocaml/ocaml/issues/9426): Use GCC option -fexcess-precision=standard when available,
+  avoiding a problem with x87 excess precision in Float.round.
+  (Xavier Leroy, review by Sébastien Hinderer)
+
+- [#9011](https://github.com/ocaml/ocaml/issues/9011): Allow linking .cmxa files with no units on MSVC by not requiring the
+  .lib file to be present.
+  (David Allsopp, report by Dimitry Bely, review by Xavier Leroy)
+
+- [#9064](https://github.com/ocaml/ocaml/issues/9064): Relax the level handling when unifying row fields
+  (Leo White, review by Jacques Garrigue)
+
+- [#9097](https://github.com/ocaml/ocaml/issues/9097): Do not emit references to dead labels introduced by [#2321](https://github.com/ocaml/ocaml/issues/2321) (spacetime).
+  (Greta Yorsh, review by Mark Shinwell)
+
+- [#9163](https://github.com/ocaml/ocaml/issues/9163): Treat loops properly in un_anf
+  (Leo White, review by Mark Shinwell, Pierre Chambart and Vincent Laviron)
+
+- [#9189](https://github.com/ocaml/ocaml/issues/9189), [#9281](https://github.com/ocaml/ocaml/issues/9281): fix a conflict with Gentoo build system
+  by removing an one-letter Makefile variable.
+  (Florian Angeletti, report by Ralph Seichter, review by David Allsopp
+   and Damien Doligez)
+
+- [#9225](https://github.com/ocaml/ocaml/issues/9225): Do not drop bytecode debug info after C calls.
+  (Stephen Dolan, review by Gabriel Scherer and Jacques-Henri Jourdan)
+
+- [#9231](https://github.com/ocaml/ocaml/issues/9231): Make sure a debug event (and the corresponding debug
+  information) is inserted after every primitive that can appear in a
+  collected call stack, and make sure ocamlc preserves such events
+  even if they are at tail position.
+  (Jacques-Henri Jourdan, review by Gabriel Scherer)
+
+- [#9244](https://github.com/ocaml/ocaml/issues/9244): Fix some missing usage warnings
+  (Leo White, review by Florian Angeletti)
+
+- [#9274](https://github.com/ocaml/ocaml/issues/9274), avoid reading cmi file while printing types
+  (Florian Angeletti, review by Gabriel Scherer)
+
+- [#9307](https://github.com/ocaml/ocaml/issues/9307), [#9345](https://github.com/ocaml/ocaml/issues/9345): reproducible env summaries for reproducible compilation
+  (Florian Angeletti, review by Leo White)
+
+- [#9309](https://github.com/ocaml/ocaml/issues/9309), [#9318](https://github.com/ocaml/ocaml/issues/9318): Fix exhaustivity checking with empty types (Florian Angeletti, Stefan Muenzel and Thomas Refis, review by Gabriel Scherer
+  and Thomas Refis)
+
+- [#9335](https://github.com/ocaml/ocaml/issues/9335): actually have --disable-stdlib-manpages not build the manpages
+  (implementation conflicted with [#8837](https://github.com/ocaml/ocaml/issues/8837) which wasn't
+picked up in review)
+  (David Allsopp, review by Florian Angeletti and Sébastien Hinderer)
+
+- [#9343](https://github.com/ocaml/ocaml/issues/9343): Re-enable ~-short-paths~ for some error messages
+  (Leo White, review by Florian Angeletti)
+
+- [#9355](https://github.com/ocaml/ocaml/issues/9355), [#9356](https://github.com/ocaml/ocaml/issues/9356): ocamldebug, fix a fatal error when printing values
+  whose type involves a functor application.
+  (Florian Angeletti, review by Gabriel Scherer, report by Cyril Six)
+
+- [#9367](https://github.com/ocaml/ocaml/issues/9367): Make bytecode and native-code backtraces agree.
+  (Stephen Dolan, review by Gabriel Scherer)
+
+- [#9375](https://github.com/ocaml/ocaml/issues/9375), [#9477](https://github.com/ocaml/ocaml/issues/9477): add forgotten substitution when compiling anonymous modules
+  (Thomas Refis, review by Frédéric Bour, report by Andreas Hauptmann)
+
+- [#9384](https://github.com/ocaml/ocaml/issues/9384), [#9385](https://github.com/ocaml/ocaml/issues/9385): Fix copy scope bugs in substitutions
+  (Leo White, review by Thomas Refis, report by Nick Roberts)
+
+- [ *breaking change* ] [#9388](https://github.com/ocaml/ocaml/issues/9388): Prohibit signature local types with constraints
+  (Leo White, review by Jacques Garrigue)
+
+- [#9406](https://github.com/ocaml/ocaml/issues/9406), [#9409](https://github.com/ocaml/ocaml/issues/9409): fix an error with packed module types from missing cmis.
+  (Florian Angeletti, report by Thomas Leonard, review by Gabriel Radanne
+   and Gabriel Scherer)
+
+- [#9415](https://github.com/ocaml/ocaml/issues/9415): Treat ~open struct~ as ~include struct~ in toplevel
+  (Leo White, review by Thomas Refis)
+
+- [#9416](https://github.com/ocaml/ocaml/issues/9416): Avoid warning 58 in flambda ocamlnat
+  (Leo White, review by Florian Angeletti)
+
+- [#9420](https://github.com/ocaml/ocaml/issues/9420): Fix memory leak when ~caml_output_value_to_block~ raises an exception
+  (Xavier Leroy, review by Guillaume Munch-Maccagnoni)
+
+- [#9428](https://github.com/ocaml/ocaml/issues/9428): Fix truncated exception backtrace for C-&gt;OCaml callbacks
+  on Power and Z System
+  (Xavier Leroy, review by Nicolás Ojeda Bär)
+
+- [#9623](https://github.com/ocaml/ocaml/issues/9623), [#9642](https://github.com/ocaml/ocaml/issues/9642): fix typing environments in Typedecl.transl_with_constraint
+  (Gabriel Scherer, review by Jacques Garrigue and Leo White,
+   report by Hugo Heuzard)
+
+- [#9695](https://github.com/ocaml/ocaml/issues/9695), [#9702](https://github.com/ocaml/ocaml/issues/9702): no error when opening an alias to a missing module
+  (Jacques Garrigue, report and review by Gabriel Scherer)
+
+- [#9714](https://github.com/ocaml/ocaml/issues/9714), [#9724](https://github.com/ocaml/ocaml/issues/9724): Add a terminator to the ~caml_domain_state~ structure
+  to better ensure that members are correctly spaced.
+  (Antonin Décimo, review by David Allsopp and Xavier Leroy)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Set up OCaml 1.1.1</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-set-up-ocaml-1-1-1/6270/1</cwn_url>
+      <cwn_who>Sora Morimoto announced</cwn_who>
+      <cwn_what>
+This release contains these changes:
+
+- OCaml installation errors on Windows are now properly propagated.
+
+https://github.com/avsm/setup-ocaml/releases/tag/v1.1.1
+      </cwn_what>
+      <cwn_who>Sora Morimoto later added</cwn_who>
+      <cwn_what>
+The v1 tag is moved to v1.1.1. So, if you are using the v1 tag, you don't need to do anything.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Lightweight HList -- typed heterogeneous collections</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2020-08/msg00014.html</cwn_url>
+      <cwn_who>Oleg announced</cwn_who>
+      <cwn_what>
+This is a (very late) announcement of the pure OCaml lightweight
+analogue of HList -- typed heterogeneous collections. Such collections
+store data of various types, and offer element access/modification
+plus bulk operations such as mapping and iteration. In HList, the type
+of the collection reflects the types of the elements; therefore all
+type mismatches can be detected statically. Correspondingly, there
+is no need to store any type information at run-time.
+
+The library was actually written two years ago. I have just realized I
+neglected to announce it. The implementation is fairly trivial, but
+does come useful from time to time, e.g., to implement polyvariadic
+functions. One interesting facility is the ability to replace an
+element somewhere in a collection with a new one of a different
+type. The type of the returned collection is changed
+accordingly.
+
+A more detailed description, and the pointer to the code is:
+          http://okmij.org/ftp/ML/ML.html#hlist
+
+The code contains several examples, including multi-dimensional
+cartesian product: converting an HList of regular lists to a list of
+tuples, elements of the cartesian product.
+
+A somewhat non-trivial application of HList (specifically,
+type-changing update) is the tagless-final embedding of simply-typed
+lambda-calculus with De Bruijn *levels*:
+        http://okmij.org/ftp/tagless-final/cookbook.html#dblevels
+At first glance, an embedding that relies on OCaml typechecker to
+check and infer types of lambda-terms seems impossible.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OCaml 4.10.1 released</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ocaml-4-10-1-released/6276/1</cwn_url>
+      <cwn_who>octachron announced</cwn_who>
+      <cwn_what>
+Following closely the release of OCaml 4.11.0, we have the pleasure of celebrating the birthday of
+Augustin-Louis Cauchy by announcing the release of OCaml version 4.10.1.
+
+This release is a collection of safe bug fixes, cherry-picked from the 4.11.0 development
+cycle. If you were using OCaml 4.10.0 and cannot yet upgrade to 4.11.0, this is the release for you.
+
+*** OCaml 4.10.1 (20 August 2020)
+
+**** Runtime system:
+
+- [#9344](https://github.com/ocaml/ocaml/issues/9344), [#9368](https://github.com/ocaml/ocaml/issues/9368): Disable exception backtraces in bytecode programs
+  built with "-output-complete-exe". At the moment, such programs do
+  not embed debug information and exception backtraces where causing
+  them to crash.
+  (Jérémie Dimino, review by Nicolás Ojeda Bär)
+
+**** Build system:
+
+- [#9531](https://github.com/ocaml/ocaml/issues/9531): fix support for the BFD library on FreeBSD
+  (Hannes Mehnert, review by Gabriel Scherer and David Allsopp)
+
+**** Bug fixes:
+
+- [#9068](https://github.com/ocaml/ocaml/issues/9068), [#9437](https://github.com/ocaml/ocaml/issues/9437): ocamlopt -output-complete-obj failure on FreeBSD 12
+  (Xavier Leroy, report by Hannes Mehnert, review by Sébastien Hinderer)
+
+- [#9165](https://github.com/ocaml/ocaml/issues/9165), [#9840](https://github.com/ocaml/ocaml/issues/9840): Add missing -function-sections flag in Makefiles.
+  (Greta Yorsh, review by David Allsopp)
+
+- [#9495](https://github.com/ocaml/ocaml/issues/9495): fix a bug where bytecode binaries compiled with ~-output-complete-exe~
+  would not execute ~at_exit~ hooks at program termination (in particular,
+  output channels would not be flushed).
+  (Nicolás Ojeda Bär, review by David Allsopp)
+
+- [#9714](https://github.com/ocaml/ocaml/issues/9714), [#9724](https://github.com/ocaml/ocaml/issues/9724): Use the C++ alignas keyword when compiling in C++ in MSVC.
+  Fixes a bug with MSVC C++ 2015 onwards.
+  (Antonin Décimo, review by David Allsopp and Xavier Leroy)
+
+- [#9736](https://github.com/ocaml/ocaml/issues/9736), [#9749](https://github.com/ocaml/ocaml/issues/9749): Compaction must start in a heap where all free blocks are
+  blue, which was not the case with the best-fit allocator.
+  (Damien Doligez, report and review by Leo White)
+
+**** Tools:
+
+- [#9552](https://github.com/ocaml/ocaml/issues/9552): restore ocamloptp build and installation
+  (Florian Angeletti, review by David Allsopp and Xavier Leroy)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OpenID connect</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-openid-connect/6279/1</cwn_url>
+      <cwn_who>Ulrik Strid announced</cwn_who>
+      <cwn_what>
+I recently released a OpenID connect library to opam named
+[oidc](https://github.com/ulrikstrid/ocaml-oidc). And today I got it [certified by the openid
+foundation](https://openid.net/developers/certified/) which proves that it's up to par with the
+specification. At least for the 2(3) profiles that I certified.
+
+I also created a higher level library oidc-client that used the excellent
+[Piaf](https://github.com/anmonteiro/piaf) library under the hood to make it easy to build a client. I
+can't publish that on opam since it uses unreleased libraries by @anmonteiro but I try to maintain the
+opam files even though I mainly use esy.
+This should allow anyone to create websites with simple login with Facebook/Apple/Microsoft/Google.
+
+This has been quite a ride for me, I built and published
+[JOSE](https://github.com/ulrikstrid/reason-jose) to work with JWTs and JWKs and
+[cookie](https://github.com/ulrikstrid/ocaml-cookie) to have the implementation be less ad-hoc.
+I also built a [web framework](https://github.com/reason-native-web/morph) that I used in the
+certification process.
+
+https://openid.net/wordpress-content/uploads/2016/04/oid-l-certification-mark-l-rgb-150dpi-90mm.png
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>obus 1.2.3</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-obus-1-2-3/6284/1</cwn_url>
+      <cwn_who>Freyr666 announced</cwn_who>
+      <cwn_what>
+I'm pleased to announce a new minor ~obus~ release, porting ~obus~ ppx from ~ocaml-migrate-parsetree~
+to the latest ~ppxlib~. Kudos to @NathanReb for the contribution.
+
+If all goes well, the next big major release will come soon, bringing comprehensive docs and
+modularity. So stay tuned ;)
+      </cwn_what>
+      <cwn_who>Yawar Amin then added</cwn_who>
+      <cwn_what>
+For convenience, the repo: https://github.com/ocaml-community/obus
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>kqueue-ml 0.1.0</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-kqueue-ml-0-1-0/6285/1</cwn_url>
+      <cwn_who>Anurag Soni announced</cwn_who>
+      <cwn_what>
+This will probably not be of interest to a lot of users, but i'd like to announce an initial release of
+kqueue-ml, thin ctypes binding for the [Kqueue](https://en.wikipedia.org/wiki/Kqueue) event
+notification interface.
+
+*Caveats*
+
+So far this has only been tested on macOS and freebsd. At the moment the library only defines the
+filters and flags that are common to both macOS and freebsd.
+
+Opam link: https://opam.ocaml.org/packages/kqueue/ \\
+Source: https://github.com/anuragsoni/kqueue-ml/
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Draft of OCaml Scientific Computing book</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-draft-of-ocaml-scientific-computing-book/6291/1</cwn_url>
+      <cwn_who>jrzhao42 announced</cwn_who>
+      <cwn_what>
+Liang @ryanrhymes and I just finished the first draft of our book - *OCaml Scientific Computing* ! You
+can read the draft here: https://lnkd.in/dSE6hEg
+
+This book is a summary of our long-term dedication to functional programming and numerical computing.
+While the entrance bar to data science, ML, and AI becomes lower and lower thanks to the fast
+development of various powerful frameworks and toolkits. The tool itself remains a black box and
+mysterious to many data scientists in reality.
+
+This book gives you a very different angle to look at data science, by illustrating how we, hardcore
+computer scientists and engineering computing experts, build up a high performance numerical system
+from scratch. In some sense, the book will help you to find the missing link between a basic pseudo
+random number generator to a fancy deep neural network application.
+
+This book is not for those who just want to "cast the spell", but rather for those who want to "make
+the magic more magic" :)
+
+[Original Post on LinkedIn](https://www.linkedin.com/feed/update/urn:li:activity:6703269662018281472/)
+
+An online version of this book can be seen at: https://ocaml.xyz/book/
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

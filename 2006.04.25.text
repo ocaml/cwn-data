@@ -1,0 +1,321 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of April 18 to 25, 2006.
+
+I finally found a connection this week, but next week might be more problematic.
+
+1) Performance of threaded interpreter on hyper-threaded CPU
+2) Any roadmap for OCaml compiler?
+3) OCaml on Sparc
+
+========================================================================
+1) Performance of threaded interpreter on hyper-threaded CPU
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/32770/focus=32770>
+------------------------------------------------------------------------
+** Michel Schinz said:
+
+In order to get an idea of the speedup provided by a threaded code
+interpreter, I've been comparing the performance of the switch-based
+OCaml interpreter with the one which uses threaded code.
+
+On some architectures, threaded code provides a speedup which matches
+my expectations (around 20%), but on a hyper-threaded Pentium IV, I
+actually get a massive slowdown: the threaded code interpreter is more
+than two times slower than the switch-based one! I just wanted to
+present my results here, since it seems that threaded code might not
+always be the fastest option. I'd also be interested in knowing why
+threaded code is so much slower in some cases, provided of course that
+my results are not flawed.
+
+My testing methodology and result are described below.
+
+To get the two versions of the OCaml interpreter, I uncompress
+ocaml-3.09.1 in two separate directories, and in one of them I simply
+delete the line which defines THREADED_CODE in byterun/config.h. I
+also add the following lines at the very beginning of ocaml_interprete
+in byterun/interp.c (in both directories):
+
+#ifdef THREADED_CODE
+  fprintf(stderr, "threaded code\n");
+#else
+  fprintf(stderr, "switch-based\n");
+#endif
+
+They enable me to be sure that the version which is running is the one
+I expect.
+
+Once this is done, I compile the two versions by first launching
+configure with a different prefix for both directories, and then
+letting "make world install" do its job. When this is complete, I have
+two versions of the interpreter, one using threaded code, the other
+using a big switch, and my measurements can start.
+
+To perform my measures, I use a small program which computes the
+factorial of 5000 using a naive implementation of big integers
+(represented as lists of "digits" in base 10000). I compile this
+program once then run it with the switch-based interpreter, and then
+with the threaded code one. I run the benchmark five times in a row,
+and select the lowest time, as given by the "time" command. The
+results are summarised in the following table. When the ratio given in
+the last column is greater than 1, then threaded code is faster than
+the switch-based solution. As you can see, this is only true in my
+case for non-hyper-threaded architectures. Concerning the OS, the
+first machine runs OS X 10.4.6, while the other ones run various
+versions of Linux.
+
+| architecture                      | switch | threaded |   ratio |
+|-----------------------------------+--------+----------+---------|
+| 1.25 GHzPower PC G4               |   9.04 |     7.24 |  1.2486 |
+| 1.70 GHz Pentium 4                |   6.36 |     4.81 |  1.3222 |
+| 3.0 GHz Pentium 4, hyper-threaded |   2.51 |     6.13 | 0.40946 |
+| dual 3.0 GHz Xeon, hyper-threaded |   3.32 |     3.59 | 0.92479 |
+
+I also measured the time taken by "make world" on the third machine,
+and the results confirm that the threaded code interpreter is slower
+than the switch-based one. Here are the timings:
+
+  switch-based : 89.53s user, 12.73s system
+  threaded code: 114.77s user, 13.03 system
+  ratio (sw/th): 0.78
+
+I will gladly provide more information about the various systems used
+for testing if anyone is interested.
+
+The small benchmark program I'm using is available there:
+
+<http://lamp.epfl.ch/~schinz/bignums.ml>
+      
+** Xavier Leroy asked:
+
+> When the ratio given in the last column is greater than 1, then
+> threaded code is faster than the switch-based solution. As you can
+> see, this is only true in my case for non-hyper-threaded
+> architectures.
+
+Which version(s) of gcc do you use for compiling the bytecode
+interpreter?  Is it the same version on all machines?
+
+The reason I'm asking is that some versions of gcc are known to
+generate poor code for threaded interpreters, e.g. gcc 3.2 generates
+inferior code compared to gcc 2.95.  For more info, google for
+"Anton Ertl gcc".
+      
+** Michel Schinz answered:
+
+> Which version(s) of gcc do you use for compiling the bytecode
+> interpreter?  Is it the same version on all machines?
+
+No, unfortunately not. Here are the various versions used (I realise
+this variety is annoying, but I have no control over what software
+runs on these machines):
+
+1.25 GHz PPC G4
+  powerpc-apple-darwin8-gcc-4.0.1 (GCC) 4.0.1
+   (Apple Computer, Inc. build 5247)
+1.70 GHz P4
+  gcc (GCC) 3.2.2 20030222 (Red Hat Linux 3.2.2-5)
+3.0 GHz hyper-threaded P4
+  gcc (GCC) 3.4.4 20050721 (Red Hat 3.4.4-2)
+dual 3.0 GHz hyper-threaded Xeon
+  gcc (GCC) 3.4.4 20050721 (Red Hat 3.4.4-2)
+
+I'm aware of the problem due to gcc's cross-jumping "optimisation"
+(described as you mention by Ertl in [1]). For the record, I tried
+disabling it with -fno-crossjumping, but as Ertl mention, this didn't
+change anything. However, judging by the versions of gcc I'm using,
+cross-jumping should also be performed on the second machine, for
+which threaded code provides a noticable gain...
+
+However, your remark motivated me to measure the performance of a
+single ocamlrun executable running on the various Pentium 4 I have at
+hand, and the results are interesting...
+
+Using the executable produced by gcc 3.2.2, I obtain the following
+timings:
+
+| architecture                      | switch | threaded |   ratio |
+|-----------------------------------+--------+----------+---------|
+| 1.70 GHz Pentium 4                |   6.34 |     4.82 |  1.3154 |
+| 3.0 GHz Pentium 4, hyper-threaded |   2.62 |     3.46 | 0.75723 |
+| dual 3.0 GHz Xeon, hyper-threaded |   3.36 |     2.59 |  1.2973 |
+
+while using the executable produced by gcc 3.4.4, I obtain the
+following timings:
+
+| architecture                      | switch | threaded |   ratio |
+|-----------------------------------+--------+----------+---------|
+| 1.70 GHz Pentium 4                |   6.26 |     6.70 | 0.93433 |
+| 3.0 GHz Pentium 4, hyper-threaded |   2.51 |     6.15 | 0.40813 |
+| dual 3.0 GHz Xeon, hyper-threaded |   3.32 |     3.58 | 0.92737 |
+
+Finally, I noticed that gcc 4.0.0 was also available on the second
+machine, so I gave it a try, and obtained the following timings:
+
+| architecture                      | switch | threaded |   ratio |
+|-----------------------------------+--------+----------+---------|
+| 1.70 GHz Pentium 4                |   7.27 |     6.62 |  1.0982 |
+| 3.0 GHz Pentium 4, hyper-threaded |   2.37 |     4.75 | 0.49895 |
+| dual 3.0 GHz Xeon, hyper-threaded |   3.91 |     3.56 |  1.0983 |
+
+So the threaded code version of the OCaml VM is always slower on the
+hyper-threaded P4, albeit not always by the same amount.
+
+Michel.
+
+[1] <http://www.complang.tuwien.ac.at/forth/threading/>
+      
+** Till Varoquaux then asked and Michel Schinz answered:
+
+> I might just add that hyperthreading is pretty far from a real multiprocessor
+> setup...
+> 
+> It works best when the various threads are using differents units of the cpu,
+> wich is less liable to happen when the threads are unning doing basically the
+> same thing. A friend of mine has been experimenting on Xeons recently whith the
+> exact same code ( i.e.: multithreaded in both cases) he gains 12.5% when using
+> hyperthreading. This might be an extreme example...
+> 
+> However supposing you were in the same case it is very conceivable that the few
+> percent you scrape by  are lost in the machinery required to get multithreading
+> working properly (mutexes etc...). 
+> 
+> Could you try running your multithreaded code on only one of the virtual cpu to
+> see the improvement hyperthreading really brings in?
+
+To clarify things: I'm not talking about a multi-threaded program.
+
+"Threaded code" is a technique which is commonly used to speed up
+dispatching in interpreters. It is relatively well described on the
+following page:
+
+<http://www.complang.tuwien.ac.at/forth/threaded-code.html>
+
+The OCaml VM is written in such a way that it uses that technique if
+possible (basically if it is compiled using a recent gcc, which offers
+the extensions needed to implement threaded code), and falls back to a
+"standard" switch-based dispatching technique otherwise.
+
+My observation is that in some circumstances, threaded code seems to
+slow down the VM instead of speeding it up as it should. (The biggest
+slowdown being observed on a hyper-threaded architecture, but I have
+no idea why).
+      
+** Xavier Leroy said:
+
+> However, your remark motivated me to measure the performance of a
+> single ocamlrun executable running on the various Pentium 4 I have at
+> hand, and the results are interesting...
+
+Random thoughts:
+
+The performance variations between the gcc versions confirm my
+impression that gcc is getting "too clever for its own good" --
+carefully hand-optimized code like the OCaml bytecode interpreter
+is best served by a compiler that compiles code nearly as written.
+(Think gcc 2.95.)
+
+The P4 microarchitecture is known for its weird performance model:
+some code runs very fast, some similar code very slow.
+In my experience, AMD processors as well as the Pentium-M are
+much more consistent performance-wise.
+
+If you really want to understand what's going on, you need a good
+performance analysis tool.  Timing runs will tell you nothing.
+Intel's VTUNE is king of the hill here, but the Windows version is
+costly and I could never install the free Linux version.
+      
+========================================================================
+2) Any roadmap for OCaml compiler?
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/32808/focus=32808>
+------------------------------------------------------------------------
+** Calvin Liu asked and Xavier Leroy answered:
+
+> I briefly went through website <http://caml.inria.fr/> but didn't find the
+> information of the roadmap of OCaml compiler. Is it still a on-going
+> project?
+
+<joke>
+I went through the java.sun.com website and the latest roadmap I could
+find was dated 2003.  Is it still an ongoing project?
+</joke>
+(Apologies, couldn't resist when I saw your e-mail address :)
+
+More seriously: yes, OCaml is actively developed and meticulously
+maintained.  There is one ".0" release with new features approximately
+every year, and bug-fix releases every 3 months or so.  There's also a
+solid user community that contributes quite a lot of OCaml software,
+libraries and tools, see the "Caml Hump" on the Web site.
+
+> If someone still working on it and fixing bugs for it?
+
+Yes, the core Caml development team, approximately 5 persons at INRIA
+and U.Nagoya.  We're all tenured academics, so we have no problems
+with long-term projects.
+
+> What's the plan for it for its future?
+
+First, maintain and evolve it to support the needs of the many serious
+users we have.  The rest depends mostly on the results of our research
+on programming languages, as as usual with research, I won't tell you
+what we're going to find before we've found it.
+      
+========================================================================
+3) OCaml on Sparc
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/32810/focus=32810>
+------------------------------------------------------------------------
+** Xavier Leroy said:
+
+David Mentre wrote:
+> > John Carr wrote:
+> > > The OCaml maintainers do not have a 64 bit SPARC system to test
+> > > on and can not take over my port.
+>
+> I'm quite surprised. INRIA had tons of SPARC systems in the past (this
+> is at least true at INRIA Rennes). Was it impossible for the OCaml team
+> to get some of these systems when they were changed for PCs?
+
+My research group and other groups in the vicinity stopped buying Sun
+workstations circa 1994, as much better alternatives have been
+available since then.  SPARCstations remained popular for a while with
+our network administrators, as small servers, but I don't think I
+could dumpster-dive and get any SPARCstation built in the 21st century.
+
+Besides, resurrecting old hardware is time-consuming and generally
+disappointing.  ("Oh my God, look at the dust cloud it coughed!  Hmmm,
+that runs really slow...  The OS is five major versions behind!  Where
+is my favorite open source software?  Ah, there's no CDROM in this
+beast.  Where did I put my vintage external SCSI 1x CDROM?  (One
+hour later.)  Damn, the internal disk is too small."  etc.)
+
+> Erik de Castro Lopo wrote:
+> > People who own 64 bit SPARC systems and want to see the SPARC
+> > port continued should contact SUN and suggest that SUN supply
+> > a machine for the Ocaml developers.
+
+Good idea.  It would look good in the machine room :)
+      
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

@@ -1,0 +1,419 @@
+<html><head><meta http-equiv="Content-Type" content="text/html" charset=iso-8859-1"><title>Caml Weekly News</title></head><body>
+
+<a href="2003.04.29.html">Previous week</a> &nbsp; <a href="index.html">Up</a> &nbsp; <a href="2003.05.13.html">Next week</a>
+<pre>
+Hello,
+
+Here is the latest Caml Weekly News, week 22 April to 06 May, 2003.
+
+1) <a href="#1">Dynamic HTML: DTD validation with phantom types</a>
+2) <a href="#2">memoization and CPS</a>
+3) <a href="#3">comparison with C performance</a>
+4) <a href="#4">recursive modules</a>
+5) <a href="#5">GCaml</a>
+
+<a name="1"/>======================================================================
+1) Dynamic HTML: DTD validation with phantom types
+----------------------------------------------------------------------
+Thorsten Ohl announced:
+
+The source code and a trivial example are currently the only
+documentation, but some people might find
+
+   <a href="http://theorie.physik.uni-wuerzburg.de/~ohl/xhtml/">http://theorie.physik.uni-wuerzburg.de/~ohl/xhtml/</a>
+
+useful anyway.  In short, it is a translation of most XHTML 1.1
+modules into a set of phantom types that allow the O'Caml typechecker
+to validate dynamically generated HTML pages.
+
+This is nothing spectacular, but might inspire somebody to create
+_really_ cool hacks:
+
+   1) Since I just did a straightforward manual translation of the
+      DTD, an automatic translator is possible.
+
+   2) Camlp4 hacks could be very neat ...
+
+   3) ... perhaps including even a DTD parser!
+
+<a name="2"/>======================================================================
+2) memoization and CPS
+----------------------------------------------------------------------
+Pietro Abate asked and Diego Olivier Fernandez Pons lectured:
+
+&gt; I'm trying to understand and merge these two programming techniques
+&gt; : memoization and CPS [...] are these two styles compatible ? Or the
+&gt; very nature of the CPS make impossible to exploit memoization ?
+
+Memoization and continuation passing style (CPS) are orthogonal but
+the combination of both techniques is not very usual. I only know a
+few examples, I will try to explain them. Some references are given.
+
+1. Memoization
+
+First of all, memoization is not restricted to a linear support
+(array, hashtable, list, ...) or to equality (when you look in your
+table you use an equality test on x to know if (f x)  has already been
+computed or not)
+
+There are roughly 3 parts in an search algorithm :
+- prevision (where not to go because it is useless)
+- heuristic (where to go when you have several choices)
+- propagation (where not to go because you have already been there)
+
+Algorithms can be classified by the amount of prevision/tabulation
+they do :
+
+Pereira and Warren (1983) showed that :
+- topdown parsing (LL (k)) was purely predictive
+- bottom-up parsing (CYK, LR (0)) was purely propagative
+- Early and LR (k) parsers used both techniques
+
+That is why the latter techniques are more powerful
+
+Lang and Villemonte de la Clergerie (1988-1993) showed that :
+- Prolog is purely predictive
+- Datalog is purely propagative
+
+That is why Prolog has looping problems and Datalog does a lot of
+useless work (it takes all the known theorems, tries to prove all it
+can, and then sees if the query belongs to the new set of theorems -
+and this needs a restriction on the clauses to be correctly layered).
+DyALog (and later some other tabulating logical systems like XSB or
+B-prolog) solves (most of) this problems.
+
+This is also true for 'knapsack' algorithms (Martello and Toth)
+- branch and bound algorithms are predictive
+- dynamic programming is propagative
+- mixed algorithms use both techniques
+
+Once more, mixed algorithms are better.
+
+All the tabulation techniques presented use a partial order on
+computations to be done. And since they have at least one of the
+following properties :
+
+ (a) Only undominated computations will be asked for
+ (b) Computing a dominated element from an undominated is easy
+ (c) If an dominated element is asked, a dominated fits better
+
+only the undominated elements in the set of already computed elements
+has to be recorded.
+
+I suppose some examples will be easier to understand
+
+(a) the fibonnaci function
+
+let rec fib = function
+  | 0 -&gt; 0
+  | 1 -&gt; 1
+  | n -&gt; fib (n - 1) + fib (n - 2)
+
+if you consider couples (x, y) with the domination relation -&gt; 'needs
+... to be computed' then you obtain a chain which trivially means that
+you need only to compute the last state (and not the whole array of
+values). This leads directly to
+
+let rec fib = function
+  | 0 -&gt; (0, 1)
+  | k -&gt; let (n, m) = fib (k - 1) in (m, m + n)
+
+0ther example : single source/single target shortest path in a graph
+with only positive costs
+
+You have a result by Dijkstra that says : 'if S is the set of all
+nodes for which the shortest path is already known, there is a node in
+the fronteer of S for which the shortest path can be directly
+computed'. This means that you can free all the nodes in S that do not
+belong to the fronteer of S. It also induces a partial order on the
+boolean algebra of subsets of nodes in the graph.
+
+More over, euclidian cuts (triangular inequality on metric problems)
+and A* algorithm are examples of predition and heuristics for the same
+problem.
+
+(b) When you have a theorem that says 'the sum of the angles of any
+triangle is 180 degrees' you can always use it for a particular
+triangle.
+
+The same is true in Prolog with unifiers and substitutions.
+
+The point is that in the latter case, the number of particular
+theorems is infinite, therefor you cannot record them all (only the
+most general known at the time of the computation, eventually a finite
+number of less general but useful theorems). Partial orders are
+unavoidable when dealing with infinite objects.
+
+(c) Bounds for NP-hard approximation problems like the knapsack
+problem. (section 2.6.1 on dynamic programming algorithms of the
+Martello and Toth book) "The number of states considerated at each
+stage can be considerably reduced by eliminating dominated states,
+that is those states for which there exists a state with ... "
+
+This induces a partial order different from the simple equality of
+usual dynamic programming procedures.
+
+
+Some times having a partial order is not enough, it is the case with
+unification grammar/ attribute grammars.
+
+A unification grammar is a grammar in which terminals and non
+terminals are augmented with some data that has to unify to validate
+the transformation
+
+ P -&gt; N (person) V (person)
+
+which means a proposition (P) can derive a noun (N) and a verb (V) of
+same number (must unify in CLP(X) where X is a classical domain for
+constraing programming e.g. FD, Herbrand, ...)
+
+ex P -&gt; He walks (* correct *)
+   P -&gt; He walk (* incorrect *)
+
+An attribute grammar is roughly the same thing
+
+ E -&gt; E + E  (value = value1 + value2)
+
+The information flow in unification can go both ways in the parse tree
+and can have arbitrary long range dependencies. The work of attribute
+grammar research is to statically analyse this flow and provide
+deterministic procedures with adequate data structures to handle it.
+
+The main problem is that if there is of course a partial order on
+computations to be done, this order depends on the parse tree. The
+usual solution is to restrict the power of the grammar until you get
+a property invariant on parse trees (ex. Strongly non circular
+attribute grammars, la attribute grammars, ...)
+
+In this case, the memoization support may be a tree, a stack, a global
+variable ...
+
+
+2. Examples of memoization and CPS
+
+In 'Memoization of top-down parsing' Mark Johnson, Computational
+Linguistics 21(3): 405-417 (1995)
+
+the author notices that top-down backtracking functional parsers
+(terminals and non terminals are coded by functions) have to major
+problems :
+ - a significant amount of redundant computation is done when
+backtracking
+ - they fail with left-recursive grammars
+
+The first point may be solved by classical memoization but the second
+does not. This is because when you use a rule of the type
+
+  A -&gt; AB | a
+  B -&gt; b
+
+To memoize the f_A function, it must end at least once.
+The idea is to make f_A to work incrementially using CPS.
+
+Mark Johnson's paper is very readable. Examples are given in Scheme
+(with true CPS, not with call-cc)
+
+
+The second example I know is DyALog
+
+The first idea is to extend push-down automata (pda) with unification
+: in an automata you are allowed to take a transition when the
+equallity test succeeds (the label matchs with the current token). In
+lpda you use unification (the label unifies with the current token)
+
+The second idea is that automata can be interpreted in a dynamic
+programming style.
+
+When parsing context-free grammars you often do a 'normal
+transformation' either explicitely putting the grammar in a Greibach
+like normal form (two symbols by rule, with some constraints)
+
+  A -&gt; a
+  B -&gt; AB | b
+
+either implicitely with LR items
+
+  { A -&gt; a . Bb }
+
+That is why all this algorithms achieve at least cubic worst-time
+complexity
+
+You can also do it on the stack of the pda and use memoization
+(ordered with unification), which DyALog does.
+
+Now comes the problem : after having computed a substitution, you have
+to apply it to the whole stack, which violates the principle of an
+algorithm working only on the top of the stack.
+
+The solution is to accumulate the substitutions to be done in a
+function which is chained (composed with others) or applied when
+either a symbol is pushed or popped. This function represents the
+continuation of the computation to be done.
+
+
+3. References
+
+- Parsing
+
+Pereira, F. and Warren D. [1983]: Parsing as Deduction; Proceedings of
+the 21st Annual meeting of the Association for Computational
+Linguistics; Cambridge MA; pp137-144
+
+more up to date papers (available on the web)
+
+Principles and Implementation of Deductive Parsing (1994)  Stuart M.
+Shieber, Yves Schabes, Fernando C.N. Pereira Journal of Logic
+Programming
+
+Also the work of Klaas Sikkel (a book at Springer and a lot of papers)
+
+- Tabulation (memoization) in logical programming
+
+See the pages of the Atoll project at inria
+
+<a href="http://atoll.inria.fr/">http://atoll.inria.fr/</a>
+
+The really best one is the tutorial (in french)
+
+Tabulation et traitement de la langue. ATALA, Cargèse, Corse, France,
+July 1999. Tutoriel présenté à la 6ème conférence annuelle sur le
+Traitement Automatique des Langues Naturelles (TALN'99),
+Éric Villemonte de la Clergerie.
+
+See also XSB
+
+<a href="http://xsb.sourceforge.net/">http://xsb.sourceforge.net/</a>
+
+Some papers by Mark Johnson (available via CiteSeer or Google)
+
+Memoization of Coroutined Constraints (1995)
+
+Memoization of top-down parsing (1995)
+
+Memoization in Constraint Logic Programming (1993)
+
+And a simple but good enough article by a Ms student
+
+Matthew Frank, Efficient Execution of Declarative Programs (Area Exam
+Report), February 9, 2001. (<a href="http://www.cag.lcs.mit.edu/~mfrank/">http://www.cag.lcs.mit.edu/~mfrank/</a>)
+
+- Attribute grammars and links with logical and functional programming
+
+the classical reference
+
+A grammatical view of logic programming (MIT press 1993)
+Pierre Deransart, Jan Maluszynski
+
+See also the work of the Oscar project with FNC-2
+
+<a href="http://www-rocq.inria.fr/oscar/www/fnc2/fnc2-eng.htm">http://www-rocq.inria.fr/oscar/www/fnc2/fnc2-eng.htm</a>
+
+and the Utrecht software technology group
+
+<a href="http://www.cs.uu.nl/groups/ST/Software/index.html">http://www.cs.uu.nl/groups/ST/Software/index.html</a>
+
+- Knapsack problem
+
+S. Martello and P. Toth, Knapsack problems, Wiley, 1990.
+
+<a name="3"/>======================================================================
+3) comparison with C performance
+----------------------------------------------------------------------
+Gregory Morrisett answered some comments about performance:
+
+&gt;Mark Hayden basically proved that if you properly manage 
+&gt;memory and a few other things, well, you can be faster than C, 
+&gt;unless the C program is (ahem) trivial.
+
+Erm, no.  The protocol optimizations used in Ensemble were
+never translated back into C.  He compared against an older
+version (Horus) which used different algorithms and
+acknowledged that if you translated the ideas from Ensemble
+back into C, you'd probably get a performance win.  They
+never bothered to do this because the Caml code had
+acceptable performance.
+
+The key thing is that it was too hard to do the restructuring
+needed to experiment with new approaches to the group
+communications protocol in C.  By coding in Caml, he
+was able to make massive rearrangements until he got
+the right algorithm.
+
+So, the point is that (a) algorithms matter a lot more
+than the delta between Caml vs. C, (b) it's easier to
+experiment with better algorithms in a higher-level language.
+
+<a name="4"/>======================================================================
+4) recursive modules
+----------------------------------------------------------------------
+Xavier Leroy proposed:
+
+Since the issue of recursive modules has (again) popped up on this
+list, it seems that now is a good time to announce an experimental
+design and implementation for recursive modules in OCaml that I've
+been working on lately.  A note describing the design is at
+
+     <a href="http://cristal.inria.fr/~xleroy/publi/recursive-modules-note.pdf">http://cristal.inria.fr/~xleroy/publi/recursive-modules-note.pdf</a>
+
+and the implementation can be downloaded from the CVS repository
+on camlcvs.inria.fr, tag "recursive_modules".
+
+What this extension provides is a "module rec ... and ..." binding
+that allows the definition of mutually-recursive modules within the
+same compilation units.  Recursion between compilation units is a
+different problem that is not adressed yet.  To give a flavor of the
+extension, one can write for instance
+
+    module A : sig
+                 type t = Leaf of string | Node of ASet.t
+                 val compare: t -&gt; t -&gt; int
+               end
+             = struct
+                 type t = Leaf of string | Node of ASet.t
+                 let compare t1 t2 =
+                   match (t1, t2) with
+                     (Leaf s1, Leaf s2) -&gt; Pervasives.compare s1 s2
+                   | (Leaf _, Node _) -&gt; 1
+                   | (Node _, Leaf _) -&gt; -1
+                   | (Node n1, Node n2) -&gt; ASet.compare n1 n2
+               end
+    and ASet : Set.S with type elt = A.t
+             = Set.Make(A)
+
+The other point worth mentioning is that the detection of ill-founded
+recursive definitions (definitions that have no fixpoint in a
+call-by-value evaluation regime) is not completely static and may
+cause an "Undefined" exception to be thrown at program initialization
+time.  Fully static prevention of ill-founded recursion would, in the
+current state of our knowledge, either rule out too many valuable
+uses, or require major complications in the type system.  The proposed
+approach is a pragmatic compromise rather than a 100% intellectually
+satisfying solution.
+
+No decision has been taken yet concerning the possible integration of
+this extension in a future release of OCaml.
+
+Comments and feedback are most welcome, as long as they are of the
+constructive kind.
+
+<a name="5"/>======================================================================
+5) GCaml
+----------------------------------------------------------------------
+Jun Furuse clarified:
+
+G'Caml is not dead. I am prepared to restart the project just after
+3.07 will be released.
+
+======================================================================
+Old cwn
+----------------------------------------------------------------------
+
+If you happen to miss a cwn, you can send me a message
+(alan.schmitt@inria.fr) and I'll mail it to you, or go take a look at
+the archive (<a href="http://pauillac.inria.fr/~aschmitt/cwn/">http://pauillac.inria.fr/~aschmitt/cwn/</a>). If you also wish
+to receive it every week by mail, just tell me so.
+
+======================================================================
+
+Alan Schmitt
+</pre></body></html>

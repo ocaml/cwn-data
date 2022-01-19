@@ -1,0 +1,337 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2010.10.12</cwn_date>
+    <cwn_prev>2010.10.05</cwn_prev>
+    <cwn_next>2010.10.19</cwn_next>
+    <cwn_date_text>October 05 to 12, 2010</cwn_date_text>
+  </cwn_head>
+	<cwn_body>
+	      <cwn_entry>
+      <cwn_title>ounit v1.1.0: Unit testing framework</cwn_title>
+      <cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/61ae2d18530bb5f5#</cwn_url>
+      <cwn_who>Sylvain Le Gall announced</cwn_who>
+      <cwn_what>
+OUnit is a unit testing framework for OCaml, inspired by the JUnit tool for
+Java, and the HUnit tool for Haskell.
+
+More information on [HUnit](&lt;http://hunit.sourceforge.net&gt;)
+
+Changes:
+- Add a ~pp_diff parameter to assert_equal and some classic diff operations
+ (Closes: #635, #642)
+- Add an assert_command function (Closes: #641)
+- Add a bracket_tmpfile to ease temporary file use
+- Enhance documentation, translate the docbook manual into ocamldoc and
+ add content
+- Allow to add extra command line arguments to run_test_tt_main 
+ (Closes: #640)
+- Add a -list-test options to run_test_tt_main, to list available tests
+- Skip tests when using "-only-test", rather than removing it. This way 
+ the path is the same even if some tests don't pass (Closes: #637)
+- Add backtrace support (Closes: #639), thanks to Michael Ekstrand
+- Use OASIS 
+- Move to OCaml Forge: http://ounit.forge.ocamlcore.org
+- Maintainance is now done by Sylvain Le Gall (OCamlCore SARL), thanks to
+ Maas-Maarten Zeeman for all his work
+
+
+__As you see there are a lot of changes. OUnit is evolving, feel free to
+submit bug reports or contribute your own OUnit snippet if it can be included
+in the library.__
+
+Homepage:
+http://ounit.forge.ocamlcore.org
+
+Get source code:
+$ darcs get http://darcs.ocamlcore.org/repos/ounit
+
+Browse source code:
+http://darcs.ocamlcore.org/cgi-bin/darcsweb.cgi?r=ounit;a=summary
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Type constraint to explain that a polymorphic variants is included into another</cwn_title>
+      <cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/bc484a4cb00f4b77#</cwn_url>
+      <cwn_who>Sylvain Le Gall asked</cwn_who>
+      <cwn_what>
+I would like to build an interface for plugins that allow to extract at the
+same time a very specific data for a plugin family and to extract
+general help for plugins.
+
+Here is an example:
+
+(** All the plugins I want to manage *)
+type plugin_kind = [`Build | `Install]
+
+(** Generic plugin *)
+type 'a plugin = 'a * string
+
+(** Help data for all plugin *)
+module MapPlugin = 
+ Map.Make
+   (struct
+      type t = plugin_kind plugin
+      let compare = compare
+    end)
+
+let all_help: string MapPlugin.t ref = 
+ ref MapPlugin.empty
+
+let help plg = 
+ MapPlugin.find plg !all_help
+
+(** Functor to build function related to one type of plugin *)
+module type PLUGIN_FAMILY = 
+sig
+ type act
+ type kind
+ val kind_default: kind
+end
+
+
+module Make (F: PLUGIN_FAMILY) = 
+struct
+
+ module MapPluginSelf = 
+   Map.Make
+     (struct 
+        type t = F.kind plugin
+        let compare = compare
+      end)
+
+ let all_act: F.act MapPluginSelf.t ref = 
+   ref MapPluginSelf.empty
+
+ let act (plg : F.kind plugin) =
+   MapPluginSelf.find plg !all_act
+
+ let create name help act = 
+   let id = 
+     F.kind_default, name
+   in
+     all_help := MapPlugin.add id help !all_help;
+     all_act  := MapPlugin.add id act !all_act;
+     id
+end
+
+(** Functions for build plugins *)
+module Build =
+ Make
+   (struct 
+      type act = unit -&gt; unit 
+      type kind = [`Build]
+      let default = `Build
+    end)
+
+(** Functions for install plugins *)
+module Install = 
+ Make
+   (struct 
+      type act = string list -&gt; unit
+      type kind = [`Install]
+      let default = `Install
+    end)
+
+type package = 
+   {
+     name: string;
+     plugin_build: [`Build] plugin;
+     plugin_install: [`Install] plugin;
+   }
+
+let run pkg = 
+ prerr_endline (help pkg.plugin_build);
+ prerr_endline (help pkg.plugin_install);
+ (Build.act pkg.plugin_build) ();
+ (Install.act pkg.plugin_install) ()
+
+
+This code doesn't compile because I see no way to explain that F.kind is
+included into plugin_kind. 
+
+Here is the precise error:
+camlc -o test test.ml
+File "test.ml", line 51, characters 32-34:
+Error: This expression has type F.kind * 'a
+      but an expression was expected of type
+        MapPlugin.key = plugin_kind * string
+      Type F.kind is not compatible with type
+        plugin_kind = [ `Build | `Install ] 
+make: *** [all] Erreur 2
+
+Does anyone know a good solution to this problem? Does anyone have a
+better solution to this problem? (different design?)
+      </cwn_what>
+      <cwn_who>Jacques Garrigue replied</cwn_who>
+      <cwn_what>
+&gt; This code doesn't compile because I see no way to explain that F.kind is
+&gt; included into plugin_kind. 
+
+I'm not sure of what you are trying to do, but private rows where introduced
+with this goal in mind.
+
+The idea is to change the abstract definition of kind in PLUGIN_FAMILY to
+
+  type kind = private [&lt; plugin_kind]
+
+meaning that kind can be instantiated to any subset of plugin_kind.
+You can then use subtyping to convert from kind to plugin_kind.
+
+Here is a typable version of your code.
+Note that I had to do a few other changes to make the types match.
+
+Jacques
+
+(** All the plugins I want to manage *)
+type plugin_kind = [`Build | `Install]
+
+(** Generic plugin *)
+type 'a plugin = 'a * string
+
+(** Help data for all plugin *)
+module MapPlugin = 
+ Map.Make
+   (struct
+      type t = plugin_kind plugin
+      let compare = compare
+    end)
+
+let all_help: string MapPlugin.t ref = 
+ ref MapPlugin.empty
+
+let help plg = 
+ MapPlugin.find plg !all_help
+
+(** Functor to build function related to one type of plugin *)
+module type PLUGIN_FAMILY = 
+sig
+ type act
+ type kind = private [&lt; plugin_kind]
+ val kind_default: kind
+end
+
+
+module Make (F: PLUGIN_FAMILY) = 
+struct
+
+ module MapPluginSelf = 
+   Map.Make
+     (struct 
+        type t = F.kind plugin
+        let compare = compare
+      end)
+
+ let all_act: F.act MapPluginSelf.t ref = 
+   ref MapPluginSelf.empty
+
+ let act (plg : F.kind plugin) =
+   MapPluginSelf.find plg !all_act
+
+ let create name help act = 
+   let id = 
+     F.kind_default, name
+   in
+     all_help := MapPlugin.add (id :&gt; plugin_kind * _) help !all_help;
+     all_act  := MapPluginSelf.add id act !all_act;
+     id
+end
+
+(** Functions for build plugins *)
+module Build =
+ Make
+   (struct 
+      type act = unit -&gt; unit 
+      type kind = [`Build]
+      let kind_default = `Build
+    end)
+
+(** Functions for install plugins *)
+module Install = 
+ Make
+   (struct 
+      type act = string list -&gt; unit
+      type kind = [`Install]
+      let kind_default = `Install
+    end)
+
+type package = 
+   {
+     name: string;
+     plugin_build: [`Build] plugin;
+     plugin_install: [`Install] plugin;
+   }
+
+let run pkg = 
+ prerr_endline (help (pkg.plugin_build :&gt; MapPlugin.key));
+ prerr_endline (help (pkg.plugin_install :&gt; MapPlugin.key));
+ (Build.act pkg.plugin_build) ();
+ Install.act pkg.plugin_install []
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OPLP: Ocaml APache Log Parser</cwn_title>
+      <cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/89d4dffd2307ed01#</cwn_url>
+      <cwn_who>Chris Yocum announced</cwn_who>
+      <cwn_what>
+I just wanted to let Ocaml'ers know that I am currently working on an 
+apache combined log parser.  It is still in very early stages of 
+development but patches/comments/feature requests/bug reports are very 
+welcome.  The code lives on github (&lt;http://github.com/cyocum/OPLP&gt;). 
+      </cwn_what>
+      <cwn_who>Oliver asked and Chris Yocum replied</cwn_who>
+      <cwn_what>
+&gt; Aha... long ago I had done something similar, and it had an sql-like
+&gt; language for using it.
+&gt; 
+&gt; The annoyance (and advantage ;)) with the apache logfiles is, that there
+&gt; are many "standard" formats, and you also can design your own output format.
+&gt; 
+&gt; So it would make sense (I didn't do that) to parse the apache config files,
+&gt; and create a logparser from that information...
+&gt; 
+&gt; Do you have planned to do this, or do you want to stick with some of the
+&gt; most used formats?
+
+For now, I was just concentrating on the "combined" format that is used
+as an example on the apache site.  I will probably branch out into
+parsing the log format itself later once I get more experience with it.
+
+Also, does anyone have a smallish block of apache log files (&lt;30k) that
+I can use for testing?
+      </cwn_what>
+    </cwn_entry>
+	  <cwn_entry>
+      <cwn_title>Other Caml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocamlcore.org/&gt;.
+
+Ocsigen project now member of the IRILL:
+  &lt;http://ocsigen.org/&gt;
+
+LDAP (3):
+  &lt;http://gaiustech.wordpress.com/2010/10/08/ldap-3/&gt;
+
+my ocsigen project template:
+  &lt;http://www.rktmb.org/post/2010/10/08/my-ocsigen-project-template&gt;
+
+OUnit 1.1.0:
+  &lt;http://caml.inria.fr/cgi-bin/hump.cgi?contrib=293&gt;
+
+Komodo 6:
+  &lt;http://gaiustech.wordpress.com/2010/10/07/komodo-6/&gt;
+
+LablGTK2 2.14.2:
+  &lt;http://caml.inria.fr/cgi-bin/hump.cgi?contrib=304&gt;
+
+ocaml get the standard output of command:
+  &lt;http://www.rktmb.org/post/2010/10/06/ocaml-get-the-standard-output-of-command&gt;
+
+ounit 1.1.0:
+  &lt;http://forge.ocamlcore.org/forum/forum.php?forum_id=699&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

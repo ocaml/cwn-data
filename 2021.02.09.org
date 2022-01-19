@@ -1,0 +1,883 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[https://alan.petitepomme.net/cwn/2021.02.02.html][Previous Week]] [[https://alan.petitepomme.net/cwn/index.html][Up]] [[https://alan.petitepomme.net/cwn/2021.02.16.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of February 02 to 09, 2021.
+
+#+TOC: headlines 1
+
+
+* data-encoding.0.3: performances and streaming
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/ann-data-encoding-0-3-performances-and-streaming/7205/1
+
+** Raphaël Proust announced
+
+
+Guess what?! Version 0.3 of data-encoding is now available!
+
+Data-encoding is a library for defining encodings, which can then be used to
+serialise and deserialise values to-and-from a binary or JSON representation.
+
+#+begin_src ocaml
+let e : (string * int list) t =
+  obj2 (req "name" string) (list uint8)
+let v : (string * int list) =
+  ("low", [0;1;2;3;4])
+let s : string = Binary.to_string_exn e v
+let j : Ezjson.t = Json.construct e v
+#+end_src
+
+Version 0.3 of the library is now available on opam.
+The code is distributed under MIT license and hosted on Gitlab: https://gitlab.com/nomadic-labs/data-encoding/.
+The documentation is available online:
+https://nomadic-labs.gitlab.io/data-encoding/data-encoding/Data_encoding/index.html
+
+In addition to numerous miscellaneous improvements, this version brings two
+major changes.
+
+1. Support for streamed JSON serialisation.
+
+   JSON serialisation for large values can be expensive. And in some context,
+   prohibitively so. One such context is cooperative concurrency where
+   serialising very large JSON values can block other on-going tasks.
+
+   Data-encoding provides the necessary functions to serialise values as
+   sequences of strings which can be consumed with appropriate yielding.
+
+  #+begin_src ocaml
+    let rec write seq = match seq () with
+      | Seq.Nil ->
+          Lwt.return_unit
+      | Seq.Cons (chunk, seq) ->
+          Lwt_io.write oc chunk >>= fun () ->
+          Lwt.pause () >>= fun () ->
+          write seq
+    in
+    let j = Json.construct_seq e v in
+    let s = Json.string_seq_of_jsonm_lexeme_seq ~chunk_size_hint:512 j in
+    write s
+  #+end_src
+
+2. Performance improvements.
+
+   The serialisation and deserialisation of some encodings has been optimised a
+   lot. On some encodings the performances have gotten competitive with Marshal.
+
+   More details below.
+
+According to the micro-benchmark below data-encoding.0.3 gets close to ~Marshal~ performances on the serialising and
+deserialising of Micheline values (S-EXP-like values used to represent smart-contracts on the Tezos blockchain).
+
+https://gitlab.com/nomadic-labs/data-encoding/-/snippets/2060331
+
+The results are printed below. Notice the speed up:
+- for serialising it progressed from a 13.40× slow-down over Marshal to a 1.01× slow-down,
+- for deserialising it progressed from a 18.72× slow-down over Marshal to a 1.02× slow-down.
+
+*** data-encoding 0.2
+Estimated testing time 20s (2 benchmarks x 10s). Change using '-quota'.
+|----------------+----------+------------+-----------------+----------+-----------+-----------+------------+---------|
+| Name           | Time R^2 | Time/Run   | 95ci            | mWd/Run  | mjWd/Run  | Prom/Run  | Percentage | Speedup |
+|----------------+----------+------------+-----------------+----------+-----------+-----------+------------+---------|
+| marshal_encode |     1.00 | 102.89us   | -0.05us +0.06us | 5.74kw   | 0.11w     | 0.11w     |      7.46% |    1.00 |
+| binary_encode  |     1.00 | 1_378.70us | -7.47us +8.73us | 953.58kw | 1_489.94w | 1_489.94w |    100.00% |   13.40 |
+|----------------+----------+------------+-----------------+----------+-----------+-----------+------------+---------|
+
+Estimated testing time 20s (2 benchmarks x 10s). Change using '-quota'.
+|----------------+----------+------------+-----------------+----------+-----------+-----------+------------+---------|
+| Name           | Time R^2 | Time/Run   | 95ci            | mWd/Run  | mjWd/Run  | Prom/Run  | Percentage | Speedup |
+|----------------+----------+------------+-----------------+----------+-----------+-----------+------------+---------|
+| marshal_decode |     1.00 | 73.58us    | -0.62us +0.59us | 7.59kw   | 0.16w     | 0.16w     |      5.34% |    1.00 |
+| binary_decode  |     1.00 | 1_377.68us | -4.26us +4.35us | 951.99kw | 1_464.25w | 1_464.25w |    100.00% |   18.72 |
+|----------------+----------+------------+-----------------+----------+-----------+-----------+------------+---------|
+
+*** data-encoding 0.3
+|----------------+----------+----------+-----------------+---------+----------+----------+------------+---------|
+| Name           | Time R^2 | Time/Run | 95ci            | mWd/Run | mjWd/Run | Prom/Run | Percentage | Speedup |
+|----------------+----------+----------+-----------------+---------+----------+----------+------------+---------|
+| marshal_encode |     1.00 | 102.05us | -0.15us +0.18us | 5.74kw  | 0.11w    | 0.11w    |     99.40% |    1.00 |
+| binary_encode  |     1.00 | 102.67us | -0.39us +0.44us | 37.55kw | 2.55w    | 2.55w    |    100.00% |    1.01 |
+|----------------+----------+----------+-----------------+---------+----------+----------+------------+---------|
+
+Estimated testing time 20s (2 benchmarks x 10s). Change using '-quota'.
+|----------------+----------+----------+-----------------+---------+----------+----------+------------+---------|
+| Name           | Time R^2 | Time/Run | 95ci            | mWd/Run | mjWd/Run | Prom/Run | Percentage | Speedup |
+|----------------+----------+----------+-----------------+---------+----------+----------+------------+---------|
+| marshal_decode |     1.00 | 72.21us  | -0.29us +0.33us | 7.59kw  | 0.16w    | 0.16w    |     97.57% |    1.00 |
+| binary_decode  |     1.00 | 74.00us  | -0.29us +0.31us | 36.48kw | 2.89w    | 2.89w    |    100.00% |    1.02 |
+|----------------+----------+----------+-----------------+---------+----------+----------+------------+---------|
+
+Do not hesitate to open an issue on [[https://gitlab.com/nomadic-labs/data-encoding/-/issues][the project's issue
+tracker]] to let us know about encodings that are still too
+slow.
+      
+
+
+
+* 2020 at OCamlPro
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/2020-at-ocamlpro/7207/1
+
+** OCamlPro announced
+
+
+We've published a short review of our 2020 activities. It's available on our
+[[https://www.ocamlpro.com/2021/02/02/2020-at-ocamlpro/][blog]]!
+      
+
+
+
+* A short history of ReScript (BuckleScript)
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/a-short-history-of-rescript-bucklescript/7222/1
+
+** Hongbo Zhang told
+
+
+It takes time to write such a post for a non-native speaker like me, but I appreciate what the OCaml gives me and
+believe I am *doing good* for the community, so I decide to write a short history of ReScript and explain the
+motivations behind this project.
+
+I like OCaml, that’s why I decided to go to PlClub@UPenn for further study after undergraduate (2011). I wrote lots
+of tutorials around [[https://github.com/bobzhang/ocaml-book][OCaml]] and used to be one of the maintainers of camlp4,
+I was even honored to be listed as core maintaines of OCaml once.
+
+However, the reality is brutal that it’s very difficult to find a decent job using OCaml if you are not interested in
+Finance or get unlucky with a Jane Street interview. Here a decent job, I mean you get paid as good as those Silicon
+Valley companies while using your favorite programming language.
+
+JSOO started growing mature back in 2013, it is the first compiler which gets bootstrapped in the browser, truly
+impressive. However, even for OCaml experts like me, it is really hard to get started with JSOO. It is a black box to
+me that I can not read the generated JS code under the hood. If your code works under the bytecode but stops working
+in the browser. You have to do a random guess to do the debugging. These are the impressions I have back then.
+
+Another story happened on my side is that I started to have lots of experience in JavaScript in daily jobs and love
+it. It’s the most beautiful dynamic language I have used -- you have a decent IDE everywhere as long as it ships a
+browser. So the idea comes to my mind that why not make a compiler which compiles OCaml to idiomatic JS for the
+convenience of JS users?
+
+The beauty of this idea is that OCaml will share the same runtime as JS so that interop is really easy and you can
+use your favorite language in your daily jobs. I also shared my ideas with JSOO devs: [[https://github.com/ocsigen/js_of_ocaml/issues/338][discuss: compiling rawlambda output to javascript · Issue #338 · ocsigen/js_of_ocaml (github.com)]]
+
+The project was originally named OCamlScript but it has a name conflict with an existing package so that it is
+renamed into BuckleScript.
+
+At a similar time, ReasonML syntax was released, it is a JS friendly syntax for people to take advantage of OCaml.
+The combination of ReasonML and BuckleScript is very natural. To avoid confusion to users, we call it ReasonML or
+projects under the ReasonML umbrella -- but the heavy lifting is mostly done by BuckleScript.
+
+The development of ReasonML syntax has slowed down since 2018. What worries me is that the remaining commits keep
+adding stuff that we don’t want. To maintain the compatibility with OCaml for each release, the ReasonML syntax keeps
+a snapshot for all versions of OCaml AST, the code gets bloated quickly that the parser is even larger than the
+compiler itself -- this is hard to believe, it means that all my hard work to squeeze the performance will be wasted
+in the parser.
+
+I wish the very few resources could be put into bug fixes instead. We communicated and realized that the top priority
+for ReasonML syntax is the compatibility for OCaml ecosystem while our top priority is providing the best dev
+experience for JS users.
+
+It is open source projects and people can have different visions so that we decide a peaceful separation.
+
+At a similar time, Iwan -- one of the major contributors of ReasonML syntax, shows us a POC of a handwritten parser
+which supports the whole language. This is something I want but do not have time to do -- a hand written parser for
+the best error message and better dev experience.
+
+The original goal is to have the hand written parser 100% compatible with ReasonML syntax so that we can finish the
+transition, but it ends up being slightly different.
+
+*** The current status of ReScript
+
+Despite the changes of the syntax, the core gets improved day by day. It has over 11,000 commits in the last few
+years.
+
+We are going to make a release of version 9, we believe it is currently the fastest compiler on the JS market which
+generates the most readable JS code and yields the smallest JS output size.
+
+I do wish it could be a useful language for people who like OCaml but can use it in their daily JS work. It is a
+fierce competition in such a market. We have to compete with languages of huge successes: TypeScript. That’s why
+given a small team with very few resources, we are very focused and don't want to get distracted by anything else.
+      
+
+
+
+* Multicore OCaml: Dec 2020 / Jan 2021
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/multicore-ocaml-dec-2020-jan-2021/7225/1
+
+** Anil Madhavapeddy announced
+
+
+Welcome to a double helping of the multicore monthlies, with December 2020 and January 2021 bundled together (the
+team collectively collapsed into the end of year break for a well deserved rest). We encourage you to review all the
+[[https://discuss.ocaml.org/tag/multicore-monthly][previous monthly ]] updates for 2020 which have been compiled by
+@shakthimaan, @kayceesrk, and me.
+
+Looking back over 2020, we achieved a number of major milestones towards upstreaming multicore OCaml. The major
+highlights include the implementation of the eventlog tracing system to make debugging complex parallelism practical,
+the enormous rebasing of from OCaml 4.06 to 4.11, a chapter on parallel programming, the publication of "Retrofitting
+Parallelism onto OCaml" at ICFP 2020, the production use of the Sandmark benchmark, and the implementation of system
+threading integration.  While all this was happening in the multicore code trees, the upstreaming efforts into
+mainline OCaml also went into full gear, with @xavierleroy leading the efforts from the core team to ensure that the
+right pieces went into various releases of OCaml with the same extensive code review as any other features get.
+
+The end of 2020 saw  enhancements and updates to the ecosystem libraries, with more tooling becoming available. In
+particular, we would like to thank:
+
++ @mattpallissard for getting ~merlin~ and ~dot-merlin-reader~ working with Multicore OCaml 4.10.  This makes programming using OCaml Platform tools like the VSCode plugin much more pleasant.
++ @eduardorfs for testing the ~no-effect-syntax~ Multicore OCaml branch with a ReasonML project.
+
+@kayceesrk also gave a couple of public talks online:
+
++ [[https://www.youtube.com/watch?v=mel76DFerL0][Multicore OCaml - What's coming in 2021]], hosted by Nomadic Labs.
++ [[https://kcsrk.info/slides/nus_effects.pdf][Effect handlers in Multicore OCaml]]. NUS PLV Research Seminar.
+
+We're really grateful to the OCaml core developers for giving this effort so much of their time and focus in 2020!
+We're working on a broader plan for 2021's exciting multicore roadmap which will be included in the next monthly
+after a core OCaml developer's meeting ratifies it soon.  The broad strategy remains consistent: putting pieces of
+functionality steadily into each upcoming OCaml release so that each can be reviewed and tested in isolation, ahead
+of the OCaml 5.0 release which will include domains parallelism.
+
+With [[https://discuss.ocaml.org/t/ocaml-4-12-0-second-beta-release/7171][OCaml 4.12 out in beta]], our January has
+mainly been spent tackling some of the big pieces needed for OCaml 4.13.  In particular, the [[https://github.com/ocaml/ocaml/pull/10039][safe points
+PR]] has seen a big update (and corresponding performance improvements),
+and we have been working on the design and implementation of Domain-Local Allocation Buffers (DLAB).  We've also
+started the process of figuring out how to merge the awesome sequential best-fit allocator with our multicore major
+GC, to get the best of both worlds in OCaml 5.0.  The multicore IO stack has also restarted development, with focus
+on Linux's new ~io_uring~ kernel interface before retrofitting the old stalwart ~epoll~ and ~kqueue~ interfaces.
+
+Tooling-wise, the multicore Merlin support began in December is now merged, thanks to @mattpallissard and
+@eduardorfs. We continue to work on the enhancements for Sandmark 2.0 benchmarking suite for an upcoming alpha
+release -- @shakthimaan gave an online seminar about these improvements to the multicore team which has been recorded
+and will be available in the next monthly for anyone interested in contributing to our benchmarking efforts.
+
+As with previous reports, the Multicore OCaml updates are listed first for the month of December 2020 and then
+January 2021. The upstream OCaml ongoing work is finally mentioned for your reference after the multicore-tree
+specific pieces..
+
+*** December 2020
+
+**** Multicore OCaml
+
+***** Ongoing
+
+****** Ecosystem
+
+- [[https://github.com/ocaml-multicore/lockfree/issues/6][ocaml-multicore/lockfree#6]]
+  Current status and potential improvements
+
+  An RFC that lists the current status of the ~lockfree~ library, and
+  possible performance improvements for the Kcas dependency, test
+  suite and benchmarks.
+
+- [[https://github.com/ocaml-multicore/lockfree/issues/7][ocaml-multicore/lockfree#7]]
+  Setup travis CI build
+
+  A .travis.yml file, similar to the one in
+  https://github.com/ocaml-multicore/domainslib/ needs to be created
+  for the CI build system.
+
+- [[https://github.com/ocaml-multicore/effects-examples/issues/20][ocaml-multicore/effects-examples#20]]
+  Add WebServer example
+
+  An open task to add the ~httpaf~ based webserver implementation to
+  the effects-examples repository.
+
+- [[https://github.com/ocaml-multicore/effects-examples/issues/21][ocaml-multicore/effects-examples#21]]
+  Investigate CI failure
+
+  The CI build fails on MacOS with a time out, but, it runs fine on
+  Linux. An on-going investigation is pending.
+
+- [[https://github.com/ocaml-multicore/multicore-opam/issues/39][ocaml-multicore/multicore-opam#39]]
+  Multicore Merlin
+
+  Thanks to @mattpallissard (Matt Pallissard) and @eduardorfs
+  (Eduardo Rafael) for testing ~merlin~ and ~dot-merlin-reader~, and
+  to get it working with Multicore OCaml 4.10! The same has been
+  tested with VSCode and Atom, and a screenshot of the UI is shown
+  below.
+
+  https://aws1.discourse-cdn.com/standard11/uploads/ocaml/original/2X/7/7b9008f6fbef3e148350fade05b8b6c73377e713.png
+
+****** API
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/issues/448][ocaml-multicore/ocaml-multicore#448]]
+  Reintroduce caml_stat_accessors in the C API
+
+  The ~caml_stat_minor_words~, ~caml_stat_promoted_words~,
+  ~caml_allocated_words~ ~caml_stat_minor_collections~ fields are not
+  exposed in Multicore OCaml. This is a discussion to address possible
+  solutions for the same.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/459][ocaml-multicore/ocaml-multicore#459]]
+  Replace caml_root API with global roots
+
+  A work-in-progress to convert variables of type ~caml_root~ to
+  ~value~, and to register them as global root or generational global
+  root, in order to remove the caml_root API entirely.
+
+****** Sundries
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/issues/450][ocaml-multicore/ocaml-multicore#450]]
+  "rogue" systhreads and domain termination
+
+  An RFC to discuss on the semantics of domain termination for
+  non-empty thread chaining. In Multicore OCaml, a domain termination
+  does not mean the end of a program, and slot reuse adds complexity
+  to the implementation.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/issues/451][ocaml-multicore/ocaml-multicore#451]]
+  Note for OCaml 5.0: Get rid of compatibility.h
+
+  OCaml Multicore removed ~modify~ and ~initialize~ from
+  ~compatibility.h~, and this is a tracking issue to remove
+  compatibility.h for OCaml 5.0.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/458][ocaml-multicore/ocaml-multicore#458]]
+  no-effect-syntax: Remove effects from typedtree
+
+  The PR removes the the effect syntax use from ~typedtree.ml~, and
+  enables external applications that use the AST to work with
+  domains-only Multicore OCaml.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/461][ocaml-multicore/ocaml-multicore#461]]
+  Remove stw/leader_collision events from eventlog
+
+  A patch to make viewing and analyzing the logs better by removing
+  the ~stw/leader_collision~ log messages.
+
+***** Completed
+
+- [[https://github.com/ocaml-multicore/effects-examples/pull/23][ocaml-multicore/effects-examples#23]]
+  Migrate to dune
+
+  The build scripts were using OCamlbuild, and they have been ported
+  to now use dune.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/402][ocaml-multicore/ocaml-multicore#402]]
+  Split handle_gc_interrupt into handling remote and polling sections
+
+  The PR includes the addition of ~caml_poll_gc_work~ that contains
+  the polling of GC work done in ~caml_handle_gc_interrupt~. This
+  facilitates handling of interrupts recursively without introducing
+  new state.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/439][ocaml-multicore/ocaml-multicore#439]]
+  Systhread lifecycle work
+
+  The improvement fixes a race condition in ~caml_thread_scan_roots~
+  when two domains are initializing, and rework has been done for
+  improving general resource handling and freeing of descriptors and
+  stacks.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/446][ocaml-multicore/ocaml-multicore#446]]
+  Collect GC stats at the end of minor collection
+
+  The GC statistics is collected at the end of a minor collection, and
+  the double buffering of GC sampled statistics has been removed. The
+  change does not have an impact on the existing benchmark runs as
+  observed against stock OCaml from the following illustration:
+
+  https://aws1.discourse-cdn.com/standard11/uploads/ocaml/optimized/2X/7/7ea3f6d4aed319353e711ad8d75acb5093a087ad_2_1380x634.png
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/454][ocaml-multicore/ocaml-multicore#454]]
+  Respect ASM_CFI_SUPPORTED flag in amd64
+
+  The CFI directives in ~amd64.S~ are now guarded by
+  ~ASM_CFI_SUPPORTED~, and thus compilation with ~--disable-cfi~ will
+  now provide a clean build.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/455][ocaml-multicore/ocaml-multicore#455]]
+  No blocking section on fork
+
+  A patch to handle the case when a rogue thread attempts to take over
+  the thread ~masterlock~ and to prevent a child thread from moving to
+  an invalid state. Dune can now be used safely with Multicore OCaml.
+
+**** Benchmarking
+
+***** Ongoing
+
+- [[https://github.com/ocaml-bench/rungen/pull/1][ocaml-bench/rungen#1]]
+  Fix compiler warnings and errors for clean build
+
+  The patch provides minor fixes for a clean build of ~rungen~ with dune
+  to be used with Sandmark 2.0.
+
+- [[https://github.com/ocaml-bench/orun/pull/2][ocaml-bench/orun#2]]
+  Fix compiler warnings and errors for clean build
+
+  The unused variables and functions have been removed to remove all
+  the warnings and errors produced when building ~orun~ with dune.
+
+- [[https://github.com/ocaml-bench/sandmark/issues/198][ocaml-bench/sandmark#198]]
+  Noise in Sandmark
+
+  An RFC to measure the noise between multiple execution runs of the
+  benchmarks to better understand the performance with various
+  hardware configuration settings, and with ASLR turned on and off.
+
+- [[https://github.com/ocaml-bench/sandmark/pull/200][ocaml-bench/sandmark#200]]
+  Global roots microbenchmark
+
+  The patch includes ~globroots_seq.ml~, ~globroots_sp.ml~, and
+  ~globroots_mp.ml~ that adds microbenchmarks to measure the
+  efficiency of global root scanning.
+
+- We are continuing to integrate the existing Sandmark benchmark test
+  suite with a Sandmark 2.0 native dune build environment for use with
+  opam compiler switch environment. The existing benchmarks have been
+  ported to the same to use their respective dune files. The ~orun~
+  and ~rungen~ packages now live in separate GitHub repositories.
+
+***** Completed
+
+- [[https://github.com/ocaml-bench/sandmark/pull/196][ocaml-bench/sandmark#196]]
+  Filter benchmarks based on tag
+
+  The benchmarks can now be filtered based on ~tags~ instead of custom
+  target .json files. You can now build the benchmarks using the
+  following commands:
+
+  #+begin_example
+  $ TAG='"run_in_ci"' make run_config_filtered.json
+  $ RUN_CONFIG_JSON=run_config_filtered.json make ocaml-versions/4.10.0+multicore.bench
+  #+end_example
+
+- [[https://github.com/ocaml-bench/sandmark/pull/201][ocaml-bench/sandmark#201]]
+  Fix compiler version in CI
+
+  A minor update in .drone.yml to use
+  ~ocaml-versions/4.10.0+multicore.bench~ in the CI for
+  4.10.0+multicore+serial.
+
+**** OCaml
+
+***** Ongoing
+
+- [[https://github.com/ocaml/ocaml/pull/9876][ocaml/ocaml#9876]]
+  Do not cache young_limit in a processor register
+
+  This PR for the removal of ~young_limit~ caching in a register for
+  ARM64, PowerPC and RISC-V ports hardware is currently under review.
+
+*** January 2021
+
+**** Multicore OCaml
+
+***** Ongoing
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/464][ocaml-multicore/ocaml-multicore#464]]
+  Replace Field_imm with Field
+
+  The patch replaces the Field immediate use with Field from the
+  concurrent minor collector.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/issues/468][ocaml-multicore/ocaml-multicore#468]]
+  Finalisers causing segfault with multiple domains
+
+  An on-going test case where Finalisers cause segmentation faults
+  with multiple domains.
+
+- The design and implementation of Domain-Local Allocation Buffers
+  (DLAB) is underway, and the relevant notes on the same are available
+  in the following [[https://github.com/ocaml-multicore/ocaml-multicore/wiki/Domain-Local-Allocation-Buffers][DLAB
+  Wiki]].
+
+***** Completed
+
+****** Ecosystem
+
+- [[https://github.com/ocaml-bench/rungen/pull/1][ocaml-bench/rungen#1]]
+  Fix compiler warnings and errors for clean build
+
+  Minor fixes for a clean build of ~rungen~ with dune to be used with
+  Sandmark 2.0.
+
+- [[https://github.com/ocaml-bench/orun/pull/2][ocaml-bench/orun#2]]
+  Fix compiler warnings and errors for clean build
+
+  A patch to remove unused variables and functions without any
+  warnings and errors when building ~orun~ with dune.
+
+- [[https://github.com/ocaml-bench/rungen/pull/2][ocaml-bench/rungen#2]]
+  Added meta files for dune-release lint
+
+  The ~dune-release lint~ checks for rungen now pass with the
+  inclusion of CHANGES, LICENSE and updates to rungen.opam files.
+
+- [[https://github.com/ocaml-bench/orun/pull/3][ocaml-bench/orun#3]]
+  Add meta files for dune-release lint
+
+  The CHANGES, LICENSE, README.md and orun.opam files have been added
+  to prepare the sources for an opam.ocaml.org release.
+
+- [[https://github.com/ocaml-multicore/multicore-opam/issues/39][ocaml-multicore/multicore-opam#39]]
+  Multicore Merlin
+
+  Thanks to @mattpallissard (Matt Pallissard) and @eduardorfs (Eduardo
+  Rafael) for testing ~merlin~ and ~dot-merlin-reader~, and to get it
+  working with Multicore OCaml 4.10! The changes work fine with VSCode
+  and Atom. The corresponding
+  [[https://github.com/ocaml-multicore/multicore-opam/pull/40][PR#40]]
+  is now merged.
+
+- [[https://github.com/ocaml-multicore/multicore-opam/pull/45][ocaml-multicore/ocaml-multicore#45]]
+  Merlin and OCaml-LSP installation instructions
+
+  The README.md file has been updated to include installation
+  instructions to use Merlin and OCaml LSP Server.
+
+****** Sundries
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/458][ocaml-multicore/ocaml-multicore#458]]
+  no-effect-syntax: Remove effects from typedtree
+
+  The PR enables external applications that use the AST to work with
+  domains-only Multicore OCaml, and removes the effect syntax use from
+  ~typedtree.ml~.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/461][ocaml-multicore/ocaml-multicore#461]]
+  Remove stw/leader_collision events from eventlog
+
+  The ~stw/leader_collision~ log messages have been cleaned up to make
+  it easier to view and analyze the logs.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/462][ocaml-multicore/ocaml-multicore#462]]
+  Move from Travis to GitHub Actions
+
+  The continuous integration builds are now updated to use GitHub
+  Actions instead of Travis CI, in order to be similar to that of
+  upstream CI.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/463][ocaml-multicore/ocaml-multicore#463]]
+  Minor GC: Restrict global roots scanning to one domain
+
+  The live domains scan all the global roots during a minor
+  collection, and the patch restricts the global root scanning to just
+  one domain. The sequential and parallel macro benchmark results are
+  given below:
+
+  https://aws1.discourse-cdn.com/standard11/uploads/ocaml/optimized/2X/9/91c042694b6bc0831be2468a6660c36138601c65_2_1380x636.jpeg
+
+  https://aws1.discourse-cdn.com/standard11/uploads/ocaml/optimized/2X/3/34809463a2400067035a5bcd7a20da53aa14d225_2_1380x916.jpeg
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/467][ocaml-multicore/ocaml-multicore#467]]
+  Disable the pruning of the mark stack
+
+  A PR to disable the mark stack overflow for a concurrency bug that
+  occurs when remarking a pool in another domain when that domain also
+  does allocations.
+
+**** Benchmarking
+
+***** Ongoing
+
+- [[https://github.com/ocaml-bench/sandmark/pull/202][ocaml-bench/sandmark#202]]
+  Add bench clean target in the Makefile
+
+  A ~benchclean~ target has been added to the Makefile to only remove
+  ~_build~ and ~_results~. The ~_opam~ folder is retained with the
+  required packages and dependencies installed, so that the benchmarks
+  can be quickly re-built and executed.
+
+- [[https://github.com/ocaml-bench/sandmark/pull/203][ocaml-bench/sandmark#203]]
+  Implement ITER support
+
+  The use of ITER has been correctly implemented with multiple
+  instances of the benchmarks being built, and to repeat the
+  executions of the benchmarks. This helps to take averages from
+  multiple runs for metrics. For example, using ITER=2 produces two
+  ~.summary.bench~ files as shown below:
+
+  #+begin_example
+  $ ls _build/
+    4.10.0+multicore_1  4.10.0+multicore_2  log
+
+  $ ls _results/
+    4.10.0+multicore_1.orun.summary.bench  4.10.0+multicore_2.orun.summary.bench
+  #+end_example
+
+- [[https://github.com/ocaml-bench/sandmark/pull/204][ocaml-bench/sandmark#204]]
+  Adding layers.ml as a benchmark to Sandmark
+
+  Th inclusion of Irmin layers benchmark and its dependencies into
+  Sandmark. This is a work-in-progress.
+
+- We are continuing the enhancements for Sandmark 2.0 that uses a
+  native dune to build and execute the benchmarks, and also port and
+  test with the current Sandmark configuration files. The ~orun~ and
+  ~rungen~ packages have been moved to their respective
+  repositories. The use of a meta header entry to the .summary.bench
+  file, ITER support, and package override features have been
+  implemented.
+
+***** Completed
+
+- [[https://github.com/ocaml-bench/sandmark/pull/200][ocaml-bench/sandmark#200]]
+  Global roots microbenchmark
+
+  The implementation of ~globroots_seq.ml~, ~globroots_sp.ml~, and
+  ~globroots_mp.ml~ to measure the efficiency of global root scanning
+  has been added to the microbenchmarks.
+
+**** OCaml
+
+***** Ongoing
+
+- [[https://github.com/ocaml/ocaml/pull/10039][ocaml/ocaml#10039]]
+  Safepoints
+
+  An update to the draft Safepoints implementation that uses the
+  prologue eliding algorithm and is now rebased to trunk.The runtime
+  benchmark results on sherwood (an AMD EPYC 7702) and thunderx (a
+  Cavium ThunderX CN8890) are shown below:
+
+  https://aws1.discourse-cdn.com/standard11/uploads/ocaml/original/2X/b/b01d3b192ba27930e9b00fcbb7f98ac216d474d5.png
+
+  https://aws1.discourse-cdn.com/standard11/uploads/ocaml/original/2X/3/3ac97ce23cf6dadd744f46feab4d923586d479df.png
+
+***** Completed
+
+- [[https://github.com/ocaml/ocaml/pull/9876][ocaml/ocaml#9876]]
+  Do not cache young_limit in a processor register
+
+  The PR removes the caching of ~young_limit~ in a register for ARM64,
+  PowerPC and RISC-V ports hardware.
+
+Our thanks to all the OCaml users and developers in the community for their continued support and contribution to the
+project, and we look forward to working with you in 2021!
+
+*** Acronyms
+
+- API: Application Programming Interface
+- ARM: Advanced RISC Machine
+- ASLR: Address Space Layout Randomization
+- AST: Abstract Syntax Tree
+- CFI: Call Frame Information
+- CI: Continuous Integration
+- GC: Garbage Collector
+- ICFP: International Conference on Functional Programming
+- JSON: JavaScript Object Notation
+- OPAM: OCaml Package Manager
+- PR: Pull Request
+- RFC: Request For Comments
+- RISC-V: Reduced Instruction Set Computing - V
+- UI: User Interface
+      
+
+** Bikal Lem asked and Anil Madhavapeddy replied
+
+
+#+begin_quote
+Does this mean ocaml 5.0 will have a concurrency baked right in to the default ocaml? If so, this is an excellent
+news also how does this fit in to the mirage stack? i.e. will ocaml 5.0 concurrency work with mirage too?
+#+end_quote
+
+OCaml 5.0 is slated to have domains-only parallelism and no fibres, but stay tuned for more news on our plans for
+fibres shortly.  The Mirage prototype is looking very good so far, but I'm not quite ready to talk about it in more
+detail until it's a bit more baked :slight_smile:
+      
+
+** Simon Cruanes and Anurag Soni asked, and Anil Madhavapeddy replied
+
+
+Simon Cruanes:
+#+begin_quote
+Will there be only one runtime in 5.0? As in, multicore will be the
+default, not an opt-in switch as happened with flambda1?
+#+end_quote
+
+The intention is to have a single runtime, yes.  A huge amount of the work on the multicore project to date (see
+[[https://arxiv.org/abs/2004.11663][Retrofitting Parallelism onto OCaml]]) has been focussed on reducing the
+performance hit to sequential code when running on a parallel-capable runtime.  If we end up with multiple runtimes
+in OCaml 5.0 after all this work, you'll find me sobbing quietly in a corner of the developer meeting.
+
+Anurag Soni:
+#+begin_quote
+This is exciting to hear. Is the project public? I’ve spent some time over the past couple of months working on
+wrappers around the various polling interfaces (I started with ~kqueue~ and ~select~ ), and I’ve been working on
+io-uring bindings as well. After reading this months’s multicore report I think i’d rather work on
+testing/contributing to an effort maintained by the multicore team (There are gaps in my ctypes/ocaml runtime
+knowledge) instead of duplicating some effort
+#+end_quote
+
+I've just pushed the non-multicore bits of the uring bindings over to
+https://github.com/ocaml-multicore/ocaml-uring. I'm still iterating on them, as there's a very specific design that
+minimises heap pressure that we're aiming towards. So not quite ready for contributions yet, but should be soon. The
+bindings there should be perfectly usable for pre-OCaml 5.0 use once that design settles (and in fact, I'll probably
+add it to Lwt in order to give us experience using io_uring in production ahead of any default use in multicore
+OCaml).
+
+I've got to say though -- so far, io_uring has absolutely exceeded my expectations. I never want to look at ~epoll~
+again now. And a side worry is that the BSDs are steadily getting left behind in terms of post-POSIX IO standards.
+Between io_uring in Linux, Grand Central Dispatch in macOS, and iocp in Windows, we're spoilt for async choice in the
+"mainstream" operating systems.
+      
+
+** EduardoRFS then added
+
+
+if anyone is playing with multicore, I made this Lwt engine which is capable of running things like opium partially
+in parallel, 2x gains when running with 4 domains, it doesn't scale a lot, but 2x is quite nice.
+
+Just drop this in a file and setup Lwt with it.
+
+https://gist.github.com/EduardoRFS/0000a193a5a7b964651ef532b412ce5f
+      
+
+
+
+* Resto 0.6 and 0.6.1
+:PROPERTIES:
+:CUSTOM_ID: 5
+:END:
+Archive: https://discuss.ocaml.org/t/ann-resto-0-6-and-0-6-1/7226/1
+
+** Raphaël Proust announced
+
+
+On behalf of [[https://nomadic-labs.com/][Nomadic Labs]], it is my pleasure to announce the release of resto v0.6 and
+v0.6.1. Resto is set of packages to build REST RPC directories and to serve and call the built directories. It is
+split into different packages (~resto~, ~resto-directory~, ~resto-cohttp-server~, ~resto-cohttp-client~, etc.) so as
+to minimise dependencies (e.g., you can call a directory without pulling in the server dependencies).
+
+Both versions share the same code (see change log below), but the licensing on the code had been mixed up. This is
+the reason for the two releases: the version 0.6 is distributed under LGPL with linking exception and the version
+0.6.1 is distributed under MIT. Future releases will be under MIT only.
+
+The library can be installed from opam.
+The code is hosted on Gitlab: https://gitlab.com/nomadic-labs/resto
+The documentation is available online: [[https://nomadic-labs.gitlab.io/resto/][https://nomadic-labs.gitlab.io/resto/]]
+
+Other than the above packaging/licence fixes, the new versions:
+- Fix a URL percent-decoding bug in the server
+- Provide access-control capability to selectively allow/forbid some services
+- Provide a self-serving client that acts as its own server
+- Provide support for chunk transfer encoding for large values
+- Improves the logging and the logging levels
+      
+
+
+
+* First release of ~paf~, a simple MirageOS layer for HTTP/AF
+:PROPERTIES:
+:CUSTOM_ID: 6
+:END:
+Archive: https://discuss.ocaml.org/t/ann-first-release-of-paf-a-simple-mirageos-layer-for-http-af/7229/1
+
+** Calascibetta Romain announced
+
+
+I'm glad to announce the first release of [[https://github.com/dinosaure/paf-le-chien][~paf~]], a simple [[https://mirage.io/][MirageOS]] layer for [[https://github.com/inhabitedtype/httpaf][~http/af~]]
+with a [[https://github.com/mirleft/ocaml-tls][TLS support]]. Two simple _unikernels_ exist into the distribution to show how to use ~paf~ with
+MirageOS.
+
+#+begin_src shell
+$ cd unikernel/client
+$ mirage configure
+$ make depends
+$ mirage build
+$ ./minipaf -u https://discuss.ocaml.org/
+#+end_src
+
+*** Unikernel, abstraction, HTTP & TLS
+
+About MirageOS, the main problem about the building of an _unikernel_ is the constraint about the full abstraction.
+Indeed, the same piece of code should work for UNIX (as a simple executable) and for [[https://github.com/solo5/Solo5][Solo5]] (to be able to
+virtualize the operating system with [[https://en.wikipedia.org/wiki/Kernel-based_Virtual_Machine][KVM]] or [[https://xenproject.org/][Xen]]). MirageOS did the choice to use _functors_ to abstract
+underlying pieces of the operating system such as the TCP/IP stack, the DNS resolver or the TLS stack.
+
+HTTP is a good example as a mix of several stacks where the choice of them depends on:
+- static values such as the target (UNIX or Solo5)
+- dynamic values such as ~http~ or ~https~ (depends on the given ~Uri.t~)
+
+~paf~ is a little library which focus on the possibility to use [[https://github.com/inhabitedtype/httpaf][~http/af~]] on MirageOS in the easiest way as
+a server and a client for any targets. Static choices are handled by [[https://github.com/mirage/functoria][~functoria~]] which does the
+resolution about the implementation of the underlying TCP/IP according to your target:
+- for Unix, we will use the host's TCP/IP stack
+- for Solo5, we will use the [[https://github.com/mirage/mirage-tcpip][mirage-tcpip]] implementation
+
+Dynamic choices are handled by ~mimic~ which invokes the TLS stack (with [[https://github.com/mirleft/ocaml-tls][~ocaml-tls~]]) or not - depending
+on the given ~Uri.t~.
+
+*** Let's encrypt challenge
+
+With all of that and some side improvements about [[https://github.com/mirleft/ocaml-tls][~ocaml-tls~]]/[[https://github.com/mirage/ca-certs][~ca-certs~]] and
+[[https://github.com/mmaker/ocaml-letsencrypt][~letsencrypt~]], we are able to provide a simple _unikernel_ which does the let's encrypt challenge at
+the boot and initiate then an HTTP (with TLS) server (and your valid own certificate).
+
+The distribution provides a simple _unikernel_ which does this job if the user wants to provide an HTTPS service
+(with ~rock~, a sub-library of [[https://github.com/rgrinberg/opium][~opium~]]):
+#+begin_src shell
+$ cd unikernel/server
+$ mirage configure
+$ make depends
+$ mirage build
+$ ./minipaf --production=false --hostname www.x25519.net --https
+#+end_src
+
+*** CoHTTP layer (client part)
+
+For a better use, ~paf~ provides a not fully-implemented compatible layer with CoHTTP (with another definition of the
+~ctx~, the ~Mimic.ctx~).
+
+*** Production ready
+
+Even if the release still is a beta, I used such implementation for a long time about my _unikernels_ (which are down
+but for some others reasons...) and I did not get any errors (for ~ 1 year). The distribution comes with a test which
+stress-test the implementation with parallel and concurrent processes.
+
+I hope that will help people to play a bit with MirageOS!
+      
+
+
+
+* I'm building a mailing list platform with Ocsigen
+:PROPERTIES:
+:CUSTOM_ID: 7
+:END:
+Archive: https://discuss.ocaml.org/t/show-im-building-a-mailing-list-platform-with-ocsigen/7236/1
+
+** Tom announced
+
+
+I've been working on a mailing list platform for the past few months in my spare time, and I thought I would share it
+here since I'm building the project using Ocsigen.
+
+The project is still in early stages, but I hope the community finds this interesting.
+
+[[https://postheat.com][postheat.com]]
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[https://alan.petitepomme.net/cwn/][the archive]] or the [[https://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe [[http://lists.idyll.org/listinfo/caml-news-weekly/][online]].
+
+#+BEGIN_authorname
+[[https://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname

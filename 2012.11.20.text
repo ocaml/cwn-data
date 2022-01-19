@@ -1,0 +1,443 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of November 13 to 20, 2012.
+
+1) Camlimages with ocamlbuild
+2) OCaml messages in French
+3) About ocamlbuild
+4) GADT exhaustiveness check
+5) DWARF output for native-code
+6) Poll results of OASIS, package manager and misc.
+
+========================================================================
+1) Camlimages with ocamlbuild
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2012-11/msg00088.html>
+------------------------------------------------------------------------
+** Pierre-Etienne Meunier announced:
+
+As an answer to Samuel's mail of november the 7th (and coincidently, also to
+the one he sent today), I have just written a patch to camlimages solving, at
+least for me, the problems I got when trying to compile camlimages under mac
+os.
+
+Since I don't know how to contact camlimages' authors, and that all the
+patchs I ever sent to macports have always be more or less silently refused,
+I temporarily pushed my solution there:
+
+darcs get <http://lama.univ-savoie.fr/~meunier/camlimages>
+
+This version uses ocamlbuild instead of omake as its build system, and ocaml
+instead of m4/autotools/bash as its configure script. I would be interesting
+to know if this version is useful under linux to bypass omake's bugs for the
+versions before the next one.
+      
+========================================================================
+2) OCaml messages in French
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2012-11/msg00152.html>
+------------------------------------------------------------------------
+** Alexis Irlande announced:
+
+Here is a link to an alpha version of my patch that translates ocaml messages
+to French.
+
+<http://dl.dropbox.com/u/59215589/ocaml-4.00.1_french_alpha.tgz>
+
+This is the first "public" release so I would greatly appreciate comments
+especially about installation instructions, grammar, spelling, typography,
+oversights and "official" french OCaml jargon.
+
+I hope to be able to release the same for Spanish soon.
+      
+========================================================================
+3) About ocamlbuild
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2012-11/msg00126.html>
+------------------------------------------------------------------------
+** Deep in this thread, Pierre-Etienne Meunier said:
+
+My original idea was not at all to start a new ocaml-tools war, I'm sorry if
+my first message was poorly formulated. Let me make myself clear, I wrote a
+typesetting system in ocaml, in order to write my PhD thesis. The way it
+works is a little strange, it compiles your source to ocaml source code (our
+language is quite cool, because based on a dypgen grammar, but you can use
+another one if you have time to write a parser and code generator). Then it
+compiles this code with a library called "Typography", that does all the
+document processing stuff, optimization of the page breaks, and so on.
+Finally, it calls another library to output to different formats, such as
+pdf, plain text, svg, opengl, or anything else.
+
+These are clearly "separable but not independent" projects (drivers, document
+formats, font library, typesetting library, parser/code generator). So
+compiling everything without duplication is not that trivial, and I really
+would like to write an ocaml program to compile it, maybe using a more
+complex build system than just one file with the ocamlbuild api. I understand
+that ocamlbuild is still in an early stage of development, this is why I'm
+sending these mails. The code is split among different directories, and using
+a library interface in the compilation of another library still seems
+difficult in ocamlbuild today. The documentation explains how to use an
+internal library in program, but it forces you to use a particular layout of
+your files. This is why I feel that a library would be more versatile: we can
+imagine a makefile compiling the build system first, possibly split between
+several modules, then calling it to compile the rest, like xmonad does, for
+instance.
+
+Also, if you are writing a document with our system, separated between
+different files, you want the system to compile it automatically, without too
+much recompilation. The problem is extensibility: for instance, if you are
+writing a bibliography library (I wrote one, but there may be others in the
+future), you certainly do not want to touch our code in order to compile it.
+Instead, you want to write a dynlinkable module explaining to our system how
+the documents depend on bibliography files, and how to compile everything in
+what order.
+To do this, I had to rewrite a (small) ocamlbuild-like library. My point is
+that ocamlbuild exposes (or documents) a too small part of its internals to
+be re-used inside another project.
+      
+** Fabrice Le Fessant then replied:
+
+Actually, this use case is exactly the reason why I developed the
+"ocp-build" tool (you might have used it if you tried to compile
+opam). It's much less powerful than ocamlbuild, but for what it does,
+it is much simpler to use. The idea is to write a simple description
+of the package contained in each directory. The tool then scans all
+the sub-directories looking for these descriptions (in files with .ocp
+extensions), use the specified dependencies between packages to order
+them, and then build all of them incrementally (no unnecessary
+rebuild) and in parallel.
+
+Since the description is only for OCaml files, it is very simple and
+short, but of course, if you are doing complicated things, you won't
+be able to express them in such a simple language...
+
+There is currently no documentation, and 'opam install ocp-build' will
+install a one-year old version (but latest sources are in the typerex2
+branch of typerex), so I would not advise anybody to use it curently,
+except for playing, but I (and some others in my team) found that it
+is a convenient tool for most of our needs.
+
+For example, the opam file looks like :
+
+begin
+comp += [ "-g" "-annot" "-warn-error" "A" ]
+link += [ "-g" ]
+begin library "opam-lib"
+subdir = [ "src" ]
+files = [
+"opamGlobals.ml" ...
+"repo/opamGit.ml" "opamSolver.ml" "opamClient.ml"
+]
+requires = [ "cudf" "dose" "unix" "graph" "re_glob" ]
+end
+begin program "opam"
+subdir = [ "src" ]
+files = [ "opamMain.ml" ]
+requires = [ "opam-lib" "arg" ]
+end
+begin program "opam-mk-repo"
+files = [ "src/scripts/opam_mk_repo.ml"]
+requires = [ "opam-lib" ]
+end
+begin program "opam-check"
+files = [ "src/scripts/opam_check.ml" ]
+requires = [ "opam-lib" ]
+end
+begin program "opam-repo-check"
+files = [ "src/scripts/opam_repo_check.ml" ]
+requires = [ "opam-lib" ]
+end
+end
+
+Among the current drawbacks, there is no compatibility with findlib
+descriptions, nor any easy way to guess the current installed
+packages, so you have to create a file describing your environment.
+For example, in opam, it comes with a file 'ocaml-libs.ocp'
+containing:
+
+begin
+generated = true
+dirname = [ "%{OCAMLLIB}%" ]
+has_byte = true
+has_asm = true
+begin library "unix" end
+begin library "str"
+requires = [ "unix" ]
+end
+begin library "dynlink" end
+begin library "camlp4fulllib"
+requires = [ "dynlink" ]
+has_asm = false
+end
+begin library "bigarray" end
+begin library "threads"
+dirname = [ "%{OCAMLLIB}%/threads" ]
+end
+end
+
+to describe all the default libraries. We hope that the tool, at some
+point, will be able to either read META files, or packages will come
+with an .ocp file describing them...
+
+Finally, another nice thing is the "packing" syntax. For example, to
+compile sexplib with ocp-build, we use :
+
+begin library "sexplib"
+files = [
+pack Sexplib [
+"type.ml"; "parser.mly"; "lexer.mll"
+"pre_sexp.ml" ( pp = [ "cpp"; "-undef"; "-traditional" ] );
+"sexp_intf.ml"; "sexp.ml";
+"path.ml" "conv.ml" "conv_error.ml" "exn_magic.ml" "std.ml"
+]
+]
+requires = [ "bigarray" "nums" ]
+end
+
+to pack all the modules within the "Sexplib" module.
+      
+========================================================================
+4) GADT exhaustiveness check
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2012-11/msg00138.html>
+------------------------------------------------------------------------
+** Kaspar Rohrer asked:
+
+I'm messing around with the new GADT feature in OCaml 4.0, trying to write a
+(more or less) strongly typed EDSL. And I've run into non-exhaustive
+pattern-matching warnings (see below for an example). I'm pretty sure that it
+is just an inherent shortcoming of GADTs, not a bug. The workaround is easy
+as well, simply add a catch all clause with a runtime error to silence the
+warning, and prove manually that the offending patterns can not occur.
+
+I tried to find more information on this topic, but without getting all
+academic, documentation on GADT seems sparse at best. The description of the
+original implementation at <https://sites.google.com/site/ocamlgadt/> seems to
+be the most comprehensive I've found so far. And I'm not sure the information
+about exhaustiveness is still up to date.
+
+It would be nice if somebody could maybe shed some more light on this.
+
+Cheers
+Kaspar
+
+
+Code that illustrates the problem:
+
+module T :
+sig
+type 'a t
+val int : int t
+end
+=
+struct
+type 'a t = ()
+let int = ()
+end
+
+type ('r,_) args =
+| ANil : ('r,'r) args
+| ACons : 'a * ('r,'b) args -> ('r,'a -> 'b) args
+
+let a = ANil
+let b = ACons (3, ANil)
+
+type ('r,'a) fun' =
+| FVoid : 'r T.t -> ('r,'r) fun'
+| FLambda : 'a T.t * ('r,'b) fun' -> ('r,'a -> 'b) fun'
+
+let f = FVoid T.int
+let g = FLambda (T.int, f)
+
+let rec apply : type r a . (r,a) fun' * (r,a) args -> unit = function
+| FVoid t, ANil -> ()
+| FLambda (t,f), ACons (_,a) -> apply (f,a)
+(*
+Warning 8: this pattern-matching is not exhaustive.
+Here is an example of a value that is not matched:
+(FLambda (_, _), ANil)
+*) 
+      
+** Jacques Le Normand replied:
+
+The exhaustiveness check problem IS fundamental to GADTs. The problem
+is similar to one of theorem proving:
+given theorems t1, t2, ..., tn, all of the form forall a1, ..., an. e,
+where e does not contain any existential or universal quantifiers, is
+a quantifier free theorem Z provable using intuitionistic logic. I
+believe that the problem I just stated is semi decidable: if it is
+provable, then you will find a proof if you search enough. If there is
+no proof, then you are doomed to search forever. Someone please
+correct me if I'm wrong.
+
+In our case, t1, t2, ..., tn are the constructors and Z is the type of
+the guard. Our problem is simpler because the type of our constructors
+are of a simpler form: forall a1, ..., an . e -> (b1, b2, ..., bn) C
+where C is our type constructor and b1, ..., bn are arbitrary
+quantifier free formulae. If anyone knows anything about the
+decidability of this potentially simpler problem, I'd very much like
+to know.
+
+The way O'Caml currently handles GADT exhaustiveness is like so: it
+searches for non exhaustive patterns in the same manner as before and
+whatever it finds it tries to type. However, these patterns may
+contain wildcards.
+      
+** Jeremy Yallop also replied:
+
+Here's how you know that the offending pattern can never match a value: the
+ANil constructor would constrain "r" and "a" to denote the same type, and the
+arguments of the FLambda constructor would have types "'a T.t" and "('a -> 'b,
+'b) fun'" (for suitable 'a and 'b). It's then sufficient to show that at
+least one of these types is not inhabited. However, in order to show this you
+need to use information about the possible ways of building values of those
+types: for example, you need to know that there's no polymorphic value of type
+"'a t". If you add such a value to the T module:
+
+module T :
+sig
+type 'a t
+val int : int t
+val poly : 'a t
+end
+=
+struct
+type 'a t = ()
+let int = ()
+let poly = ()
+end
+
+then you *can* build values that match the missing patterns:
+
+# apply (FLambda (T.int, FVoid T.poly), ANil)
+Exception: Match_failure ("//toplevel//", 113, 9).
+
+I don't think that the exhaustiveness checker has any information available
+regarding the possible ways of constructing values of an abstract type.
+
+Here's an example without GADTs illustrating the same issue. Suppose we have
+your original definition of the T module:
+
+module T :
+sig
+type 'a t
+val int : int t
+end
+=
+struct
+type 'a t = ()
+let int = ()
+end
+
+We can define a datatype with two constructors using T.t:
+
+type s =
+Int of int T.t
+| Float of float T.t
+
+Since there is no value of type "float T.t", patterns involving the Float
+constructor are redundant. However, the exhaustiveness checker doesn't know
+that, so you'll still get a warning for omitting the Float case:
+
+Characters 8-28:
+let f = function Int _ -> ();;
+^^^^^^^^^^^^^^^^^^^^
+Warning 8: this pattern-matching is not exhaustive.
+Here is an example of a value that is not matched:
+Float _
+      
+========================================================================
+5) DWARF output for native-code
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2012-11/msg00171.html>
+------------------------------------------------------------------------
+** Pierre-Marie de Rodat asked:
+
+For fun, I?ve started to write some gdb scripts to inspect the memory
+of an OCaml program. Without type information, I can only print
+immediates and blocks hierarchy, and of course with type information I
+can display values as they appear in the source code.
+
+The way to pass type information (and other things) to the debugger
+would be to make the compiler output DWARF data. OCaml just started to
+output debug information with CFI (Calling Frame Information, since
+OCaml 4.0.0), but debugging OCaml native programs with gdb could
+become awesome with information like a precise source code ?
+executable code mapping, values location, type information, etc.
+
+I?ve read some docs about the DWARF format, and I?ve looked at the
+OCaml compiler : a lot of code is to be (re)written in order to pass
+debug information from source code AST to backends, but I would like
+to try anyway. I?ve discovered that a « dwarf » branch already exist
+on the repository: it is actively developped by « shinwell » since
+september. Even if it looks far from completion, it seems to have the
+same goal.
+
+I could not find any reference to this branch on the Web nor on this
+list, so before I contact directly this developper, I prefer to ask
+here: are there any information about this on the Internet? (goal,
+roadmap, ?) I would be very interested in contributing to this.
+      
+** Mark Shinwell replied:
+
+Yeah, I'm working on full DWARF output for ocamlopt, including the
+appropriate gdb support. This is a fairly complicated undertaking,
+shall we say, and it will be a while until it's ready for a first
+release.
+
+This work should also permit reverse debugging of OCaml programs
+using gdb.
+
+A very small snippet of the work in progress is below.
+
+Mark
+
+--
+
+(gdb) b Foo.blah2
+Breakpoint 1 at 0x408d00: file foo.ml, line 9.
+(gdb) r
+Starting program: foo
+
+Breakpoint 1, Foo.blah2 (arg1="foo", arg2=64, arg3=<foo.ml:19>,
+arg4="some string") at foo.ml:9
+9 let blah2 arg1 arg2 arg3 arg4 =
+(gdb) show lang
+The current source language is "auto; currently ocaml".
+(gdb) step
+10 let x = Printf.sprintf "42%d%s" 64 arg1 in
+(gdb) step
+Printf.sprintf (fmt="42%d%s") at printf.ml:679
+679 let sprintf fmt = ksprintf (fun s -> s) fmt;;
+(gdb) step
+Printf.ksprintf (k=<printf.ml:679>) at printf.ml:675
+675 let ksprintf k =
+      
+========================================================================
+6) Poll results of OASIS, package manager and misc.
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2012-11/msg00181.html>
+------------------------------------------------------------------------
+** Sylvain Le Gall announced:
+
+You can see the result here:
+<https://docs.google.com/spreadsheet/viewanalytics?formkey=dE1jM1JSTGdHVV8wTWZxenV4cEkwVlE6MQ>
+
+The outcome for package manager is pretty obvious, oasis-db should
+focus on OPAM as a package manager. This is now on my todo list,
+
+Concerning build system:
+- ocamlbuild is first (60%)
+- native Makefile is second (40%)
+
+So I'll probably focus on this two build systems, which represents at
+least 70% of what people need (the 3rd build system is less than 30%).
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

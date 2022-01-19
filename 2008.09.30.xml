@@ -1,0 +1,348 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+	<cwn_head>
+		<cwn_date>2008.09.30</cwn_date>
+		<cwn_prev>2008.09.23</cwn_prev>
+		<cwn_next>2008.10.07</cwn_next>
+		<cwn_date_text>September 23 to 30, 2008</cwn_date_text>
+	</cwn_head>
+	<cwn_body>
+		<cwn_entry>
+			<cwn_title>CSML: now under GNU/Linux + Mono</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/18b9b5b886dcad72#</cwn_url>
+			<cwn_who>Alain Frisch announced</cwn_who>
+			<cwn_what>
+There is a new release of CSML that works under GNU/Linux on top of Mono
+(tested with Mono 1.2.4). Even the Windows Forms example works fine.
+
+http://www.lexifi.com/csml/
+
+The CSML compiler produces the same output for the Windows/.Net and the
+Linux/Mono version (there is a tiny difference for the runtime system). It is
+possible that the Linux/Mono version also works for other Unix-like systems,
+but I haven't tried.
+
+For those interested, there is now a mailing list for CSML (links on the web
+page above). Thanks to OCamlCore and the forge.ocamlcore.org team for hosting
+it!
+			</cwn_what>
+			<cwn_who>Richard Jones then said</cwn_who>
+			<cwn_what>
+You piqued my interest and I managed to get C# FFI to work in Mono:
+
+https://www.redhat.com/archives/libvir-list/2008-September/msg00283.html
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>What's the purpose of the static library?</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/cf74ffa8876aa578#</cwn_url>
+			<cwn_who>Following a question by Bill Yan, Richard Jones said and Alain Frisch added</cwn_who>
+			<cwn_what>
+&gt; It's not particularly well-documented, and it changes a little in 
+&gt; 3.11, but below is my understanding.  There are probably errors in 
+&gt; what follows.  If someone can correct the errors then I'll publish a 
+&gt; corrected document. 
+&gt; 
+&gt; File: module.cmi ------------------------------ 
+&gt; 
+&gt; Contains the compiled interface for Module, essentially equivalent to 
+&gt; the contents of the *.mli file but in a compiled/binary form which the 
+&gt; compiler can load easily. 
+&gt; 
+&gt; Created by: 'ocamlc -c module.mli', or if module.mli doesn't exist 
+&gt; then 'ocamlc -c module.ml' (also by 'ocamlopt -c module.ml'). 
+&gt; 
+&gt; Used: Whenever the toplevel or compiler uses any symbol Module.foo, 
+&gt; this file is consulted. 
+&gt; 
+&gt; File: module.cmo ------------------------------ 
+&gt; 
+&gt; Contains the bytecode of the implementation of Module. 
+&gt; 
+&gt; Created by: 'ocamlc -c module.ml' 
+&gt; 
+&gt; Used: When linking bytecode programs, or creating bytecode libraries 
+&gt; (*.cma), or by the toplevel when you use #load, or by Dynlink. 
+&gt; 
+&gt; File: library.cma ------------------------------ 
+&gt; 
+&gt; This is just a set of *.cmo files combined together. 
+&gt; 
+&gt; Created by: 'ocamlc -a' 
+&gt; 
+&gt; Used: Same as for module.cmo 
+
+cma files also contain extra linking directives like references to C 
+libraries. 
+
+&gt; Files: module.o and module.cmx -------------------- 
+&gt; 
+&gt; These two files go together.  The *.o file contains compiled native 
+&gt; code in the normal system object file format.  The *.cmx file contains 
+&gt; metainformation about the machine code in the *.o file. 
+&gt; 
+&gt; Created by: 'ocamlopt -c module.ml' 
+&gt; 
+&gt; Used: When linking native code programs, or creating native code 
+&gt; libraries. 
+
+.. or compiling other modules. 
+
+&gt; Note(1): You normally never need to specify the *.o files by hand.  On 
+&gt; the command line when the compiler sees a *.cmx file, it looks for the 
+&gt; corresponding *.o file if it needs it. 
+&gt; 
+&gt; Note(2): It is thought that the *.cmx file needs to be around even 
+&gt; when linking a library (*.cmxa) file in order to do cross-module 
+&gt; function inlining.  Both the Debian &amp; Fedora packaging rules specify 
+&gt; that *.cmx files be kept around for this reason.  Whether this is 
+&gt; really true or not is not certain.
+
+This is true. 
+
+cmx files are needed when they contain modules compiled with -for-pack. 
+Otherwise, they are optional. Hiding them to the compiler is a way to 
+get fewer dependencies (more separate compilation). 
+
+Note that the .o extension is actually .obj for the MSVC ports under 
+Windows. 
+
+&gt; File: library.a and library.cmxa -------------------- 
+&gt; 
+&gt; These files go together.  The *.a file contains compiled native code 
+&gt; in the normal system archive format.  The *.cmxa file contains 
+&gt; metainformation. 
+&gt; 
+&gt; Created by: 'ocamlopt -a' 
+&gt; 
+&gt; Used: Same as for *.o/*.cmx 
+&gt; 
+&gt; Note: You normally never need to specify the *.a files by hand.
+
+(.lib for MSVC ports) 
+
+&gt; File: dlllibrary.so and liblibrary.a -------------------- 
+&gt; 
+&gt; These files are created and used when a bytecode or native library 
+&gt; contains some C code.  'dllXXX.so' is created for use by the toplevel 
+&gt; and contains the compiled C code.  'libXXX.a' is created for use by 
+&gt; compiled standalone programs and also contains the same compiled C 
+&gt; code. 
+&gt; 
+&gt; Created by: 'ocamlmklib -o library *.o *.cmo' 
+&gt;         or: 'ocamlmklib -o library *.o *.cmx' 
+&gt; 
+&gt; Used: dlllibrary.so is dlopen(2)'d by the toplevel. 
+&gt;       liblibrary.a is linked in standalone programs.
+
+dlllibrary.so is also used by the bytecode interpreter, by Dynlink and 
+by ocamlc (to check for the availability of C primitives at compile time). 
+
+&gt; Note: You normally never need to specify these files by hand.  The 
+&gt; *.cma/*.cmxa file contains the necessary information to find these 
+&gt; files if necessary.
+			</cwn_what>
+			<cwn_who>Stefano Zacchiroli then asked and Richard Jones replied</cwn_who>
+			<cwn_what>
+&gt; do you have a public place where this document (patched with the
+&gt; received comments) is available?  If so please let us know (so that we
+&gt; can reference if from the Debian OCaml packaging policy), if not I will
+&gt; integrate it directly in the policy document, which is in fact publicly
+&gt; available on the web.
+
+http://ocaml-tutorial.org/filenames
+
+is probably the best place.  I've added a link to my posting
+temporarily.
+			</cwn_what>
+			<cwn_who>Bill Yan asked and Alain Frisch replied</cwn_who>
+			<cwn_what>
+&gt; By my understanding, unlike  dlllibrary.so and liblibrary.a give user an 
+&gt; option to choose compile dynamically or staticly,  it seems for 
+&gt; library.a, user can only choose static method. Does that mean  "compiled 
+&gt; native code" can only be staticly linked to user's application? 
+
+In OCaml 3.11, it will be possible to link native code (found in 
+library.a or module.o files) into .cmxs files that can be explicitly 
+loaded at runtime (with the same API as for bytecode Dynlink).
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>Teaching ocaml programming</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/e55ddf758c2be2b0#</cwn_url>
+			<cwn_who>Andrej Bauer asked</cwn_who>
+			<cwn_what>
+Once again I am teaching a course on theory of programming languages in 
+which we will use ocaml to implement mini-languages. And once again I 
+face the question: which programming environment should we use? 
+
+I have so far tried to use (under Windows) 
+1. cygwin + ocaml + XEmacs 
+2. Eclipse + OcaIDE 
+
+The second solution worked better than the first, for the simple reason 
+that XEmacs is a complete mystery to students. They really, really hate 
+it. But even with the second soltion we had a lot of trouble, because 
+Eclipse is really complicated, and OcaIDE is sort of experimental and 
+not so good under Windows, so the whole setup was confusing and fragile. 
+
+The requirements are very simple: 
+1. easy access to toplevel (with line-editing) 
+2. editor which can send stuff to toplevel, points to errors in source 
+code, and is not Emacs. 
+
+Any ideas what to do? We have dual-boot machines (Windows + Ubuntu).
+			</cwn_what>
+			<cwn_who>The editor says</cwn_who>
+			<cwn_what>
+There were too many replies to summarize here. Please follow the archive link
+above to read them.
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>ocamlbuild-ctools and symbiosis meta build engine</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/07e378f754695eec#</cwn_url>
+			<cwn_who>Mikkel Fahnøe Jørgensen announced</cwn_who>
+			<cwn_what>
+I just dusted off some code used for internal builds and made it public.
+
+
+---- cppinclude ----
+
+http://git.dvide.com/pub/cppinclude/
+
+A very simple but fast dependency scanner needed by ocamlbuild-ctools.
+Just compile the cppinclude.c file to cppi binary and put it in the
+executable path.
+
+
+---- ocamlbuild-ctools ----
+
+http://git.dvide.com/pub/ocamlbuild-ctools
+http://git.dvide.com/pub/ocamlbuild-ctools/tree/README
+
+
+An ocamlbuild plugin that supports compiling C and C++ cross platform
+using ocamlbuild only.
+
+Variant builds - can build many different variants from the same
+source tree. For example static libraries, test builds, debug,
+optimization, linking or not linking with some other code, different
+platform builds etc.
+
+Automic recursive header file generation - needed for pulling source
+into _build directory.
+It used to be able to rebuild on header file change, but it has
+regressed - it is possible that .stamp files do not hold signatures of
+dependencies of dependencies or something.
+
+It has not been tested on Windows, but build rules have been copied
+from old build scripts so it should not be that hard to get going.
+
+
+---- Symbiosis ----
+
+http://git.dvide.com/pub/symbiosis
+http://git.dvide.com/pub/symbiosis/tree/README
+
+This is a meta build system.
+It is implemented as an ocamlbuild plugin.
+
+It checks out source code from repositories and starts builds of
+individual components.
+
+Because ocamlbuild doesn't support linking additional files, a lot of
+different code is collected in a single file. This includes a JSON
+parser for configuration files.
+
+Symbiosis tries to avoid the problem of collecting all source
+dependencies in one large tree, or alternatively installing
+dependencies on the system. The former makes it difficult to change
+dependent component versions. The latter makes it difficult to quickly
+test different build version complicates developer setup.
+
+Correctly configured, just call ocamlbuild with a target for the top
+most component to build. All the source should be appear in the
+working directory and build.
+Initially it can be complex to set up, but once done, it is rather
+easy to add new components with interesting dependencies.
+
+The README explains it, but it really lacks examples since it was
+extracted from my own build infrastructure.
+
+Each component is viewed as a source tree with actions that can depend
+on other actions in other components. Typically checkout and build
+actions.
+Actions are implemented through agents - for example to execute make,
+ocamlbuild or check out source code.
+Actions receive parameters and return result arguments. This makes it
+possible to find tool locations, libraries etc.
+
+Future:
+
+Currently agents need to be added to the ocamlbuild plugin. This is
+easy - for example adding a new scm agent. But it would be nice to add
+agents as external scripts. Symbiosis is designed to support this, but
+it has not been implemented.
+
+I have looked into integration with continuos build systems, but it
+appears to be easier to integrate this into symbiosis also, since it
+already does some of the work such a build system requires - but is
+definitely is also missing some parts.
+			</cwn_what>
+			<cwn_who>He later added</cwn_who>
+			<cwn_what>
+Regarding Symbiosis:
+
+&gt; http://git.dvide.com/pub/symbiosis
+&gt; http://git.dvide.com/pub/symbiosis/tree/README
+
+Some clarification:
+
+Symbiosis is a standalone tool that, once compiled, does not require
+ocaml nor ocamlbuild to be installed at all. (Because ocambuild and
+the symbiosis plugin are compiled together to a new executable).
+
+Thus Symbiosis can be distributed as a binary package for driving all
+kinds of high-level builds. This means developers can download a
+prebuilt Symbiosis executable and a standard configuration file to
+their local machine from a project file server and basically have a
+build going by typing:
+
+ symbiosis "myproject"
+
+This assumes available components are listed in proxy files in a
+dedicated repository that the config files can identify.
+
+
+I hope to put up an example project eventually, but at least you have
+the source code now.
+
+
+Relation to git submodule:
+
+Lars Hjemli who has been working on git submodules pointed out some
+similarity. This is correct. To some extend symbiosis tries to solve
+the submodule problem. At the time didn't know git submodules (but
+sort of knew about svn externals). But I do not want a system that is
+tied into a specific source control tool, and nothing prevents
+symbiosis from compiling projects that use git submodules or
+equivalent where this is the preferred solution for some component
+integration.
+
+Git submodule does not, for good reasons, in itself handle the problem
+of how to compile a submodule. Symbiosis does this.
+
+Symbiosis does not (yet) make it easy to snapshot a specific revision
+without some manual work (updating checkout revision id in proxies).
+Git submodules does.
+
+Eventually I hope to generate a build report where the exact checkout
+revision of each component is listed along with the compile flags that
+went in - symbiosis should then be able to rebuild a project given
+such a report. So if such build reports are checked into source
+control, it should be easier to rebuild past versions of projects.
+			</cwn_what>
+		</cwn_entry>
+	</cwn_body>
+</cwn>

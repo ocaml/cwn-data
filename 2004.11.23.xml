@@ -1,0 +1,222 @@
+<?xml version="1.0" encoding="ISO-8859-15"?>
+<cwn>
+<cwn_head>
+  <cwn_date>2004.11.23</cwn_date>
+  <cwn_prev>2004.11.16</cwn_prev>
+  <cwn_next>2004.11.30</cwn_next>
+  <cwn_date_text>16 to 23 November, 2004</cwn_date_text>
+</cwn_head>
+<cwn_body>
+  <cwn_entry>
+    <cwn_title>Config_file : first release</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200411/msg00145.html</cwn_url>
+    <cwn_who>Jean-Baptiste Rouquier announced</cwn_who>
+    <cwn_what>
+I&apos;m pleased to announce the first release of Config_file.
+
+This library allows one to save configuration parameters (basic types, lists, 
+user defined, etc.) into a file and load them. The configuration file is human 
+readable, structured and allow (* *) comments.
+
+I&apos;ve started with the module Options from cameleon and added full 
+documentation, a few new features, rewritten in OO style (to learn OO :-), 
+error logging, more secure parsing of the configuration file.
+
+This lib is used in cameleon and in my own programms. It&apos;s available on 
+http://savannah.nongnu.org/download/cameleon/ and on my own webpage.
+It&apos;s part of cameleon2 (not yet available) but is also available separately.
+
+Comments welcome, especially if you know other similar libs. I know Inifiles, 
+Option from cameleon and I couldn&apos;t download ConfigParser from Missinglib.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>mod_caml 1.3.4 for Apache 2.0 users</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200411/msg00147.html</cwn_url>
+    <cwn_who>Richard Jones announced</cwn_who>
+    <cwn_what>
+I&apos;m happy to announce that mod_caml 1.3.4 has been released.  This
+fixes a couple of critical bugs relating to Apache 2.0.  The greatest
+thanks must go to Jeff Henrikson for persevering with this and helping
+me to find the bugs.
+
+http://savannah.nongnu.org/download/modcaml/
+http://savannah.nongnu.org/download/modcaml/mod_caml-1.3.4.tar.gz
+http://savannah.nongnu.org/download/modcaml/mod_caml-1.3.4.tar.gz.sig
+
+Instructions on how to compile Apache 2.0 to work with mod_caml:
+
+http://merjis.com/developers/mod_caml/apache_2.0
+
+The Apache bug which never goes away (+ patch):
+
+http://issues.apache.org/bugzilla/show_bug.cgi?id=27550
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>A second functor question</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200411/msg00150.html</cwn_url>
+    <cwn_who>John F. Hughes asked</cwn_who>
+    <cwn_what>
+I&apos;d like to write a signature like this:
+
+module type P = 
+  sig
+     type t
+     val foo : t -&gt; t
+     val z:int
+  end;;
+
+And make two modules matching that signature:
+
+module P1 : P = 
+   struct
+      type t = int
+      let foo x:t = x
+      let z = 1
+   end;;
+
+module P2 : P = 
+   struct 
+      type t = int
+      let foo x:t = x
+      let z = 2 
+   end;;
+
+I now want to apply a functor to those two modules...but a functor
+wants a single module, so I make a signature for a &quot;joined&quot; type:
+
+module type COMBINE =
+   sig
+      module A : P
+      module B : P
+   end;;
+ with A.t = B.t;;
+
+and create a module of that type:
+
+module C : COMBINE = 
+   struct
+      module A = P1 
+      module B = P2
+   end;;
+
+And now I can write a functor:
+
+module Fun = 
+   functor (Z : COMBINE) -&gt; 
+     struct
+        let f x:Z.A.t = Z.B.foo x 
+     end;;
+
+This will fail because Z.B.foo expects a B.t, but is being handed an
+A.t. 
+
+I&apos;d like it to work. In other words, I&apos;d like a way to promise to the
+type system
+that A.t and B.t (within a COMBINE) are always the same. I tried
+
+module type COMBINE =
+   sig
+      module A : P
+      module B : P
+   end with A.t = B.t
+
+I tried telling it they were the same when I created the module C:
+
+module C : COMBINE = 
+   struct
+      module A = P1 
+      module B = P2
+   end with A.t = B.t;;
+
+Neither worked. Can someone suggest a way to make this work, or am I
+asking too
+much of the module system. (I used to be able to do this in ML, using
+the 
+&quot;sharing type&quot; construct, but...)
+    </cwn_what>
+    <cwn_who>Alain Frisch answered</cwn_who>
+    <cwn_what>
+&gt; I&apos;d like it to work. In other words, I&apos;d like a way to promise to the
+&gt; type system
+&gt; that A.t and B.t (within a COMBINE) are always the same.
+
+module type COMBINE =
+    sig
+       module A : P
+       module B : P with type t = A.t
+    end;;
+
+You need to keep the P1.t and P2.t fields public, otherwise the 
+constraint cannot be checked:
+
+module P1 = struct ... end;;
+module P2 = struct ... end;;
+
+or:
+
+module P1 : P with type t = int = ...
+module P2 : P with type t = int = ...
+
+Btw, maybe you did it on purpose, but the type annotation in:
+
+         let f x:Z.A.t = Z.B.foo x
+
+is upon the result type of f, not its argument (in your case, it&apos;s the 
+same).
+
+
+Note also you don&apos;t need to combine the two structures in a single 
+module, you can just define a functor with several arguments:
+
+module Fun(A : P)(B : P with type t = A.t) = struct
+   let f x = B.foo x
+end
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>lpd &amp; Socket</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200411/msg00170.html</cwn_url>
+    <cwn_who>Christophe Troestler announced</cwn_who>
+    <cwn_what>
+I am pleased to announce the release of lpd, a small threaded line
+printer daemon.  While its primary goal was to enable the use of a
+windows-only printer, it should be easily modifiable for other
+purposes (at present, it is not a library but if somebody is
+interested we can work together to that goal).
+
+A small module of pervasive-like functions for sockets on all
+platforms (including win9x) is bundled together.
+
+This software is released under the same license as the OCaml std
+library.  You can see the Socket API and download the source at
+http://math.umh.ac.be/an/software.php#x4-80007
+
+Comments, bug reports,... are of course welcome.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>benchmark</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200411/msg00171.html</cwn_url>
+    <cwn_who>Christophe Troestler announced</cwn_who>
+    <cwn_what>
+I am pleased to announce the release of benchmark-0.6.  It is based on
+Doug Bagley's version which Doug has kindly accepted that I take the
+maintenance of.  The code has been mostly rewritten to make it "more
+functional" and the documentation has been improved.
+
+The API has changed a little to allow multiple repetitions of a given
+test (most code should compile unchanged still).  This is used in
+order to allow a Student's test on whether two rates are really
+different.
+
+The code is licensed under the GNU Lesser General Public License
+(LGPL) with the same special exception as for the OCaml standard
+library.  More info at http://math.umh.ac.be/an/software.php#x4-60005
+
+As always, your input is very welcome.
+    </cwn_what>
+  </cwn_entry>
+</cwn_body>
+</cwn>

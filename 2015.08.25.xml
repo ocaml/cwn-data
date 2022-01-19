@@ -1,0 +1,674 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2015.08.25</cwn_date>
+    <cwn_prev>2015.08.04</cwn_prev>
+    <cwn_next>2015.09.01</cwn_next>
+    <cwn_date_text>August 18 to 25, 2015</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>Destructive use of file descriptors</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-08/msg00058.html</cwn_url>
+      <cwn_who>Goswin von Brederlow asked</cwn_who>
+      <cwn_what>
+in Python one can write:
+
+    with open("foo") as fd:
+        fd.write(str)
+
+This involves some language magic that will open the file for the
+duration of the block and close it at the end. The file descriptor is
+automatically closed at a know time and not leaked or left until the
+GC gets around to cleaning it up.
+
+Has anyone constructed something like that for ocaml? Maybe with a ppx
+extension?
+      </cwn_what>
+      <cwn_who>Nicolas Ojeda Bar replied</cwn_who>
+      <cwn_what>
+No magic needed in OCaml:
+
+let with_open path f =
+let oc = open_out path in
+match f oc with
+| x -&gt; close_out_noerr oc; x
+| exception e -&gt; close_out_noerr oc; raise e
+
+and then use it as
+
+with_open "foo" (fun oc -&gt; output_string oc str)
+      </cwn_what>
+      <cwn_who>Malcolm Matalka then said</cwn_who>
+      <cwn_what>
+The weakness with this (which I'm not sure if Python offers protection)
+is returning something that references the file created.  It can lead to
+some confusing error messages.
+      </cwn_what>
+      <cwn_who>Goswin von Brederlow then replied and Gabriel Scherer said</cwn_who>
+      <cwn_what>
+&gt; Yeah. I was thinking that that might be avoided. Something on the line
+&gt; of putting the file descriptor into a local module so ocaml would
+&gt; complain about it escaping its scope or something.
+
+You can use the "ST monad" trick to track escape of values or effects:
+  "Region-based resource management", Oleg
+  http://okmij.org/ftp/Haskell/regions.html
+
+However, this requires writing the resource-manipulating operations in
+monadic style.
+
+module ST : sig
+  type ('s, 'a) st
+  val return : 'a -&gt; ('s, 'a) st
+  val bind : ('a -&gt; ('s, 'b) st) -&gt; ('s, 'a) st -&gt; ('s, 'b) st
+
+  type ('s, 'a) st_ref
+  val st_ref : 'a -&gt; ('s, ('s, 'a) st_ref) st
+  val get : ('s, 'a) st_ref -&gt; ('s, 'a) st
+  val set : ('s, 'a) st_ref -&gt; 'a -&gt; ('s, unit) st
+
+  type 'a secretive = { run : 's . unit -&gt; ('s, 'a) st }
+  val run_st : 'a secretive -&gt; 'a
+end = struct
+  type ('s, 'a) st = 'a
+  let return x = x
+  let bind f m = f m
+
+  type ('s, 'a) st_ref = 'a ref
+  let st_ref, get, set = ref, (!), (:=)
+
+  type 'a secretive = { run : 's . unit -&gt; ('s, 'a) st }
+  let run_st st = st.run ()
+end
+
+let (&gt;&gt;=) m f = ST.bind f m
+
+
+
+# let test =
+    ST.run_st { ST.run = fun () -&gt;
+      ST.st_ref 1 &gt;&gt;= fun r -&gt;
+      ST.get r &gt;&gt;= fun before -&gt;
+      ST.set r 2 &gt;&gt;= fun () -&gt;
+      ST.get r &gt;&gt;= fun after -&gt;
+      ST.return (before + after)
+    };;
+val test : int = 3
+
+# let test_escape_1 =
+    ST.run_st { ST.run = fun () -&gt;
+      ST.st_ref 1 &gt;&gt;= fun r -&gt;
+      ST.return r
+    };;
+Error: This field value has type unit -&gt; ('a, ('a, int) ST.st_ref) ST.st
+  which is less general than 'b. unit -&gt; ('b, 'c) ST.st
+
+# let test_escape_2 =
+    let hole = ref None in
+    ST.run_st { ST.run = fun () -&gt;
+      ST.st_ref 1 &gt;&gt;= fun r -&gt;
+      hole := Some r;
+      ST.return ()
+    };
+    !hole;;
+Error: This field value has type unit -&gt; ('a, unit) ST.st
+  which is less general than 'b. unit -&gt; ('b, 'c) ST.st
+      </cwn_what>
+      <cwn_who>Ben Millwood then added</cwn_who>
+      <cwn_what>
+See also the following thread last year, "Not letting channels escape", which
+(after some incomplete attempts from me) illustrates a fully safe with_file
+function.
+
+https://sympa.inria.fr/sympa/arc/caml-list/2014-08/msg00024.html
+      </cwn_what>
+      <cwn_who>Gabriel Scherer also replied to the original question</cwn_who>
+      <cwn_what>
+Many libraries provide a with_file_{in,out} function capturing this
+pattern, without need for specific language support.
+
+  BatFile.with_file_out "foo" (fun fd -&gt;
+    print_endline str
+  )
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Learning about compiler-libs</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-08/msg00068.html</cwn_url>
+      <cwn_who>Leonid Rozenberg asked</cwn_who>
+      <cwn_what>
+Are there any resources besides the couple of blog posts and reading the
+source?
+
+I found this surprising:
+
+OCaml version 4.02.1
+
+# #use "topfind" ;;
+- : unit = ()
+Findlib has been successfully loaded. Additional directives:
+#require "package";; to load a package
+#list;; to list the available packages
+#camlp4o;; to load camlp4 (standard syntax)
+#camlp4r;; to load camlp4 (revised syntax)
+#predicates "p,q,...";; to set these predicates
+Topfind.reset();; to force that packages will be reloaded
+#thread;; to enable threads
+
+- : unit = ()
+# #require "compiler-libs.toplevel" ;;
+/Users/leonidrozenberg/.opam/4.02.1/lib/ocaml/compiler-libs: added to search
+path
+/Users/leonidrozenberg/.opam/4.02.1/lib/ocaml/compiler-libs/ocamlcommon.cma:
+loaded
+/Users/leonidrozenberg/.opam/4.02.1/lib/ocaml/compiler-libs/ocamlbytecomp.cma:
+loaded
+/Users/leonidrozenberg/.opam/4.02.1/lib/ocaml/compiler-libs/ocamltoplevel.cma:
+loaded
+# let a x = x + 1 ;;
+&gt;&gt; Fatal error: a unbound at toplevel
+Fatal error: exception Misc.Fatal_error
+      </cwn_what>
+      <cwn_who>Gabriel Scherer replied</cwn_who>
+      <cwn_what>
+The short answer is: no, there is no documentation.
+
+The long answer: compiler-libs was made available following the demand of
+expert users, that were already familiar with the compiler codebase, willing
+to reuse its internals to develop tooling around the language. Nobody had the
+time back then to contribute a comprehensive documentation, or even to define
+a reasonable API subset to expose (so basically everything is exposed).
+Finally, there is no guarantee of API compatibility across OCaml versions, so
+reusing this makes you tightly coupled to the compiler evolution.
+
+Documentation emerges slowly under the form of blog posts, discussions, and
+evolution of the codebase. In particular, over the course of his work on -ppx,
+Alain Frisch enriched parsing/parsetree.mli with invaluable comments
+describing the mapping between concrete and abstract syntax. Everyone is
+warmly welcome to contribute such improvements to the (codebase)
+documentation.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>POSTDOC position at NOVA LINCS Lisbon (background in Programming Languages and Tools)</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-08/msg00084.html</cwn_url>
+      <cwn_who>Luis Caires announced</cwn_who>
+      <cwn_what>
+We would like to announce a post doc / research associate position at
+NOVA Laboratory for Computer Science and Informatics (Lisbon) for
+candidates with a strong background in topics such as programming
+languages, programming language design and implementation, software
+verification, and program analysis. The successful candidate will join
+a just launched project on new programming models, incremental
+verification techniques, and programming environments for the
+interactive / live construction of trustworthy web/cloud applications.
+
+Please contact me (lcaires(at)fct.unl.pt) for additional information
+about the position and project. More information at:
+
+http://nova-lincs.di.fct.unl.pt/open-positions/position-4
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Gg 0.9.1</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-08/msg00094.html</cwn_url>
+      <cwn_who>Daniel Bünzli announced</cwn_who>
+      <cwn_what>
+Gg 0.9.1 has been released. This is a bugfix release. 
+
+See the release notes:
+
+  https://github.com/dbuenzli/gg/blob/v0.9.1/CHANGES.md#v091-2015-08-14-cambridge-uk
+
+Gg provides basic types for computer graphics in OCaml. It is distributed
+under a BSD3 license.
+
+Homepage: http://erratique.ch/software/gg
+API documentation: http://erratique.ch/software/gg/doc/Gg
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>PhD position announcement: Mixing Unproved and Proved sub-systems through Contracts for Correct-by-Construction system design</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-08/msg00095.html</cwn_url>
+      <cwn_who>David Mentré announced</cwn_who>
+      <cwn_what>
+CEA LIST and Mitsubishi Electric R&amp;D Centre Europe are opening a fully funded
+PhD position titled "Mixing Unproved and Proved sub-systems through Contracts
+for Correct-by-Construction system design".
+
+Position details are available here:
+
+
+http://www.fr.mitsubishielectric-rce.eu/images/fck_upload/1507_Annonce_Formal%20methods_PhD_201510_EN.pdf
+
+This PhD position is not strictly related to OCaml, but all formal related
+software at CEA LIST and MERCE are written in OCaml so it would most probably
+be used for the PhD work.
+
+Do not hesitate to ask questions if needed. Feel free to forward this position
+to relevant forums.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Vg 0.8.2</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-08/msg00099.html</cwn_url>
+      <cwn_who>Daniel Bünzli announced</cwn_who>
+      <cwn_what>
+Vg 0.8.2 has been released and will soon be available in opam.
+
+Thanks to Arthur Wendling's work (and patience with me to merge), this release
+brings us an initial Cairo [1] backend via the cairo2 bindings [2].
+
+It allows to use Vg with gtk applications or any cairo context you are able to
+get a handle on. This notably brings rendering to raster memory buffers and
+offline PNG and PS file generation to Vg. It also provide redundant PDF and
+SVG file generation but Vg's own pure OCaml renderers are much faster for
+that.
+
+Vg's online image database [3] has eventually been fixed so that the many
+people that are on Linux using Firefox should no longer witness obscure (au
+propre comme au figuré) stack overflows.
+
+The full release notes are here:
+
+  https://github.com/dbuenzli/vg/blob/v0.8.2/CHANGES.md#v082-2015-08-14-cambridge-uk
+
+Vg brings declarative 2D vector graphics to OCaml. It is distributed under a BSD3 license.  
+
+Homepage: http://erratique.ch/software/vg
+API documentation: http://erratique.ch/software/vg/doc/
+
+Best,
+
+Daniel
+
+P.S. The Cairo backend glyph API is a bit underpowered at the moment. If you
+are interested in improving this, get in touch on
+https://github.com/dbuenzli/vg/issues/9
+
+P.P.S. `-safe-string` support means that Vg 0.8.2 is &gt; OCaml 4.02.0 only. It
+turns out that the bytes compatibility package is not really sufficient for
+basic use cases, e.g. you don't get the bytes related functions in the
+`Buffer` module.
+
+[1] http://cairographics.org/  
+[2] http://cairo.forge.ocamlcore.org/tutorial/
+[3] http://erratique.ch/software/vg/demos/rhtmlc
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Ocsigen releases</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-08/msg00104.html</cwn_url>
+      <cwn_who>Drup announced</cwn_who>
+      <cwn_what>
+We are happy to announce the releases of
+
+- Eliom 4.2
+- Server 2.6
+- js_of_ocaml 2.6
+- TyXML 3.5
+
+We also welcome a new member in the ocsigen team, Vasilis Papavasileiou.
+
+Key changes in the various releases:
+
+- PPX support for js_of_ocaml with OCaml &gt;= 4.02.2
+  See documentation here.
+
+  This was also the occasion to introduce a new syntax for object
+  literals, and to improve the Camlp4 syntax (w.r.t. to
+  locations). Both syntaxes emit the same code, and are perfectly
+  compatible.
+
+- Support for dynlink in js_of_ocaml.
+
+- Logging improvements in Eliom and Server, in particular on
+  the client side.
+
+- A healthy amount of bugfixes.
+
+
+The next releases will probably see major changes. The current plan
+is:
+
+- Replace Server's internals with cohttp, as part of our
+  move towards Mirage-compatible libraries.
+
+- Shared_react, which allows to build reactive pages from server side.
+
+- PPX for Eliom.
+
+- Support for async/core in js_of_ocaml.
+
+ Have fun with Ocsigen!
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Albatross: A Verifying Compiler v0.2</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-08/msg00109.html</cwn_url>
+      <cwn_who>Helmut Brandl announced</cwn_who>
+      <cwn_what>
+I am pleased to announce version 0.2 of the Albatross compiler.
+
+The Albatross compiler suite is written in ocaml v4.0.
+
+What is Albatross?
+
+- A programming language with static verification.
+
+- A theorem prover and a proof assistant.
+
+http://albatross-lang.sourceforge.net
+
+New features of version 0.2:
+- Inductive Data Types
+- Recursive Functions
+- Proofs by Induction
+- A lot of examples in the updated documentation
+(&lt;http://albatross-lang.sourceforge.net/doc/language_description/albatross.pdf&gt;)
+covering boolean logic, predicate logic, recursion and induction.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Simple exception - different behaviour between toplevel and compiled</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-08/msg00121.html</cwn_url>
+      <cwn_who>Oliver Bandel announced</cwn_who>
+      <cwn_what>
+using the attached files (executing testexc,bash)
+I got different results between toplevel and compiled:
+
+=====================================================
+Testcase A
+exception A of int * int
+let _ = raise ( A(3,4) )
+Exception: A (3, 4).
+Fatal error: exception Exca.A(3, 4)
+Fatal error: exception Exca.A(3, 4)
+Testcase B
+exception B of (int*int)
+let _ = raise ( B(3,4) )
+Exception: B (3, 4).
+Fatal error: exception Excb.B(_)
+Fatal error: exception Excb.B(_)
+=====================================================
+
+So just adding parantheses in a definition of an exception
+yields in these differing results, with not-shown exception-values.
+
+IMHO looks like a case for the bugtracker...
+
+OCaml version is 4.02.1
+
+exca.ml:
+exception A of int * int
+let _ = raise ( A(3,4) )
+
+excb.ml:
+exception B of (int*int)
+let _ = raise ( B(3,4) )
+
+testexc.bash:
+echo Testcase A
+FILE=exca.ml
+cat    $FILE
+ocaml  $FILE
+ocamlc $FILE
+./a.out
+ocamlopt $FILE
+./a.out
+      </cwn_what>
+      <cwn_who>Arthur Wendling replied</cwn_who>
+      <cwn_what>
+&gt; exception A of int * int
+
+This is an exception with two arguments.
+
+&gt; exception B of (int*int)
+
+This is an exception with a single argument, which is a product of two values.
+So the parenthesis actually matters:
+
+# fun x -&gt; A x ;;
+Error: The constructor A expects 2 argument(s),
+but is applied here to 1 argument(s)
+# fun x -&gt; B x ;;
+- : int * int -&gt; exn = &lt;fun&gt;
+
+I agree that the syntax is a bit surprising, since we are used to ignore extra
+parenthesis.
+
+Anyway, now, regarding the output of the interpreter/compiler:
+- A of int * int is printable by both, because the runtime can guess that the
+two arguments are integers (because they aren't pointers.)
+- B of (int * int) is only printed correctly by the interpreter, because it
+keeps the source information. The compiler erases all that, so the runtime
+only sees a single argument, that contains two ints, but it doesn't know how
+to display it: it could be something else than a tuple from the point of view
+of the user (like a record { x : int ; y : int }, but the names x,y have been
+forgotten, so the runtime representation is identical to (int * int)).
+      </cwn_what>
+      <cwn_who>Gabriel Scherer then said</cwn_who>
+      <cwn_what>
+To Arthur's excellent answer, one can add that you can register
+user-defined exception printers to batch programs (this does not
+affect the toplevel):
+
+$ cat test.ml
+exception Foo of (int * int)
+
+let () = Printexc.register_printer (function
+  | Foo (a, b) -&gt;
+    Some (Printf.sprintf "Foo (%d, %d), with best regards" a b)
+  | _ -&gt; None
+)
+
+let v = (1, 2)
+let () = raise (Foo v)
+
+$ ocamlc -o test test.ml &amp;&amp; ./test
+Fatal error: exception Foo (1, 2), with best regards
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Position at Wolfram Mathcore</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-08/msg00131.html</cwn_url>
+      <cwn_who>Leonardo Laguna Ruiz announced</cwn_who>
+      <cwn_what>
+This position may be interesting for Ocaml programmers.
+
+Find the full description at: http://www.mathcore.com/company/careers.php
+
+Software Engineer for Wolfram SystemModeler
+
+Do you have a passion for compiler technology, math, and mathematical
+modeling, and would like to exercise those skills while developing
+world-leading modeling and simulation software? In that case, look no
+further..
+
+As a software engineer at Wolfram Mathcore, you will work mainly at our office
+in Linköping, Sweden, on the development of the SystemModeler kernel. The main
+function of the kernel is to translate models defined in the Modelica language
+into executable simulation code.
+
+Function and responsibilities
+
+You will work in a team with responsibilities ranging from algorithm and user
+interface design to testing. As a kernel developer your main responsibility is
+maintaining existing code and implementing new features of the SystemModeler
+kernel. This involves the following tasks, with OCaml used as the main
+language for kernel development:
+
+* Parsing and transforming representations of Modelica code
+* Mathematical processing of equations
+* Code generation of C/C++ simulation code
+* Numerical runtime computations
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Size of .cmo / .cmi workload of the compiler</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-08/msg00132.html</cwn_url>
+      <cwn_who>Christoph Höger announced</cwn_who>
+      <cwn_what>
+I autogenerate a rather large (&gt; 12k) set of ocaml modules containing
+classes which are parameterized over their final representation to allow
+for hierarchic classes with polymorphic open recursion.
+
+My compilation scheme seems to work well in principle, but I am reaching
+a frustrating limit in practice: The compilation of the generated ml
+files seems to run superlinear (in fact it seems to depend on the
+hierarchical location of a class). As it turns out, the generated .cmo
+and .cmi files are quite large (up to several hundreds of kb). When I
+generate the .mli files or dump the .cmo files however, the output is
+quite small (several hundred instructions in the bytecode, the .mli file
+contains quite complex objects but still human readable).
+
+Is there any known issue that leads to:
+
+1. non-linear runtime when compiling inter-module classes
+2. huge .cmo files outside of the actual bytecode
+
+The generated source code can be found here:
+
+https://www.dropbox.com/s/cllc0xikv9zwu1k/doesnotscale.tar.bz2?dl=0
+
+To test the behavior, unpack and run
+
+ocamlbuild ModelicaXX5FElectricalXX5FMachines.cmo
+
+(there might be type-errors in the generated files somewhere, though).
+
+Any advice or comments are deeply appreciated.
+      </cwn_what>
+      <cwn_who>Fabrice Le Fessant then replied</cwn_who>
+      <cwn_what>
+One possible explanation: object types are almost always expansed in
+the .cmi files (and probably in the debug section of .cmo files), and
+all the more if all the classes are defined in different .cmi files
+(since each type is loaded from a different file, there is no
+in-memory sharing when the same type appears in two different
+modules).
+
+When we created the Try-OCaml site for Js-of-OCaml
+(&lt;https://try.ocamlpro.com/js_of_ocaml/&gt;), we ran in the same problem,
+because js-of-ocaml uses object types for most values, and so the .cmi
+files that were loaded were much bigger than for the original
+Try-OCaml site (something like 12 MB instead of 1 MB to load the
+toplevel). We ended up writting a compressor of .cmi files.
+
+If you are using 4.01.0, you can download a bytecode image of that
+compressor in the former repository of try-ocaml:
+
+https://github.com/OCamlPro/tryocaml/tree/master/toplevellib/toplevellib-4.01.0
+
+and then, you can test it on one of your .cmi files to see if it can
+compress these files (for Try-OCaml, the image decreased from 12 MB to
+2 MB if I remember correctly). Then, you could run it automatically on
+each .cmi files after it has been generated by ocamlc, if it is indeed
+the source of the problem.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Introduction to Functional Programming in OCaml</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-08/msg00140.html</cwn_url>
+      <cwn_who>Habet MS announced</cwn_who>
+      <cwn_what>
+pleased to announce the publication of an OCaml book (in French) : 
+title: Initiation à la programmation fonctionnelle en OCaml
+author: HABET Mohammed-Said 
+edit: Edilivre, 2015
+
+For more informations:
+http://www.edilivre.com/initiation-a-la-programmation-fonctionnelle-en-ocaml-mohammed-said-habet.html
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Setting Pervasive's stderr to unbuffered as default?</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-08/msg00160.html</cwn_url>
+      <cwn_who>Oliver Bandel asked</cwn_who>
+      <cwn_what>
+stderr on Unix is unbuffered by default.
+
+In OCaml, all the Channels from Pervasives are buffered by default,
+and flush-function must be used.
+This issue is annoying me since ages...
+
+Is there a way to set Unix-like-behaviour (unbuffered stderr =>  unbuffered
+Pervasives.stderr)
+as default?
+
+Something like setbuf(3) / setvbuf(3) for OCaml's pervasives?
+
+Would a feature-wish for this feature have any chance of success?
+      </cwn_what>
+      <cwn_who>Gerd Stolpmann then said</cwn_who>
+      <cwn_what>
+I cannot follow. Pervasives.stderr is unbuffered; however (see
+pervasives.ml):
+
+let print_endline s =
+  output_string stdout s; output_char stdout '\n'; flush stdout
+let print_newline () = output_char stdout '\n'; flush stdout
+
+let prerr_endline s =
+  output_string stderr s; output_char stderr '\n'; flush stderr
+let prerr_newline () = output_char stderr '\n'; flush stderr
+
+So far I know these are the only functions doing an implicit flush, and
+they are doing it for both stdout and stderr.
+      </cwn_what>
+      <cwn_who>Xavier Leroy then replied</cwn_who>
+      <cwn_what>
+Just to avoid possible misunderstandings:
+
+- All Pervasives.out_channel are buffered.  There is no such thing
+  as an unbuffered out_channel.
+- A few "print" functions from Pervasive flush explicitly when
+  printing a newline (because those functions are often used for
+  interactive I/O).
+- The "%!" modifier for printf also forces a flush.
+
+Hope it's clearer now.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocaml.org/&gt;.
+
+OCaml Labs compiler hacking: Tenth OCaml compiler hacking evening and OCaml/ML talks
+  &lt;http://ocamllabs.github.com/compiler-hacking/2015/08/20/mini-workshop.html&gt;
+
+Jane Street: No (functional) experience required
+  &lt;https://blogs.janestreet.com/no-functional-experience-required/&gt;
+
+Functional Jobs: Haskell Engineer at Wagon (Full-time)
+  &lt;http://functionaljobs.com/jobs/8857-haskell-engineer-at-wagon&gt;
+
+OCamlCore Forge Projects: stdint
+  &lt;https://forge.ocamlcore.org/projects/stdint/&gt;
+
+Dario Teixeira: Announcing Lambdoc 1.0-beta4
+  &lt;http://nleyten.com/post/2015/08/17/Announcing-Lambdoc-1.0-beta4&gt;
+
+GaGallium: Merging OCaml patches
+  &lt;http://gallium.inria.fr/blog/merging-ocaml-patches&gt;
+
+Andrej Bauer: Provably considered harmful
+  &lt;http://math.andrej.com/2015/08/05/provably-considered-harmful/&gt;
+
+OCamlCore Forge News: Release of OCaml-bitcoin 2.0
+  &lt;https://forge.ocamlcore.org/forum/forum.php?forum_id=926&gt;
+
+Functional Jobs: Software Engineer, OCaml at Pegged Software (Full-time)
+  &lt;http://functionaljobs.com/jobs/8854-software-engineer-ocaml-at-pegged-software&gt;
+
+Github OCaml jobs: Full Time: Software Developer (Functional Programming) at
+Jane Street in New York, NY; London, UK; Hong Kong
+  &lt;http://jobs.github.com/positions/0a9333c4-71da-11e0-9ac7-692793c00b45&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

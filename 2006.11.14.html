@@ -1,0 +1,353 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2006.11.07.html">Previous week</a> <a href="index.html">Up</a> <a href="2006.11.21.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of November 07 to 14, 2006.</p><ol>
+      <li>
+        <a href="#1">parameterized pattern</a>
+      </li>
+      <li>
+        <a href="#2">Higher-order kinds?</a>
+      </li>
+      <li>
+        <a href="#3">camlidl and the CAMLxxx macros</a>
+      </li>
+      <li>
+        <a href="#4">Simple idea for making a function infix</a>
+      </li>
+      <li>
+        <a href="#5">SOSS - SOAP server for OCaml</a>
+      </li>
+    </ol><a name="1" /><hr /><h3>parameterized pattern</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/45297eadb617f87f/8f7fc6ee8bd35e01#8f7fc6ee8bd35e01">http://groups.google.com/group/fa.caml/browse_thread/thread/45297eadb617f87f/8f7fc6ee8bd35e01#8f7fc6ee8bd35e01</a></p><i>Serge Aleynikov asked:</i><br /><pre>
+The section 6.6 of OCaml's manual introduces a notion of "Parenthesized 
+patterns". 
+
+I couldn't find any examples on how to use this feature, and brute-force 
+approach doesn't work: 
+
+# match 1.0 with 
+  (y : float)  -&gt; print_float y 
+| (s : string) -&gt; print_string s;; 
+This pattern matches values of type string 
+but is here used to match values of type float 
+# 
+
+Could anyone point at a suitable resource?
+			</pre><i>Jon Harrop suggested:</i><br /><pre>
+I wasn't even aware that you could add type annotations inside a pattern. Your 
+example will not work simply because OCaml's type system will not allow float 
+to unify with string. You need some context where type inference will allow 
+different possibilities, like a tuple containing both a float and a string: 
+# let f = function 
+  | (y : float), _ -&gt; print_float y 
+  | _, (s : string) -&gt; print_string s;; 
+
+or a polymorphic variant containing either a float or a string: 
+
+# let f = function 
+  | `F (y : float) -&gt; print_float y 
+  | `S (s : string) -&gt; print_string s;; 
+val f : [&lt; `F of float | `S of string ] -&gt; unit = &lt;fun&gt;
+			</pre><i>Lukasz Stafiniak also suggested:</i><br /><pre>
+You can do this kind of ad-hoc polymorphism with with G'Caml: 
+<a href="http://web.yl.is.s.u-tokyo.ac.jp/~furuse/gcaml/">http://web.yl.is.s.u-tokyo.ac.jp/~furuse/gcaml/</a> 
+BTW, I think that G'Caml deserves more attention on this list (see  <a href="http://lambda-the-ultimate.org/node/1278">http://lambda-the-ultimate.org/node/1278</a>). (I've even thought that it  is still a patch to OCaml 2.0, but it seems to be up-to-date now.) 
+You can check also a related attempt in Meta OCaml, by Oleg Kiselyov: 
+<a href="http://pobox.com/~oleg/ftp/ML/gprint/">http://pobox.com/~oleg/ftp/ML/gprint/</a> 
+(search the archives for "Generic print function").
+			</pre><i>Jon Harrop asked and micha answered:</i><br /><pre>
+&gt; . Where do you get it from (the CVS doesn't seem to have it)? 
+
+I did: 
+export CVSROOT=:pserver:anoncvs@camlcvs.inria.fr:/caml 
+cvs login 
+ &gt;empty password 
+cvs co -r gcaml3090 ocaml 
+
+this gives me an ocaml source with gcamllib and README.gcaml... 
+Maybe this is the right source...
+			</pre><a name="2" /><hr /><h3>Higher-order kinds?</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/49cfa3eed1b7e1c1/ff8d79645569f7f0#ff8d79645569f7f0">http://groups.google.com/group/fa.caml/browse_thread/thread/49cfa3eed1b7e1c1/ff8d79645569f7f0#ff8d79645569f7f0</a></p><i>Jacques Carette asked:</i><br /><pre>
+Is there any way to get higher-order kinds in Ocaml? 
+While investigating some issues around partial evaluation (in 
+MetaOCaml), we ran across this post from Jacques Guarrigue: 
+
+<a href="http://caml.inria.fr/pub/ml-archives/caml-list/2006/09/05dcdcb7064cc73bfdfb756a419a9010.fr.html">http://caml.inria.fr/pub/ml-archives/caml-list/2006/09/05dcdcb7064cc73bfdfb756a419a9010.fr.html</a>
+
+After a few emails between Ken Shan and Oleg Kiselyov, Ken produced a very elegant translation of this 'trick' into Haskell, which starts off thus: 
+
+data T f = Bool (f Bool) | Int (f Int) | Fun (T (F1 f)) 
+newtype F1 f a = F1 { f1 :: T (F2 f a) } 
+newtype F2 f a b = F2 { f2 :: f (a -&gt; b) } 
+
+Note how f in the above it a type-level function, and the types F1 and 
+F2 are used 'partially applied'.  It is possible to expand this all out 
+into first-order, but the end result is not pretty, to say the least! 
+
+Note that the rest of the Haskell code (classes and instances) can be 
+translated into Functors and Modules [using that nice trick of having 
+functors that produce module types, again thanks to Jacques G.].  The 
+end result is definitely more verbose than the Haskell, but not 
+desperately so. 
+
+Jacques 
+
+PS: rest of code, which just implements in an 'open' way what Jacques G. 
+did using closed types in the email linked-to above 
+
+class Dynamic t where 
+    inj :: f t -&gt; T f 
+    prj :: T f -&gt; Maybe (f t) 
+
+instance Dynamic Bool where 
+    inj = Bool 
+    prj (Bool x) = Just x 
+    prj _ = Nothing 
+
+instance Dynamic Int where 
+    inj = Int 
+    prj (Int x) = Just x 
+    prj _ = Nothing 
+
+instance (Dynamic a, Dynamic b) =&gt; Dynamic (a -&gt; b) where 
+    inj x = Fun (inj (F1 (inj (F2 x)))) 
+    prj (Fun t) = prj t &gt;&gt;= prj . f1 &gt;&gt;= return . f2 
+    prj _ = Nothing
+			</pre><a name="3" /><hr /><h3>camlidl and the CAMLxxx macros</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/8adc3cfbb51304e3/2b572e1d9c73cb94#2b572e1d9c73cb94">http://groups.google.com/group/fa.caml/browse_thread/thread/8adc3cfbb51304e3/2b572e1d9c73cb94#2b572e1d9c73cb94</a></p><i>Yitzhak Mandelbaum asked and Xavier Leroy answered:</i><br /><pre>
+&gt; Does anyone know why the code generated by camlidl does not use the
+&gt; CAMLxxx macros that are specified by the OCaml manual?
+
+The API for GC root registration went through several design cycles,
+and CamlIDL was mostly written before the latest API (the CAMLxxx
+macros) was implemented.  Besides, the Begin_roots* macros used in
+CamlIDL-generated code, while lower-lever than the CAMLxxx macros,
+are no harder, and maybe slightly simpler, to generate automatically
+by a program such as CamlIDL.
+			</pre><a name="4" /><hr /><h3>Simple idea for making a function infix</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/c79f7b8fbb7d31b7/6baac9a447e6c5cb#6baac9a447e6c5cb">http://groups.google.com/group/fa.caml/browse_thread/thread/c79f7b8fbb7d31b7/6baac9a447e6c5cb#6baac9a447e6c5cb</a></p><i>Keisuke Nakano said:</i><br /><pre>
+Haskell people sometimes complain about that OCaml cannot make an 
+arbitrary function infix. For example, they can write (3 `min` 4) 
+to get the result of (min 3 4) in Haskell. Can we satisfy them 
+without changing OCaml's syntax? 
+
+Here is a simple idea for making a function infix in OCaml. 
+I hope it will be useful for those who like Haskell's backquote 
+notation `function_name`. 
+The idea doesn't require any change of OCaml's syntax. 
+
+We use the following two infix operators. 
+
+   let ( /* ) x y = y x 
+   and ( */ ) x y = x y 
+
+Then we can make an infix operator /*f*/ for a binary function f. 
+For example, using binary functions 'min' and 'max', we can write 
+
+   3 /*min*/ 4 + 6 /*max*/ 8 
+
+to get 11 as 'min 3 4 + max 5 8'. Note that the infix operator 
+( */ ) may conflict with Num.( */ ) if the Num module is loaded 
+and opened. You can use other definitions in a similar manner, though. 
+
+You have to take care of the precedence. For example, 
+
+   3 /*min*/ 4 * 6 /*max*/ 8 
+
+will return 18 as 'max ((min 3 4) * 6) 8'. So we should write 
+
+   (3 /*min*/ 4) * (6 /*max*/ 8) 
+
+to get 24 as 'min 3 4 * max 6 8'. 
+
+The original idea was introduced in my blog a few months ago 
+(written in Japanese, though). At that time, I used other definitions: 
+
+   let ( &lt;| ) x y = y x 
+   and ( |&gt; ) x y = x y 
+
+or 
+
+   let ( @^ ) x y = y x 
+   and ( ^@ ) x y z = x z y 
+
+where the definition of ( ^@ ) should be given in a different way 
+because of the precedence of infix operaters starting with '^' or '@'. 
+These operators perform a different behavior because of the precedences 
+of operators. 
+
+   3 &lt;|min|&gt; 4 + 6 &lt;|max|&gt; 8 (* = max (min 3 (4 + 6)) 8 =&gt; 8 *) 
+   3 @^min^@ 4 + 6 @^max^@ 8 (* = min 3 (max (4 + 6) 8) =&gt; 3 *) 
+
+So you have to write 
+
+   (3 &lt;|min|&gt; 4) + (6 &lt;|max|&gt; 8) 
+   (3 @^min^@ 4) + (6 @^max^@ 8) 
+
+to get 11 as min 3 4 + max 5 8'.
+			</pre><i>Till Varoquaux asked and skaller answered:</i><br /><pre>
+&gt; I don't really understand the point of the */ operator i your 
+&gt; definition. It's fuy ecause I've cosiderig the same problem recetly ad 
+&gt; came dow to this approach ( I'm redefining(@)... oe c ) 
+&gt; &gt;    let ( /* ) x y = y x 
+&gt; &gt;    and ( */ ) x y = x y 
+
+
+The point is precedence: consider only /* then 
+        x /* f y 
+
+means 
+
+        x /* (f y) 
+
+whereas 
+
+        x /* f */ y 
+
+means 
+
+        (f x) y 
+
+Of course 
+
+        x /* f */ y z 
+
+means 
+
+        f x (y z) 
+
+but then 
+
+        x + y z 
+
+also means 
+
+        (+) x (y z) 
+
+Also you can write 
+
+        x /* g h */ y 
+
+which means 
+
+        (g h) x y 
+
+which is kind of cute, eg: 
+
+        [] /* List.fold_left (fun x y -&gt; y::x) */ [1;2;3]
+			</pre><i>Oleg then added:</i><br /><pre>
+Haskell's back-quote notation has a notable limitation as it applies 
+to identifiers only. That is, we gain infix identifiers rather than 
+infix expressions. As it turns out, we can obtain infix expressions 
+without any change of syntax or any backticks: 
+
+  <a href="http://www.haskell.org/pipermail/haskell-prime/2006-March/000935.html">http://www.haskell.org/pipermail/haskell-prime/2006-March/000935.html</a> 
+  <a href="http://www.haskell.org/haskellwiki/Infix_expressions">http://www.haskell.org/haskellwiki/Infix_expressions</a> 
+
+It seems that the second solution of the above page is similar to the 
+one just proposed for OCaml. For ease of comparison, in Haskell, ($) is 
+defined as [x $ y = x y] and flip flips the order of the arguments. 
+
+The first solution on that page can be rendered in Ocaml as follows: 
+
+        let (&gt;--) x y = (x,y);; 
+        let (&lt;--) (x,f) y = f x y;; 
+
+Now we can write 
+
+        # 3 &gt;-- min &lt;-- 4;; 
+        - : int = 3 
+
+We gain not only infix identifiers but infix expressions as well: 
+
+        let a = Array.make 3 'a';; 
+        val a : char array = [|'a'; 'a'; 'a'|] 
+        1 &gt;-- Array.set a &lt;-- 'b'; a;; 
+        - : char array = [|'a'; 'b'; 'a'|] 
+
+so we can use even three-argument functions as sort of `infix'...
+			</pre><a name="5" /><hr /><h3>SOSS - SOAP server for OCaml</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/8ba69f4e1b03d753/56ae34158b5f8be7#56ae34158b5f8be7">http://groups.google.com/group/fa.caml/browse_thread/thread/8ba69f4e1b03d753/56ae34158b5f8be7#56ae34158b5f8be7</a></p><i>Stefan Lampe announced:</i><br /><pre>
+I'd like to announce that I've released a SOAP server for OCaml. 
+
+It's available at <a href="http://www.caterpillarjones.org/soss">http://www.caterpillarjones.org/soss</a> 
+
+An overview follows below, but I should mention two things, 
+one: it's still alpha code, I have not used it extensively yet, and 
+two: it makes extensive use of OCamlduce, which may be of 
+interest to some people here. 
+
+I hope some people find it of use. 
+
+Thanks, 
+Stefan Lampe 
+
+--- 
+
+SOSS is an implementation of a SOAP server for OCaml. 
+
+It is designed to allow a service, developed in OCaml, to be made available 
+as a SOAP service with minimal effort. 
+
+It's features include: 
+   It can serve the service through HTTP or TCP 
+   It has the option of restricting service functions to sequential access, 
+      providing protection to services that are not thread safe. 
+      Alternatively, multi threaded access is just as possible 
+   RPC style or wrapped document style SOAP messages 
+   A generation utility to allow, from the service interface, automatic 
+   generation of: 
+      Interface routines 
+      Message schema 
+      WSDL 1.1 
+      WSDL 2.0 (tentative support) 
+
+It is possible to write a series of service functions in pure OCaml without 
+regard to SOAP and, from the interface file for the service automatically 
+generate all that is required to reveal the service as a SOAP service 
+through HTTP or TCP. 
+
+It is not, however, a completely general SOAP server. It's goal is as 
+above, 
+to define an OCaml service and reveal it as a SOAP service. As such it 
+provides no support for more general SOAP features, such as SOAP with 
+attachments.
+			</pre><i>Richard Jones said and Stefan Lampe answered:</i><br /><pre>
+&gt; Oh interesting.  Are you aware of our (cduce-implemented) 
+&gt; SOAP client?  <a href="http://merjis.com/developers/oc-soap">http://merjis.com/developers/oc-soap</a> 
+
+Yes, originally I didn't intend to write a SOAP server, I just wanted to 
+use one - so I looked around for SOAP and OCaml and found OC-SOAP. I 
+then thought I might be able to extend OC-SOAP, but in the end I chose 
+to map from OCaml types to a schema rather than from schema to an OCaml 
+types. For the server side this made more sense, and is nice, in a 
+way... SOSS and OC-SOAP complement each other well. 
+I may soon add a client feature to SOSS, but it will never work with a 
+generic SOAP service, since it will be generated from the OCaml server 
+side interface file - rather than the more public WSDL. It would only 
+provide a solution for an OCaml client with OCaml server where the 
+developers of each are in close contact with each other. For myself 
+though, I only wanted to develop a server side application in OCaml and 
+develop a client in another language - which is why I haven't added this 
+feature yet, though most of the glue is, by default, already written. 
+
+I think I may have already read in a message somewhere that you 
+recommended CDuce after using it for OC-SOAP, but if anyone else is 
+reading this that is interested in manipulating XML in an OCaml 
+application, I found OCamlduce to be very clear, concise and expressive. 
+I was very impressed.
+			</pre><hr /><h3>Using folding to read the cwn in vim 6+</h3><p>Here is a quick trick to help you read this CWN if you are viewing it using vim (version 6 or greater).</p><pre>:set foldmethod=expr<br />:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'&amp;lt;1':1<br />zM</pre><p>If you know of a better way, please let me know.</p><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right">
+      <i>
+        <a href="http://alan.petitepomme.net/">Alan Schmitt</a>
+      </i>
+    </p><p align="right">
+      <script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script>
+      <script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" />
+      <script src="http://www.google-analytics.com/urchin.js" type="text/javascript" />
+      <script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script>
+    </p></body>
+</html>

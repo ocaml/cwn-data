@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2016.01.19</cwn_date>
+    <cwn_prev>2016.01.12</cwn_prev>
+    <cwn_next>2016.01.26</cwn_next>
+    <cwn_date_text>January 12 to 19, 2016</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>otags reloaded 4.02.1 for OCaml 4.02</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2016-01/msg00056.html</cwn_url>
+      <cwn_who>Hendrik Tews announced</cwn_who>
+      <cwn_what>
+I updated otags to OCaml 4.02. You can find it at the usual place
+http://askra.de/software/otags/ under the usual license GPL v3.
+
+Otags reloaded generates tags tables for emacs and vi/vim. 
+
+The problem with open! is now fixed and otags processes files
+with module aliases, exception patterns and extensible variants.
+However, camlp4 and therefore also otags have only very limited
+support for attributes and extension nodes.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>release of OCPWin, and wxOCaml</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2016-01/msg00055.html</cwn_url>
+      <cwn_who>Fabrice Le Fessant announced</cwn_who>
+      <cwn_what>
+I would like to announce a new release of OCPWin, the OCamlPro binary
+distribution of OCaml for Windows. To test it, follow the links on the page:
+
+http://www.typerex.org/ocpwin.html
+
+OCPWin is a full OCaml binary distribution for Windows, available for both
+4.02.1 and 4.01.0 in 32 and 64 bits. It is distributed as either a Graphical
+Installer or Zip archives. OCPWin does not rely on Cygwin, and can be used
+directly from a Windows terminal, or better a Git Bash terminal. OCPWin allows
+multiple installs on the same computer, each distribution being managed
+similarly to a switch in opam, using a tool called "ocpwin.exe" (`ocpwin -list
+`, `ocpwin -install SWITCH`).
+
+It is packaged in 3 different flavors:
+- msvc : a distribution of OCaml relying on the MSVC compilers (Microsoft
+Visual Studio). All the versions of MSVC since 9.0 to 14.0 are supported, and
+automatically detected (they can be selected using an env variable called
+OCPWIN_MSVC).
+- mingw: it is a self-contained OCaml+MinGW distribution, where MinGW (a gcc
+for Windows) has been minimized to only contain the strictly needed files for
+OCaml;
+- full-mingw: it is a self-contained OCaml+MinGW distribution, with a full
+MinGW distribution;
+
+Note that even MinGW flavors can be configured after installation to use MSVC
+instead of MinGW.
+
+The changes also include using "ocpwin.exe" to register OCPWin in the user
+PATH variable, instead of NSIS, to avoid the PATH-corrupting bug that previous
+versions have suffered from. Both graphical installers and zip archives use
+this new capability.
+
+Support of MSVC has been tested by successfully compiling the last master
+branch of wxOCaml ( http://www.typerex.org/ocplib-wxOCaml.html ) for all
+binary versions of wxWidgets, version 3.02 (
+https://github.com/wxWidgets/wxWidgets/releases/tag/v3.0.2 , VC 9.0, 10.0,
+11.0 and 12.0). See the README.ocpwin file of wxOCaml.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Markup.ml - HTML5 and XML parsers with error recovery</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2016-01/msg00057.html</cwn_url>
+      <cwn_who>Anton Bachin announced</cwn_who>
+      <cwn_what>
+I would like to announce the release of Markup.ml, a pair of streaming,
+error-recovering parsers for HTML and XML. Usage is simple, like this:
+
+  (* Pretty-print HTML, with error correction. *)
+
+  open Markup
+
+  channel stdin
+  |&gt; parse_html
+  |&gt; signals
+  |&gt; pretty_print
+  |&gt; write_html
+  |&gt; to_channel stdout
+
+and
+
+  (* Show up to 10 XML errors to the user and abort early. *)
+
+  let report =
+    let count = ref 0 in
+    fun location error -&gt;
+      error |&gt; Error.to_string ~location |&gt; prerr_endline;
+      count := !count + 1;
+      if !count &gt;= 10 then raise_notrace Exit
+
+  string "some xml" |&gt; parse_xml ~report |&gt; signals |&gt; drain
+
+While still providing an easy basic interface, the parsers are
+non-blocking and can be readily used with threading libraries such as
+Lwt. For example, if "s" is a char Lwt_stream.t:
+
+  (* Assemble HTML into a tree asynchronously. *)
+
+  type html = Text of string | Element of string * html list
+
+  Markup_lwt.lwt_stream s
+  |&gt; parse_html
+  |&gt; signals
+  |&gt; Markup_lwt.tree
+    ~text:(fun ss -&gt; Text (String.concat "" ss))
+    ~element:(fun (_, name) _ children -&gt; Element (name, children))
+  &gt;&gt;= (fun tree -&gt; ...)
+
+The parsers detect input encodings automatically. Everything is
+converted to UTF-8.
+
+Markup.ml aims at standard conformance. See the conformance status [1].
+Modulo any bugs, Markup.ml should already be highly conformant, the
+only significant missing pieces being the two error recovery algorithms
+listed for HTML (Markup.ml already performs the rest of HTML error
+recovery).
+
+The library can be found here:
+
+  https://github.com/aantron/markup.ml
+
+To install:
+
+  opam install markup
+
+Documentation is at:
+
+  http://aantron.github.io/markup.ml
+
+Apart from ordinary improvements to the library, there are several
+possible avenues of future work:
+
+- An HTML5/XHTML polyglot serializer.
+- Parsing of XML doctype declarations for a validation library built on
+  top of Markup.ml.
+- An Async interface (mainly just applying a functor, but I am not
+  experienced with Async at the moment).
+- Factoring out the stream and I/O portions of Markup.ml into their own
+  library or libraries.
+
+Bug reports and contributions are greatly appreciated.
+
+This work was prompted by Lambda Soup. That library could use a good,
+modern HTML parser, and several people also commented on the need.
+
+Markup.ml depends on the excellent Uutf by Daniel Buenzli. I'd also
+like to thank Daniel for giving useful early feedback on the library
+in the last couple of days.
+
+Regards,
+Anton
+
+
+[1]: http://aantron.github.io/markup.ml/#2_Conformancestatus
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>1st MirageOS hackathon - 11th-16th March</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2016-01/msg00066.html</cwn_url>
+      <cwn_who>Hannes Mehnert announced</cwn_who>
+      <cwn_what>
+the first MirageOS hackathon will be held in Marrakech, Morocco.
+11th-16th March 2016, more information at http://marrakech2016.mirage.io
+
+Everybody who wants to help improving MirageOS (a library operating
+system written in OCaml) is welcome.  We have reserved accommodation
+with full board, Internet is available, ...
+
+If you like to attend, please register by sending a mail to
+marrakech2016@mirage.io.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Ocaml Github Pull Requests</cwn_title>
+      <cwn_who>Gabriel Scherer compiled this list</cwn_who>
+      <cwn_what>
+Here is a sneak peek at some potential future features of the Ocaml
+compiler, discussed by their implementers in these Github Pull Requests.
+
+Fixes bugs in stack unwinding metadata
+https://github.com/ocaml/ocaml/pull/408
+
+Make Obj.is_block an inline OCaml function instead of a C primitive
+https://github.com/ocaml/ocaml/pull/427
+
+OCAMLPARAM option passed using a configuration file
+https://github.com/ocaml/ocaml/pull/428
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocaml.org/&gt;.
+
+Psellos: OCaml for iOS 9.2
+  &lt;http://psellos.com/2016/01/2016.01.man-out-of-time.html&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

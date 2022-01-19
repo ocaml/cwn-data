@@ -1,0 +1,756 @@
+			  ━━━━━━━━━━━━━━━━━━━
+			   OCAML WEEKLY NEWS
+			  ━━━━━━━━━━━━━━━━━━━
+
+
+[Previous Week] [Up] [Next Week]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of June 02 to 09,
+2020.
+
+Table of Contents
+─────────────────
+
+Multicore Update: April 2020, with a preprint paper
+BAP 2.1.0 Release
+Migrating an Async project to Lwt, a short primer
+jose 0.4.0
+OCaml 4.11.0, second alpha release
+OCaml Workshop 2020: Call for Volunteers
+Introduction to Lwt
+Other OCaml News
+Old CWN
+
+
+[Previous Week] http://alan.petitepomme.net/cwn/2020.06.02.html
+
+[Up] http://alan.petitepomme.net/cwn/index.html
+
+[Next Week] http://alan.petitepomme.net/cwn/2020.06.16.html
+
+
+Multicore Update: April 2020, with a preprint paper
+═══════════════════════════════════════════════════
+
+  Archive:
+  [https://discuss.ocaml.org/t/multicore-update-april-2020-with-a-preprint-paper/5630/26]
+
+
+Continuing this thread, Daniel Bünzli asked and KC Sivaramakrishnan replied
+───────────────────────────────────────────────────────────────────────────
+
+        One thing that I didn’t get from the paper is how exactly
+        `ConcurMinor' breaks the current FFI and the impact it
+        would have on the existing eco-system, on a scale from “it
+        affect all projects” to “only people doing *that* fancy
+        thing” :–) ?
+
+  All the projects that use the C API. The details are here:
+  [https://github.com/ocaml-multicore/ocaml-multicore/wiki/C-API-changes]
+
+        At the end of the paper it seems you make the point that
+        `ParMinor' is the solution to go with for the time
+        being. Does this means you are going to leave behind the
+        work done on `ConcurMinor' or do you intend to continue to
+        maintain it ?
+
+  We don't intend to maintain it. It is quite a bit of work to maintain
+  and port the changes across two different GCs.  `ParMinor' GC is now
+  at 4.11 branch point (the default multicore compiler is 4.10 +
+  ParMinor now). The `ConcMinor' is at 4.06.1.
+
+  Given that `ConcMinor' breaks the C API, the ecosystem would have to
+  be fixed for `ConcMinor' to be useful. The code changes are indeed
+  intricate; the differences are not just in the minor GC, but the
+  compilers internal use of the C API. It will be quite a bit of work to
+  keep both GCs in the same source distribution.
+
+
+Guillaume Munch-Maccagnoni then said
+────────────────────────────────────
+
+        Given that `ConcMinor' breaks the C API, the ecosystem
+        would have to be fixed for `ConcMinor' to be useful.
+
+  I do not think this is necessarily true.
+
+  Here is why I think so, but be warned that this is preliminary as I do
+  not have time to explore this idea further on my own at the moment.
+
+
+State in Rust
+╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  Breaking the C API is a consequence of deciding that all
+  single-threaded shared mutable state must assume they are also shared
+  between threads. So a new read barrier is used to promote values when
+  read from another thread. But for data types that were correct up to
+  now, users must also be careful to avoid races from now on… for
+  instance by avoiding sharing values of such types between domains.
+
+  One lesson of Rust is that there are different kinds of mutable state,
+  for different usages, with different means to achieve thread-safety.
+
+  The closest there is to current OCaml's `mutable' is the notion of
+  single-threaded multiple-writers mutable state (_`Cell'_). It is made
+  thread-safe in Rust by statically preventing values containing `Cell'
+  from crossing thread boundaries (by virtue of not having the _`Send'
+  trait_). The same restriction is used to make some data structures
+  more efficient by avoiding the cost of synchronisation (cf. the
+  reference-counting pointer `Rc' vs. the atomic reference-counting
+  pointer `Arc').
+
+  This is not enough by itself, and Rust offers other kinds of state for
+  communicating and sharing values between threads.
+
+  _`UnsafeCell'_ like Ocaml multicore's `mutable' (though yours is safe
+  thanks to the work on the memory model): it has almost no restriction
+  and can be sent across domains, but the user is likewise told to
+  “avoid data races”. It is rarely used alone, but together with type
+  abstraction it can be used to program safe concurrent data structures.
+
+  Lastly, the default notion of state in Rust is linear state, which can
+  be sent freely across threads. Thread-safety is ensured by restricting
+  aliasing using the ownership and borrowing discipline.
+
+
+A backwards-compatible concurrent collector?
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  If I had to imagine a backwards-compatible OCaml with static control
+  of interference à la Rust based on `ConcMinor', it would distinguish
+  the three kinds of state (concretely with other keywords in addition
+  to `mutable'). `mutable' would keep its current meaning of
+  single-domain, multiple-writers state and not require a read barrier,
+  and in particular preserve the API. (I count systhreads as
+  single-threaded for this purpose, since here it means "sharing the
+  same minor heap".)
+
+  Programs could progressively transition to other kinds of state when
+  parallelising the program. Concretely, a data structure like
+  `Stack.t', instead of becoming racy, would keep its current meaning,
+  but users could replace it with a linear stack or a concurrent stack,
+  two data structures distinct from the first one, when parallelizing
+  their programs.
+
+  So how could this fit with the current plans? It is not entirely clear
+  to me. If people start to rely on parallelism in an unstructured way
+  (e.g. no clear distinction between different kinds of data types
+  arising from different ways of ensuring thread-safety) then one will
+  also lose the ability to retrofit `ConcMinor' in a
+  backwards-compatible manner (by losing the information that the
+  current `mutable' API is single-threaded). The API breakage of
+  `ConcMinor' which might only be virtual right now (if I trust this
+  preliminary, not fully-explored idea) will become real.  (Further
+  difficulties arise with the emulation of the `Thread' library with
+  domains, but this could be changed later.)
+
+  But if users are provided in advance with a general direction for a
+  model of control of interference this might happen differently. And
+  eventually having such a model is desirable in any case, as it helps
+  parallelizing programs (for instance the Firefox people reported that
+  they had attempted and failed twice to parallelise the CSS engine in
+  C++ before succeeding with Rust). Furthermore, in an imaginary
+  retrofitting of `ConcMinor', one could imagine enforcing something
+  like the `Send' trait at the level of the read barrier until there is
+  a better way (there would be two kinds of barriers, one of which would
+  raise an exception if a state happened to be incorrectly shared across
+  domains, and not be required in the FFI).
+
+  I find `ConcMinor' interesting from a systems programming perspective
+  compared to the stop-the-world collector because it could (I hope)
+  offer possibilities such as having a low-latency domain communicating
+  with a higher-latency domain. Moreover the performance cost of the
+  read barrier might be lower in this scheme if it could be removed for
+  all but the concurrent data structures.
+
+
+BAP 2.1.0 Release
+═════════════════
+
+  Archive: [https://discuss.ocaml.org/t/ann-bap-2-1-0-release/5906/1]
+
+
+Ivan Gotovchits announced
+─────────────────────────
+
+  The Carnegie Mellon University Binary Analysis Platform ([CMU BAP]) is
+  a suite of utilities and libraries that enables analysis of programs
+  that are represented as machine code (aka binaries). CMU BAP is
+  written in OCaml and uses plugin-based architecture to enable
+  extensibility. We also have a domain-specific language, called Primus
+  Lisp, that we use to write analysis, specify verification conditions,
+  interact with the built-in SMT solver, and model the semantics of
+  machine instructions and functions.
+
+  The 2.1.0 Release is very rich in [new features] but the most
+  prominent addition is the new [symbolic executor] mode for the Primus
+  framework. We also significantly updated the Primus framework,
+  integrated it with our new Knowledge Base, which was introduced in the
+  BAP 2.0 release; we made our interpreter much faster; we added the
+  systems and components facilities, inspired by Common Lisp; and we
+  implemented a gradual type checker for Primus Lisp with type
+  inference. We also added an ability to represent machine instructions
+  as intrinsic functions so now it is possible to express their
+  semantics using Primus Lisp since we added IEEE754 primitives to the
+  Lisp interpreter.
+
+  As usual, we upgraded BAP to the newer versions of the Core library
+  and OCaml (we now support OCaml versions from 4.07 to 4.09). We also
+  significantly improved our build times and added an optional omake
+  backend, which we are using in-house.
+
+  From the user perspective, one of the key features of BAP as an
+  analysis platform is that you can run BAP on binaries that you can't
+  run otherwise, either because they need special hardware or software,
+  or need to interact with the outside world. In the past couple of
+  months, we have run BAP on various firmware and found numerous
+  zero-day vulnerabilities, particular, we were able to find critical
+  vulnerabilities in the VxWorks operating system that runs on,
+  potentially, billions of devices including mission-critical and
+  military appliances.
+
+  As always, questions, suggestions, and opinions are very welcome!
+
+
+[CMU BAP] https://github.com/BinaryAnalysisPlatform/bap
+
+[new features]
+https://github.com/BinaryAnalysisPlatform/bap/releases/tag/v2.1.0
+
+[symbolic executor]
+https://github.com/BinaryAnalysisPlatform/bap/pull/1105
+
+
+Migrating an Async project to Lwt, a short primer
+═════════════════════════════════════════════════
+
+  Archive:
+  [https://discuss.ocaml.org/t/migrating-an-async-project-to-lwt-a-short-primer/5908/1]
+
+
+Michael Bacarella announced
+───────────────────────────
+
+  Consider this a post where I think aloud about my experience migrating
+  an Async project to Lwt.  I've spent about a weekend doing such a
+  thing, and if, in the process of talking about it here I can save a
+  few people an hour or two (or perhaps inspire confidence to take such
+  a project on in the first place) then it will have been worthwhile.
+
+  This wouldn't be a complete post if I didn't also mention @dkim's
+  [translation of Real World OCaml's Async examples to Lwt]
+
+  This was born out of a previous effort where I [tried to mix Lwt and
+  Async in the same project].  This didn't go so well, so I tried
+  converting the whole thing to Lwt, and it turns out adapting to Lwt if
+  you're an Async person is actually much easier than I thought it would
+  be.
+
+
+[translation of Real World OCaml's Async examples to Lwt]
+https://github.com/dkim/rwo-lwt
+
+[tried to mix Lwt and Async in the same project]
+https://discuss.ocaml.org/t/best-practices-on-mixing-lwt-and-async/5372
+
+Basics
+╌╌╌╌╌╌
+
+  Both libraries involve promises/futures.  Async calls its promises
+  `Deferred.t', whereas in Lwt they're called `Lwt.t'.
+
+  In Async you start your program by saying `never_returns (Scheduler.go
+  ())' or `Command.async_spec' after you set up your initial
+  `Deferred.t'.
+
+  In Lwt you say `Lwt_main.run' on a top-level `Lwt.t' argument.  Note
+  you can re-run `Lwt_main.run' in a single program as many times as you
+  want, but perhaps you shouldn't run multiple `Lwt_main.run' in
+  parallel.
+
+  There's an easy correspondence between basic operators.
+
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   Async                      Lwt                     
+  ────────────────────────────────────────────────────
+   `Deferred.bind'            `Lwt.bind'              
+   `Deferred.return'          `Lwt.return'            
+   `>>='                      `>>='                   
+   `Deferred.map'             `Lwt.map'               
+   `>>|'                      `>|='                   
+   `Deferred.don't_wait_for'  `Lwt.async'             
+   `In_thread.run'            `Lwt_preemptive.detach' 
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+Starvation worries
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  The most important difference between Async and Lwt is that *fulfilled
+  promises are acted on immediately*, whereas Async kinda punts them to
+  the end of a work queue and runs their thunks later.
+
+  A return loop like this starves the rest of Lwt:
+
+  ┌────
+  │ open Lwt.Infix
+  │ 
+  │ let main () =
+  │   let rec loop () =
+  │     Lwt.return ()
+  │     >>= fun () ->
+  │     loop ()
+  │   in
+  │   Lwt.async (loop ());
+  │   Lwt_io.printlf "this line never prints!"
+  │ ;;
+  │ 
+  │ let () = Lwt_main.run main ;;
+  └────
+
+  whereas the corresponding Async loop does not starve:
+
+  ┌────
+  │ open! Async
+  │ 
+  │ let main () =
+  │   let rec loop () =
+  │     Deferred.return ()
+  │     >>= fun () ->
+  │     loop ()
+  │   in
+  │   don't_wait_for (loop ());
+  │   printf "this line does print!\n";
+  │   return ()
+  │ ;;
+  │ 
+  │ let () =
+  │   let cmd = Command.async_spec ~summary:"" Command.Spec.empty main in
+  │   Command.run cmd
+  │ ;;
+  └────
+
+  Fortunately there's a workaround. You can get something closer to the
+  Async-style behavior in Lwt by using `Lwt.yield ()' instead of
+  `Lwt.return ()'.
+
+
+Spawning threads
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  From time to time you may need to run something in a system thread.
+  In Async you say `In_thread.run', whereas in Lwt you say
+  `Lwt_preemptive.detach'.  For simple things they're pretty much
+  interchangeable, but one stumbling point for me was that in Async you
+  can create a named thread and always use that for the `In_thread.run',
+  with multiple simultaneous dispatches to that thread becoming
+  sequenced.
+
+  This is really useful for interacting with libraries that aren't so
+  thread friendly.
+
+  Lwt's detach doesn't provide an easy way to do this out of the box,
+  but I think you can still deal with thread unfriendly libraries by
+  using the `Lwt_preemptive.run_in_main' call.
+
+  Basically, never exit the detach thread you started to interact with
+  your library, and instead have it block on promise that gets filled
+  through run_in_main.  In this way you can sequence your detached Lwt
+  thread similarly to Async.
+
+  Happy to explain further if this is unclear.
+
+
+Other libraries
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  `Async.Unix' has a somewhat built-up conception of the UNIX API,
+  whereas `Lwt_main' is more a direct mapping of ocaml's `Unix' module
+  to promises.
+
+  Async `Clock.every' and `Clock.after' don't have exact analogs, but
+  you can make new versions pretty simply.
+
+  Example of a shallow imitation of Async `Clock.every'
+  ┌────
+  │ let every span f =
+  │   Lwt.async (fun () ->
+  │     let span = Time.Span.to_sec span in
+  │     let rec loop () =
+  │       f ();
+  │       Lwt_unix.sleep span
+  │       >>= fun () ->
+  │       loop ()
+  │     in
+  │     loop ())
+  │ ;;
+  └────
+
+  *Open questions*
+
+  I haven't sorted out a good Lwt substitute that's as comfortable as
+  Async Pipe yet.  Though some combination of Lwt_stream, Lwt_sequence
+  and `lwt-pipe' might fit the bill.  If you just happen to know already
+  feel free to cluephone.
+
+
+Closing remarks
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  This is basically everything?  I'm almost suspicious that I'm not
+  having more problems, but will happily accept grace when it arises.
+
+
+Raphaël Proust then said
+────────────────────────
+
+        I haven’t sorted out a good Lwt substitute that’s as
+        comfortable as Async Pipe yet. Though some combination of
+        Lwt_stream, Lwt_sequence and `lwt-pipe' might fit the
+        bill. If you just happen to know already feel free to
+        cluephone.
+
+  The Tezos project has a pipe-like module:
+  [https://gitlab.com/tezos/tezos/-/blob/master/src/lib_stdlib/lwt_pipe.mli]
+  It hasn't been released as a standalone library (yet) but it is
+  released as part of the `tezos-stdlib' package.
+
+  I haven't used Async's pipe, so I don't know how close of a match it
+  is.
+
+
+jose 0.4.0
+══════════
+
+  Archive: [https://discuss.ocaml.org/t/ann-jose-0-4-0/5909/1]
+
+
+Ulrik Strid announced
+─────────────────────
+
+  A new release of JOSE has been published to opam
+
+  The following changes has been made
+  • RFC7638: Implement thumbprints @undu
+  • Make kid optional in the header and jwk to align better with the
+    spec, this is a breaking change
+
+  I have started dog fooding the library for a OpenID Connect client
+  which hopefully will help with the design going forward.
+
+
+OCaml 4.11.0, second alpha release
+══════════════════════════════════
+
+  Archive:
+  [https://discuss.ocaml.org/t/ocaml-4-11-0-second-alpha-release/5910/1]
+
+
+octachron announced
+───────────────────
+
+  A new alpha version of OCaml 4.11.0 has been published.  Compared to
+  the first alpha version, this version contains the following new bug
+  fixes:
+
+  • *additional fixes* [6673], [1132], [+9617]: Relax the handling of
+     explicit polymorphic types (Leo White, review by Jacques Garrigue
+     and Gabriel Scherer)
+
+  • *additional fixes* [7364], [2188], [+9592], [+9609]: improvement of
+     the unboxability check for types with a single
+     constructor. Mutually-recursive type declarations can now contain
+     unboxed types. This is based on the paper
+     [https://arxiv.org/abs/1811.02300]
+
+  • [7817], [9546]: Unsound inclusion check for polymorphic variant
+    (Jacques Garrigue, report by Mikhail Mandrykin, review by Gabriel
+    Scherer)
+
+  • [9549], [9557]: Make -flarge-toc the default for PowerPC and
+    introduce -fsmall-toc to enable the previous behaviour. (David
+    Allsopp, report by Nathaniel Wesley Filardo, review by Xavier Leroy)
+
+  • [9320], [9550]: under Windows, make sure that the Unix.exec*
+    functions properly quote their argument lists. (Xavier Leroy, report
+    by André Maroneze, review by Nicolás Ojeda Bär and David Allsopp)
+
+  • [9490], [9505]: ensure proper rounding of file times returned by
+    Unix.stat, Unix.lstat, Unix.fstat. (Xavier Leroy and Guillaume
+    Melquiond, report by David Brown, review by Gabriel Scherer and
+    David Allsopp)
+
+  • [8676], [9594]: turn debugger off in programs launched by the
+    program being debugged (Xavier Leroy, report by Michael Soegtrop,
+    review by Gabriel Scherer)
+
+  • [9552]: restore ocamloptp build and installation (Florian Angeletti,
+    review by David Allsopp and Xavier Leroy)
+
+  • [7708], [9580]: Ensure Stdlib documentation index refers to
+    Stdlib. (Stephen Dolan, review by Florian Angeletti, report by
+    Hannes Mehnert)
+
+  • [9189], [9281]: fix a conflict with Gentoo build system by removing
+    an one-letter Makefile variable. (Florian Angeletti, report by Ralph
+    Seichter, review by David Allsopp and Damien Doligez)
+
+  The compiler can be installed as an OPAM switch with one of the
+  following commands
+  ┌────
+  │ opam switch create ocaml-variants.4.11.0+alpha2 --repositories=default,beta=git+https://github.com/ocaml/ocaml-beta-repository.git
+  └────
+  or
+  ┌────
+  │ opam switch create ocaml-variants.4.11.0+alpha2+<VARIANT> --repositories=default,beta=git+https://github.com/ocaml/ocaml-beta-repository.git
+  └────
+  where <VARIANT> is replaced with one of these: afl, flambda, fp,
+  fp+flambda
+
+  The source code for the alpha is also available at these addresses:
+
+  • [https://github.com/ocaml/ocaml/archive/4.11.0+alpha2.tar.gz]
+  • [https://caml.inria.fr/pub/distrib/ocaml-4.11/ocaml-4.11.0+alpha2.tar.gz]
+
+  If you find any bugs, please report them here:
+   [https://github.com/ocaml/ocaml/issues]
+
+
+[6673] https://github.com/ocaml/ocaml/issues/6673
+
+[1132] https://github.com/ocaml/ocaml/issues/1132
+
+[+9617] https://github.com/ocaml/ocaml/issues/9617
+
+[7364] https://github.com/ocaml/ocaml/issues/7364
+
+[2188] https://github.com/ocaml/ocaml/issues/2188
+
+[+9592] https://github.com/ocaml/ocaml/issues/9592
+
+[+9609] https://github.com/ocaml/ocaml/issues/9609
+
+[7817] https://github.com/ocaml/ocaml/issues/7817
+
+[9546] https://github.com/ocaml/ocaml/issues/9546
+
+[9549] https://github.com/ocaml/ocaml/issues/9549
+
+[9557] https://github.com/ocaml/ocaml/issues/9557
+
+[9320] https://github.com/ocaml/ocaml/issues/9320
+
+[9550] https://github.com/ocaml/ocaml/issues/9550
+
+[9490] https://github.com/ocaml/ocaml/issues/9490
+
+[9505] https://github.com/ocaml/ocaml/issues/9505
+
+[8676] https://github.com/ocaml/ocaml/issues/8676
+
+[9594] https://github.com/ocaml/ocaml/issues/9594
+
+[9552] https://github.com/ocaml/ocaml/issues/9552
+
+[7708] https://github.com/ocaml/ocaml/issues/7708
+
+[9580] https://github.com/ocaml/ocaml/issues/9580
+
+[9189] https://github.com/ocaml/ocaml/issues/9189
+
+[9281] https://github.com/ocaml/ocaml/issues/9281
+
+
+OCaml Workshop 2020: Call for Volunteers
+════════════════════════════════════════
+
+  Archive:
+  [https://discuss.ocaml.org/t/ocaml-workshop-2020-call-for-volunteers/5913/1]
+
+
+Ivan Gotovchits announced
+─────────────────────────
+
+  The OCaml Workshop will be held in the virtual format this year, which
+  poses new challenges and requires people with special talents and
+  training. The Organizing Committee is seeking for members who will
+  volunteer to fill one (or more) of the following roles:
+
+  1. AV Editor
+  2. Session Host
+  3. Transcribers/Interpreter
+  4. Content Manager
+  5. Accessibility Chair
+
+  The roles are described in details below. We are asking prospective
+  Organizing Committee members to contact the Organizing Committee chair
+  ([ivg@ieee.org]([mailto:ivg@ieee.org])), indicating which role(s) they
+  are ready to take.
+
+
+[AV Editor]
+╌╌╌╌╌╌╌╌╌╌╌
+
+  AV (Audio/Video) editors are responsible for previewing the
+  presentations and providing help and feedback to the authors. Ideally
+  we target for one editor per talk.
+
+
+[AV Editor] https://icfp20.sigplan.org/home/ocaml-2020#av-editor
+
+◊ [Duties]
+
+  • Preview and (if necessary) post-process or (ask the author to shoot
+    again) the pre-recorded videos.
+  • Advise authors and help in choice of software and hardware, teach
+    how to set up the camera, light, make sure that the audio is of good
+    quality and, in general, channel our quality guidelines.
+  • Ensure that all videos are of the same quality, the audio levels are
+    the same, and that everything is loud and clear.
+
+
+  [Duties] https://icfp20.sigplan.org/home/ocaml-2020#duties
+
+
+[Session Hosts]
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  Session hosts will assist session chairs in streaming the pre-recorded
+  videos as well as helping and moderating the Q&A sessions and the
+  panel session. They will also be responsible for security and be ready
+  to react to potential threats and wrongdoers. Since we will broadcast
+  sessions in several time zones we need several hosts for each session.
+
+
+[Session Hosts] https://icfp20.sigplan.org/home/ocaml-2020#session-hosts
+
+◊ [Duties]
+
+  • Moderating the text chats
+  • Controlling microphones in the video-conferencing
+  • Watching for the time
+  • Performing sound checks
+  • Welcoming and otherwise guiding participants
+
+
+  [Duties] https://icfp20.sigplan.org/home/ocaml-2020#duties
+
+
+[Transcribers / Interpreters]
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  We would like to have at least English transcriptions for each talk
+  and translations to other languages are very welcome. Transcriptions
+  enable accessibility as well as potentially increase the audience and
+  publicity as they could be indexed by the search engines.
+
+
+[Transcribers / Interpreters]
+https://icfp20.sigplan.org/home/ocaml-2020#transcribers-interpreters
+
+◊ [Duties]
+
+  • Create transcriptions for videos, potentially in other languages.
+
+
+  [Duties] https://icfp20.sigplan.org/home/ocaml-2020#duties
+
+
+[Content Manager]
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  The content manager will be responsible for maintaining the web
+  presence of the conference on [https://ocaml.org/]. We plan to have
+  all videos available, as well as maintain a page for each submitted
+  work.
+
+
+[Content Manager]
+https://icfp20.sigplan.org/home/ocaml-2020#content-manager
+
+
+[Accessibility Chair]
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  We are striving to make the conference accessible to everyone and we
+  are looking for volunteers who have experience in online
+  accessibility.
+
+
+[Accessibility Chair]
+https://icfp20.sigplan.org/home/ocaml-2020#accessibility-chair
+
+◊ [Duties]
+
+  • Helping with the selection of accessible platforms and tools.
+  • Working with attendees to ensure the necessary access services are
+    included.
+  • Establishing best practices for preparing and running accessible
+    sessions.
+
+
+  [Duties] https://icfp20.sigplan.org/home/ocaml-2020#duties
+
+
+Introduction to Lwt
+═══════════════════
+
+  Archive: [https://discuss.ocaml.org/t/introduction-to-lwt/5940/1]
+
+
+Raphaël Proust announced
+────────────────────────
+
+  I've published
+  [https://raphael-proust.github.io/code/lwt-part-1.html], a 2-part
+  introduction to Lwt.
+
+  The main aim of the introduction is to give a good mental model of
+  what promises are, how they behave and how to use them. It assumes
+  basic familiarity with OCaml.
+
+  Don't hesitate to ask questions or share feedback.
+
+
+Other OCaml News
+════════════════
+
+From the ocamlcore planet blog
+──────────────────────────────
+
+  Here are links from many OCaml blogs aggregated at [OCaml Planet].
+
+  • [Using ASCII waveforms to test hardware designs]
+
+
+[OCaml Planet] http://ocaml.org/community/planet/
+
+[Using ASCII waveforms to test hardware designs]
+https://blog.janestreet.com/using-ascii-waveforms-to-test-hardware-designs/
+
+
+Old CWN
+═══════
+
+  If you happen to miss a CWN, you can [send me a message] and I'll mail
+  it to you, or go take a look at [the archive] or the [RSS feed of the
+  archives].
+
+  If you also wish to receive it every week by mail, you may subscribe
+  [online].
+
+  [Alan Schmitt]
+
+
+[send me a message] mailto:alan.schmitt@polytechnique.org
+
+[the archive] http://alan.petitepomme.net/cwn/
+
+[RSS feed of the archives] http://alan.petitepomme.net/cwn/cwn.rss
+
+[online] http://lists.idyll.org/listinfo/caml-news-weekly/
+
+[Alan Schmitt] http://alan.petitepomme.net/

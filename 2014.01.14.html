@@ -1,0 +1,457 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>OCaml Weekly News</title>
+  </head>
+  <body>
+    <a href="2014.01.07.html">Previous week</a> <a href="index.html">Up</a> <a href="2014.01.21.html">Next week</a><p>Hello</p><p>Here is the latest OCaml Weekly News, for the week of January 07 to 14, 2014.</p><ol><li><a href="#1">Concurrent/parallel programming</a></li><li><a href="#2">Bugs found when porting 0install from python to ocaml</a></li><li><a href="#3">ReactiveML 1.09.02</a></li><li><a href="#4">External dependency solvers for opam</a></li><li><a href="#5">Who was working on ocaml bindings for zeromq?</a></li><li><a href="#6">Other OCaml News</a></li></ol><a name="1" /><hr /><h3>Concurrent/parallel programming</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2014-01/msg00020.html">https://sympa.inria.fr/sympa/arc/caml-list/2014-01/msg00020.html</a></p><i>Yotam Barnoy asked:</i><br /><pre>
+So far, I've been programming in ocaml using only sequential programs.
+In my last project, which was an implementation of a large machine
+learning algorithm, I tried to speed up computation using a little bit
+of parallelism with ParMap, and it was a complete failure. It's possible
+that more time would have yielded better results, but I just didn't have
+the time to invest in it given how bad the initial results were.
+
+My question is, what are the options right now as far as parallelism is
+concerned? I'm not talking about cooperative multitasking, but about
+really taking advantage of multiple cores. I'm well aware of the runtime
+lock and I'm ok with message passing between processes or a shared area
+in memory, but I'd rather have something more high level than starting
+up several processes, creating a named pipe or a socket, and trying to
+pass messages through that. Also, I assume that using a shared area in
+memory involves some C code? Am I wrong about that?
+
+I was expecting Core's Async to fill this role, but realworldocaml is
+fuzzy on this topic, apparently preferring to dwell on cooperative
+multitasking (which is fine but not what I'm looking for), and I couldn't
+find any other documentation that was clearer.
+      </pre><i>Yaron Minsky replied:</i><br /><pre>
+This is indeed something that is not well covered in RWO.  That said,
+the Async_parallel library is aimed at this kind of target.  No shared
+memory region, just some automation around spinning up processes and
+communicating jobs between them.
+      </pre><i>Gerd Stolpmann also replied:</i><br /><pre>
+There is Netmulticore, a part of Ocamlnet:
+
+<a href="http://projects.camlcity.org/projects/dl/ocamlnet-3.7.3/doc/html-main/Intro.html#ch_comp">http://projects.camlcity.org/projects/dl/ocamlnet-3.7.3/doc/html-main/Intro.html#ch_comp</a>
+
+It utilizes shared memory, and accesses it from several processes. There
+is no C code involved, but it is fairly unsafe nevertheless, because you
+need to stick to certain programming rules, or the program crashes.
+However, if you manage to encapsulate all the unsafe things, it is a
+good option. I'm using Netmulticore in the Plasma Map/Reduce
+implementation.
+      </pre><i>Yotam Barnoy then asked and Gerd Stolpmann replied:</i><br /><pre>
+&gt; Gerd, would it be possible to put netmulticore up on opam? I realize
+&gt; this is a sensitive topic for you, but from what I can tell, this is
+&gt; the most comprehensive and efficient solution to parallel programming
+&gt; that exists for ocaml, so why not make it as easily available as
+&gt; possible?
+
+Netmulticore is part of Ocamlnet, and I guess you can get it by simply
+installing ocamlnet with opam. I'm not the maintainer, so I don't know
+whether it is included or not.
+
+&gt; Also, regarding the ocaml_modify() and ocaml_initialize() regression
+&gt; in 4.01 -- yikes! Is there any way to get support back for writing
+&gt; outside of the ocaml heap? This seems like a pretty big deal! (Sorry
+&gt; if I'm arriving late for whatever discussion took place about this
+&gt; before).
+
+There is a workaround in place - so far the OS supports it: thanks to
+Xavier the symbols caml_modify and caml_initialize are declared as weak
+in 4.01, allowing them to be redefined in executables. Netmulticore
+redefines these symbols with their pre-4.01 functions.
+
+This isn't optimal yet, because the old write barriers are a bit slower,
+and because this introduces a very low-level dependency on the current
+version of Ocaml. Nevertheless, it works for now. (Ideas for a better
+solution are highly welcome.)
+      </pre><i>Mark Shinwell then said and Gerd Stolpmann replied:</i><br /><pre>
+&gt; Jeremie Dimino and myself have a somewhat embryonic proposal
+&gt; that should permit most of the write barrier to be
+&gt; circumvented for out-of-heap access, and also avoid the page
+&gt; table test.  We'll send mail to the list in due course once
+&gt; we've had time to think about this further.
+
+I'm very curious to hear about that.
+
+So far I have only the idea to override the := operator selectively in
+all modules that want to modify out-of-heap values:
+
+let ( := ) = Netmcore_heap.assign h
+
+where Netmcore_heap.assign is a C function that tests whether the
+destination address is in the out-of-heap address space of h. If so, the
+assignment can be done directly. If not, it just falls back to a normal
+caml_modify.
+
+This solution isn't nice, though, because it can be very problematic to
+have the extra indirection of ref. So, what I'm searching for is a way
+to turn any record mutation into an external C function call (or at
+least to parametrize the write barrier somehow).
+      </pre><i>Roberto Di Cosmo answered the original question:</i><br /><pre>
+    there are regularly discussions on how to perform computations involving
+parallelism on this list; a relatively recent and detailed one is 
+ 
+    <a href="https://sympa.inria.fr/sympa/arc/caml-list/2012-06/msg00043.html">https://sympa.inria.fr/sympa/arc/caml-list/2012-06/msg00043.html</a>
+
+And yes, one might be puzzled because there are so many different approaches,
+but this is unavoidable, because there are so many different needs which are not
+easily covered by a single approach.  If one wants to distribute a computation
+that has very little data exchange compared to the local computation on each
+node, the best approach is quite different to the one needed when large data
+sets need to be shared or exchanged among the workers. And if you can do all on
+a single machine, you can obtain significant speedup on a multicore machines by
+exploiting OS level mechanisms that are not available if you need a cluster. Not
+to mention the fact that in many cases one is looking for concurrency, and not
+parallelism: even if at first sight they may look similar, deep down they really
+are not.
+
+Since you mention machine learning, it's quite probable that you want to perform
+several iterations of relatively inexpensive computations on very large arrays
+of integers or floats: if this is the case, Parmap (and not ParMap, that lends
+to confusion with a different project in the Haskell world) was specially
+designed to provide a highly efficient solution, and avoid boxing/unboxing
+overhead of float arrays, *if* you use it properly (in particular, see the notes
+at the end of the README file, or look at <a href="http://www.dicosmo.org/code/parmap/">http://www.dicosmo.org/code/parmap/</a>
+and the research article pointed from there, where a precise discussion of the
+steps involved in performing parallel computation on float arrays is given).
+Actually, feedback from happy users, and synthetic benchmarks indicate that
+Parmap should provide one of the best possible performances for this use case on
+a multicore machine, short of resorting to using libraries like ancient, that
+requires carefulness to avoid core dumps, or external libraries that already
+have taken care of parallelism for you (like LaPack, etc.).
+
+But if one performs a map over an array of floats *without* using
+the special functions for floats, then all sort of boxing/unboxing and
+copying will take place, and the "parallel" version might very well be
+even slower than the sequential one, *if* the computation on each float
+is fast.
+
+Finally, if the float computations are the bottleneck, then a very interesting
+project to keep an eye on is SPOC, that may significantly outperform everything
+else on earth: taking advantage of the GPUs in your machine, it can perform
+float computations on large arrays in a fraction of the time that your CPU,
+even multicore, requires... but of course you need to learn to program a GPU
+kernel for that. Learn more about this here <a href="http://www.algo-prog.info/spoc">http://www.algo-prog.info/spoc</a>
+
+The bottonline is, parallelism is easier than concurrency, but when
+one looks for speed, every detail counts, and getting a real speedup
+does not come for free.
+
+We would really need a single place where to share ideas, tips and serious
+analysis of the various available approaches: multicore machines and GPUs are a
+reality, and this issue is bound to come up again and again.
+      </pre><i>Yotam Barnoy then said and Anil Madhavapeddy replied:</i><br /><pre>
+&gt; Regarding a place to share ideas, it seems like it would be very
+&gt; useful to have an official ocaml wiki. Haskell has this and it's a
+&gt; huge help. In fact, I would say haskell development would be greatly
+&gt; hampered without it. There's so much information that's relevant to
+&gt; more than one library ie. doesn't fit in any particular library's
+&gt; documentation. It wouldn't be too hard to set up a wikimedia
+&gt; instance on ocaml.org, would it? Alternatively it should be pretty
+&gt; easy to set up something on wikia. This wiki would also be a great
+&gt; place to describe the conceptual implementation of the compiler,
+&gt; which is again what haskell has.
+
+We do have a fledgling service for "domain-specific" conversations, in
+the form of lists.ocaml.org. In fact, we set up a "wg-parallel" mailing
+list last year, but never announced it for various reasons. This seems
+like a good time to advertise its existence:
+
+<a href="http://lists.ocaml.org/pipermail/wg-parallel/">http://lists.ocaml.org/pipermail/wg-parallel/</a>
+
+(note that if anyone else would like an archived list on lists.ocaml.org
+for a project or community group, then please do drop a line to
+infrastructure@lists.ocaml.org to request it)
+
+Regarding other services on ocaml.org, we (the "infrastructure team")
+are happy to set them up, but please bear in mind that they all come
+with a maintenance burden. Dealing with security issues, backups,
+software updates, outages all take up time, and I confess a preference
+for sipping martinis and hacking on code instead of sysadmin work.
+Jeremy and Leo got tired of waiting for me to set up the wiki too, and
+started:
+<a href="https://github.com/ocamllabs/compiler-hacking/wiki">https://github.com/ocamllabs/compiler-hacking/wiki</a>
+
+If you follow the links through there, there is a 'compiler internals'
+page that would be good to contribute to, and you (or anyone else) is
+extremely welcome to add more information on topics such as parallel
+programming libraries there. I think we could have a decent stab at a
+wiki.ocaml.org by backing it against a GitHub repository, and not have
+to do any special hosting for it at all (the OPAM web pages work in a
+similar fashion at the moment). But for now though, I'd recommend
+focussing on the problem at hand (parallel programming) and getting some
+information down somewhere, and less on the lack of a central wiki.
+      </pre><i>Ashish Agarwal then added:</i><br /><pre>
+Regarding the need for a wiki, why not create a new Parallel Programming
+page under tutorials [1]. A "tutorial" can be as simple as listing the
+libraries available and a brief description about the high level goal of
+each.
+
+Note ocaml.org is now almost entirely written in Markdown. A new page
+can be written quite easily, see for example The Basics tutorial [2].
+
+[1] <a href="http://ocaml.org/learn/tutorials/">http://ocaml.org/learn/tutorials/</a>
+[2] <a href="https://github.com/ocaml/ocaml.org/blob/master/site/learn/tutorials/basics.md">https://github.com/ocaml/ocaml.org/blob/master/site/learn/tutorials/basics.md</a>
+      </pre><i>Francois Berenger also replied to earlier posts from the thread:</i><br /><pre>
+Roberto Di Cosmo wrote:
+&gt; Being the main developer of Parmap, I am quite curious to know where the
+&gt; "complete failure" you are mentioning actually comes from, and I would like
+&gt; to put you in touch with Francois Berenger, that has been using Parmap in
+&gt; production for quite a while with excellent results.
+
+Absolutely!
+
+I usually develop a sequential program working on a big list
+and using List.iter or List.map.
+
+When I am happy with the sequential program, I add an nprocs parameter
+to use the Parmap equivalents when nprocs &gt; 1.
+
+The only problems I have encountered were out of memory
+in case the nprocs forks did not fit on my machine when
+I handled too big data.
+
+I usually handle independent pieces of data, for example
+many proteins or chemical molecules.
+
+More answers follow below.
+
+Yotam Barnoy wrote:
+&gt; My question is, what are the options right now as far as parallelism is
+&gt; concerned? I'm not talking about cooperative multitasking, but about really
+&gt; taking advantage of multiple cores. I'm well aware of the runtime lock and I'm
+&gt; ok with message passing between processes or a shared area in memory, but I'd
+&gt; rather have something more high level than starting up several processes,
+&gt; creating a named pipe or a socket, and trying to pass messages through that.
+
+There are MPI bindings for OCaml.
+
+&gt; Also, I assume that using a shared area in memory involves some C code? Am I
+&gt; wrong about that?
+
+Gerd Stolpman's impressive ocamlnet library has nice pure OCaml wrappers
+for all this I believe.
+
+<a href="http://projects.camlcity.org/projects/ocamlnet.html">http://projects.camlcity.org/projects/ocamlnet.html</a>
+
+&gt; I was expecting Core's Async to fill this role, but realworldocaml is fuzzy on
+&gt; this topic, apparently preferring to dwell on cooperative multitasking (which
+&gt; is fine but not what I'm looking for), and I couldn't find any other
+&gt; documentation that was clearer.
+
+Cf. parallel Vs. concurrent in there:
+
+<a href="http://chimera.labs.oreilly.com/books/1230000000929/ch01.html#sec_terminology">http://chimera.labs.oreilly.com/books/1230000000929/ch01.html#sec_terminology</a>
+
+I believe Parmap and MPI are for parallelism (what you want
+very probably), while Async/Lwt and OCaml threads are for concurrency
+(used in webservers, GUIs, etc.).
+      </pre><a name="2" /><hr /><h3>Bugs found when porting 0install from python to ocaml</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2014-01/msg00036.html">https://sympa.inria.fr/sympa/arc/caml-list/2014-01/msg00036.html</a></p><i>Martin DeMello announced:</i><br /><pre>
+Thomas Leonard of 0install has written up a series of blog posts
+detailing his porting of 0install from python to OCaml. The latest
+one, on the bugs he encountered along the way, is particularly
+interesting:
+
+<a href="http://roscidus.com/blog/blog/2014/01/07/ocaml-the-bugs-so-far/">http://roscidus.com/blog/blog/2014/01/07/ocaml-the-bugs-so-far/</a>
+      </pre><a name="3" /><hr /><h3>ReactiveML 1.09.02</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2014-01/msg00046.html">https://sympa.inria.fr/sympa/arc/caml-list/2014-01/msg00046.html</a></p><i>Louis Mandel announced:</i><br /><pre>
+We are happy to announce the new release of ReactiveML: <a href="http://reactiveml.org">http://reactiveml.org</a>.
+
+ReactiveML is a language similar to OCaml extended with a built-in
+notion of parallel composition. It is based on the reactive synchronous
+model, a cooperative concurrency model.
+
+The language is well suited to program applications with a lot of
+parallel processes which communicate and synchronize a lot such as video
+games or simulation problems.
+
+ReactiveML is compiled into plain OCaml code and thus can link or be
+linked to any OCaml code.
+
+This new version includes among others the following feature:
+- a new programming construct "signal/memory" which helps in particular
+to program concurrent data structures.
+
+The full list of changes is available at <a href="http://reactiveml.org/distrib/changes">http://reactiveml.org/distrib/changes</a>.
+
+ReactiveML can be installed from the sources:
+<a href="http://reactiveml.org/distrib/rml-1.09.02-2014-01-08.tar.gz">http://reactiveml.org/distrib/rml-1.09.02-2014-01-08.tar.gz</a>
+
+or using OPAM:
+opam install rml
+      </pre><a name="4" /><hr /><h3>External dependency solvers for opam</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2014-01/msg00047.html">https://sympa.inria.fr/sympa/arc/caml-list/2014-01/msg00047.html</a></p><i>Roberto Di Cosmo requested:</i><br /><pre>
+     the short story is that we need help in packaging for Mac OSX and Windows
+some specialised solvers that can be used with opam, and are already packaged
+for Debian: aspcud, mccs and packup, with aspcud being the highest priority.
+
+The Debian packages, built by Ralf Treinen, are a good entry point for any
+volunteer, as they contain the pointer to the upstream source, list the
+C/C++ libraries and other dependencies involved, and contain useful patches
+not yet integrated upstream; even if you do not have a Debian (or Ubuntu)
+machine at hand, most of the information is available here
+
+   aspcud : <a href="http://packages.debian.org/wheezy/aspcud">http://packages.debian.org/wheezy/aspcud</a>
+   mccs   : <a href="http://packages.debian.org/wheezy/mccs">http://packages.debian.org/wheezy/mccs</a>
+   packup : <a href="http://packages.debian.org/wheezy/packup">http://packages.debian.org/wheezy/packup</a>
+
+If you are willing to help with this work, please post a comment under the
+corresponding issues opened on github, and say to what part of the effort
+you whish to contribute, so we can have some basic coordination among
+the volunteers.
+
+   aspcud : <a href="https://github.com/ocaml/opam/issues/1074">https://github.com/ocaml/opam/issues/1074</a>
+   mccs   : <a href="https://github.com/ocaml/opam/issues/1075">https://github.com/ocaml/opam/issues/1075</a>
+   packup : <a href="https://github.com/ocaml/opam/issues/1076">https://github.com/ocaml/opam/issues/1076</a>
+
+Now, here comes the long story, that might be of interest for you even if
+you are just a regular user of opam.
+
+As you might know, the opam package manager incorporates state-of-the-art
+technology that has been developed for managing packages in GNU/Linux
+distributions in the Mancoosi project (www.mancoosi.org), and uses the
+libcudf and dose libraries from it.
+
+A key point of the approach which we set forth in Mancoosi (for the interested
+reader, see [1,2] below), is that a modern package manager should clearly
+separate a platform specific front-end from a platform independent back-end in
+charge of solving dependencies in order to perform upgrades or downgrades
+according to the user's preferences. 
+
+Using the CUDF format as a pivot, we can share the effort of developing
+efficient solvers among multiple package managers, and can even use different
+solvers in the same package manager if the default one hits its limits (which
+*can* happen, as dependency solving is an NP-complete problem). This is actually
+possible today in Debian: you can call apt-get with the option --solver SOLVER
+where SOLVER can be aspcud, mccs or packup.
+
+User preferences are an important, and often overlooked concept: when you 
+request the installation of a package, there might be many ways of satisfying
+it, and a user should be able to state, for example, whether he is a "trendy"
+person that prefers to see all other packages upgraded to the latest possible
+version at the same time, or on the contrary, a "paranoid" person that wants
+to change them as little as possible.
+
+This is why all CUDF compliant solvers allow to specify user preferences by
+combining lexicographically keyworks like "new", "changed", "removed", "notuptodate";
+for example, a trendy person will use as preference
+
+   -removed,-notuptodate,-new
+
+meaning "please minimise the number of removed packages, and then the number
+of packages that are not at their latest version, and finally the number of
+package that were not already present"
+
+While a paranoid person would use
+
+   -removed, -changed
+
+meaning "please minimise the number of removed packages, and then the number of
+packages that are modified (installed/removed/upgraded/downgraded)".
+
+Actually, the criteria supported by the CUDF solvers evolved over time, and 
+aspcud supports nowadays a more sophisticated preference language
+(see <a href="http://www.mancoosi.org/misc-2012/criteria/">http://www.mancoosi.org/misc-2012/criteria/</a>), but all of "new",
+"changed", "removed" and "notuptodate" can be encoded in the latest version,
+and aspcud as packaged for Debian accepts them right away.
+
+The good news is that opam has built-in support to use aspcud as an external
+CUDF-compliant solver too: if aspcud is installed on your machine, then
+dependency solving will be delegated to aspcud, and the default preferences are
+set to -removed,-notuptodate,-new.
+
+You can change these preferences if needed by just setting the OPAMCRITERIA
+environment variable, and you can ask opam not to use the external solver
+with the option --no-aspcud (that should really be --no-external-solver).
+
+Now that the opam users are hitting the limits of the internal solver embedded
+in opam, it is important to have CUDF compliant solvers available on all platforms:
+aspcud is a priority because it can be used by opam right away (no need to change
+even a single line of code), but packup and mccs are important too, as with little
+changes in the opam code one will be able to choose which solver to use.
+
+So, to sum up:
+
+ - if you are running Debian (or a Debian-based distribution, like Ubuntu), lucky you,
+   just apt-get install aspcud and you are all set; you can even play with OPAMCRITERIA
+   to adjust the solutions to your needs, and you can use --no-aspcud if you want to
+   see the difference with the internal solver
+
+ - if you are on another platform, stay tuned for when packages for aspcud/packup/mccs
+   will be available on your platform
+
+--
+Roberto
+
+[1] A modular package manager architecture, <a href="http://dx.doi.org/10.1016/j.infsof.2012.09.002">http://dx.doi.org/10.1016/j.infsof.2012.09.002</a>
+    also freely available from <a href="http://www.dicosmo.org/Articles/2013-AbateDiCosmoTreinenZacchiroli-Ist.pdf">http://www.dicosmo.org/Articles/2013-AbateDiCosmoTreinenZacchiroli-Ist.pdf</a>
+
+[2] Dependency solving: A separate concern in component evolution management, <a href="http://dx.doi.org/10.1016/j.jss.2012.02.018">http://dx.doi.org/10.1016/j.jss.2012.02.018</a> 
+    also freely available from <a href="http://www.dicosmo.org/Articles/2012-AbateDiCosmoTreinenZacchiroli-Jss.pdf">http://www.dicosmo.org/Articles/2012-AbateDiCosmoTreinenZacchiroli-Jss.pdf</a>
+      </pre><a name="5" /><hr /><h3>Who was working on ocaml bindings for zeromq?</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2014-01/msg00071.html">https://sympa.inria.fr/sympa/arc/caml-list/2014-01/msg00071.html</a></p><i>Goswin von Brederlow asked and David Sheets replied:</i><br /><pre>
+&gt; last year someone here was working on bindings for zeromq.
+&gt;
+&gt; Is that still ongoing and how is it going? Does it support zeromq 4.0
+&gt; with CURVE?
+
+<a href="https://github.com/fmp88">https://github.com/fmp88</a> was working on
+<a href="https://github.com/fmp88/ocaml-zeromq">https://github.com/fmp88/ocaml-zeromq</a> and
+<a href="https://github.com/fmp88/ocaml-czmq">https://github.com/fmp88/ocaml-czmq</a> but I don't know much about
+their status.
+
+Also, I have <a href="https://github.com/dsheets/ocaml-sodium">https://github.com/dsheets/ocaml-sodium</a> which is
+sufficient to implement DNSCurve.
+
+These all use ctypes which should be getting stub generation Real Soon Now.
+      </pre><i>Daniel Bünzli also replied:</i><br /><pre>
+There's at least this:
+
+&gt; opam list --all | grep zmq | cut -d " " -f 1 | xargs opam info
+
+             package: lwt-zmq
+             version: 1.0-beta4
+          repository: default
+        upstream-url: <a href="https://github.com/hcarty/lwt-zmq/archive/v1.0-beta4.tar.gz">https://github.com/hcarty/lwt-zmq/archive/v1.0-beta4.tar.gz</a>
+       upstream-kind: http
+   upstream-checksum: 29338d125a545daf45df9e3d7631d01d
+            homepage: <a href="https://github.com/hcarty/lwt-zmq">https://github.com/hcarty/lwt-zmq</a>
+             depends: ocamlfind &amp; lwt &amp; ocaml-zmq
+   installed-version:  
+  available-versions: 1.0-beta3, 1.0-beta4
+         description: Lwt-friendly wrapping around ZeroMQ sockets
+
+             package: ocaml-zmq
+             version: 0
+          repository: default
+        upstream-url: <a href="https://github.com/pdhborges/ocaml-zmq/tarball/master">https://github.com/pdhborges/ocaml-zmq/tarball/master</a>
+       upstream-kind: http
+   upstream-checksum: 8e845370b99630c2a84cf4495480522e
+            homepage: <a href="https://github.com/pdhborges/ocaml-zmq">https://github.com/pdhborges/ocaml-zmq</a>
+             depends: ocamlfind &amp; ounit &amp; uint
+   installed-version:  
+   available-version: 0
+         description: OCaml bindings for ZMQ 2.1
+      </pre><a name="6" /><hr /><h3>Other OCaml News</h3><i>From the ocamlcore planet blog:</i><br /><pre>
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <a href="http://planet.ocaml.org/">http://planet.ocaml.org/</a>.
+
+Univalent foundations subsume classical mathematics:
+  <a href="http://math.andrej.com/2014/01/13/univalent-foundations-subsume-classical-mathematics/">http://math.andrej.com/2014/01/13/univalent-foundations-subsume-classical-mathematics/</a>
+
+Unikernels, and the Rise of the Virtual Library Operating System:
+  <a href="http://anil.recoil.org/2014/01/13/unikernels-in-cacm.html">http://anil.recoil.org/2014/01/13/unikernels-in-cacm.html</a>
+
+Async Parallel:
+  <a href="https://ocaml.janestreet.com/?q=node/122">https://ocaml.janestreet.com/?q=node/122</a>
+
+When QuickCheck Fails Me:
+  <a href="http://www.mega-nerd.com/erikd/Blog/CodeHacking/Haskell/quickcheck_fail.html">http://www.mega-nerd.com/erikd/Blog/CodeHacking/Haskell/quickcheck_fail.html</a>
+      </pre><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

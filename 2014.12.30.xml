@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2014.12.30</cwn_date>
+    <cwn_prev>2014.12.23</cwn_prev>
+    <cwn_next>2015.01.06</cwn_next>
+    <cwn_date_text>December 23 to 30, 2014</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>Uucp 0.9.1</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-12/msg00103.html</cwn_url>
+      <cwn_who>Daniel Bünzli announced</cwn_who>
+      <cwn_what>
+I'd like to announce the release of Uucp 0.9.1 which should be available shortly in opam.
+
+This release adds a new `Uucp.Break` module with Unicode's line,
+grapheme cluster, word and sentence break properties.
+
+https://github.com/dbuenzli/uucp/blob/0.9.1/CHANGES.md
+
+Uucp provides efficient access to a selection of character properties
+of the Unicode character database.
+
+Home page: http://erratique.ch/software/uucp
+API docs: http://erratique.ch/software/uucp/doc/Uucp
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Uuseg 0.8.0 Unicode Text Segmentation</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-12/msg00104.html</cwn_url>
+      <cwn_who>Daniel Bünzli announced</cwn_who>
+      <cwn_what>
+I'd like to announce the first release of Uuseg which should be
+available shortly in OPAM. Here's the blurb:
+
+ Uuseg is an OCaml library for segmenting Unicode text. It implements
+ the locale independent Unicode text segmentation algorithms [1] to
+ detect grapheme cluster, word and sentence boundaries and the
+ Unicode line breaking algorithm [2] to detect line break opportunities.
+
+ The library is independent from any IO mechanism or Unicode text data
+ structure and it can process text without a complete in-memory
+ representation.
+
+ Uuseg depends on Uucp and optionally on Uutf for support
+ on OCaml UTF-X encoded strings. It is distributed under the BSD3
+ license.
+
+ [1]: http://www.unicode.org/reports/tr29/
+ [2]: http://www.unicode.org/reports/tr14/
+
+Home page: http://erratique.ch/software/uuseg
+API Docs: http://erratique.ch/software/uuseg/doc
+
+This library is useful if you need to find in Unicode data the
+user-perceived characters -- grapheme clusters in Unicode terminology
+-- e.g. for breaking strings, cursor movement, text selection,
+backspace deletion, or fixed-width layouts of Unicode data (see the
+end of this email for applications with Format). It can also be used
+to break text into words and sentences or to detect line break  
+opportunities, see again the end of this email.
+
+Note that these algorithms are locale-independent and may not work well
+on all the scripts defined in Unicode or on the actual language you
+are dealing with. Do not take these outputs as a silver bullet and
+refer to the standards above for further information about their
+limitations and how to alleviate them. For that reason the API offers
+a very crude and low level API --- basically a state machine --- to
+define your own segmenters so that the same high-level API can be
+reused with customizations.
+
+Because of time constraints the current implementation of the
+algorithms is not particulary clever (and sometimes ugly). They  
+were done manually in an ad-hoc manner. There's room for improvement,  
+e.g. to devise more mechanical procedures to get from the rules to
+implementation -- this would also allow to tap into the Unicode's
+Common Locale Data Repository that does include locale dependent
+tailoring for segmentation in a (supposedly) machine readable
+formats [3]. If you are interested on working on (or in funding) this,
+get in touch.
+
+I do not expect the API to change much, but as usual things may change  
+before a 1.0.0.
+
+Happy grapheme clustering,
+
+Daniel
+
+[3] http://www.unicode.org/reports/tr35/tr35-general.html#Segmentations
+
+
+# Uuseg and Format
+
+Uuseg can be used to improve OCaml's Format's capabilities on
+Unicode's alphabetic scripts and symbols. There are a few utility
+functions in the optional `Uuseg_string` library (you'll need to
+depend on `Uutf`). The most basic function `Uuseg_string.pp_utf_8`
+simply instructs the Format engine to treat grapheme clusters as a
+single character (see below) rather than laying out their byte or
+decomposed representation like a "%s" format would do:
+
+# #require "uuseg.string";;
+
+(* Pre-composed é (U+00E9) *)
+
+# (* broken *) for i = 0 to 76 do Format.printf "%s@," "\xC3\xA9" done;;
+éééééééééééééééééééééééééééééééééééééé
+éééééééééééééééééééééééééééééééééééééé
+é
+
+# for i = 0 to 76 do Format.printf "%a@," Uuseg_string.pp_utf_8 "é" done;;
+ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé
+
+(* Decomposed é: e + ´ (U+0065, U+0301) ) *)
+
+# (* broken *) for i = 0 to 76 do Format.printf "%s@," "\x65\xCC\x81" done;;
+ééééééééééééééééééééééééé
+ééééééééééééééééééééééééé
+ééééééééééééééééééééééééé
+éé
+
+# for i = 0 to 76 do Format.printf "%a@," Uuseg_string.pp_utf_8 "\x65\xCC\x81" done;;
+ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé
+- : unit = ()
+
+Then we have `Uuseg_string.pp_utf_8_text` which instructs Format about
+break opportunities and mandatory line break according to the Unicode
+line breaking algorithm. For example layout some Georgian, the first
+paragraph of OCaml's wikipedia Georgian page (which btw could benefit of
+some update if someone on the list has the ability) :
+
+http://ka.wikipedia.org/wiki/%E1%83%9D%E1%83%91%E1%83%98%E1%83%94%E1%83%A5%E1%83%A2%E1%83%A3%E1%83%A0%E1%83%98_%E1%83%99%E1%83%90%E1%83%9B%E1%83%9A%E1%83%98
+
+# let g =
+   "ობიექტური კამლ, ოკამლ (Objective Caml, Ocaml) წარმოადგენს ფუნქციურ \
+    პროგრამირების ენას, რომელიც არის შექმნილი ობიექტზე ორიენტირებული \
+    პროგრამირებისთვის. ის იყო დაწერილი ხავიერ ლერიო, ჯერომ ვოილონ, \
+    დამიენ დოლიგეზ და სხვების მიერ 1996 წელს. ენის შექმნის, დამუშავების \
+    და განახლების პროექტი უმეტესად ინრიაში ხორციელდება.";;
+
+# Format.set_margin 25;;
+# Format.printf "@[%a@]" Uuseg_string.pp_utf_8_text g;;
+ობიექტური კამლ, ოკამლ
+(Objective Caml, Ocaml)
+წარმოადგენს ფუნქციურ
+პროგრამირების ენას,
+რომელიც არის შექმნილი
+ობიექტზე ორიენტირებული
+პროგრამირებისთვის. ის
+იყო დაწერილი ხავიერ
+ლერიო, ჯერომ ვოილონ,
+დამიენ დოლიგეზ და
+სხვების მიერ 1996 წელს.
+ენის შექმნის,
+დამუშავების და
+განახლების პროექტი
+უმეტესად ინრიაში
+ხორციელდება.
+
+Soft hyphens are handled by the line breaking algorithm however:
+
+1. Your rendering software may sadly print them which defeats the purpose
+   (e.g. macosx's terminal).
+2. It's not possible to replace the soft hyphen by a hard one if the
+   line gets broken at that point, as there's no provision for this in Format (which
+   would also be useful to pp outputs that have line continuation
+   characters). Though I guess `Format.pp_set_formatter_output_functions` could
+   be investigated for that.
+
+# Format.set_margin 10;;
+# let h = "hy\xC2\xADphen\xC2\xADat\xC2\xADed";;
+# Format.printf "@[%a@]" Uuseg_string.pp_utf_8_text h;;
+hy­phen­
+at­ed
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocaml.org/&gt;.
+
+2014:
+  &lt;https://gaiustech.wordpress.com/2014/12/28/2014/&gt;
+
+Cryptokit 1.10 released:
+  &lt;https://forge.ocamlcore.org/forum/forum.php?forum_id=919&gt;
+
+Uuseg 0.8.0:
+  &lt;http://erratique.ch/software/uuseg&gt;
+
+LBFGS 0.8.6 released:
+  &lt;https://forge.ocamlcore.org/forum/forum.php?forum_id=918&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

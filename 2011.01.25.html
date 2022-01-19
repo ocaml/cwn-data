@@ -1,0 +1,309 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2011.01.18.html">Previous week</a> <a href="index.html">Up</a> <a href="2011.02.01.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of January 18 to 25, 2011.</p><ol><li><a href="#1">OCaml wrappers available for OpenGL ES</a></li><li><a href="#2">Limitations of first-class modules</a></li><li><a href="#3">Status of OCaml in Fedora and RHEL</a></li><li><a href="#4">The F# Team are Hiring</a></li><li><a href="#5">Avoiding ml/mli duplication cheaply</a></li><li><a href="#6">Other Caml News</a></li></ol><a name="1" /><hr /><h3>OCaml wrappers available for OpenGL ES</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2011-01/msg00184.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2011-01/msg00184.html</a></p><i>Jeffrey Scofield announced:</i><br /><pre>
+I needed an OCaml interface to OpenGL ES for a project.  After looking
+around, I decided to create my own interface, as a set of patches to
+LablGL.
+
+I've made the patches publicly available, along with instructions on how
+to build the interface.  You can find them here:
+
+    <a href="http://psellos.com/ocaml/lablgles-build.html">http://psellos.com/ocaml/lablgles-build.html</a>
+
+What the patches do, roughly, is remove stuff that isn't supported by
+OpenGL ES, adjust names that are different from standard OpenGL, and add
+support for two OpenGL ES extensions: framebuffer objects[1] and PVRTC
+compressed textures[2].
+
+The patches are known to work on iPhone (part of a shipping product).
+
+Regards,
+
+Jeffrey Scofield
+
+[1]: 
+<a href="http://khronos.org/registry/gles/extensions/OES/OES_framebuffer_object.txt">http://khronos.org/registry/gles/extensions/OES/OES_framebuffer_object.txt</a>
+[2]: 
+<a href="http://khronos.org/registry/gles/extensions/IMG/IMG_texture_compression_pvrtc.txt">http://khronos.org/registry/gles/extensions/IMG/IMG_texture_compression_pvrtc.txt</a>
+      </pre><a name="2" /><hr /><h3>Limitations of first-class modules</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2011-01/msg00175.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2011-01/msg00175.html</a></p><i>Lauri Alanko asked and Jacques Garrigue replied:</i><br /><pre>
+&gt; When first-class modules were announced for OCaml 3.12, I cheered them
+&gt; as a sorely needed extension, and I have now begun to make heavy use
+&gt; of them. I certainly prefer them over objects, even if I do find the
+&gt; syntax of first-class modules a bit awkward. I would much prefer to
+&gt; see a completely unified object-module system a la Scala, but I guess
+&gt; such drastic changes are beyond the scope of OCaml's development
+&gt; nowadays.
+&gt; 
+&gt; Anyway, I'm now beginning to stumble into the limitations of the
+&gt; extension, and I'm a bit curious about their rationale.
+&gt; 
+&gt; In a type (module S), S must be a path to a named module type, and if
+&gt; A and B are two different paths, (module A) and (module B) are
+&gt; distinct even if A and B are transparent definitions for exactly the
+&gt; same module types. This nominalism is quite surprising since one is
+&gt; used to transparent definitions being just shorthands for signatures
+&gt; that are compared structurally. In particular, this means that it is
+&gt; no longer harmless to include a signature definition to compose a
+&gt; convenience module from several submodules:
+&gt; 
+&gt; module A = struct 
+&gt;  module type S = sig end
+&gt;  type t = (module S)
+&gt;  module M : S = struct end
+&gt;  let v = (module M : S)
+&gt; end
+&gt; 
+&gt; module B = struct
+&gt;  include A
+&gt; end
+&gt; 
+&gt; # module X : A.S = B.M;;
+&gt; module X : A.S
+&gt; 
+&gt; # let x : A.t = B.v;;
+&gt; Error: This expression has type (module B.S)
+&gt;       but an expression was expected of type A.t = (module A.S)
+
+I think there are two reasons for this limitation:
+* avoiding having to run a full module type comparison during unification
+  (potentially costly)
+* in case the first-class module has type variables in its parameters,
+   the original algorithm for module type comparison cannot be applied 
+directly
+
+I'm not sure the first reason matters that much.
+The second one is more problematic, but clearly does not apply to your case.
+So it should at least be possible to check module type equality structurally 
+for
+parameter-less first-class module types.
+
+Note that if you use the trunk version (3.13), you need less annotations, so
+you could write:
+   let x : A.t = (module (val B.v))
+A bit verbose, but no extra type annotations.
+
+&gt; Also, the limitations of package type constraints were also somewhat
+&gt; surprising.
+
+The main goal of package type constraints is to allow connecting
+types in the signature with type variables in the context.
+Since type variables cannot have higher-order kinds in ocaml,
+allowing to specify parameterized types in with constraints would
+not make sense from that point of view.
+It may still be useful, but there may be difficulties in connection with
+the new implicit pack/unpack mecanism.
+      </pre><i>Alain Frisch also replied:</i><br /><pre>
+&gt; When first-class modules were announced for OCaml 3.12, I cheered them
+&gt; as a sorely needed extension, and I have now begun to make heavy use
+&gt; of them. I certainly prefer them over objects, even if I do find the
+&gt; syntax of first-class modules a bit awkward.
+
+As Jacques mentioned, OCaml 3.13 will allow a lighter syntax, with a
+lot less explicit type annotations. Hopefully, this will make it less
+awkward.
+
+&gt; I would much prefer to
+&gt; see a completely unified object-module system a la Scala, but I guess
+&gt; such drastic changes are beyond the scope of OCaml's development
+&gt; nowadays.
+
+Indeed.
+
+&gt; Anyway, I'm now beginning to stumble into the limitations of the
+&gt; extension, and I'm a bit curious about their rationale.
+&gt; 
+&gt; In a type (module S), S must be a path to a named module type, and if
+&gt; A and B are two different paths, (module A) and (module B) are
+&gt; distinct even if A and B are transparent definitions for exactly the
+&gt; same module types.
+
+One could indeed declare that (module A) and (module B) are equal as
+soon as A and B refer to equal module types (that is, two module types
+subtype of each other without any coercion). I don't think there is
+any deep obstacle in doing that. One would need to be a little bit
+careful with mutually recursive types and module types (introduced
+with a recursive module). As for the implementation strategy, I'm a
+little bit concerned of having a low-level module in the type-checker
+(Ctype), in charge of things like type equality check or unification,
+calling a function in a higher-level module (Includemod), but I don't
+see immediately any concrete problem in doing that.
+
+What would be much more difficult is to declare that general package
+type (with constraints, like (module A with type t1 = T1)) are equal
+if the module types obtained by "applying the constraints" are
+equal. Indeed, the type T1 above can contain type variables, and a
+constraint "with type t1 = T1" is then not supported by the module
+system (there is no module type with free type variables).
+
+There is a branch fstclassmod_parametrized in the SVN which allows
+more kinds of constraints; in particular, it allows constraints on
+parametrized types (module A with type 'a t1 = T1). See e.g.
+
+<a href="http://caml.inria.fr/mantis/view.php?id=5078">http://caml.inria.fr/mantis/view.php?id=5078</a>
+
+This extension does not seem very useful to me in practice (because
+there is no polymorphism on type constructors in OCaml). Moreover, it
+isn't trivially combined with Jacques' work mentioned above. So it's
+probably not going to be integrated upstream.
+
+Feel free to open entries in the bug tracker with specific examples of
+things you'd like to do but which are not possible or difficult with
+the current design. My initial work on first-class modules was driven
+by our internal use at LexiFi (for which the nominal aspect has never
+been a problem) and also by the constraint of keeping the patch small
+enough (to increase the odds of being accepted upstream).
+      </pre><a name="3" /><hr /><h3>Status of OCaml in Fedora and RHEL</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2011-01/msg00212.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2011-01/msg00212.html</a></p><i>Richard Jones announced:</i><br /><pre>
+OCaml 3.12 has been accepted as a feature for Fedora 15.  That work
+has now been finished and you can use the same packages in Fedora 14
+if you like:
+
+<a href="http://fedoraproject.org/wiki/Features/OCaml3.12">http://fedoraproject.org/wiki/Features/OCaml3.12</a>
+
+Also OCaml 3.11.2 and a small selection of libraries shipped with
+RHEL 6.0 last November as an unsupported component.  If you're a RHEL
+subscriber you can get it from the 'Optional' channel in RHN.
+      </pre><a name="4" /><hr /><h3>The F# Team are Hiring</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2011-01/msg00218.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2011-01/msg00218.html</a></p><i>Don Syme announced:</i><br /><pre>
+The F# team in Seattle/Redmond have an opening for a Senior Program
+Manager. A demonstrated love for OCaml/F# programming would be highly
+regarded background experience :)
+
+We also have positions open for software development engineers
+specializing in compilers and tools (see
+<a href="https://careers.microsoft.com/JobDetails.aspx?ss=&amp;pg=0&amp;so=&amp;rw=3&amp;jid=34078&amp;jlang=EN">https://careers.microsoft.com/JobDetails.aspx?ss=&amp;pg=0&amp;so=&amp;rw=3&amp;jid=34078&amp;jlang=EN</a>)
+
+Kind regards &amp; best wishes,
+
+Don
+
+The F# Team are Hiring!!!
+
+- Do you have a love for modern, industry-leading programming technologies?
+- Can you help us take the F# language to the next level?
+- Do you have the vision to combine functional programming  with
+technologies for data, cloud, web, finance and technical computing?
+- Do you have a passion for delivering great visual tools and a
+simple, clear end-to-end experience for F# programmers?
+- And do you want to work on a talented agile team that releases
+compiler sources on codeplex.com and has originated major innovations
+for C# and Visual Basic?
+
+If so, we have a great opportunity for you!
+
+The Visual Studio Pro team is looking for an experienced Program
+Manager to drive the F# area. Partnering with your engineering team in
+Redmond and Microsoft Research in Cambridge, you will define the F#
+developer experience for Visual Studio and out of band releases such
+as the F# PowerPack. As a strong customer advocate, you will drive
+changes into the F# language, libraries and tools. You will develop
+and update community programs that drive increased awareness and
+adoption of F#. Being responsible for delivering integrated solutions,
+you have experience in building strong cross-group partnerships,
+ensuring alignment of schedules and business goals, and the natural
+skill of getting things done.
+
+Specific responsibilities include:
+
+- Travelling to major conferences, user group meetings, and
+enterprises to get people excited about solving problems using F#
+- Defining the strategy for marketing F# to the developer community
+- Owning our content strategy and community engagement programs
+- Driving multiple concurrent projects for the F# team including
+Visual Studio and out of band releases
+- Working closely with groups within Microsoft such as Technical
+Computing, .NET Framework, SQL and Azure to deliver great experiences
+for F# developers
+- Contributing to the design of all aspects of F# from language &amp;
+libraries to the tools that integrate with Visual Studio
+
+Basic Qualifications:
+
+- 3-5 years experience in Program Management or related experience,
+including a proven track record of delivering on challenging projects
+- A BS or equivalent degree in Computer Science, Electrical
+Engineering, or a related field.
+- Passionate for language and user experience design
+- Knowledge of Visual Studio, .NET &amp; functional programming languages,
+and the ability to dig deep into technical challenges
+- Strong sense of teamwork, personal integrity, responsibility and
+accountability
+- Excellent verbal and written communication skills
+- Strong customer advocate, self-starter and problem solver
+- Strong knowledge of F# or language design on managed platforms is
+preferred
+
+If you'd would like more details, please either contact me (dsyme AT
+microsoft.com), or Sean Laberee (seanla AT microsoft.com) directly. To
+apply immediately, please fill in the online forms and drop us a note
+that you're applying.
+
+<a href="https://careers.microsoft.com/JobDetails.aspx?ss=&amp;pg=0&amp;so=&amp;rw=1&amp;jid=33994&amp;jlang=EN">https://careers.microsoft.com/JobDetails.aspx?ss=&amp;pg=0&amp;so=&amp;rw=1&amp;jid=33994&amp;jlang=EN</a>
+      </pre><a name="5" /><hr /><h3>Avoiding ml/mli duplication cheaply</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2011-01/msg00224.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2011-01/msg00224.html</a></p><i>Matthias Puech announced:</i><br /><pre>
+Motivated by a recent discussion on the list, I wrote a small camlp5
+syntax extension that allows to avoid the duplication of type
+definitions between ml and mli. I thought it might be helpful to
+someone one day. It adds two very simple constructions to the module
+system:
+* [mli] is a module type. If the current file has a .mli, [mli] is
+expanded to the .mli's content.
+* [types of S] is a module expression if S is a module type. It is
+expanded to the structure containing all type declarations and module
+types of S recursively (skipping [val]s etc.).
+Restriction: S has to be a [sig ... end] or a [S with ...] construct
+(because it is done within camlp5)
+
+These two allow to include the contents of a mli into a ml and perform
+instantiations of abstract types (see examples below). You can find
+the extension (70 lines of code) together with tests at:
+
+git clone <a href="http://helm.cs.unibo.it/~puech/repos/typdef.git">http://helm.cs.unibo.it/~puech/repos/typdef.git</a>
+
+Hope it helps! Cheers,
+    -m
+
+&lt;simple.mli&gt;
+type t = A
+val x : t
+
+&lt;simple.ml&gt;
+include types of mli
+let x = A
+
+&lt;test.mli&gt;
+type t
+module M : sig
+  type u
+end
+val x : M.u
+
+&lt;test.ml&gt;
+include types of mli with
+  type t = int
+  type M.u = string
+let x = "hello"
+      </pre><a name="6" /><hr /><h3>Other Caml News</h3><i>From the ocamlcore planet blog:</i><br /><pre>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <a href="http://planet.ocamlcore.org/">http://planet.ocamlcore.org/</a>.
+
+Canonical Effective Subalgebras of Classical Algebras as Constructive Metric Completions:
+  <a href="http://math.andrej.com/2011/01/24/canonical-effective-subalgebras-of-classical-algebras-as-constructive-metric-completions/">http://math.andrej.com/2011/01/24/canonical-effective-subalgebras-of-classical-algebras-as-constructive-metric-completions/</a>
+
+Surikata:
+  <a href="https://forge.ocamlcore.org/projects/surikata/">https://forge.ocamlcore.org/projects/surikata/</a>
+
+Alg:
+  <a href="http://math.andrej.com/2011/01/22/alg/">http://math.andrej.com/2011/01/22/alg/</a>
+
+Caml Foreign dynamic interface to C/C++:
+  <a href="https://forge.ocamlcore.org/projects/caml-foreign/">https://forge.ocamlcore.org/projects/caml-foreign/</a>
+      </pre><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

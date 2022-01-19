@@ -1,0 +1,153 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of December 25, 2012 to January 01, 2013.
+
+Happy new year!
+
+1) C interop: Return values in parameters
+2) Other Caml News
+
+========================================================================
+1) C interop: Return values in parameters
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2012-12/msg00172.html>
+------------------------------------------------------------------------
+** Marek Kubica asked and Török Edwin replied:
+
+> I am trying to wrap a C library in OCaml but I don't know how to do
+> this particular thing:
+> 
+> I have a library that looks roughly like this:
+> 
+> int function(void** ptr);
+> 
+> So I get an int as return value to show whether the function succeeded
+> and it *sets* the ptr.
+> 
+> void* ptr;
+> function(&ptr);
+> // ptr is different now
+> 
+> How can I wrap such a function in OCaml?
+> When I call my OCaml wrapper
+> 
+> let retval = function ptr in
+> ...
+> 
+> the pointer does not get updated. Is there a function in the C API to
+> force OCaml to update the values?
+
+Use a '<yourtype> ref' for the parameter (or a record with a mutable field) 
+on the OCaml side,
+and you can update the field on the C side then.
+
+Or if your C type is not actually void*, and your C function doesn't have 
+side-effects (besides updating ptr)
+you can also make the OCaml function return the actual value, and raise an 
+exception if the function failed.
+      
+** Marek Kubica then said and Gabriel Scherer replied:
+
+>> Use a '<yourtype> ref' for the parameter (or a record with a mutable
+>> field) on the OCaml side, and you can update the field on the C side
+>> then.
+>
+> I was thinking about the same thing and checked
+>
+> <http://www.linux-nantes.org/~fmonnier/ocaml/ocaml-wrapping-c.php>
+> and
+> <http://caml.inria.fr/pub/docs/manual-ocaml-4.00/manual033.html>
+>
+> and couldn't find how to modify a ref value from C.
+>
+> My code looks like this:
+>
+> CAMLprim value ost_read_next_header(value archive, value entry)
+> {
+> struct archive* handle = (struct archive*)archive;
+> struct archive_entry* ent = (struct archive_entry*)entry;
+> printf("ent: %p\n", ent);
+> int retval = archive_read_next_header(handle, &ent);
+> // ent changed
+> printf("ent: %p\n", ent);
+> entry = (value)ent;
+> return Val_int(retval);
+> }
+>
+> And the second parameter is defined as "entry ref", yet when I look at
+> the resulting value from OCaml, the ref's value did not change:
+>
+> let entry = ref (Archive.entry_new ()) in
+> Archive.print_pointer !entry;
+> ...
+> ignore (Archive.read_next_header handle entry);
+> Archive.print_pointer !entry;
+>
+> It still points to the same value that my Archive.entry_new returned.
+>
+>> Or if your C type is not actually void*, and your C function doesn't
+>> have side-effects (besides updating ptr) you can also make the OCaml
+>> function return the actual value, and raise an exception if the
+>> function failed.
+>
+> I thought about this, but I have a number of these functions and some
+> have more than one return parameter, so I'd need to return a tuple at
+> least. I plan to make this wrapper as close to C and low-level, so I
+> can write a proper high-level wrapper on top.
+>
+> If the ref-appoach does not get me anywhere, I might still do this.
+
+References are a derived concept defined as:
+
+type 'a ref = { mutable contents : 'a }
+
+You can update them from the C side just as you would handle a
+polymorphic record, with Field and Store_field.
+
+In the code you show, the OCaml value corresponding to the pointer is
+exactly the pointer, hidden as a 'value' type. This is correct as
+OCaml detects out-of-(OCaml)-heap pointer. However, if you used a
+custom block instead (
+<http://caml.inria.fr/pub/docs/manual-ocaml-4.00/manual033.html#toc150>
+), OCaml would do the boxing for you: Data_custom_val(v) already
+returns a pointer than can be dereferenced or mutated.
+
+I think you have a choice between using references explicitly for
+those functions of the API that mutate input references, or uniformly
+representing this type of data as a custom block. The latter option
+may be valuable if you have uses for the other features of custom
+blocks, eg. the user-defined comparison and finalization operations,
+and probably not worth the trouble otherwise. Finally, explicitly
+using references to signal mutability in some part of your API is
+probably clearer and a better design.
+      
+========================================================================
+2) Other Caml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocaml.org/>.
+
+Singleton types for code inference, continued:
+  <http://gallium.inria.fr/~scherer/gagallium/singleton-types-for-code-inference-2>
+
+Singleton types for code inference:
+  <http://gallium.inria.fr/~scherer/gagallium/singleton-types-for-code-inference>
+
+Macaque 0.6.1:
+  <https://forge.ocamlcore.org/forum/forum.php?forum_id=867>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

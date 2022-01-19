@@ -1,0 +1,406 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2013.10.22.html">Previous week</a> <a href="index.html">Up</a> <a href="2013.11.12.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of October 22 to November 05, 2013.</p><p>Sorry for the silence last week, I was on an island with tethering-only internet access.</p><ol><li><a href="#1">Robust left to right flow for record disambiguation</a></li><li><a href="#2">random-generator 0.1</a></li><li><a href="#3">A useful Makefile collection for OCaml projects</a></li><li><a href="#4">ODT 3.0 released</a></li><li><a href="#5">LLVM OCaml bindings</a></li><li><a href="#6">Other Caml News</a></li></ol><a name="1" /><hr /><h3>Robust left to right flow for record disambiguation</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2013-10/msg00172.html">https://sympa.inria.fr/sympa/arc/caml-list/2013-10/msg00172.html</a></p><i>Bob Zhang asked:</i><br /><pre>
+    Record disambiguation is a practical feature, it helps a lot in
+writing open-free code.
+    In practice, I found it is a bit limited, below is two scenarios
+that the compiler can not infer in a correct way, will this be
+improved in the future by any chance?
+     From the user's point of view, annotating the toplevel is quite
+acceptable, maybe the typechecker could take the type-annotation as a
+higher priority.
+    ---
+   1.
+        let f (ls:t) =
+           ls |&gt; List.map (fun x -&gt; x.loc) (* cannot inferred x.loc*)
+   2.
+        type t = {loc:string}
+        type v = {loc:string; x:int}
+        type u = [`Key of t]
+        let f (u:t) =
+          match u with
+          | `Key {loc} -&gt; loc (* does not compile *)
+      </pre><i>Jacques Garrigue replied:</i><br /><pre>
+Case 1 would require a new specification of how type propagation works.
+In particular, propagating from an argument to another argument.
+For this reason, the probability that it gets done is low.
+(I know that F# handles this case in a special way, but do we want to introduce
+a special case just for |&gt; ?)
+
+Case 2 seems more reasonable (after replacing (u:t) by (u:u)).
+In particular,
+   let f (u:u) =
+        match u with `Key loc -&gt; loc.loc
+already works, so it seems strange that the pattern-matching version doesn't.
+      </pre><i>Alain Frisch then added:</i><br /><pre>
+&gt; Case 1 would require a new specification of how type propagation works.
+&gt; In particular, propagating from an argument to another argument.
+&gt; For this reason, the probability that it gets done is low.
+&gt; (I know that F# handles this case in a special way, but do we want to introduce
+&gt; a special case just for |&gt; ?)
+
+The situation with List.map (or similar iterators) is quite common, and 
+remains one of the only cases where local annotations are often required.
+
+There is already a left-to-right propagation between arguments:
+
+  type t = {a: int};;
+  type s = {a: string};;
+  List.map (fun ({a} : t) -&gt; a + 1) [{a=2}];;   (* accepted *)
+  List.map (fun {a} -&gt; a + 1) [({a=2} : t)];;   (* rejected *)
+
+
+With -principal, the first case is reported as non principal (warning 18).
+
+Is there any practical or theoretical problem with specifying the 
+information flow in order to make it principal?
+
+
+
+For List.map and similar cases, one often prefers the type information 
+to flow from the data stucture to the local abstraction.  One can define:
+
+  let map l f = List.map f l
+
+so that:
+
+  map [{a=2}] (fun ({a} : t) -&gt; a + 1);;   (* rejected *)
+  map [({a=2} : t)] (fun {a} -&gt; a + 1);;   (* accepted *)
+
+
+One could imagine heuristics (based either on the function type, or on 
+the argument shape) to pick a different ordering, but it seems much 
+better to have a simple and predictable flow, and the left-to-right 
+seems the most natural one between function arguments.  If we specify 
+such information flow, it is then the responsibility of the library 
+author to choose a "good" ordering.  I hoped that labeled arguments 
+could let the client code choose a different one, but this doesn't work:
+
+  let map ~f l = List.map f l
+
+  map [{a=2}] ~f:(fun ({a} : t) -&gt; a + 1);;   (* accepted *)
+  map ~f:(fun ({a} : t) -&gt; a + 1) [{a=2}];;   (* accepted *)
+
+  map [({a=2} : t)] ~f:(fun {a} -&gt; a + 1);;   (* rejected *)
+  map ~f:(fun {a} -&gt; a + 1) [({a=2} : t)];;   (* rejected *)
+
+
+Does it seem reasonable to use the actual ordering between arguments on 
+the call site rather than the one defined by the function type?
+      </pre><i>Didier Remy then said and Alain Frisch replied:</i><br /><pre>
+&gt; I don't think specifying the information flow between left and right
+&gt; (always-left-to-right, always-right-to-left, or depending-on-examples) is a
+&gt; good design. This leads to non predictable type inference and less robust
+&gt; programs  : refactoring a function by just changing the order of parameters
+&gt; (and consistently changing the order of arguments in all uses of the
+&gt; function) may break existing programs and also require new annotations.
+
+This is already the case, except for people using -principal.  I know it 
+is recommended to use this option (at least once in a while), but I 
+doubt many users actually do it.  (And FWIW, -principal is so slow on 
+our code base that we cannot actually use it in practice -- this is 
+probably related to the way we use object types.)
+
+As a user, I think I'm willing to pay the price of risking having to add 
+a few annotations on the next refactoring if this makes a very common 
+idiom more practical.
+
+
+&gt; Also, such a biased will encourage people to write parameters of functions
+&gt; in an order that works well for the uses they have in mind.  I think it odd
+&gt; that type inference would have such an influence in choosing the order of
+&gt; function parameters.
+
+If the ordering used for the (specified) information flow were drawn 
+from the actual call site, labeled arguments would be a good solution.
+      </pre><a name="2" /><hr /><h3>random-generator 0.1</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2013-10/msg00198.html">https://sympa.inria.fr/sympa/arc/caml-list/2013-10/msg00198.html</a></p><i>Gabriel Scherer announced:</i><br /><pre>
+Simon's recent random-testing library release motivated me to finally
+document and release a tiny library that had been collecting dust for
+a few months now.
+
+<a href="https://github.com/gasche/random-generator">https://github.com/gasche/random-generator</a>
+<a href="http://gasche.github.io/random-generator/doc/Generator.html">http://gasche.github.io/random-generator/doc/Generator.html</a>
+
+random-generator is trying to answer the following question:
+  "What is an elegant interface for random value generation?"
+
+The focus is to get a combinator library where small, composable
+combinators are composed to express rich behaviors. I tried hard to
+choose type definitions that avoid duplication of concerns between the
+various aspects of the library, building domain-specific notions of
+random generation on top of a simple base layer in a modular way.
+
+(Note that this focus is sometimes in tension with providing
+convenient, derived functions that make user's code short and easy to
+read. For now, random-generator will choose the "nice for the library
+designer" way, and code may require some time learning the library to
+be easy to read. You have been warned.)
+
+The library currently provides three different pieces:
+
+- a type ('a gen) for simple random generation
+- a type ('a backtrack_gen) for generators that can fail:
+  "generate a value such that this (possibly empty) condition is verified"
+- a type ('a fueled) for generation of values with an inductive
+  (tree-like) structure that looks nice to the human eye;
+  see the documentation for more information on this:
+
+    <a href="http://gasche.github.io/random-generator/doc/Generator.html#2_fueledgenerators">http://gasche.github.io/random-generator/doc/Generator.html#2_fueledgenerators</a>
+
+I consider the value of this library to be in its interface, not
+necessarily its implementation. I think the current interface is solid
+(though it can still be improved) and encourage people writing random
+generators to steal and reuse it -- or at least feel inspired by it.
+
+
+Closing remark: This design experiment started from Xavier Clerc's
+inspiring Kaputt library ( <a href="http://kaputt.x9c.fr/">http://kaputt.x9c.fr/</a> ), that got me
+interested in random testing a few years ago. I have found random
+testing to be very useful for various kind of projects
+(random-generator was used to build a term generator for this year's
+ICFP contest in a matter of minutes), and would encourage anyone to
+consider using it to find the obvious bug in any fresh code
+manipulating non-trivial data structures.
+      </pre><i>Gabriel Kerneis asked and Francois Berenger replied:</i><br /><pre>
+&gt; Do you know about Boltzmann samplers/generators, and how they compare to
+&gt; your "fueled" generators?
+
+There is also the pareto library from Sergei Lebedev if you are looking
+for a statistics library:
+
+<a href="https://github.com/superbobry/pareto">https://github.com/superbobry/pareto</a>
+
+ From there:
+
+pareto is an OCaml statistics library, based on GSL, which provides:
+-Common statistical tests for significant differences between samples.
+-Uniform interface for common discrete and continuous probability 
+distributions.
+-Sample statistics, quantile estimation, kernel density estimation.
+-Resampling methods: jackknife, BCa bootstrap.
+      </pre><a name="3" /><hr /><h3>A useful Makefile collection for OCaml projects</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2013-10/msg00239.html">https://sympa.inria.fr/sympa/arc/caml-list/2013-10/msg00239.html</a></p><i>Michael Grünewald announced:</i><br /><pre>
+I use a moderately sophisticated collection of Makefile to build my
+OCaml-based projects. I recently decided to polish its organisation and
+documentation, because it might be useful to someone else. If you are
+interested in trying it, check your backups and visit
+
+<a href="https://bitbucket.org/michipili/bsdmakepscripts">https://bitbucket.org/michipili/bsdmakepscripts</a>
+
+Installation instructions are found on this page and an example for a
+simple ocaml program.
+
+Of course, your feedback would be much appreciated and I would try to
+answer questions that you may have!
+
+It is usable with BSD Make and some variants. On FreeBSD it is `make`,
+on other BSDs it is probably `make` as well, on Mac OS X it is `bsdmake`
+and on Debian it is `pmake`. If you do not have any of these programs,
+you may install bmake, see
+<a href="https://bitbucket.org/michipili/bsdmakepscripts/wiki/BMake">https://bitbucket.org/michipili/bsdmakepscripts/wiki/BMake</a>.
+
+
+FEATURES OVERVIEW
+
+- It is written for make(1) and it is thus easy to extend or to
+integrate in a typical unixish workflow.
+- It supports OBJDIRPREFIX, which means you can separate sources and
+object files and implement “compilation profiles” having products stored
+in different directories.
+- It supports parallel build at the “directory granularity level”.
+- It supports ocamlfind, ocamldoc, ocamldepends, ocamllex and ocamlyacc.
+- It supports the production of GPG-signed distfile tarballs.
+
+Aside from compiling OCaml programs, it can do many more useful things
+(typeset with TeX, weave and tangle with noweb).
+
+
+EXAMPLES &amp; DOCUMENTATION
+
+There are examples in the `test/ocaml' subdirectory, each subdirectory
+is a toy product demonstrating some features. The `miniproj-3' displays
+use of the most advanced features.
+
+Recipes for building OCaml based products are found in the Wiki:
+
+<a href="https://bitbucket.org/michipili/bsdmakepscripts/wiki/DevelopOCamlSoftware">https://bitbucket.org/michipili/bsdmakepscripts/wiki/DevelopOCamlSoftware</a>
+
+
+HEY, I THOUGHT MAKEFILES WERE OBSOLETE!
+
+Makefile-based build systems might have limitations and shortcomings[*],
+but:
+
+- Writing Makefiles is a *generic* competence useful to all *NIX users,
+so these build systems rely on something you more or less already know
+or want to learn.
+
+- Since Makefile are *generic* you can also build non-OCaml pieces of
+your system with them, so these build systems rely on a single tool.
+
+- There are ambitious build systems relying exclusively on makefiles, as
+FreeBSD's (and other BSD's I guess), so these build systems have a
+proved ability to scale to very large projects.
+
+[*] It requires a suitable architecture and organisation to support
+dependencies across directories.
+
+
+OCAMLBUILD
+
+Since I started my education at the university of Montpellier where I
+met Berke Durak, one of the authors of `ocamlbuild`, I feel appropriate
+to stress that ***this is not a concurrent project to ocamlbuild***! :-)
+
+
+Have fun with these make macros!
+      </pre><i>Francois Berenger asked and Michael Grünewald replied:</i><br /><pre>
+&gt; Do you know obuild? <a href="https://github.com/vincenthz/obuild">https://github.com/vincenthz/obuild</a>
+There is a lot of other systems that can be used to drive the build of
+OCaml projects: obuild, ocamlbuild, omake, OMakefile and probably
+others. I find it valuable to use a Makefile-based approach, because:
+
+- It is not specific to OCaml, so I can use the same tool to drive the
+development cycle of a heterogeneous project. (I can, and I do!)
+
+- It is easy to extend, because it focuses on workflows (targets and
+prerequisites are elements of simple workflows).
+
+- It can be tweaked so I can include any custom step I want in my
+workflow, because it is based on the UNIX shell.
+
+So for instance, if I want to do plop plop fizz fizz after the build
+step, I only need to add
+
+do-build-after: do-plop-plop-fizz-fizz
+do-plop-plop-fizz-fizz:
+     : Shell commands that plop plop fizz fizz
+
+at the end of the Makefile. And it does not involve a special feature of
+the tool but instead, it is just the normal way to do things with make.
+
+Also, as I started in 2005, I selected the BSD flavour of make because
+it has a canonical clear, short and to the point documentation (Adam de
+Boor's tutorial), an equally good reference (the man page) and has a
+large literature corpus (BSD's build systems) I could take inspiration
+from. (I actually started with GNU make and switched because its
+documentation fails to be so useful as BSD's, despite its length, and
+because it is hard to find useful examples is the sea of
+automake-generated files.)
+      </pre><a name="4" /><hr /><h3>ODT 3.0 released</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2013-11/msg00005.html">https://sympa.inria.fr/sympa/arc/caml-list/2013-11/msg00005.html</a></p><i>Emmanuel Dieul announced:</i><br /><pre>
+This mail announces the new release of ODT: 3.0.
+ODT (OCaml Development Tools) is an Eclipse plug-in for OCaml.
+
+More information on this release is available at <a href="http://ocamldt.free.fr/spip.php?breve33">http://ocamldt.free.fr/spip.php?breve33</a>.
+
+Don't hesitate to try ODT, even for fun. ODT can be installed as explained
+into the install notes (<a href="http://ocamldt.free.fr/spip.php?article5">http://ocamldt.free.fr/spip.php?article5</a>).
+A tutorial and several screenshots are available on the ODT website.
+
+Thanks a lot for using ODT.
+      </pre><a name="5" /><hr /><h3>LLVM OCaml bindings</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2013-11/msg00018.html">https://sympa.inria.fr/sympa/arc/caml-list/2013-11/msg00018.html</a></p><i>Peter Zotov announced:</i><br /><pre>
+I'm currently working on improving LLVM's OCaml bindings.
+There's been quite some progress so far[1]; the only major
+areas pending are AOT code generation and MCJIT support.
+
+I would be very interested to hear how are you using these
+bindings, or suggestions for future development. In particular,
+I'd like to understand the impact of breaking the API.
+
+   [1]: <a href="https://github.com/llvm-mirror/llvm/commits/master/bindings/ocaml">https://github.com/llvm-mirror/llvm/commits/master/bindings/ocaml</a>
+      </pre><i>Jacques-Pascal Deplaix replied and Peter Zotov said:</i><br /><pre>
+&gt; I'm using LLVM for the compiler of my toy language Cervoise (link below).
+&gt; 
+&gt; First, before I started it, I heard from a friend that the official LLVM
+&gt; binding can segfaults so I didn't want to use it [1].
+&gt; 
+&gt; I tried to create my own binding that produces LLVM-IR but there were
+&gt; bugs (the interface didn't seems good).
+&gt; 
+&gt; So I tried the official binding. Like expected, it segfaults and has
+&gt; several bugs and misses features [2] :/
+&gt; 
+&gt; Then, I tried to reproduce the interface of the LLVM binding but with
+&gt; types parameters for lltype and llvalue to know what LLVM types can be
+&gt; inserted for a function (the main cause of segfault), but it was very
+&gt; very painful since we have to separate impossible cases and the type
+&gt; errors (with recursive polymorphic variants) are awesome (irony) [3].
+&gt; 
+&gt; So now I have again my own binding that produces LLVM-IR but this time
+&gt; with the same interface than the official binding, and it works pretty
+&gt; well [4].
+
+The problem is that just generating LLVM IR is often not enough.
+All of the below cannot be achieved without a proper binding:
+
+1) JIT,
+2) Querying the backend for sizes of structures, legal integral types,
+3) Native code generation without shelling out.
+
+Generally, you can do very much with LLVM by shelling out to its 
+plenthora
+of command-line tools, but I find the in-process solution cleaner.
+
+You can get sensible error messages instead of segfaults by using
+a Debug+Asserts or Release+Asserts build of LLVM. The builds packaged
+in Debian, opam, etc are usually built without asserts.
+
+I'll probably release LLVM 3.4 bindings on opam and they will feature
+asserts on by default.
+
+&gt; As a conclusion, don't try to add a type parameter like I did (however,
+&gt; you can try other ways), it would be a waste of time.
+&gt; 
+&gt; [1]: We tried to fix this by starting TyLLVM (but it's not satisfying
+&gt; and far to be finished): <a href="https://bitbucket.org/dinosaure/tyllvm">https://bitbucket.org/dinosaure/tyllvm</a>
+&gt; [2]: I have done several issues on the LLVM bug tracker, but apart from
+&gt; segfaults and bugs when trying to use LLVM_bitwriter, the missed feature
+&gt; is, IMHO, the possibility to get a string that contains the LLVM-IR
+&gt; code, and not just print it.
+
+This will be included in upcoming 3.4 release. I will be happy to hear
+(and likely implement) what else do you miss.
+
+&gt; [3]: <a href="https://github.com/jpdeplaix/cervoise/blob/jeSuisFou/src/LLVM.mli">https://github.com/jpdeplaix/cervoise/blob/jeSuisFou/src/LLVM.mli</a>
+&gt; [4]: <a href="https://github.com/jpdeplaix/cervoise/blob/master/src/LLVM.ml">https://github.com/jpdeplaix/cervoise/blob/master/src/LLVM.ml</a>
+      </pre><a name="6" /><hr /><h3>Other Caml News</h3><i>From the ocamlcore planet blog:</i><br /><pre>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <a href="http://planet.ocaml.org/">http://planet.ocaml.org/</a>.
+
+Everything I did to self-publish a textbook about OCaml (except for the writing part):
+  <a href="http://ocaml-book.com/blog/2013/10/25/every-thing-i-did-to-publish-ocaml-from-the-very-beginning">http://ocaml-book.com/blog/2013/10/25/every-thing-i-did-to-publish-ocaml-from-the-very-beginning</a>
+
+opam2debian:
+  <a href="https://forge.ocamlcore.org/projects/opam2debian/">https://forge.ocamlcore.org/projects/opam2debian/</a>
+
+Third OCaml compiler hacking session:
+  <a href="http://ocamllabs.github.com/compiler-hacking/2013/10/30/third-compiler-hacking-session.html">http://ocamllabs.github.com/compiler-hacking/2013/10/30/third-compiler-hacking-session.html</a>
+
+New draft on Normalization by Evaluation using GADTs:
+  <a href="http://syntaxexclamation.wordpress.com/2013/10/29/new-draft-on-normalization-by-evaluation-using-gadts/">http://syntaxexclamation.wordpress.com/2013/10/29/new-draft-on-normalization-by-evaluation-using-gadts/</a>
+
+Review of the OCaml FPDays tutorial:
+  <a href="http://amirchaudhry.com/fpdays-review">http://amirchaudhry.com/fpdays-review</a>
+
+CUFP 2013 Registration Information:
+  <a href="http://cufp.org/news/2013/cufp-2013-registration-information">http://cufp.org/news/2013/cufp-2013-registration-information</a>
+
+CUFP 2013 Call for Tutorials:
+  <a href="http://cufp.org/news/2013/cufp-2013-call-tutorials">http://cufp.org/news/2013/cufp-2013-call-tutorials</a>
+
+Handling spam on the forge:
+  <a href="https://forge.ocamlcore.org/forum/forum.php?forum_id=889">https://forge.ocamlcore.org/forum/forum.php?forum_id=889</a>
+
+FP Days OCaml Session:
+  <a href="http://amirchaudhry.com/fpdays-ocaml-session">http://amirchaudhry.com/fpdays-ocaml-session</a>
+      </pre><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

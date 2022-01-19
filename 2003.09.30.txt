@@ -1,0 +1,718 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of 23 to 30 September, 2003.
+
+1) Graphics printing under Caml and Linux
+2) Ocaml database connections
+3) Printf question
+4) mod_caml 0.8.0 - Objective CAML bindings for the Apache API
+5) native mode backtrace patch for 3.06
+6) Schoca 0.0 - first release announcement
+7) ExtLib1.0b released
+8) Objective Caml 3.07 final release
+9) Printing text with holes
+
+==============================================================================
+1) Graphics printing under Caml and Linux
+------------------------------------------------------------------------------
+** Pierre Laffitte asked:
+
+I am doing graphics with Caml. These graphs are drawn in a new window on my
+screen, opened by Caml. I would like to have these graphs printed on my local
+printer.
+
+** Basile Starynkevitch suggested and Christophe Troestler added:
+
+> [...] Another option would be (on unix or linux systems) to open a
+> pipe to some software like gnuplot, [...]
+
+If you are interested in such a solution (for windows as well), you
+can use the following Gnuplot library:
+http://www.umh.ac.be/math/an/software.php#x4-40003
+It is considered beta because I would like to refine the interface and
+to take into account some suggestions.
+
+Have fun and do not hesitate to report problems and/or wishes.
+
+** Pierre Weis also said:
+
+The graphps library (from the bazar-ocaml directory of the Caml
+distribution) has been written exactly for that purpose: it generates
+PostScript files from Caml graphics drawings. See the web site of the
+software at:
+
+http://pauillac.inria.fr/graphps/
+
+If you cannot have access to a PostScript printer you may coerce the
+resulting file to a suitable image format using GhostScript or
+ImageMagick or any other image processing program.
+
+==============================================================================
+2) Ocaml database connections
+------------------------------------------------------------------------------
+** Tony Wilson asked and Shawn Wagner answered:
+
+> On a Windows XP platform, how can I connect to a relational database
+> such as Mysql or Postgresql?
+
+There are bindings for both MySQL and Postgres (I maintain the MySQL one). I
+assume it can be made to work on Windows, though I don't use the OS and have
+never tried to compile the Ocaml-MySQL library on it. I have no idea about
+Postgres.
+
+See http://raevnos.pennmush.org/code/ocaml.html#mysql
+
+==============================================================================
+3) Printf question
+------------------------------------------------------------------------------
+** Richard Jones asked:
+
+I'd like to write something like:
+
+let sth = dbh#prepare "select salary from emp where id = %d and name = %s" in
+let res = sth#execute 1 "Jones" in
+(* ... *)
+
+The type-safety issue is that the arguments to the #execute method be
+checked at compile-time.
+
+Using %a I need to write something like:
+
+let sth = dbh#prepare "select salary from emp where id = %a and name = %a" in
+let res = sth#execute int_conversion 1 str_conversion "Jones" in
+
+which is fine but the compiler doesn't check that the id passed is
+really an int. I might as well have written:
+
+let sth = dbh#prepare "select salary from emp where id = ? and name = ?" in
+let res = sth#execute [ `Int 1; `String "Jones" ] in
+
+and just defer the checking to runtime (in fact, defer it to the
+database in this case).
+
+There was a previous posting to this list which discussed this
+approach, and I'm exploring it as a possible way to wrap database
+connections for mod_caml - see also:
+http://caml.inria.fr/archives/200306/msg00218.html and also the
+response to that message from Christophe Troestler.
+
+To be completely safe at compile time, the OCaml code and the database
+tables would need to be generated from some common source. That
+approach is probably too heavyweight.
+
+** Maxence Guesdon suggested:
+
+In DBForge, included in Cameleon, you define your tables, with some
+information about the ocaml type for each column and the functions to
+tranlate to and from these ocaml type. Then dbforge generates a module
+with a module per table, with the following functions in each module:
+create, insert, update, delete, select, drop.
+The functions have types using the types of the columns you indicated in
+the schema. Thus you get for free the main functions to access each table
+separately.
+
+A future extension is the possibility to define sql queries. Dbforge would
+then check the queries against the schema, and embed them in functions
+(still with the types you specified for columns). And all this at compile
+time.
+
+DBForge can generate code for OCaml-Mysql, OCaml-Postgresql and OCamlODBC.
+
+Cameleon: http://savannah.nongnu.org/projects/cameleon
+
+==============================================================================
+4) mod_caml 0.8.0 - Objective CAML bindings for the Apache API
+------------------------------------------------------------------------------
+** Richard Jones announced:
+
+I'm pleased to announce that mod_caml 0.8.0 is available here:
+
+https://savannah.nongnu.org/files/?group=modcaml
+http://www.merjis.com/developers/mod_caml/
+
+mod_caml is a set of Objective CAML (OCaml) bindings for the Apache
+API. It allows you to run CGI scripts written in OCaml directly inside
+the Apache webserver. However, it is much much more than just that:  
+
+    * Bind to any part of the Apache request cycle.
+    * Read and modify internal Apache structures.
+    * Share modules of code between handlers and scripts.
+    * CGI library and templating system (allows separation of code and   
+      presentation).
+    * Works with Apache 1.3 and Apache 2.0.
+
+                                -----
+
+This is an interim release for testing. The main change is that some
+API functions which previously returned 'string option' ('None'
+meaning that the C string was NULL) have been changed to return just
+'string', and to raise 'Not_found' if the C string is NULL. Returning
+'string option' vs. throwing an exception makes little difference in
+the case where you want to catch the NULL and do something
+intelligent. But throwing an exception makes a lot more sense in the
+common case where you simply don't expect a string to be NULL (eg. if
+reading request_rec->uri which should never be NULL). In the common
+case the code is shorter, and if the exception happens it causes a
+fatal error (500) and propagates into the error log.
+
+While this API change is large, ocamlc will find all the type mismatches
+for you, and then it is a simple matter to change uses.
+
+Another smaller API change is that templates now use assoc-lists
+instead of Hashtbl for tables. This considerably simplifies CGI code
+which uses tables.
+
+I hope that this will be the last time the API has to change in such a
+major way.
+
+Rich.
+
+PS. I'm looking for more people who want to be an active part of this
+project. So far we have 2 people with CVS 'commit' rights.
+
+==============================================================================
+5) native mode backtrace patch for 3.06
+------------------------------------------------------------------------------
+** Chris Hecker <checker@d6.com> announced:
+
+I've written a somewhat-hacked backtrace patch for the native mode compiler.  
+I've added a -gb option, and if you build and link with it on, the app prints 
+out a list of the most recent 32 functions called (the code address and name) 
+on a fatal_uncaught_exception, like this:
+
+Fatal error: exception Not_found
+        Backtrace:
+                 31: 0x0045AA28 Math2d__add_71
+                 30: 0x0045B7E4 Math2d__rotate_sc_161
+<snip>
+                  3: 0x00438D7C Debugoutput__feature_from_index_191
+                  2: 0x00437CDC Debugoutput__fun_562
+                  1: 0x00438BA0 Debugoutput__correct_feature_from_limb_175
+                  0: 0x00437C2C Debugoutput__fun_554
+
+In this case the exception was from a List.find called by the #1 function 
+above (Debugoutput.correct_feature_from_limb), and the #0 function is the 
+closure passed to List.find, so it was the last function called before the 
+exception was raised.
+
+I don't know if there's anybody else out there who regularly runs native mode 
+and/or can't run in bytecode for performance reasons like me, but if so this 
+somewhat helps make up for the lack of a debugger.  This will at least get you 
+to the right function to start looking for the problem (and using cclib and 
+ccopt directives to turn on debugging info in the underlying object files will 
+let you debug and set breakpoints at the function level, assuming you're 
+comfortable debugging assembly).  Using -S to generate asm lets you quickly 
+figure out which named functions are referencing which anonymous closures, 
+too.  Using this is often faster than binary searching with printfs, at the 
+very least.  :)
+
+The patch should be totally portable.  I instrument functions and modules at 
+the cmmgen level, so there's no platform specific code (unless I screwed up 
+and made a bad assumption somewhere).  The instrumentation code checks for 
+itself as the last function called, so deeply recursive functions won't wipe 
+out the rest of the history (although two ping-ponging functions would), etc.
+
+The patch is just a record of what functions have been called recently, it's 
+not a true backtrace, and it doesn't pay attention to threads or caught 
+exceptions or anything else (meaning multiple threads will write into the same 
+backtrace buffer, but since caml can't run multiple caml threads at the same 
+time this isn't too much of a problem, you'll still be able to find the 
+failing function most of the time...it would not be hard to fix it to have 
+a record per thread).
+
+Send me mail if you want the patch.  I'm not on the list anymore, so please cc 
+me if you reply to the list. 
+
+I might also extend it to do some simple instrumented profiling, since gprof 
+doesn't work on msvc.
+
+** Yaron Minsky asked and Chris Hecker answered:
+
+>Does the patch have any performance implications?
+
+The instrumentation code it adds (to every function, even small ones, although 
+that could be changed relatively easily by adding some kind of function-length 
+metric, maybe what the inliner uses) will take some time, but in the brief 
+test I did it didn't make much difference in my game, which was a pleasant 
+surprise (even when it was added to tiny things like a 2D vector addition 
+that's used everywhere).  Maybe inlining happens before cmmgen or something, 
+I don't know.
+
+>Another thought: it
+>might be nice to get it to dump the failure into something analogous to a
+>core dump file, so that it wouldn't confuse an ordinary user, but it would
+>save the backtrace which could be recovered for debugging purposes.
+
+That would be easy, since the printout is in C and just fprintfs to stderr.  
+I should also add a caml interface to it in Sys or something, that just 
+returns the data, so you can put a try ... with _ ->
+Sys.get_debug_native_backtrace () around your whole program (or in an atexit) 
+and do whatever you want with  it.
+
+>Anyway, please do send me the patch.  Though I hope eventually this patch
+>or one like it ends up in the standard distribution.
+
+A couple others have asked for it, so I'll clean it up and post it on my 
+website.  I'll send mail to the list when I do that.
+
+** malc said, Chris Hecker asked, and malc answered:
+
+> > http://groups.google.com/groups?q=fourth+shared+patch&hl=en&lr=&ie=UTF-8&selm=fa.gbof7hv.fmmo03%40ifi.uio.no&rnum=1
+> > Cross platform support for this was done, nearly one year ago..
+> > (Link is dead, but im not)
+> 
+> Ah, I probably should have searched, but it sounds like yours is not 
+> available anymore, and it's also part of something bigger?  Did you 
+> instrument in cmmgen.ml as well, or do it differently?
+
+http://www.boblycat.org/~malc/scaml/
+
+And yes, cmmgen and some c files were touched
+
+==============================================================================
+6) Schoca 0.0 - first release announcement
+------------------------------------------------------------------------------
+** Christoph Bauer announced:
+
+Schoca is SCHeme for OCAml.
+
+The initial release of schoca is available at
+
+   http://prdownloads.sourceforge.net/chesslib/schoca-0.0.tar.bz2?download
+
+Please note that this is an early alpha release of Schoca.  Please
+report bugs, typos, etc.
+
+README
+
+Schoca --- Scheme for OCaml
+---------------------------
+
+
+Schoca is an implementation of the Scheme language. The primary
+purpose of Schoca is the use as an embedded extension language in
+OCaml applications (e.g. the ibgsclient).
+
+
+Why Scheme?
+-----------
+
+Scheme is an easy, small, widely known and well-documented
+language. There exists some (over Scheme implementations) portable
+libraries. With applications like Gimp and GnuCash it has been proven
+that Scheme is a very useful extension language. Other applications (like
+Emacs or AutoCAD) use other lisp dialects (elisp, AutoLisp).
+
+
+Why another implementation of Scheme?
+-------------------------------------
+
+OCaml and Scheme need both a garbage collector (GC). With an
+implementation of Scheme in OCaml both parts of the application are
+using the same GC. This avoids easily a lot of troubles.
+
+The extension language and the application itself are sharing some
+code, e.g. for the handling of hashtables. This results in a smaller
+size of the application binary.
+
+Furthermore this solution doesn't require type conversion functions.
+Scheme types are simple variant or record types.
+
+
+How does it work?
+------------------
+
+Register new functions with
+
+Enviroment.set env "name" (ML_EagerProcedure (fun args -> ... ))
+
+Look in rep.ml.
+
+[This section will be rewritten in the next release.]
+
+Status (Version 0.0)
+--------------------
+
+Version 0.0 is a very early release. Expect not to much!
+
+What works: look in r5rs-test.scm.
+What is missing:
+   * proper tail recursion (planned for 0.1)
+   * macros (planned for 0.2)
+   * correct continuations (planned for 0.1)
+   * recursive calls of "force" (cmp R5RS 6.4 and documentation about `Lazy.force')
+      (does anybody need this?)
+   * some library functions (planned for 0.2)
+        [gcd, lcm, numerator, denominator, round, rationalize, atan,
+         make-rectangular, make-polar, magnitude, angle, char-alphabetic?,
+         char-numeric?, char-whitespace?, char-upper-case?, char-lower-case?,
+         char-upcase, char-lowercase, string->list, list->string, vector-length,
+         vector->list, dynamic-wind, null-enviroment, interaction-enviroment, ...]
+   * most I/O Routines (planned for 0.1)
+   * simple API for embeddeding (planned for 0.1)
+
+There are no `immutable' string restrictions. (compare with R5RS
+p. 30)
+
+The license
+-----------
+GPL
+
+Contact
+-------
+
+Schoca is part of the IBGS project:
+http://sf.net/projects/chesslib
+
+Please report bugs, send complains and suggestions, or donations ;-)
+
+Author: Christoph Bauer <c_bauer@informatik.uni-kl.de>
+
+==============================================================================
+7) ExtLib1.0b released
+------------------------------------------------------------------------------
+** Nicolas Cannasse announced:
+
+I'm please to announce the first release of ExtLib :
+ExtLib is a project aiming at providing a complete - yet small - standard
+library for the OCaml programming langage. The purpose of this library is to
+add new functions to OCaml Standard Library modules, to modify some
+functions in order to get better performances or more safety
+(tail-recursive) but also to provide new modules which should be useful for
+the average OCaml developer.
+
+The version 1.0b includes :
+- all tail recursive List functions (keeping high performances)
+- dynamic auto-resizing array
+- new functions for String and Hashtable
+- small unicode support
+- efficient bitset
+- enumerations over abstract collection of elements
+- ...
+
+Source downloads and online documentation can be found on the project page :
+http://ocaml-lib.sourceforge.net
+
+==============================================================================
+8) Objective Caml 3.07 final release
+------------------------------------------------------------------------------
+** Xavier Leroy announced:
+
+The long-awaited final release of Objective Caml version 3.07 is now
+available from   
+
+        http://caml.inria.fr/ocaml/distrib-3.07.html
+
+Some of the highlights in this release include:
+
+- Experimental support for recursive module definitions.
+- "Private types", i.e. variant or record types that can be destructured   
+  but not constructed outside of their defining module.
+- Browsing of inferred types (point to an expression in the source
+  code and see its inferred type).
+- AMD64 (Opteron/Athlon64) port of the native-code compiler.   
+
+A detailed list of changes is appended below.
+
+Many thanks to the beta testers who gave this release a good shake.
+
+Enjoy,
+
+- Xavier Leroy, for the Objective Caml team.
+
+
+Objective Caml 3.07:
+--------------------
+
+Language features:
+- Experimental support for recursive module definitions
+      module rec A : SIGA = StructA and B : SIGB = StructB and ...
+- Support for "private types", or more exactly concrete data types
+  with private constructors or labels.  These data types can be
+  de-structured normally in pattern matchings, but values of these
+  types cannot be constructed directly outside of their defining module.
+- Added integer literals of types int32, nativeint, int64
+  (written with an 'l', 'n' or 'L' suffix respectively).
+
+Type-checking:
+- Allow polymorphic generalization of covariant parts of expansive
+  expressions.  For instance, if f: unit -> 'a list, "let x = f ()"
+  gives "x" the generalized type forall 'a. 'a list, instead of '_a list
+  as before.
+- The typing of polymorphic variants in pattern matching has changed.
+  It is intended to be more regular, sticking to the principle of "closing
+  only the variants which would be otherwise incomplete". Two potential
+  consequences: (1) some types may be left open which were closed before,
+  and the resulting type might not match the interface anymore (expected to
+  be rare); (2) in some cases an incomplete match may be generated.
+- Lots of bug fixes in the handling of polymorphism and recursion inside
+  types.
+- Added a new "-dtypes" option to ocamlc/ocamlopt, and an emacs extension
+  "emacs/caml-types.el".  The compiler option saves inferred type information
+  to file *.annot, and the emacs extension allows the user to look at the
+  type of any subexpression in the source file.  Works even in the case
+  of a type error (all the types computed up to the error are available).
+  This new feature is also supported by ocamlbrowser.
+- Disable "method is overriden" warning when the method was explicitely
+  redefined as virtual beforehand (i.e. not through inheritance). Typing
+  and semantics are unchanged.
+
+Both compilers:
+- Added option "-dtypes" to dump detailed type information to a file.
+- The "-i" option no longer generates compiled files, it only prints
+  the inferred types.
+- The sources for the module named "Mod" can be placed either in Mod.ml or
+  in mod.ml.
+- Compilation of "let rec" on non-functional values: tightened some checks,
+  relaxed some other checks.
+- Fixed wrong code that was generated for "for i = a to max_int"
+  or "for i = a downto min_int".
+- An explicit interface Mod.mli can now be provided for the module obtained
+  by ocamlc -pack -o Mod.cmo ... or ocamlopt -pack -o Mod.cmx ...
+- Revised internal handling of source code locations, now handles
+  preprocessed code better.
+- Pattern-matching bug on float literals fixed.
+- Minor improvements on pattern-matching over variants.
+- More efficient compilation of string comparisons and the "compare" function.
+- More compact code generated for arrays of constants.
+- Fixed GC bug with mutable record fields of type "exn".
+- Added warning "E" for "fragile patterns": pattern matchings that would
+  not be flagged as partial if new constructors were added to the data type.
+
+Bytecode compiler:
+- Added option -vmthread to select the threads library with VM-level
+  scheduling.  The -thread option now selects the system threads library.
+
+Native-code compiler:
+- New port: AMD64 (Opteron).
+- Fixed instruction selection bug on expressions of the kind (raise Exn)(arg).
+- Several bug fixes in ocamlopt -pack (tracking of imported modules,
+  command line too long).
+- Signal handling bug fixed.
+- x86 port:
+    Added -ffast-math option to use inline trigo and log functions.
+    Small performance tweaks for the Pentium 4.
+    Fixed illegal "imul" instruction generated by reloading phase.
+- Sparc port:
+    Enhanced code generation for Sparc V8 (option -march=v8) and
+    Sparc V9 (option -march=v9).
+    Profiling support added for Solaris.
+- PowerPC port:
+    Keep stack 16-aligned for compatibility with C calling conventions.
+
+Toplevel interactive system:
+- Tightened interface consistency checks between .cmi files, .cm[oa] files
+  loaded by #load, and the running toplevel.
+- #trace on mutually-recursive functions was broken, works again.
+- Look for .ocamlinit file in home directory in addition to the current dir.
+
+Standard library:
+- Match_failure and Assert_failure exceptions now report
+  (file, line, column), instead of (file, starting char, ending char).
+- float_of_string, int_of_string: some ill-formed input strings were not
+    rejected.
+- Added format concatenation, string_of_format, format_of_string.
+- Module Arg: added new option handlers Set_string, Set_int, Set_float,
+    Symbol, Tuple.
+- Module Format: tag handling is now turned off by default,
+    use [Format.set_tags true] to activate.
+- Modules Lexing and Parsing: added better handling of positions
+    in source file.  Added function Lexing.flush_input.
+- Module Scanf: %n and %N formats to count characters / items read so far;
+    assorted bug fixes, %! to match end of input. New ``_'' special
+    flag to skip reresulting value.
+- Module Format: tags are not activated by default.
+- Modules Set and Map: fixed bugs causing trees to become unbalanced.
+- Module Printf: less restrictive typing of kprintf.
+- Module Random: better seeding; functions to generate random int32, int64,
+    nativeint; added support for explicit state management.
+- Module Sys: added Sys.readdir for reading the contents of a directory.
+
+Runtime system:
+- output_value/input_value: fixed bug with large blocks (>= 4 Mwords)
+  produced on a 64-bit platform and incorrectly read back on a 32-bit
+  platform.
+- Fixed memory compaction bug involving input_value.
+- Added MacOS X support for dynamic linking of C libraries.
+- Improved stack backtraces on uncaught exceptions.
+- Fixed float alignment problem on Sparc V9 with gcc 3.2.
+
+Other libraries:
+- Dynlink:
+    By default, dynamically-loaded code now has access to all
+      modules defined by the program; new functions Dynlink.allow_only
+      and Dynlink.prohibit implement access control.
+    Fixed Dynlink problem with files generated with ocamlc -pack.
+    Protect against references to modules not yet fully initialized.
+- LablTK/CamlTK: added support for TCL/TK 8.4.
+- Str: reimplemented regexp matching engine, now less buggy, faster,
+    and LGPL instead of GPL.
+- Graphics: fixed draw_rect and fill_rect bug under X11.
+- System threads and bytecode threads libraries can be both installed.
+- System threads: better implementation of Thread.exit.
+- Bytecode threads: fixed two library initialization bugs.
+- Unix: make Unix.openfile blocking to account for named pipes;
+  GC bug in Unix.*stat fixed; fixed problem with Unix.dup2 on Windows.
+
+Ocamllex:
+- Can name parts of the matched input text, e.g.
+    "0" (['0'-'7']+ as s) { ... s ... }
+
+Ocamldebug:
+- Handle programs that run for more than 2^30 steps.
+
+Emacs mode:
+- Added file caml-types.el to interactively display the type information
+  saved by option -dtypes.
+
+Win32 ports:
+- Cygwin port: recognize \ as directory separator in addition to /
+- MSVC port: ocamlopt -pack works provided GNU binutils are installed.
+- Graphics library: fixed bug in Graphics.blit_image; improved event handling.
+
+OCamldoc:
+- new ty_code field for types, to keep code of a type (with option -keep-code)
+- new ex_code field for types, to keep code of an exception
+    (with option -keep-code)
+- some fixes in html generation
+- don't overwrite existing style.css file when generating HTML
+- create the ocamldoc.sty file when generating LaTeX (if nonexistent)
+- man pages are now installed in man/man3 rather than man/mano
+- fix: empty [] in generated HTML indexes
+
+==============================================================================
+9) Printing text with holes
+------------------------------------------------------------------------------
+** Martin Jambon asked:
+
+I am curious to know what people use to print long text written in a
+natural language, and containing many holes, like dynamically generated
+web pages.
+[...]
+Does anyone need this kind of approach?
+Any better ideas?
+
+I put my implementation here (it is quite ugly, I still ignore everything
+about Camlp4):
+  http://martin.jambon.free.fr/bazar/printfer.tar.gz
+
+** Pierre Weis answered:
+
+Many people use the same approach with dollars. In the 3.07 release of
+Objective Caml there is some support to easily obtain such a feature:
+in the interface of the module Buffer, we find
+
+val add_substitute : t -> (string -> string) -> string -> unit
+(** [add_substitute b f s] appends the string pattern [s] at the end
+   of the buffer [b] with substitution.
+   The substitution process looks for variables into
+   the pattern and substitutes each variable name by its value, as
+   obtained by applying the mapping [f] to the variable name. Inside the   
+   string pattern, a variable name immediately follows a non-escaped
+   [$] character and is one of the following:
+   - a non empty sequence of alphanumeric or [_] characters,
+   - an arbitrary sequence of characters enclosed by a pair of
+   matching parentheses or curly brackets.
+   An escaped [$] character is a [$] that immediately follows a backslash
+   character; it then stands for a plain [$].
+   Raise [Not_found] if the closing character of a parenthesized variable
+   cannot be found. *)
+
+This may be used to create strings with $identifiers to expand in them.
+
+** Karl Zilles said:
+
+I just used HereDoc to create a set of web pages, and found it pleasant
+to work in.
+
+I used his old codebase, instead of the alpha version, since it looks
+like the alpha version hasn't been touched in 2 years.
+
+http://www.eleves.ens.fr/home/frisch/soft.html#HereDoc
+
+He has a syntax like yours:
+
+<< Hello, $firstname $lastname. >>
+
+or
+
+<< I am $$ string_of_int age $$ years old >>
+
+He doesn't appear to have any syntactic sugar for conversions.  Which
+wasn't a problem.
+
+He has constructs for creating loops, and the ability to include
+templates from other files.
+
+He's also abstracted out the printing so that you can tell it where you
+want to send the generated text.
+
+** Pierre Weis added:
+
+I just use htmlc, which is simple and efficient:
+
+  http://pauillac.inria.fr/htmlc/
+
+It uses $identifiers as you suggested, + some Server Side Includes
+expansions, + local environment definition facilities, + what you
+would like to add to it in the future :)
+
+Here is a brief excerpt of the Changes file:
+
+1.20 (Documents environment variables expansion)
+----
+ - Inside documents variables of the form $X, $(X), or ${X} are
+   considered to be bound in the Htmlc's global environment hash table
+   and expanded as their corresponding string associated value.
+ - New -e argument to load environment files that set up Htmlc's
+   global environment table. Environment files are list of lines
+   that contain a variable name and an associated string (following
+   Caml' lexical conventions).
+ - New server side directive: the line
+   <!--#include environment="filename"-->
+   in a document loads environment file ``filename'' and enriches the
+   global environment accordingly.
+ - New -s compilation flag to expand .shtml files into .html files.
+
+1.10 (User's environment variables expansion)
+----
+ - Throughout documents passed to htmlc, tags of the form <$X>
+   are considered to reference the variable X in the user's
+   gloabal environment: <$HOME> is thus replaced by the string
+   representation of the user's HOME directory.
+   (This expansion mechanism is disabled when including verbatim
+   files).
+
+** Jean-Christophe Filliatre said:
+
+I use my own HTML pre-processor, yamlpp, available at
+
+        http://www.lri.fr/~filliatr/yamlpp.en.html
+
+which is no more than a 130 lines long ocamllex program.
+
+==============================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+
+If you know of a better way, please let me know.
+
+==============================================================================
+Old cwn
+------------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@inria.fr) and I'll mail it to you, or go take a look at
+the archive (http://pauillac.inria.fr/~aschmitt/cwn/) or the RSS feed of the 
+archives (http://pauillac.inria.fr/~aschmitt/cwn/cwn.rss). If you also wish to 
+receive it every week by mail, just tell me so.
+
+==============================================================================
+
+Alan Schmitt

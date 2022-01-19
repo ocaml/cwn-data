@@ -1,0 +1,263 @@
+<?xml version="1.0" encoding="ISO-8859-15"?>
+<cwn>
+<cwn_head>
+  <cwn_date>2005.07.12</cwn_date>
+  <cwn_prev>2005.07.05</cwn_prev>
+  <cwn_next>2005.07.19</cwn_next>
+  <cwn_date_text>05 to 12 July, 2005</cwn_date_text>
+</cwn_head>
+<cwn_body>
+  <cwn_entry>
+    <cwn_title>Sparse structure</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/29537</cwn_url>
+    <cwn_who>Chris King asked and Jacques Garrigue answered</cwn_who>
+    <cwn_what>
+&gt; I&apos;m trying to create a sparse structure; i.e. a large structure which
+&gt; doesn&apos;t allocate storage for &quot;unused&quot; fields.  Given a structure:
+&gt; 
+&gt; type foo = { a: int option; b: float option }
+&gt; 
+&gt; the best solution I can come up with, short of using Obj.magic, is to
+&gt; use a hash table like this:
+&gt; 
+&gt; type foo_key = A_key | B_key
+&gt; type foo_value = A_value of int | B_value of float
+&gt; type sparse = (foo_key, foo_value) Hashtbl.t
+&gt; 
+&gt; which works, but the extra variant type required means more CPU time
+&gt; and more keystrokes.  Is there a better solution than this?
+&gt; 
+&gt; The structure will have hundreds of fields, each with a different
+&gt; type.  Most of the fields will be unused, but usage will be determined
+&gt; at runtime so using objects is not an option.
+
+This is a classical problem, with no good solution that I know.
+
+If you want to avoid Obj.magic, then your solution seems OK, yet
+* if your values are really sparse, Map might be better than Hashtbl
+  (more compact representation)
+* if you have really hundreds of fields, then you have better switch
+  to polymorphic variants, as normal ones only allow about 240 cases.
+
+If you are ready to use a bit of Obj, then there are some other
+solutions.
+For instance, you could do something like this.
+
+module Int = struct type t = int let compare : int -&gt; int -&gt; int = compare end
+module M = Map.Make(Int)
+type +&apos;a elt
+type &apos;a map = &apos;a elt M.t
+
+let addA (x : &apos;a) (m : [&gt; `A of &apos;a] map) =
+  M.add (Obj.magic `A) (Obj.magic x) m
+
+let addB (x : &apos;a) (m : [&gt; `B of &apos;a] map) =
+  M.add (Obj.magic `B) (Obj.magic x) m
+
+let getA (m : [&gt; `A of &apos;a] map) : &apos;a =
+  Obj.magic (M.find (Obj.magic `A) m)
+
+let getB (m : [&gt; `B of &apos;a] map) : &apos;a =
+  Obj.magic (M.find (Obj.magic `B) m)
+
+Note that the result is completely type safe, and you don&apos;t need all
+maps to contain the same potential fields.
+The downside is that you need to define set and get for all fields.
+On the other hand, it should be easy to define camlp4 macros
+enforcing the same type annotations, avoiding such definitions.
+
+(Polymorphic variants here are only used as phantom types. Note
+however that this choice is useful: it ensures that two keys cannot
+conflict, as if `A and `B had the same hash values, this would be
+detected when constructing the type [&gt; `A of &apos;a | `B of &apos;b])
+    </cwn_what>
+    <cwn_who>Chris King then asked and Jacques Garrigue answered</cwn_who>
+    <cwn_what>
+&gt; Thanks, that works great!  I&apos;m curious though, what is the purpose of
+&gt; the elt type?  Is it to enforce the use of the map type instead of
+&gt; M.t?
+
+Not exactly. [map] is only an abbreviation, used to shorten types in
+the rest of the code. [elt] is more fundamental: it both hides the
+contents of the map, by being abstract (so you can only access them
+through Obj.magic), and has a type parameter which will be used to
+enforce the relation between key and data type.
+
+By the way, I&apos;ve started experimenting with a camlp4 syntax extension
+for that, and it seems to works nicely. I&apos;ll post it when it gets
+cleaner.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>LablGtkSourceView</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/29547</cwn_url>
+    <cwn_who>Stefano Zacchiroli announced</cwn_who>
+    <cwn_what>
+I&apos;m pleased to announce the first public release of LablGtkSourceView,
+OCaml binding for GtkSourceView (http://gtksourceview.sourceforge.net/),
+a GTK widget which extends the standrd GTK text widgets implementing
+syntax highlighting, automatic indentation, and other typical features
+of source editors.
+
+ATM not many methods of the widget are bound, but it is already possible
+to instantiate widgets, load .lang files which describe syntax
+highlighting, and enable/disable core features like automatic
+indentation, tab sizes, line numbers, ...
+
+Bound widgets properly fit in the LablGtk class hierarchy.
+
+LablGtkSourceView is distributed under the term of the GNU Lesser
+General Public License (LGPL) and is available for download here:
+
+  http://helm.cs.unibo.it/software/lablgtksourceview/
+    </cwn_what>
+    <cwn_who>David Baelde asked and Stefano Zacchiroli answered</cwn_who>
+    <cwn_what>
+&gt; Many people probably want to know: is there a OCaml.lang for
+&gt; specifying OCaml syntax/indentation for GtkSourceView ? Could be
+&gt; useful for that ongoing OCamlIDE project...
+
+I&apos;m not aware of such a .lang and at the moment I&apos;m not interested in
+writing it. That said, writing a .lang is relatively easy and there are
+a lot of examples in gedit (the more widespread application which uses
+GtkSourceView), also monodevelop uses it and probably has an archive of
+.lang files but I&apos;ve never looked at them.
+
+&gt; But I haven&apos;t found anything about auto-indent customization. Is it
+&gt; possible ?
+
+GtkSourceView support auto-indent and in LablGtkSourceView you can
+enable it either from the constructor (?auto_indent param) or with
+set_auto_indent. However the supported form of automatic indentation is
+more limited than those found in emacs or vim. GtkSourceView indeed
+support only indentation preservation (i.e. when starting a new line
+copy the amount of indent of the last one).
+
+On top of that implementing automatic indentation similar to vim&apos;s
+smartindent (i.e. augment the indentation if last line ends with a word
+in a given set, e.g. &quot;then&quot;, &quot;do&quot;, ...) should be relatively easy and I
+plan to do it in next releases of LablGtkSourceView.
+    </cwn_what>
+    <cwn_who>Eric Cooper also answered</cwn_who>
+    <cwn_what>
+&gt; Many people probably want to know: is there a OCaml.lang for specifying 
+&gt; OCaml syntax/indentation for GtkSourceView ? Could be useful for that 
+&gt; ongoing OCamlIDE project...
+
+Here&apos;s a first cut at one:
+    http://www.cs.cmu.edu/~ecc/ocaml.lang
+
+On Debian at least, you can put this in
+    ~/.gnome2/gtksourceview-1.0/language-specs/
+
+You will also need MIME types recognized for OCaml programs.
+Put the following in ~/.local/share/mime/globs:
+    text/x-ocaml:*.ml
+    text/x-ocaml:*.mli
+
+(On other systems, it might be useful to run
+    strace -e trace=file gedit foo.ml
+to find out where it&apos;s looking for these definitions.)
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Line printer daemon</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/29559</cwn_url>
+    <cwn_who>Christophe Troestler announced</cwn_who>
+    <cwn_what>
+I am happy to announce that the Lpd program now is a library!
+
+Lpd allows you to build Line Printer Daemons and bind your own actions
+to LPD events.  See http://ocaml-lpd.sourceforge.net/
+
+The Lpd library is released under the LGPL with the std Ocaml library
+exception.  The two example programs are under the GLP.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Polymorphic map and OO syntax extension</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/29558</cwn_url>
+    <cwn_who>Jacques Garrigue announced</cwn_who>
+    <cwn_what>
+I&apos;ve just put together some code bits I thought my be interesting for
+others.
+
+You can find them at
+  http://www.math.nagoya-u.ac.jp/~garrigue/code/ocaml.html
+
+OO syntax extension
+    Some camlp4 syntax extensions to write more compact code using
+    objects. The new syntaxes are
+        * val [mutable] x = expr with (reader|writer|accessor)
+          generates code for an x and a set_x method, like in ruby.
+        * obj#x &lt;- expr
+          generates a call to the set_x method.
+        * {| [mutable] f1 = expr1; ...; [mutable] fn = exprn |}
+          generates an immediate object with the above fields and the
+          corresponding accessor methods. You may also include inherit
+          declarations.  
+
+Polymap
+    This is a tiny module combined with a camlp4 extension, which
+    allows you to define polymorphic mappings, where the type of the
+    data depends on the key. (The syntax is strange, but I had no
+    better idea.)
+        $ ocaml camlp4o.cma pa_polymap.cmo polymap.cmo
+        # let m = `{x=1; y=true};;
+        val   m : [&gt; `x of int | `y of bool ] Polymap.t = 
+        # let m = `{m with z = &quot;hello&quot;};;
+        val m : [&gt; `x of int | `y of bool | `z of string ] Polymap.t = 
+        # m.`y;;
+        - : bool = true
+        # `{m with x = &quot;a&quot;};;
+            ^
+        Types for tag `x are incompatible
+        # m.`u;;
+        Exception: Not_found.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>LablPCRE - a PCRE binding for Objective Caml</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/29571</cwn_url>
+    <cwn_who>Robert Roessler announced</cwn_who>
+    <cwn_what>
+The initial public release of the LablPCRE OCaml binding for PCRE is 
+now available, providing access to the POSIX regular expression 
+pattern matching API of PCRE (the latest &quot;6.1&quot; release of PCRE is 
+currently supported).
+
+With an emphasis on simplicity and ease of use, LablPCRE offers a 
+small-footprint interface: four functions and a handful of public 
+methods in a returned &quot;regresult&quot; object.
+
+While I consider functionality to be largely complete, feedback on 
+features or usability is of course welcomed... I especially encourage 
+contributions to the supported build environments in the package&apos;s 
+Makefile, and will integrate the common ones into future releases.
+
+With a distribution incorporating pre-built Windows binaries, LablPCRE 
+is released under the &quot;new&quot; BSD license, and may be downloaded here:
+
+http://www.rftp.com/Downloads.shtml
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Wyrd 1.0.0</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/29441</cwn_url>
+    <cwn_who>Owen Gunden announced</cwn_who>
+    <cwn_what>
+There is now a GODI package for Wyrd (see details below).
+
+Paul Pelzl wrote:
+&gt; &quot;Wyrd is a curses front-end for Remind, a powerful calendar and alarm
+&gt; application. The display features a scrollable day calendar suitable for
+&gt; visualizing your schedule at a glance. Wyrd integrates with an external
+&gt; editor of your choice to make manual editing of reminder files more
+&gt; efficient. Other features include significant configurability and
+&gt; Mutt-like interface design.&quot;
+&gt;
+&gt; http://www.eecs.umich.edu/~pelzlpj/wyrd
+    </cwn_what>
+  </cwn_entry>
+</cwn_body>
+</cwn>

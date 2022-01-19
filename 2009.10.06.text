@@ -1,0 +1,286 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of September 29 to October 06, 2009.
+
+1) Incremental linking
+2) xpath or alternatives
+3) Announcing dyn.alpha01
+4) Other Caml News
+
+========================================================================
+1) Incremental linking
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/8db2b495140ca865#>
+------------------------------------------------------------------------
+** Dawid Toton asked, Gerd Stolpmann replied, and Xavier Leroy said:
+
+Dawid Toton wrote: 
+> I have lot of modules and they are compiled to native code. 
+> So I have .cmx and .o files and want to link them faster. 
+> Is is possible to make linking an associative operation acting on modules? 
+> [...] 
+> Documentation of ld says that files produced with --relocatable can be 
+> used as intermediate partially linked files. Can something like this be 
+> done with object code produced by ocamlopt? 
+
+Yes.  "ocamlopt -pack" actually calls "ld -r" underneath to 
+consolidate several compilation units in a single .cmx/.o file. 
+"ld -r" will resolve references between these compilation units. 
+
+Gerd Stolpmann wrote: 
+> Well, you can link several .cmx files (and their accompanying .o files) 
+> to a .cmxa file (and an accompanying .a file): ocamlopt -a 
+
+ From a linking standpoint, "ocamlopt -a" is equivalent to "ar": it 
+does not resolve any references, just concatenates individual 
+cmx/.o files in a single .cmxa/.a file.   That can still speed up 
+linking a bit, since reading one big .a file is faster than reading a 
+zillion small .o files. 
+
+Generally speaking, I'm somewhat surprised that linking time is an 
+issue for Dawid.  Modern Unix linkers are quite fast, and the 
+additional link-time work that OCaml does is small.  Let us know if 
+you manage to narrow the problem. 
+      
+========================================================================
+2) xpath or alternatives
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/48e05d49b0f21b8a#>
+------------------------------------------------------------------------
+** Continuing the thread from last week, Mikkel Fahnøe Jørgensen said:
+
+In line with what Yaron suggests, you can use a combinator parser.
+
+I do this to parse json, and this parser could be adapted to xml by
+focusing on basic syntax and ignoring the details, or you could
+prefilter xml and use the json parser directly.
+
+See the Fleece parser embedded here:
+
+There is also the object abstraction that dives into an object
+hierarchy after parsing, see the Objects module. The combination of
+these two makes it quite easy to work on structured data, but 3 lines
+only come after some xml adaptation work - but you can see many
+one-liner json access in the last part of the file.
+
+<http://git.dvide.com/pub/symbiosis/tree/myocamlbuild_config.ml>
+
+Otherwise there is xmlm which is self-contained in single xml file,
+and as I recall, has some sort of zipper navigator. (I initially
+intended to use it before deciding on the json format):
+
+<http://erratique.ch/software/xmlm>
+      
+** Richard Jones then replied:
+
+It's interesting you mention xmlm, because I couldn't write 
+the code using xmlm at all. 
+
+The discussion here has got quite theoretical, but it's not helping 
+me to write the original 3 lines of Perl in OCaml. 
+
+    my $p = XML::XPath->new (xml => $xml); 
+    my @disks = $p->findnodes ('//devices/disk/source/@dev'); 
+    push (@disks, $p->findnodes ('//devices/disk/source/@file')); 
+
+My best effort, using xml-light, is around 40 lines:
+
+<http://git.et.redhat.com/?p=libguestfs.git;a=blob;f=ocaml/examples/viewer.ml;h=ef6627b1b92a4fff7d4fa1fa4aca63eeffc05ece;hb=HEAD#l322>
+      
+** Dario Teixeira suggested and Richard Jones replied:
+
+> Ocamlduce has been mentioned before in this thread, but I didn't catch
+> the reason why it has been discarded as a solution.  Is it because you
+> don't want to carry the extra (large) dependency, or is there some other
+> reason?
+
+Actually the reason is that I thought it wasn't available for 3.11.1,
+but I just checked the website and it is, and ocamlduce does seem to
+be the obvious solution for this problem.  (However I'll need to try
+and see if I can come up with the equivalent code).
+
+> And on the subject of simple XML parsers for Ocaml, there's also the
+> aptly named Simplexmlparser from the Ocsigen project [1].  It's about
+> as spartan as one can conceive, yet sufficient for a large subset of
+> XML extraction tasks.
+>
+> [1] <http://ocsigen.org/docu/1.2.0/Simplexmlparser.html>
+
+Thanks - but if I understand that page correctly, then isn't it
+just parsing XML into a tree?
+      
+** After some exchanges with Alain Frisch on OCamlDuce, Richard Jones said and Alain Frisch replied:
+
+> Thanks Alain.  My latest attempt was similar to your version 1 above,
+> and it works :-)
+> 
+> Now my code looks like your version 2:
+> 
+>  let xml = from_string xml in
+>  let xs = {{ [xml] }} in
+>  let xs = {{ (((xs.(<domain..>_)) / .(<devices..>_)) / .(<disk..>_)) / }} in
+>  let xs = {{ map xs with
+>              | <source dev=(Latin1 & s) ..>_
+>              | <source file=(Latin1 & s) ..>_ -> [s]
+>              | _ -> [] }} in
+>  {: xs :}
+> 
+> (plus the boilerplate for interfacing xml-light and CDuce).
+> 
+> We're getting close to the xpath/perl solution (8 lines vs 3 lines),
+> with some added type safety and the possibility of validating the XML.
+>
+> On the other hand, the code is hard to understand.  It's not clear to
+> me what the .(  ) syntax means, nor why there is an apparently trailing
+> / character.
+
+ From the manual:
+
+If the x-expression e evaluates to an x-sequence, the construction e/ 
+will result in a new x-sequence obtained by taking in order all the 
+children of the XML elements from the sequence e. For instance, the 
+x-expression [<a>[ 1 2 3 ] 4 5 <b>[ 6 7 8 ] ]/ evaluates to the x-value 
+[ 1 2 3 6 7 8 ].
+
+If the x-expression e evaluates to an x-sequence, the construction e.(t) 
+(where t is an x-type) will result in a new x-sequence obtained by 
+filtering e to keep only the elements of type t. For instance, the 
+x-expression [<a>[ 1 2 3 ] 4 5 <b>[ 6 7 8 ] ].(Int) evaluates to the 
+x-value [ 4 5 ].
+
+> I have some comments:
+> 
+> (A) "Subtyping failed" is a very common error, but is only mentioned
+> briefly in the manual.  I have no idea what these errors mean, so they
+> should have more explanation.  Here is a simple one which was caused
+> by me using a value instead of a list (but that is not at all obvious
+> from the error message):
+> 
+>   Error: Subtyping failed Latin1 <= [ Latin1* ]
+>   Sample:
+>   [ Latin1Char ]
+
+The error tells you that Latin1 is not a subtype of [ Latin1* ].
+It probably means that you are trying to use a value of type Latin1 
+where a value of type [ Latin1* ] is expected.
+
+> (B) I think the interfacing code here:
+> 
+>   <http://yquem.inria.fr/~frisch/ocamlcduce/samples/expat/>
+>   <http://yquem.inria.fr/~frisch/ocamlcduce/samples/pxp/>
+>   <http://yquem.inria.fr/~frisch/ocamlcduce/samples/xmllight/>
+> 
+> should be distributed along with ocamlduce.
+
+There was a GODI package that includes them. It would be ok to put these 
+files in the distribution without compiling them (otherwise it would 
+create a dependency on more OCaml packages). It's up to Stéphane Glondu, 
+the new maintainer of OCamlDuce.
+      
+========================================================================
+3) Announcing dyn.alpha01
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/2b124f9874b2de18#>
+------------------------------------------------------------------------
+** Till Varoquaux announced:
+
+I am please to announce the release of dyn (homepage
+<https://forge.ocamlcore.org/projects/dyn/>). This release is made
+possible by Jane Street capital who opened up the initial code.
+
+Dyn is a camlp4 syntax extension for Ocaml that:
+
+- Scaffolds injection and projection functions to an from dynamicaly typed
+ values (`dyn`).
+- Reifies ocaml type representation in run-time inspectable values (`dtd`).
+- Provides camlp4 quotations/antiquotations to work with `dyn`s and `dtd`s.
+
+
+When the `pa_dyn` syntax is loaded it adds a new `type_conv` type processor
+that can be called by appending `with dyn` after a type definition (e.g. `type
+t = ... with dyn`) three values are defined:
+
+ val t_of_dyn : Dyn.Data.t -> t
+ val dyn_of_t : t -> Dyn.Data.t
+ val dtd_of_t : Dyn.DTD.t
+
+Dynamic values (`dyn`)
+----------------------
+
+Dynamic values are represented using the ocaml type `Dyn.Data.t`:
+
+ | Unit
+ | Int     of int
+ | Float   of float
+ | Bool    of bool
+ | String  of string
+ | List    of t list
+ | Record  of (string * t) list
+ | Tuple   of t list
+ | Variant of string * t list
+
+Type representations (`dtd`)
+----------------------------
+
+The types for the `dtd`s is `Dyn.Dtd.t`. It is a straightforward mapping to
+`Dyn.Data.t`. Unique id and laziness are used to deal with recursive
+types.
+
+Quotations and antiquotations
+------------------------------
+
+The syntax extension also has experimental support for quotations and
+anti-quotations as syntactic sugar for values of types `Dyn.Data.t` and
+`Dyn.Dtd.t` both in expressions and patterns. The following is a toy function
+that extracts types from values using quotations and anti-quotations:
+
+ let rec guess = function
+  | <:dyn< ()>>                  -> <:dtd<unit>>
+  | <:dyn< $int:_$>>             -> <:dtd<int>>
+  | <:dyn< $float:_$>>           -> <:dtd<float>>
+  | <:dyn< $bool:_$>>            -> <:dtd<bool>>
+  | <:dyn< $string:_$>>          -> <:dtd<string>>
+  | <:dyn<[]>>                   -> <:dtd<unit list>> (* Technicaly a
+'a list...*)
+  | <:dyn< $list:(h::_)$>>       -> <:dtd< $guess h$ list>>
+    (* We should do unification to get correct results. *)
+  | <:dyn< $record:l$>>          ->
+                   <:dtd< $record:(List.map (fun (name,d) ->
+name,guess d) l)$>>
+  | <:dyn< $tup:t$ >>            -> <:dtd< $tup:(List.map guess t)$>>
+  | <:dyn< $variant:(n,vals)$ >> -> <:dtd< $variant:[n,List.map guess vals]$>>
+
+
+Contributions are more than welcome.
+      
+========================================================================
+4) Other Caml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocamlcore.org/>.
+
+New IP for *.ocamlcore.org:
+  <http://forge.ocamlcore.org/forum/forum.php?forum_id=437>
+
+overbld:
+  <http://forge.ocamlcore.org/projects/overbld/>
+
+Another JSSP post:
+  <http://ocaml.janestcapital.com/?q=node/69>
+
+RegStab 1.4:
+  <http://caml.inria.fr/cgi-bin/hump.cgi?contrib=706>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

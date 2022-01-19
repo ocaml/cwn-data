@@ -1,0 +1,290 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2017.02.28</cwn_date>
+    <cwn_prev>2017.02.21</cwn_prev>
+    <cwn_next>2017.03.07</cwn_next>
+    <cwn_date_text>February 21 to 28, 2017</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>List of structurally typed objects</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2017-02/msg00119.html</cwn_url>
+      <cwn_who>Richard W. M. Jones asked</cwn_who>
+      <cwn_what>
+Is it possible to construct a list of structurally typed ("duck
+typed") objects?
+
+The code below seems as if superficially it should work, at least as
+far as I understand the OCaml memory model and how objects work
+internally.  However the implementation doesn't match the interface.
+
+------ list_fns.mli ----------------------------
+type 'a obj = &lt; hello : string; .. &gt; as 'a
+val register_obj : string -&gt; 'a obj -&gt; unit
+val get_obj : string -&gt; 'a obj
+------------------------------------------------
+
+------ list_fns.ml -----------------------------
+type 'a obj = &lt; hello : string; .. &gt; as 'a
+let objs = ref []
+let register_obj name obj = objs := (name, obj) :: !objs
+let get_obj name = List.assoc name !objs
+------------------------------------------------
+
+$ ocamlc -c list_fns.mli
+$ ocamlc -c list_fns.ml
+File "list_fns.ml", line 1:
+Error: The implementation list_fns.ml
+       does not match the interface list_fns.cmi:
+       Values do not match:
+         val register_obj : string -&gt; '_a -&gt; unit
+       is not included in
+         val register_obj : string -&gt; &lt; hello : string; .. &gt; obj -&gt; unit
+       File "list_fns.ml", line 3, characters 4-16: Actual declaration
+
+I'm guessing that "constraint" should be used here, but how?
+      </cwn_what>
+      <cwn_who>Gabriel Scherer then replied and Richard Jones said</cwn_who>
+      <cwn_what>
+&gt; The signature you demand is actually incorrect, because the return
+&gt; type of get_obj is to permissive: it claims that it can return *any*
+&gt; ('a obj), so you could register an object with just the hello method
+&gt; and get back an object with more methods.
+&gt; 
+&gt; On the other hand, if you use the monomorphic &lt; hello : string &gt; type
+&gt; in the interface, then it is type-correct and the implementation you
+&gt; provide is accepted. It is explicit in the fact that you can't recover
+&gt; the extra methods of the object once they have been stored in this
+&gt; lowest-common-denominator container.
+
+Ah, I see.
+
+Modifying the code to use the monomorphic type works, but I have to
+downcast the objects to the right type.  For reference, the working
+code is below.
+
+Thanks,
+
+Rich.
+
+list_fns.mli --------------------------------------------------------
+type obj = &lt; hello : string &gt;
+val register_obj : string -&gt; obj -&gt; unit
+val get_obj : string -&gt; obj
+
+list_fns.ml ---------------------------------------------------------
+type obj = &lt; hello : string &gt;
+let objs = ref []
+let register_obj name obj = objs := (name, obj) :: !objs
+let get_obj name = List.assoc name !objs
+
+test.ml -------------------------------------------------------------
+class foo = object
+  method hello = "hello from foo"
+  method goodbye () = print_endline "goodbye"
+end
+
+class bar = object
+  method hello = "hello from bar"
+end
+
+let () =
+  let o1 = new foo in
+  let o2 = new bar in
+  List_fns.register_obj "o1" (o1 :&gt; List_fns.obj);
+  List_fns.register_obj "o2" (o2 :&gt; List_fns.obj);
+  print_endline ("calling o1: " ^ (List_fns.get_obj "o1")#hello);
+  print_endline ("calling o2: " ^ (List_fns.get_obj "o2")#hello)
+--------------------------------------------------------------------
+      </cwn_what>
+      <cwn_who>Nicolás Ojeda Bär then suggested and Richard Jones replied</cwn_who>
+      <cwn_what>
+&gt; Note that you can still write &lt; hello: string; .. &gt; in the signature of
+&gt; register_obj and do the cast before adding your object to the list:
+&gt; 
+&gt;   let register_obj name obj = objs := (name, (obj :&gt; &lt; hello: string &gt;)) ::
+&gt; !objs
+&gt; 
+&gt; This way you do not need to downcast at each call-site of register_obj.
+
+Indeed, that will make my code simpler too.
+      </cwn_what>
+      <cwn_who>Damien Guichard suggested, Richard Jones asked, and Ivan Gotovchits said</cwn_who>
+      <cwn_what>
+Damien:
+&gt;&gt; Is this the code you want ?
+&gt;&gt;
+&gt;&gt; type 'a obj_list = 'a list
+&gt;&gt; constraint 'a = &lt; hello : string; .. &gt; as 'a
+
+Richard:
+&gt; Perhaps. Is it possible to write the list_fns.mli interface
+&gt; using this?
+
+Ivan:
+
+It is possible to generalize this approach using private row types. 
+
+list_fns.mli:
+
+ module Registry(Obj : sig
+ type t = private &lt; .. &gt;
+ end) : sig
+ val register_obj : string -&gt; Obj.t -&gt; unit
+ val get_obj : string -&gt; Obj.t
+ end
+
+list_fns.ml:
+
+ module Registry(Obj : sig
+ type t = private &lt; .. &gt;
+ end) = struct
+
+ let objs = ref []
+ let register_obj name obj = objs := (name, obj) :: !objs
+ let get_obj name = List.assoc name !objs
+ end
+
+test.ml:
+
+ class foo = object
+ method hello = "hello from foo"
+ method goodbye () = print_endline "goodbye"
+ end
+
+ class bar = object
+ method hello = "hello from bar"
+ end
+
+ module Bars = List_fns.Registry(struct type t = bar end)
+
+ let () =
+ let o1 = new foo in
+ let o2 = new bar in
+ Bars.register_obj "o1" (o1 :&gt; bar);
+ Bars.register_obj "o2" (o2 );
+ print_endline ("calling o1: " ^ (Bars.get_obj "o1")#hello);
+ print_endline ("calling o2: " ^ (Bars.get_obj "o2")#hello)
+
+The List_fns.Registry functor will create a monomorphic registry for the
+specified base type.
+
+Probably, this may help you :)
+      </cwn_what>
+      <cwn_who>Mikhail Mandrykin then added</cwn_who>
+      <cwn_what>
+> It is possible to generalize this approach using private row types.
+
+If at least a limited support for dynamic object typing is needed, it's also
+possible to construct a heterogeneous container of objects using several
+advanced features like first-class modules and GADT, but even in this case the
+exact type of the object should match precisely when extracted from the list or
+at least a finite (and small) number of possibilities for that type should be
+known. It's, however, still possible to upcast the object to some supertype upon
+addition and later extract and use it as the object of that supertype. An
+example:
+https://github.com/schrodibear/ocaml_tricks/blob/master/object_hlist/obj_list.ml
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>mirage 3.0.0</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2017-02/msg00141.html</cwn_url>
+      <cwn_who>Mindy Preston announced</cwn_who>
+      <cwn_what>
+It is my great pleasure to announce that Mirage version 3 has been released into
+opam-repository. Allowing for the time necessary to sync `opam.ocaml.org`, you
+should soon be able to upgrade to Mirage 3. You'll need to be using OCaml
+version 4.03.0 or later.
+
+For more information on what's in Mirage 3, check out the blog post at
+https://mirage.io/blog/announcing-mirage-30-release . (There's also a version
+hosted on the new Solo5 backend at
+http://solo5.mirage.io/blog/announcing-mirage-30-release !)
+
+We've prepared a porting guide at https://mirage.io/wiki/mirage2-to-mirage3 for
+those of you want quick help getting your unikernels up and running in the new
+universe. The introductory content at https://mirage.io/wiki/hello-world (and
+https://github.com/mirage/mirage-skeleton , to which it refers) has also been
+updated, if you're looking to get started with Mirage for the first time.
+
+
+If you choose to use a pre-existing opam switch when upgrading to Mirage 3 from
+Mirage 2, you may need to remove some roots that were previously autoinstalled
+by `mirage configure` in version 2 before `opam upgrade` is willing to upgrade
+you to Mirage 3.
+
+If you were using the `mirage-dev` or `mirageos-3-beta` opam remotes, those are
+no longer necessary.  `mirageos-3-beta` will be removed shortly, and
+`mirage-dev` will have its packages cleared to make way for whatever next set of
+staging packages is about to dazzle us.
+
+Please let us know if you have any difficulties or questions :)
+      </cwn_what>
+      <cwn_who>Anil Madhavapeddy then added</cwn_who>
+      <cwn_what>
+And to the more experienced OCaml'ers, one of the more exciting aspects of
+switching to a baseline of OCaml 4.03 is that we can finally start taking
+advantage of new features such as flambda now. The executable part of a typical
+Mirage unikernel is a set of functor applications that link in the relevant
+device drivers, and so we're hoping to see a real performance and efficiency
+benefits from the compiler.
+
+So if you are interested in this sort of topic, we'd love to help you get
+involved and to contribute. Many of the libraries (see &lt;http://docs.mirage.io&gt;)
+can run just fine in a normal Linux or macos laptop, without requiring a
+hypervisor, and the vast amount of development is using a normal OCaml
+development environment.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Ocaml Github Pull Requests</cwn_title>
+      <cwn_who>Gabriel Scherer and the editor compiled this list</cwn_who>
+      <cwn_what>
+Here is a sneak peek at some potential future features of the Ocaml
+compiler, discussed by their implementers in these Github Pull Requests.
+
+- Bidirectional type checking for applications by let-def
+  https://github.com/ocaml/ocaml/pull/285
+- Add single-line comments by let-def
+  https://github.com/ocaml/ocaml/pull/671
+- Add caml_startup_exn
+  https://github.com/ocaml/ocaml/pull/953
+- Add Pervasives.pi
+  https://github.com/ocaml/ocaml/pull/964
+- Deprecate Bigarray.*.map_file and add Unix.map_file
+  https://github.com/ocaml/ocaml/pull/997
+- Fix for PR7447: incorrect code generation for nested recursive bindings
+  https://github.com/ocaml/ocaml/pull/995
+- ocamldep: add -plugin and use compilerlibs to build
+  https://github.com/ocaml/ocaml/pull/1015
+- Add runtime functions for integer arithmetic with checked overflow
+  https://github.com/ocaml/ocaml/pull/1060
+- Add ?follow option to Unix.link
+  https://github.com/ocaml/ocaml/pull/1061
+- Extended indexing operators
+  https://github.com/ocaml/ocaml/pull/1064
+- Integrate findlib into compiler toolchain
+  https://github.com/ocaml/ocaml/pull/1065
+- Quoted string
+  https://github.com/ocaml/ocaml/pull/1066
+- Per type warn 4
+  https://github.com/ocaml/ocaml/pull/1071
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Here are links from many OCaml blogs aggregated at OCaml Planet,
+&lt;http://ocaml.org/community/planet/&gt;.
+
+10
+ &lt;http://erratique.ch/contact.en&gt;
+
+Moving from ocaml.io to ocamllabs.io
+ &lt;https://ocaml.io/w/Blog:News/Moving_from_ocaml.io_to_ocamllabs.io&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

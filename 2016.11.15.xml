@@ -1,0 +1,240 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2016.11.15</cwn_date>
+    <cwn_prev>2016.11.08</cwn_prev>
+    <cwn_next>2016.11.22</cwn_next>
+    <cwn_date_text>November 08 to 15, 2016</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>The fastest stream library</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2016-11/msg00043.html</cwn_url>
+      <cwn_who>Continuing this thread, Gabriel Scherer said</cwn_who>
+      <cwn_what>
+I think we are on the same wavelength, but given that you are an expert on
+streaming library I'm going to expand on Enum as you might be interested. There
+are many feature axes for streaming libraries and Enum tries to cover a bit too
+much of them. It was designed, by the Extlib project, as a go-between library to
+translate from one data structure to the other, and to be as flexible as
+possible:
+
+- It supports a wide variety of combinators common to stream libraries, on both
+finite and infinite stream; there is also a notion of whether it's easy/fast,
+for a given stream, to compute its size (without consuming the stream), to eg.
+preallocate arrays when converting from enum to array, and combinators try to
+preserve that information when they can
+- In the style of the venerable Stream module, Enum is a "destructive streaming"
+library, in that it mutates its internal state when you access the next element.
+I think the idea is that in general this is more memory-efficient (you cannot
+keep a reference to the start of the stream that leaks memory), but it's also a
+bit error-prone in non-linear usage scenarios.
+- To still support non-linear usage scenarios, Enum streams have a "clone"
+operation that duplicates a stream into two copies. The useful, interesting and
+difficult thing about clone is that getting the same element on both the
+original and the clone stream should not duplicate any side-effects involved in
+computing the value: clone should duplicate the stream of values, but keep
+threading the computation effect.
+
+In my experience most of the complexity (and fragility) of the current Enum
+implementation comes from the destructive aspects and cloning. The
+implementation is in a fairly imperative style (enumerations are defined as
+object-style record of *mutable* methods that close over the enumeration state)
+and there is a fair amount of bookkeeping involved on each update/next to
+support this feature set. This is not a big issue for the original use-case,
+which is to convert between data structures (have 2*N conversion functions,
+Foo.{to,of}_enum, instead of N^2 conversion functions), where performance
+bottlenecks are usually on the data-structure-processing side, but this means
+that using Enum for heavy stream processing is known to be slow. Again, I would
+expect BatSeq (which is neither destructive nor memoizing) to do much better on
+these workflows.
+
+It is perfectly reasonable to question whether we need this complex feature set
+for a central streaming library. I have mixed thoughts on this question:
+
+- as a library developer, my experience is that the current implementation is
+too fragile and too slow for its own good, and I think that users would be
+better served by a simpler abstraction that does less in a more robust way. The
+pragmatic choice is thus to use simpler stream libraries. Another interesting
+point is that, if you develop those simpler, more robust stream libraries, it is
+sometimes possible to reuse them to build more complex streams on top of them
+(for example, a solid purely-functional stream implementation can be turned into
+a destructive stream implementation by passing references to functional streams
+around), so this decomposition of concern would also help rebuilding a more
+robust Enum. Simon Cruanes did good work in that direction in preliminary
+versions of his Containers/Sequence libraries (I can't find specific references
+right now, to the various streaming types with different feature support).
+
+- as a language designer, I think that our inability to implement Enum robustly
+on the first attempt is the sign of an interesting problem to be solved. The
+feature set, from a user point of view, is *not* unreasonable, and justifiably
+useful in some scenarios. As language designers, we know that the cloning /
+non-duplication of effects is like playing with fire, but that is still a
+problem that we should be able to solve. (We have people properly design
+lock-free data structures, which are also unreasonably complex; we should be
+demanding of our standard libraries!) If I had a good way to *specify* the
+behaviour of a streaming library respecting all these constraints, I think that
+would also clarify how to give an simpler, more efficient, more robust
+implementation of it. (Another concern that it could be interesting to throw in
+the mix is batching.) I regret not being informed enough about the myriad of
+Haskell-side solutions to the problem of effectful streaming, as there may also
+be interesting inspiration to be taken. I tried to get François Pottier
+interested in the problem of formalizing a specification for Enum, but he ran
+away screaming before I finished enumerating the design points above.
+      </cwn_what>
+      <cwn_who>Oleg then said</cwn_who>
+      <cwn_what>
+        Thank you for the detailed and thoughtful message and the
+motivations behind Enum choices. The library and language design was
+the central issue in our paper. We do have a different overall
+approach, which you haven't yet touched. The approach is
+meta-programming. 
+
+        It is high-performance community who discovered for themselves
+that the most promising way to increase or maintain performance is by
+meta-programming. It was late Ken Kennedy (of High-Performance Fortran
+fame) who came with telescoping languages and popularized the idea of
+active libraries. It was again Ken Kennedy who coined the phrase
+``abstraction without guilt''. The references (in old, by now) paper
+make the case that become even clearer by now
+        http://www-rocq.inria.fr/~acohen/publications/CDGHKP06.ps.gz
+
+Thus we can have a very general interface and still very efficient
+implementation. We can have a pure functional, a fully compositional
+interface and a very tangled, imperative implementation with
+reference cells all over. The strymonas library is an example of that.
+      </cwn_what>
+      <cwn_who>Simon Cruanes then said and Gabriel Scherer replied</cwn_who>
+      <cwn_what>
+&gt;  Using meta-programming is very nice indeed, but until meta-OCaml is
+&gt;  merged into OCaml itself, it will be no use for most OCaml programmers
+&gt;  (at least, those I know of). So it still makes sense to write
+&gt;  alternative stream libraries that do not rely on metaprogramming nor on
+&gt;  features yet to come (effects…). For pure OCaml libraries, there is no
+&gt;  clear winner yet (depends on what API is exposed), Sequence is faster in
+&gt;  most cases but cannot implement zip/merge, BatSeq/Core.Sequence are good
+&gt;  in average and probably the best tradeoff overall, Enum is a bit
+&gt;  complicated but quite comprehensive…
+
+In case anyone on the list wonders about MetaOCaml (
+http://okmij.org/ftp/ML/MetaOCaml.html ), an excellent resource to learn about
+it is Jeremy Yallop's course on staging (as part of an Advanced Functional
+Programming course at Cambridge,
+https://www.cl.cam.ac.uk/teaching/1415/L28/materials.html ), presented as an
+IOCamlJS notebook:
+
+http://ocamllabs.github.io/iocamljs/staging.html
+http://ocamllabs.github.io/iocamljs/staging2.html
+http://ocamllabs.github.io/iocamljs/staging3.html
+
+The last discussion about whether MetaOCaml could eventually be merged into
+OCaml that I'm aware of happened in May 2015:
+http://lambda-the-ultimate.org/node/5146 . At the time, Oleg replied that there
+are still design aspects of (BER) MetaOCaml that he was not fully satisfied
+with, and wanted to wait before proposing it for upstreaming.
+
+(There is a virtuous interaction between MetaOCaml and modular implicits; in
+particular, one pain point of MetaOCaml's design is cross-stage persistence
+(should it be a language construct or a derived operation?), and implicits make
+it much more convenient to define and use persistence operators.)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>RISC-V native backend, no longer cross-compiling</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2016-11/msg00045.html</cwn_url>
+      <cwn_who>Continuing this thread, Richard Jones announced</cwn_who>
+      <cwn_what>
+I have added your backend to the Fedora Rawhide OCaml 4.04.0 package.
+
+It's not yet built in the publicly available Fedora/RISC-V packages,
+since those are based on Fedora 25 [currently Rawhide is the future
+Fedora 26].  However you can still look at the sources here:
+
+  http://pkgs.fedoraproject.org/cgit/rpms/ocaml.git/log/
+  http://pkgs.fedoraproject.org/cgit/rpms/ocaml-srpm-macros.git/log/
+
+A couple of things which would help us (a little, although they are
+not a big deal):
+
+- Squash your patches down to a single commit ...
+
+- ... but separate out the config.guess/config.sub change in
+  a separate commit, since we would usually copy those in
+  from our own copies.
+
+Thanks for your great work on OCaml &amp; RISC-V,
+      </cwn_what>
+      <cwn_who>Richard Jones later added</cwn_who>
+      <cwn_what>
+&gt; It's not yet built in the publicly available Fedora/RISC-V packages,
+&gt; since those are based on Fedora 25 [currently Rawhide is the future
+&gt; Fedora 26].
+
+Actually I changed my mind on this bit and I'm going to build the
+OCaml packages into the RISC-V tree.  They'll be available in the next
+day or two at https://fedorapeople.org/groups/risc-v/
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Bucklescript 1.3.0 - A blazing fast build tool on all platforms</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2016-11/msg00046.html</cwn_url>
+      <cwn_who>Hongbo Zhang announced</cwn_who>
+      <cwn_what>
+We are glad to announce BuckleScript 1.3.0 release
+
+This release comes with a truly blazing fast build tool working on all
+platforms(native Windows experience!) for BuckleScript.
+
+Documentation is available here:
+http://bloomberg.github.io/bucklescript/Manual.html
+
+Here are some tests for a project which contains 56 modules on a 2013 Mac Book
+Pro:
+
+bucklescript-testing&gt; /usr/local/lib/node_modules/bs-platform/bin/bsb.exe -t clean
+Cleaning... 392 files.
+bucklescript-testing&gt;time /usr/local/lib/node_modules/bs-platform/bin/bsb.exe
+ninja: Entering directory `lib/bs'
+[112/112] Building src/web.mlast.d
+[168/168] Building /Users/hongbozhang/git/bucklescript-testing/lib/ocaml/main_todo_optimizedmap.cmi
+real 0m0.557s
+user 0m1.475s
+sys 0m0.924s
+bucklescript-testing&gt;touch src/counter.ml &amp;&amp; time /usr/local/lib/node_modules/bs-platform/bin/bsb.exe
+ninja: Entering directory `lib/bs'
+[2/2] Building src/counter.mlast.d
+[6/6] Building /Users/hongbozhang/git/bucklescript-testing/lib/ocaml/main_embeddedCounters.cmj
+real 0m0.055s
+user 0m0.033s
+sys 0m0.026s
+bucklescript-testing&gt;time /usr/local/lib/node_modules/bs-platform/bin/bsb.exe
+ninja: Entering directory `lib/bs'
+ninja: no work to do.
+real 0m0.012s
+user 0m0.006s
+sys 0m0.005s
+
+Thanks -- Hongbo
+[1]: https://github.com/bloomberg/bucklescript/ 
+[2]: https://www.npmjs.com/
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Here are links from many OCaml blogs aggregated at OCaml Planet,
+&lt;http://ocaml.org/community/planet/&gt;.
+
+Visiting Researchers
+ &lt;https://ocaml.io/w/Blog:News/Visiting_Researchers&gt;
+
+OCaml Hack Event: Activity Summaries
+ &lt;https://ocaml.io/w/Blog:News/OCaml_Hack_Event:_Activity_Summaries&gt;
+
+A solution to the ppx versioning problem
+ &lt;https://blogs.janestreet.com/an-solution-to-the-ppx-versioning-problem/&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

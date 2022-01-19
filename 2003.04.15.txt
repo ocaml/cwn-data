@@ -1,0 +1,601 @@
+Hello,
+
+Here is the latest Caml Weekly News, week 08 to 15 April, 2003.
+
+1) New releases of Gmetadom, gdome2-xslt and lablgtkmathview
+2) CPS folds
+3) labltk vs lablgtk
+4) camomile-0.3.1 is released
+5) Using zippers to handle huge trees
+6) searching the caml-list archives
+7) DBI
+8) Ocaml-MySQL 0.9.1
+9) mixing different languages
+
+======================================================================
+1) New releases of Gmetadom, gdome2-xslt and lablgtkmathview
+----------------------------------------------------------------------
+Claudio Sacerdoti Coen announced:
+
+I am happy to announce the latest versions of the following libraries:
+
+ * gmetadom 0.1.6:
+    A binding to gdome2, the GNU DOM Level 2 implementation.
+    The Core and Mutation Events modules are implemented and 100% compatible
+    with the W3C Reccomendations. The binding is type-safe thanks to an
+    extensive usage of the phantom types technique.
+
+    URL: http://sourceforge.net/projects/gmetadom/
+
+ * gdome2-xslt 0.0.4-4:
+   A C and OCaml library to apply XSLT stylesheets to gdome2 documents.
+   This is a binding to libxslt, one of the fastest XSLT processors out
+   there. You can apply your own stylesheets to any gdome2 document and
+   obtain a brand new gdome2 documents.
+
+   URL: http://helm.cs.unibo.it/software/gdome_xslt/
+
+ *  lablgtkmathview 0.4.1:
+    A lablgtk binding to GtkMathView, a Gtk widget to render MathML 2.0
+    documents. With this widget you get high quality rendering of
+    mathematical formulae and very good interaction possibilites:
+    the widget renders a gdome2 DOM tree and react to its modifications;
+    you change the tree, and the rendering is changed accordingly on-the-fly.
+
+    Changes: the binding is now in synch with the 0.4.1 version of
+             GtkMathView, the first one with editing support.
+
+======================================================================
+2) CPS folds
+----------------------------------------------------------------------
+Neel Krishnaswami lectured:
+
+You are 90% of the way to figuring out how to use CPS in this
+situation, actually! The trick is to use continuation functions to
+represent the computation yet to be done. I'll illustrate with
+an example -- let's take a tree type:
+
+type 'a tree =
+  | Leaf
+  | Node of 'a tree * 'a * 'a tree
+
+Now, let's write a regular, recursive fold for this datatype:
+
+let rec fold ~leaf ~node tree =
+  match tree with
+  | Leaf -> leaf
+  | Node(left, x, right) ->
+      let v1 = fold ~leaf ~node left in
+      let v2 = fold ~leaf ~node right in
+      node v1 x v2
+
+val fold : leaf:'a -> node:('a -> 'b -> 'a -> 'a) -> 'b tree -> 'a
+
+As you expect, this particular fold exhibits non-constant
+stack growth, because there are function calls that aren't in
+tail position:
+
+  | Node(left, x, right) ->
+      let v1 = fold ~leaf ~node left in   (* Not a tail-call *)
+      let v2 = fold ~leaf ~node right in  (* Not a tail-call *)
+      node v1 x v2
+
+What we want to do is to make all of the recursive calls to fold
+tail-recursive, so that they don't grow the stack. Let's be
+stupid simple for a second, and throw away all of things keeping that
+from happening:
+
+let rec tr_fold ~leaf ~node tree =
+  match tree with
+  | Leaf -> leaf
+  | Node(left, x, right) ->
+      tr_fold ~leaf ~node left
+
+Now tr_fold is tail-recursive, at the cost of forgetting how to
+call itself on the right subtree and applying the node function.
+Let's fix that by adding a new parameter to tr_fold that will
+keep track of that -- and the value that tracks "stuff to execute"
+is a function:
+
+let rec tr_fold' ~leaf ~node tree k =
+  match tree with
+  | Leaf -> k leaf  (* Call leaf to "stuff to execute" *)
+  | Node(left, x, right) ->
+      tr_fold' ~leaf ~node left  (* Now a tail-call! *)
+        (fun v1 ->
+          let v2 = tr_fold' ~leaf ~node right k in (* Not a tail-call *)
+          node v1 x v2)
+
+tr_fold' :
+  leaf:'a -> node:('a -> 'b -> 'c -> 'c) -> 'b tree -> ('a -> 'c) -> 'c
+
+Now we just need to repeat the exercise on the second let body,
+and we get:
+
+let rec kfold ~leaf ~node tree k =
+  match tree with
+  | Leaf -> k leaf
+  | Node(left, x, right) ->
+      kfold ~leaf ~node left
+        (fun v1 ->
+          kfold ~leaf ~node right
+            (fun v2 -> k (node v1 x v2)))
+
+val kfold :
+  leaf:'a -> node:('a -> 'b -> 'a -> 'a) -> 'b tree -> ('a -> 'c) -> 'c
+
+At this point, kfold has no stack growth in it, because every
+self-call it makes is a tail call. All of the control context is
+stored in the closures -- the continuations -- we have build during
+its execution. You can see the close correspondence between the
+original and the CPS version by playing a few games with formatting:
+
+  | Node(left, x, right) ->
+      let v1 = fold ~leaf ~node left in
+      let v2 = fold ~leaf ~node right in
+      node v1 x v2
+
+vs:
+
+  | Node(left, x, right) ->
+      kfold ~leaf ~node left  (fun v1 ->
+      kfold ~leaf ~node right (fun v2 ->
+        k (node v1 x v2)))
+
+You can see that what we do in each case is "compute the left/right
+subtree and then bind the result to v1/v2". Finally, you can get back
+the original fold by passing in the identity function as the "starter"
+continuation:
+
+let fold ~leaf ~node tree = kfold ~leaf ~node tree (fun x -> x)
+
+val fold : leaf:'a -> node:('a -> 'b -> 'a -> 'a) -> 'b tree -> 'a
+
+
+(As an aside: Yes, I didn't completely CPS-convert the program -- the
+node function is not in CPS-form in kfold.)
+
+======================================================================
+3) labltk vs lablgtk
+----------------------------------------------------------------------
+Henri Dubois-Ferriere asked:
+
+I need to write a gui front-end to a caml network simulator of mine.
+GUI-wise it should be standard fare (a few buttons, and menu, etc).
+The other property is that the GUI communicates with the simulator
+over a socket, so I need event-driven I/O to be integrated with GUI event
+loop.
+
+My instinct is to go with labltk, "because it's there", and it can handle
+file descriptor events pretty easily.
+
+But since I'm going to live with this choice for quite a while, i'm
+wondering what are the broad pros/cons between labltk and lablgtk?
+does anything stick out as being specific to one or the other?
+
+Thanks to anyone who can reduce my caml-GUI ignorance in any way..
+
+Eric C. Cooper answered:
+
+Very subjectively, I found that labltk was simpler to code, at least
+for simple GUIs.  The appearance is fairly clean and attractive
+(especially if you override the default fonts), but looks somewhat
+out-of-place in a more modern desktop environment.
+
+I found lablgtk more complex to code, but it is more flexible and has
+a richer set of ready-made components.  It is very attractive, and 
+(obviously) fits in well on a Gnome desktop.
+
+Matt Gushee said:
+
+Let's see ...
+
+* Tk has a limited selection of widgets. From what you said of your
+  project, it may well have all you need, but it is lacking a few things
+  that people seem to expect to find in "modern" GUI toolkits: spin
+  buttons, paned windows, tabbed notebooks, tree displays ...
+
+* Last time I checked (several months ago), GTK was considered to be
+  less-than-production-quality on Windows and MacOS, whereas Tk has been
+  in use on those platforms for a long time.
+
+* (My impression is that) GTK has good Unicode support. Tk has had issues
+  with i18n for some time. The latest versions may be up to par, but I'm
+  not sure. Probably either would be fine for Western European
+  languages; the problems I have heard of were mostly related to CJKV.
+
+* If you need to use raster graphics, you should be aware that Tk only
+  has built-in support for GIF and PBM/PGM/PPM/PNM file formats. I'm not
+  sure, but I would assume that GTK supports JPEG, PNG, and other modern
+  formats.
+
+Scott added about unicode support:
+
+The new gtk (2) has good unicode support.  I'm not sure how that's
+addressed in lablgtk (2).  Tk works with unicode, but labltk does
+not.  It is possible to hack labltk to do this, but it's _very_ ugly
+(trust me I've done it)
+
+Sven Luther also added:
+
+lablgtk2 does also support SVG graphics now, and the AA fonts are really
+worth it.
+
+======================================================================
+4) camomile-0.3.1 is released
+----------------------------------------------------------------------
+Yamagata Yoriyuki announced:
+
+camomile-0.3.1 is released.  camomile is a Unicode library for ocaml.
+This release is mainly for for bug fixes and minor improvement.  The
+changes from the previous release are
+
+* CharEncoding:
+ - Bug fixes for ISO-2022-*
+ - Interface for automatic detection of encodings.
+ - GB18030 support
+ - Improvement of internal data structure (using less space)
+
+* UCol:
+ - Incremental comparison
+
+* Performance improvement of collation rule compiler.
+
+Download:
+http://prdownloads.sourceforge.net/camomile/camomile-0.3.1.tar.bz2
+
+For the general information, see http://camomile.sourceforge.net
+
+======================================================================
+5) Using zippers to handle huge trees
+----------------------------------------------------------------------
+Diego Olivier Fernandez Pons gave a long lecture with some code:
+
+Zippers are a simple way to handle huge (in fact infinite) trees.
+
+1. Explanation of zippers
+2. Related work
+3. Examples of code
+
+1. Explanation of zippers
+
+Zippers may be seen as 'functional pointers' since they offer :
+- purely functional and typed operations
+- O(1) acces to the pointed element
+- O(1) pointer movements
+
+The restrictions are that only one pointer is allowed by data 
+structure and every pointer movement allocates memory.
+
+Take a classical type declaration for binary search trees
+
+type 'a tree = E | N of 'a tree * 'a * 'a tree * int
+
+Consider a binary search tree and an inner node to which you want to
+point. To have a 0(1) acces to the pointed subtree, it has to be
+directly available from the base of the data structure. Then, the
+rest of the tree must be kept in a separate place. We will deconstruct
+it along the path from the root to the pointed node
+
+type 'a path =
+  | Root
+  | Left of 'a * 'a tree * 'a path
+  | Right of 'a tree * 'a * 'a path
+
+type 'a zipper = 'a tree * 'a path
+
+The zipper contrains as annouced :
+- the pointed subtree
+- the rest of the tree breaked along the path to the root
+
+Then we define the pointer movements (one for each pointer in the data
+structure) :
+
+exception Bottom
+
+(* To be replaced by a balancing constructor *)
+let makeDTree = fun l v r -> N (l, v, r, 0)
+
+let move_left = fun (tree, path) ->
+  match tree with
+    | E -> raise Bottom
+    | N (l, v, r, _) -> (l, Left (v, r, path))
+
+let move_right = fun (tree, path) ->
+  match tree with
+    | E -> raise Bottom
+    | N (l, v, r, _) -> (r, Right (l, v, path))
+
+let move_up = fun (tree, path) ->
+  match path with
+    | Root -> raise Top
+    | Left (v, r, tail) -> (makeDTree tree v r, tail)
+    | Right (l, v, tail) -> (makeDTree l v tree, tail)
+
+Now we can build an arbitrary large tree by the following procedure :
+- build a tree of bounded depth
+- choose the node which will be developped next
+- move the current pointer to that node
+- continue building the tree
+
+This procedure uses a bounded stack space
+
+2. Related work
+
+Zippers were invented by Gérard Huet. There is a paper on the JFP
+G. Huet. The Zipper. J. Functional Programming, 7 (5), Sept 1997, pp. 549--554.
+
+He uses n-ary trees and binary trees in his examples. The main
+difference is that in binary trees the pointers are not organized in
+the same way (his 'left' operation is what in Baire is (left o up))
+
+Ralf Hinze has tried to give a general framework for functional
+pointers named a web (you give your data structure and the basic
+transformations and the data structure does the rest)
+
+Ralf Hinze and Johan Jeuring. Functional Pearl: Weaving a Web. Journal
+of Functional Programming, 11(6):681-689, November 2001.
+
+Available on the net via Hinze's home page.
+In my opinion his article is not really convincing and not very clear.
+
+Several libraries already use zippers
+
+- Zen (Gérard Huet, Caml) uses zippers to handle acyclic automata
+minimization
+
+- SML/NJ Standard library (John Reppy) uses zippers to handle deletion
+in red-black trees
+
+- MetaPRL (Caml) uses zippers to handle insertion and deletion in
+splay and red-black trees
+
+- Grammatical Framework (Aarne Ranta, Haskell) uses zippers to
+navigate through n-ary trees.
+
+All this code is available on the web.
+
+3. Examples of code
+
+Here are some examples of usual binary search trees operations made
+whith zippers (insert, delete, move_pointer_to, ...) extracted from
+Baire (current version 11 avril 2003, plenty of bugs and breaked
+code, you will find it in Baire's download pages) :
+
+let rec move_to_top = function ((tree, path) as pointer) ->
+  match path with
+    | Root -> pointer
+    | Left (v, r, tail) -> move_to_top (makeDTree tree v r, tail)
+    | Right (l, v, tail) -> move_to_top (makeDTree l v tree, tail)
+
+let rec move_to x = function ((tree, path) as pointer) ->
+  match tree with
+    | E ->
+        (match path with
+           | Right (_, rv, _) when x <= rv ->
+               move_to x (move_up pointer)
+           | Left (lv, _, _) when x >= lv ->
+               move_to x (move_up pointer)
+           | _ -> pointer
+        )
+    | N (_, v, _, _) ->
+        match compare x v with
+          | n when n < 0 ->
+              (match path with
+                 | Right (_, rv, _) when x < rv ->
+               move_to x (move_up pointer)
+                 | Right _ | Root | Left _ ->
+               move_to x (move_left pointer)
+              )
+          | n when n > 0 ->
+              (match path with
+                 | Left (lv, _, _) when x > lv ->
+               move_to x (move_up pointer)
+                 | Left _ | Root | Right _ ->
+               move_to x (move_right pointer)
+              )
+          | _ -> pointer
+
+let rec member_path x = function
+  | Right (l, v, tail) ->
+      (match compare x v with
+         | n when n < 0 -> member x l
+         | 0 -> true
+         | _ -> member_path x tail
+      )
+  | Left (v, r, tail) ->
+      (match compare x v with
+         | n when n > 0 -> member x r
+         | 0 -> true
+         | _ -> member_path x tail
+      )
+  | Root -> false
+
+let rec zipper_member x = function (tree, path) ->
+  match tree with
+    | E -> member_path x path
+    | N (l, v, r, _) ->
+        match compare x v with
+          | n when n < 0 ->
+              (match path with
+                 | Right (_, rv, _) when x <= rv -> member_path x path
+                 | Right _ | Root | Left _ -> member x l
+              )
+          | n when n > 0 ->
+              (match path with
+                 | Left (lv, _, _) when x >= lv -> member_path x path
+                 | Left _ | Root | Right _ -> member x r
+              )
+          | _ -> true
+
+let current_tree = function (tree, _) -> tree
+
+let current_value = function (tree, _) ->
+  match tree with
+    | E -> None
+    | N (_, v, _, _) -> Some v
+
+let current_value' = function (tree, _) ->
+  match tree with
+    | E -> raise Empty
+    | N (_, v, _, _) -> v
+
+let rec zipper_insert x = function ((tree, path) as pointer) ->
+  match tree with
+    | E ->
+        (match path with
+           | Right (_, rv, _) when x <= rv ->
+              zipper_insert x (move_up pointer)
+           | Left (lv, _, _) when x >= lv ->
+              zipper_insert x (move_up pointer)
+           | _ -> (makeTree E x E, path)
+        )
+    | N (_, v, _, _) ->
+        match compare x v with
+          | n when n < 0 ->
+              (match path with
+                 | Right (_, rv, _) when x < rv ->
+                     zipper_insert x (move_up pointer)
+                 | Right _ | Root | Left _ ->
+                     zipper_insert x (move_left pointer)
+              )
+          | n when n > 0 ->
+              (match path with
+                 | Left (lv, _, _) when x > lv ->
+                     zipper_insert x (move_up pointer)
+                 | Left _ | Root | Right _ ->
+                     zipper_insert x (move_right pointer)
+              )
+          | _ -> pointer
+
+let rec zipper_delete x = function ((tree, path) as pointer) ->
+  match tree with
+    | E ->
+        (match path with
+           | Right (_, rv, _) when x <= rv ->
+               zipper_delete x (move_up pointer)
+           | Left (lv, _, _) when x >= lv ->
+               zipper_delete x (move_up pointer)
+           | _ -> pointer
+        )
+    | N (l, v, r, _) ->
+        match compare x v with
+          | n when n < 0 ->
+              (match path with
+                 | Right (_, rv, _) when x < rv ->
+                     zipper_delete x (move_up pointer)
+                 | Right _ | Root | Left _ ->
+                     zipper_delete x (move_left pointer)
+              )
+          | n when n > 0 ->
+              (match path with
+                 | Left (lv, _, _) when x > lv ->
+                     zipper_delete x (move_up pointer)
+                 | Left _ | Root | Right _ ->
+                     zipper_delete x (move_right pointer)
+              )
+          | _ -> move_to x (appendB l r, path)
+
+let rec path_to_list result = function
+  | Root -> result
+  | Left (v, r, path) ->
+      path_to_list (result @ v :: to_ordered_list r) path
+  | Right (l, v, path) ->
+      path_to_list (to_ordered_list_rec (v :: result) l) path
+
+let zipper_to_list = function (tree, path) ->
+  path_to_list (to_list tree) path
+
+======================================================================
+6) searching the caml-list archives
+----------------------------------------------------------------------
+Ker Lutyn said:
+
+I used to be frustrated with the caml-list archive search, until I realized
+that I can just use Google to do it. For example:
+
+    http://google.com/groups?q=group:fa.caml+mingw
+
+Hope this helps!
+
+======================================================================
+7) DBI
+----------------------------------------------------------------------
+Christophe Troestler asked:
+
+A while ago, it was said on this list that a common database interface
+(à la Perl DBI) would be nice.  Is there any progress in that
+direction?  If dynamic selection of the database is not needed,
+agreeing on a minimal API (that must cover all usual needs) is enough.
+Otherwise, one must define a basic set of facilities that each basic
+database interface (perl DBD) must provide and use dynamic loading to  
+a common DBI module.  So, in my opinion, the first thing to do is any
+case is
+
+  agree on a general database interface.
+
+Are there people interested on this list?  Personally I don't have
+much time to contribute but as I will be soon in need of using DB, I
+am willing to make an effort.
+
+Nicolas Cannasse proposed:
+
+Such discussions are difficult to handle on the Caml-list, since there is
+only a few people that are interested in the topic. I suggest that we switch
+to the ExtLib mailling list , since that interface will obviously be part of
+the ExtLib ( this is an OCaml Standard - extended - Library ).
+
+People who are willing to contribute can join the mailling list here :
+http://sourceforge.net/mail/?group_id=74666
+
+======================================================================
+8) Ocaml-MySQL 0.9.1
+----------------------------------------------------------------------
+Shawn Wagner announced:
+
+New release of the MySQL bindings for ocaml.
+
+Changes: Improvements to the configure script, and some bugfixes.
+
+Source: http://raevnos.pennmush.org/code/ocaml-mysql-0.9.1.tar.gz
+Documentation: http://raevnos.pennmush.org/code/mysql/
+
+======================================================================
+9) mixing different languages
+----------------------------------------------------------------------
+Fred Yankowski asked and Pierre Weis answered:
+
+> That said, I now try for a strict separation of imperative code and
+> HTML code, so that my HTML template files have no language specific
+> code and contain only formal parameters and markings of optional and
+> repeated blocks of HTML content.  I haven't used OCaml to generate
+> HTML pages, but that's the approach I would want there too.
+
+That's precisely the simple idea used in htmlc (see
+http://pauillac.inria.fr/htmlc/eng.htm): the HTML templates are HTML
+files with SSI directives and occurrences of variables to be replaced
+by their values. Variable values are defined separately in simple
+configuration files; environment specific variables can also occur:
+their value is then picked up from the environment.
+
+Normally, those HTML templates are statically compiled while updating
+the Web site (thus checking for errors in advance, before serving the
+pages). However, htmlc can be called dynamically to produce the answer
+to a query.
+
+Htmlc is written in Objective Caml and you're welcome to join the
+development team or send enhancement patches; any suggestion is also
+warmly welcome.
+
+======================================================================
+Old cwn
+----------------------------------------------------------------------
+
+If you happen to miss a cwn, you can send me a message
+(alan.schmitt@inria.fr) and I'll mail it to you, or go take a look at
+the archive (http://pauillac.inria.fr/~aschmitt/cwn/). If you also wish
+to receive it every week by mail, just tell me so.
+
+======================================================================
+
+Alan Schmitt

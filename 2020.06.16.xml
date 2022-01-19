@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="utf-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2020.06.16</cwn_date>
+    <cwn_prev>2020.06.09</cwn_prev>
+    <cwn_next>2020.06.23</cwn_next>
+    <cwn_date_text>June 09 to 16, 2020</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>First release of monolith</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-first-release-of-monolith/5946/1</cwn_url>
+      <cwn_who>François Pottier announced</cwn_who>
+      <cwn_what>
+It is my pleasure to announce the first release of Monolith.
+
+Monolith offers facilities for testing an OCaml library (for instance, a data
+structure implementation) by comparing it against a reference implementation.
+It uses a form of black-box testing, and relies on ~afl-fuzz~ for efficiency.
+
+The user must describe what types and operations the library provides. Under
+the best circumstances, this requires 2-3 lines of code per type or operation.
+The user must also provide a reference implementation of the library.
+
+Then, like a monkey typing on a keyboard, Monolith attempts to exercise the
+library in every possible way, in the hope of discovering a scenario where the
+library behaves incorrectly. If such a scenario is discovered, it is printed
+in the form of an OCaml program, so as to help the user reproduce the problem.
+
+At this time, a tutorial is not yet available. There is however an API
+documentation and a number of demos.
+
+Repository:
+  https://gitlab.inria.fr/fpottier/monolith
+
+API Documentation:
+  http://cambium.inria.fr/~fpottier/monolith/doc/monolith/Monolith/index.html
+
+Installation:
+#+begin_example
+  opam update
+  opam install monolith
+#+end_example
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Sylvain Conchon joined OCamlPro's team</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/sylvain-conchon-joined-ocamlpros-team/5956/1</cwn_url>
+      <cwn_who>OCamlPro announced</cwn_who>
+      <cwn_what>
+Sylvain Conchon joined OCamlPro's team as Formal Methods CSO. He created Alt-Ergo and has been teaching OCaml in
+universities for about 20 years. He shares thoughts on interactions between industry and research labs, and his
+vision of Formal methods and OCaml as language for the industry. Read his interview on our blog:
+https://www.ocamlpro.com/2020/06/05/interview-sylvain-conchon-cso-on-formal-methods/
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>First release of streaming</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-first-release-of-streaming/5961/1</cwn_url>
+      <cwn_who>Rizo announced</cwn_who>
+      <cwn_what>
+It is my pleasure to announce the first public release of ~streaming~ – a library for building efficient, incremental
+data processing pipelines that compose and don't leak resources.
+
+I built streaming as a result of many experiments with different streaming and iteration models for OCaml. There are
+multiple packages on OPAM that share some of the goals of ~streaming~ (we even have ~Stdlib.Seq~ now!), but none of
+them combine (1) excellent performance, (2) safe resource handling and (3) pure functional style for combinators.
+Streaming solves these problems by implementing three basic and independent models: _sources_, _sinks_ and _flows_ –
+they represents different parts of the pipeline that correspond to producing, consuming and transforming elements.
+These models can be defined and composed independently to produce reusable "streaming blocks".
+
+The library defines a central ~Stream~ model that relies on sources, sinks and flows. This model is a push-based
+iterator with performance characteristics similar to the ~iter~ iterator, which has type ~('a -&gt; unit) -&gt; unit~, and
+is known for being very efficient. But unlike ~iter~, it has a pure functional core (no need to use mutable state and
+exceptions for flow control!) and can handle resource allocation and clean up in a lazy and deterministic way. All of
+this while having a slightly better performance for common stream operations.
+
+For those who are curious about the performance characteristics of ~streaming~ and other models, I created a
+dedicated repository for stream benchmarks: https://github.com/rizo/streams-bench. In particular, it includes a few
+simple benchmarks for ~Gen~, ~Base.Sequence~, ~Stdlib.Seq~, ~Iter~, ~Streaming.Stream~ and ~Streaming.Source~.
+
+The library should soon be published on opam. In the meantime, I invite you to read the docs and explore the code:
+
+- Library documentation: https://odis-labs.github.io/streaming
+- Github project: https://github.com/odis-labs/streaming
+      </cwn_what>
+      <cwn_who>Guillaume Bury askec</cwn_who>
+      <cwn_what>
+That's great ! From the benchmarks, it looks like you hit a really good implementation !
+
+I've looked (maybe a bit fast) at the API documentation, and it is admittedly a bit outside the scope of
+streams/iterators, but I was wondering if there was some proper way to:
+- connect a sink to a source to create some loop
+- have some kind of fixpoint on streams
+
+I guess it would always be possible to use some references and/or some complex functions to encode these into the
+provided API, but I was wondering if there was a clean way to do it.
+
+For a bit of context and explanation, what I have in mind is the case of a program (let's say a type-checker or
+something close to the idea) with a *persistent state*, that should operate over a stream of inputs, which are
+top-level phrases, and produce some outputs, for instance print some result for each correctly type-checked statement
+(and an error otherwise).
+The type-checker would basically be a function of type ~(`input * `state) -&gt; (`output * `state)~, and starting
+from an initial state, it would process an input element (giving the output to some sink), and then the next input
+element would be processed with the state that was reached after processing the previous element: the state would
+reach the sink of the flow, and then be inserted back into the source.
+Separately, imagine the language being type-checked has a notion of include, then one of the step of the flow would
+be to expand each include into a stream of inputs/phrases, but each of the phrases in this stream would need to be
+expanded, so a simple ~flat_map~/~flatten~ is not enough.
+
+I already have a custom implementation that handle these features, but I was wondering whether I could use
+~streaming~ to handle most of the code linking all of the steps, ^^
+      </cwn_what>
+      <cwn_who>Rizo replied</cwn_who>
+      <cwn_what>
+#+begin_quote
+if there was some proper way to:
+- connect a sink to a source to create some loop
+- have some kind of fixpoint on streams
+#+end_quote
+
+Regarding the first point: yes! That's exactly the point of the ~Stream~ module. You see, sources are pull-based
+abstractions, while sinks are push-based. Source's type essentially says something like _"I might give you some data,
+if you ask"_, while sink's type is the opposite _"I might take some data, if you give it to me"_. They are completely
+and intentionally decoupled; it is Stream's role to drive the computation by pulling data from sources and pushing it
+into sinks. So the easiest way to connect them is:
+
+#+begin_src ocaml
+Stream.(from srouce |> into sink)
+#+end_src
+
+Of course, that's not very useful per se, but it illustrates my point. Take a look at the
+[~Stream.from~](https://github.com/odis-labs/streaming/blob/0.8.0/lib/Stream.ml#L42) code to see the implementation
+of the loop you're asking for. It does some extra work to ensure that resources are correctly handled, but it should
+be clear what the loop is doing.
+
+The stream types in the library are currently abstract because I didn't want to commit to a particular representation
+just yet. If this is a problem for your use case, let me know, I'll expose them in a ~Private~ module.
+
+Regarding the second point: I'm not sure what you mean in practice by "fixpoint on streams". I guess the one thing
+that could help implement something like that is the
+[~Stream.run~](https://odis-labs.github.io/streaming/streaming/Streaming/Stream/index.html#val-run) function. It
+allows you to continue reading elements from a source even after a sink is filled by returning a leftover stream.
+This stream can be used with ~Stream.run~ repeatedly.
+
+Alternatively there's also
+[~Flow.through~](https://odis-labs.github.io/streaming/streaming/Streaming/Flow/index.html#val-through), which
+consumes input trying to fill sinks repeatedly and produces their aggregated values as a stream. Super useful for
+things like streaming parsing. Might even help with your use-case for top-level phrases.
+
+On a more general note though, the type ~('input * 'state) -&gt; ('output * 'state)~ looks a lot like a [mealy
+machine](https://en.wikipedia.org/wiki/Mealy_machine). ~Streaming.Sink~ is a [moore
+machine](https://en.wikipedia.org/wiki/Moore_machine), which is slightly less general because the output values do
+not depend on input values, only on the state.
+
+I thought about exposing different kinds of sinks in streaming, but wanted to make sure that the common use cases are
+covered first. I'll keep your case in mind for future versions of the library.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Senior software engineer at Asemio in Tulsa, OK</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/senior-software-engineer-at-asemio-in-tulsa-ok/5979/1</cwn_url>
+      <cwn_who>Simon Grondin announced</cwn_who>
+      <cwn_what>
+We are Asemio and our team of data scientists, software engineers, architects, and management consultants are working
+together to achieve a nationwide data ecosystem for social good.
+
+You’ll be working on the Asemio Community Integration Platform. It features state-of-the-art privacy-preserving,
+pre-processing and pipeline management, as well as record linkage technology.
+
+The back end is written in OCaml. The front end is compiled from OCaml to JavaScript and uses a modern MVC framework.
+The work you’ll be doing will touch numerous technical disciplines, including cryptography, distributed systems,
+language design and implementation, data analytics, and data visualizations.
+
+We prefer candidates willing to relocate, but we could make an exception for an exceptional candidate.
+
+For more information or to apply, please refer to our SE listing:
+https://stackoverflow.com/jobs/401383/ocaml-senior-software-engineer-asemio
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Here are links from many OCaml blogs aggregated at [[http://ocaml.org/community/planet/][OCaml Planet]].
+
+- [[http://frama-c.com/index.html][Frama-C 21.0 (Scandium) is out. Download it here.]]
+- [[http://math.andrej.com/2020/06/09/epigram-2-autopsy-obituary-apology/][Every proof assistant: Epigram 2 - Autopsy, Obituary, Apology]]
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

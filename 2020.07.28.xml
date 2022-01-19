@@ -1,0 +1,397 @@
+<?xml version="1.0" encoding="utf-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2020.07.28</cwn_date>
+    <cwn_prev>2020.07.21</cwn_prev>
+    <cwn_next>2020.08.11</cwn_next>
+    <cwn_date_text>July 21 to 28, 2020</cwn_date_text>
+    <cwn_extra_head>As I will be away with no internet next week, the next CWN will be on August 11.</cwn_extra_head>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>Embedded ocaml templates</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/embedded-ocaml-templates/6124/1</cwn_url>
+      <cwn_who>Emile Trotignon announced</cwn_who>
+      <cwn_what>
+I am very happy to announce the release of ocaml-embedded-templates.
+
+This is a tool similar to camlmix, but camlmix was not updated for 7 years, and there is no easy way to
+handle a lot of templates (my command takes a directory as an argument and generate an ocaml module by
+going through the directory recursively)
+I also choosed to use a syntax similar to EJS, and there is a ppx for inline EML.
+
+You can check it out here : https://github.com/EmileTrotignon/embedded_ocaml_templates
+
+Here is a more extensive exemple of what can be done with this :
+https://github.com/EmileTrotignon/resume_of_ocaml (This project generate my resume/website in both
+latex and html).
+
+This is my first opam package : feedback is very much welcome.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Proposal: Another way to debug memory leaks</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/proposal-another-way-to-debug-memory-leaks/6134/1</cwn_url>
+      <cwn_who>Jim Fehrle said</cwn_who>
+      <cwn_what>
+~memprof~ helps you discover where memory was allocated, which is certainly useful.  However, that may
+not be enough information to isolate a leak.  Sometimes you'd like to know what variables refer to
+excessive amounts of memory.
+
+For this, you'd want to examine all the garbage collection roots and report how much memory is used by
+each.  This is useful information if you can map a GC root back to a source file and variable.
+
+I prototyped code to do that to help with Coq bug https://github.com/coq/coq/issues/12487.  It
+localized several leaks enough across over 500 source files so that we could find and fix them.  But my
+prototype code is a bit crude.  I'd like to clean it up and submit it as a PR.  Since this could be
+done in various ways, I wanted to get some design/API feedback up front rather than maybe doing some of
+it twice.  Also I'd like to confident that such a PR would be accepted and merged in a reasonable
+amount of time--otherwise why bother.
+
+[caml_do_roots](https://github.com/ocaml/ocaml/blob/80326033cbedfe59c0664e3912f21017e968a1e5/runtime/roots_nat.c#L399)
+shows how to access the GC roots.  There are several types of roots:
+- global roots, corresponding to top-level variables in source files
+- dynamic global roots
+- stack and local roots
+- global C roots
+- finalized values
+- memprof
+- hook
+
+*API (in Gc):*
+
+#+begin_src ocaml
+val print_global_reachable : out_channel -> int -> unit
+#+end_src
+
+Prints a list to ~out_channel~ of the global roots that reach more than the specified number of words.
+Each item shows the number of reachable words, the associated index of the root in the ~*glob~ for that
+file and the name of the source file.
+
+Something like this (but with only filenames rather than pathnames):
+
+#+begin_example
+    102678 field  17 plugins/ltac/pltac.ml
+    102730 field  18 plugins/ltac/pltac.ml
+    164824 field  20 plugins/ltac/tacenv.ml
+   1542857 field  26 plugins/ltac/tacenv.ml
+  35253743 field  65 stm/stm.ml
+  35201913 field   8 vernac/vernacstate.ml
+   8991864 field  24 vernac/library.ml
+    112035 field   8 vernac/egramml.ml
+   6145454 field  84 vernac/declaremods.ml
+   6435878 field  89 vernac/declaremods.ml
+#+end_example
+
+I would use ELF information in the binary file to map from ~*glob~ back to a filename.  For example,
+the address symbol of the entry ~camlTest~ corresponds to ~test.ml~.  This would only work for binary
+executables compiled with the ~-g~ option.  It wouldn't work for byte-compiled code.  It would print an
+error message if it's not ELF or not ~-g~.  Also, being a little lazy, how essential is it to support
+32-bit binaries?  (Q: What happens if you have 2 source files with the same name though in different
+directories?  Would the symbol table distinguish them?)
+
+#+begin_src ocaml
+val get_field_index : Obj.t -> int
+#+end_src
+
+Returns the ~*glob~ index number for the top-level variable (passed as ~Obj.repr var~).  I expect
+there's no way to recover variable names from the ~*glob~ index.  In my experiments, it appeared that
+the entries in ~*glob~ were in the same order as as the variable and function declarations.  This would
+let a developer do a binary search in the code to locate the variable which it probably a necessity for
+large, complex files such as Coq's ~stm.ml~--3300 lines, 10+ modules defined within the file.  (I
+noticed that variables defined in modules defined within the source file were not in ~*glob~.  I expect
+there is a root for the module as a whole and that those variables can be readily found within that
+root.)
+
+This would need an extended explanation in ~gc.mli~.
+
+#+begin_src ocaml
+val print_stack_reachable : out_channel -> int -> unit
+#+end_src
+
+Prints a backtrace to ~out_channel~ that also shows which roots for each frame reach more than the
+specified number of words.  (I'd keep the "item numbers" since there's no way to translate them to
+variables and they might give some clues.)
+
+#+begin_example
+Called from file "tactics/redexpr.ml" (inlined), line 207, characters 29-40
+ 356758154 item    0 (stack)
+Called from file "plugins/ltac/tacinterp.ml", line 752, characters 6-51
+  17646719 item    0 (stack)
+    119041 item    1 (stack)
+Called from file "engine/logic_monad.ml", line 195, characters 38-43
+    119130 item    0 (stack)
+ 373378237 item    1 (stack)
+#+end_example
+
+As it turns out, 90% of the memory in Coq issue mentioned above is reachable only from the stack.
+
+I didn't consider the other types of roots yet, which I don't fully understand, such as local roots.
+Just covering global and stack roots seems like a good contribution.  Dynamic global roots may be easy
+to add if they are otherwise similar to global roots.  For the others I could print the reachable
+words, but I don't know how to direct the developer to look at the relevant part of the code,
+especially if it's in C code.  I suppose ~print_global_reachable~ and ~print_stack_reachable~ could be
+a single routine as well.  That's probably better.
+
+Let me know your thoughts.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Camlp5 (8.00~alpha01) and pa_ppx (0.01)</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-camlp5-8-00-alpha01-and-pa-ppx-0-01/6144/1</cwn_url>
+      <cwn_who>Chet Murthy announced</cwn_who>
+      <cwn_what>
+*** ~Camlp5 (8.00~alpha01)~ and ~pa_ppx (0.01)~
+
+I'm pleased to announce the release of two related projects:
+
+1. [Camlp5](https://github.com/camlp5/camlp5): version 8.00~alpha01 is an alpha release of Camlp5, with full support for OCaml syntax up to version 4.10.0, as well as minimal compatibility with version 4.11.0. In particular there is full support for PPX attributes and extensions.
+
+2. [pa_ppx](https://github.com/chetmurthy/pa_ppx): version 0.01 is a re-implementation of a large number of PPX rewriters (e.g. ppx_deriving (std (show, eq, map, etc), yojson, sexp, etc), ppx_import, ppx_assert, others) on top of Camlp5, along with an infrastructure for developing new ones.
+
+This allows projects to combine the existing style of Camlp5 syntax
+extension, with PPX rewriting, without having to jump thru hoops to
+invoke camlp5 on some files, and PPX processors on others.
+
+Camlp5 alone is not compatible with existing PPX rewriters: Camlp5
+syntax-extensions (e.g. "stream parsers") would be rejected by the
+OCaml parser, and PPX extensions/attributes are ignored by Camlp5
+(again, without ~pa_ppx~).  ~pa_ppx~ provides Camlp5-compatible
+versions of many existing PPX rewriters, as well as new ones, so that
+one can use Camlp5 syntax extensions as well as PPX rewriters.  In
+addition, some of the re-implemented rewriters are more-powerful than
+their original namesakes, and there are new ones that add interesting
+functionality.
+
+*** For democratizing macro-extension-authoring in OCaml
+
+TL;DR Writing OCaml PPX rewriters is *hard work*.  There is a
+complicated infrastructure that is hard to explain, there are multiple
+such incompatible infrastructures (maybe these are merging?) and it is
+hard enough that most Ocaml programmers do not write macro-extensions
+as a part of their projects.  I believe that using Camlp5 and pa_ppx
+can make it easier to write macro-extensions, via:
+
+1. providing a simple way of thinking about adding your extension to the parsing process.
+
+2. providing transparent tools (e.g. quotations) for pattern-matching/constructing AST fragments
+
+Explained below in [Macro Extensions with Pa_ppx](#macro-extensions-with-pa_ppx).
+
+**** The original arguments against Camlp4
+
+The original argument against using Camlp4 as a basis for
+macro-preprocessing in Ocaml, had several points (I can't find the
+original document, but from memory):
+
+1. *syntax-extension* as the basis of macro-extension leads to brittle syntax: multiple syntax extensions often do not combine well.
+
+2. a different AST type than the Ocaml AST
+
+3. a different parsing/pretty-printing infrastructure, which must be maintained alongside of Ocaml's own parser/pretty-printer.
+
+4. A new and complicated set of APIs are required to write syntax extensions.
+
+To this, I'll add
+
+5. Camlp4 was *forked* from Camlp5, things were changed, and hence, Camlp4 lost the contribution of its original author.  Hence, maintaining Camlp4 was always labor that fell on the Ocaml team. [Maybe this doesn't matter, but it counts for something.]
+
+**** Assessing the arguments, with some hindsight
+
+1. *syntax-extension* as the basis of macro-extension leads to brittle syntax: multiple syntax extensions often do not combine well.
+
+   In retrospect, this is quite valid: even if one prefers and enjoys
+   LL(1) grammars and parsing, when multiple authors write
+   grammar-extensions which are only combined by third-party projects,
+   the conditions are perfect for chaos, and of a sort that
+   project-authors simply shouldn't have to sort out.  And this chaos is
+   of a different form, than merely having two PPX rewriters use the same
+   attribute/extension-names (which is, arguably, easily detectable with
+   some straightforward predeclaration).
+
+2. Camlp4/5 has a different AST type than the Ocaml AST
+
+   Over time, the PPX authors themselves have slowly started to conclude
+   that the current reliance on the Ocaml AST is fraught with problems.
+   The "Future of PPX" discussion thread talks about using something like
+   s-expressions, and more generally about a more-flexible AST type.
+
+3. a different parsing/pretty-printing infrastructure, which must be maintained alongside of Ocaml's own parser/pretty-printer.
+
+   A different AST type necessarily means a different
+   parser/pretty-printer.  Of course, one could modify Ocaml's YACC
+   parser to produce Camlp5 ASTs, but this is a minor point.
+
+4. A new and complicated set of APIs are required to write syntax extensions.
+
+   With time, it's clear that PPX has produced the same thing.
+
+5. Maintaining Camlp4 was always labor that fell on the Ocaml team.
+
+   The same argument (that each change to the Ocaml AST requires work to
+   update Camlp5) can be made for PPX (specifically, this is the raison
+   d'etre of ocaml-migrate-parsetree).  Amusingly, one could imagine
+   using ocaml-migrate-parsetree as the basis for making Camlp5
+   OCaml-version-independent, too.  That is, the "backend" of Camlp5
+   could use ocaml-migrate-parsetree to produce ASTs for a version of
+   OCaml different from the one on which it was compiled.
+
+*** Arguments against the current API(s) of PPX rewriting
+
+The overall argument is that it's too complicated for most OCaml
+programmers to write their own extensions; what we see instead of a
+healthy ecosystem of many authors writing and helping-improve PPX
+rewriters, is a small number of rewriters, mostly written by Jane
+Street and perhaps one or two other shops.  There are a few big
+reasons why this is the case (which correspond to the responses
+above), but one that isn't mentioned is:
+
+6. When the "extra data" of a PPX extension or attribute is easily-expressed with the fixed syntax of PPX payloads, all is ~~well~~ ok, but certainly not in great shape.  Here's an example:
+
+#+begin_src ocaml
+type package_type =
+[%import: Parsetree.package_type
+          [@with core_type    := Parsetree.core_type [@printer Pprintast.core_type];
+                 Asttypes.loc := Asttypes.loc [@polyprinter fun pp fmt x -> pp fmt x.Asttypes.txt];
+                 Longident.t  := Longident.t [@printer pp_longident]]]
+[@@deriving show]
+#+end_src
+
+The expression-syntax of assignment is used to express type-expression
+rewrites.  And this is necesarily limited, because we cannot (for
+example) specify left-hand-sizes that are type-expressions with
+variables.  It's a perversion of the syntax, when what we really want
+to have is something that is precise: "map this type-expression to
+that type-expression".
+
+Now, with the new Ocaml 4.11.0 syntax, there's a (partial) solution:
+use "raw-string-extensions" like ~{%foo|argle|}~.  This is the same as
+~[%foo {|argle|}]~.  This relies on the PPX extension to parse the
+payload.  But there are problems:
+
+1. Of course, there's no equivalent ~{@foo|argle|}~ (and "@@", "@@@" of course) for attributes.
+
+2. If the payload in that string doesn't *itself* correspond to some parseable Ocaml AST type, then again, we're stuck: we have to cobble together a parser instead of being able to merely extend the parser of Ocaml to deal with the case.
+
+Note well that I'm not saying that we should extend the parsing rules
+of the Ocaml language.  Rather, that with an *extensible parser*
+(hence, LL(1)) we can add new nonterminals, add rules that reference
+existing nonterminals, and thereby get an exact syntax (e.g.) for the
+~ppx_import~ example above.  That new nonterminal is used *only* in
+parsing the payload -- nowhere else -- so we haven't introduced
+examples of objection #1 above.
+
+And it's not even very hard.
+
+*** Macro Extensions with Pa_ppx
+
+The basic thesis of ~pa_ppx~ is "let's not throw the baby out with the
+bathwater".  Camlp5 has a lot of very valuable infrastructure that can
+be used to make writing macro-preprocessors much easier.  ~pa_ppx~
+adds a few more.
+
+1. Quotations for patterns and expressions over all important OCaml AST types.
+
+2. "extensible functions" to make the process of recursing down the AST transparent, and the meaning of adding code to that process equally transparent.
+
+3. ~pa_ppx~ introduces "passes" and allows each extension to register which other extensions it must follow, and which may follow it; then ~pa_ppx~ topologically sorts them, so there's no need for project-authors to figure out how to order their PPX extension invocations.
+
+As an example of a PPX rewriter based on ~pa_ppx~, here's
+[pa_ppx.here](https://pa-ppx.readthedocs.io/en/latest/tutorial.html#an-example-ppx-rewriter-based-on-pa-ppx)
+from the ~pa_ppx~ tutorial.  In that example, you'll see that Camlp5
+infrastructure is used to make things easy:
+
+1. quotations are used to both build the output AST fragment, and to pattern-match on inputs.
+
+2. the "extensible functions" are used to add our little bit of rewriter to the top-down recursion.
+
+3. and we declare our rewriter to the infrastructure (we don't specify what passes it must come before or after, since ~pa_ppx.here~ is so simple).
+
+*** Conclusion
+
+I'm not trying to convince you to switch away from PPX to Camlp5.
+Perhaps, I'm not even merely arguing that you should use ~pa_ppx~ and
+author new macro-extensions on it.  But I *am* arguing that the features of
+
+1. quotations, with antiquotations in as many places as possible, and hence, *in places where Ocaml identifiers are not permitted*.
+
+2. facilities like "extensible functions", with syntax support for them
+
+3. a new AST type, that is suitable for macro-preprocessing, but isn't merely "s-expressions" (after all, there's a reason we all use strongly-typed languages)
+
+3. an extensible parser for the Ocaml language, usable in PPX attribute/extension payloads
+
+are important and valuable, and a PPX rewriter infrastructure that
+makes it possible for the masses to write their own macro-extensions,
+is going to incorporate these things.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OCaml 4.11.0, third (and last?) beta release</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ocaml-4-11-0-third-and-last-beta-release/6149/1</cwn_url>
+      <cwn_who>octachron announced</cwn_who>
+      <cwn_what>
+The release of OCaml 4.11.0 is near.
+As one step further in this direction, we have published a third
+and potentially last beta release.
+
+This new release fixes an infrequent best-fit allocator bug and an issue
+with floating-point software emulation in the ARM EABI port.
+On the ecosystem side, merlin is now available for this new version of OCaml.
+The compatibility of the opam ecosystem with OCaml 4.11.0 is currently
+good, and it should be possible to test this beta without too much trouble.
+
+The source code is available at these addresses:
+
+ https://github.com/ocaml/ocaml/archive/4.11.0+beta3.tar.gz \\
+ https://caml.inria.fr/pub/distrib/ocaml-4.11/ocaml-4.11.0+beta3.tar.gz
+
+The compiler can also be installed as an OPAM switch with one of the
+following commands:
+#+begin_src shell
+opam update
+opam switch create ocaml-variants.4.11.0+beta3 --repositories=default,beta=git+https://github.com/ocaml/ocaml-beta-repository.git
+#+end_src
+or
+#+begin_src shell
+opam update
+opam switch create ocaml-variants.4.11.0+beta3+VARIANT --repositories=default,beta=git+https://github.com/ocaml/ocaml-beta-repository.git
+#+end_src
+ where you replace VARIANT with one of these: afl, flambda, fp, fp+flambda
+
+We would love to hear about any bugs. Please report them here:
+ https://github.com/ocaml/ocaml/issues
+
+Compared to the previous beta release, the exhaustive list of changes
+is as follows:
+
+*** Runtime:
+
+- [#9736](https://github.com/ocaml/ocaml/issues/9736), [#9749](https://github.com/ocaml/ocaml/issues/9749): Compaction must start in a heap where all free blocks are blue, which was not the case with the best-fit allocator. (Damien Doligez, report and review by Leo White)
+
+- + [*new bug fixes*] [#9316](https://github.com/ocaml/ocaml/issues/9316), [#9443](https://github.com/ocaml/ocaml/issues/9443), [#9463](https://github.com/ocaml/ocaml/issues/9463), [#9782](https://github.com/ocaml/ocaml/issues/9782): Use typing information from Clambda or mutable Cmm variables. (Stephen Dolan, review by Vincent Laviron, Guillaume Bury, Xavier Leroy, and Gabriel Scherer; temporary bug report by Richard Jones)
+
+*** Manual and documentation:
+
+- [#9541](https://github.com/ocaml/ocaml/issues/9541): Add a documentation page for the instrumented runtime; additional changes to option names in the instrumented runtime. (Enguerrand Decorne, review by Anil Madhavapeddy, Gabriel Scherer, Daniel Bünzli, David Allsopp, Florian Angeletti, and Sébastien Hinderer)
+
+Entries marked with "+" were already present in previous alphas, but
+they have been complemented by new bug fixes.
+
+If you are interested by the list of new features, and the nearly final list
+of bug fixes the updated change log for OCaml 4.11.0 is available at:
+
+  https://github.com/ocaml/ocaml/blob/4.11/Changes
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Here are links from many OCaml blogs aggregated at [[http://ocaml.org/community/planet/][OCaml Planet]].
+
+- [[http://frama-c.com/index.html][Frama-Clang 0.0.9 is out. Download it here.]]
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

@@ -1,0 +1,257 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>OCaml Weekly News</title>
+  </head>
+  <body>
+    <a href="2015.03.17.html">Previous week</a> <a href="index.html">Up</a> <a href="2015.03.31.html">Next week</a><p>Hello</p><p>Here is the latest OCaml Weekly News, for the week of March 17 to 24, 2015.</p><ol><li><a href="#1">GADT existential asked</a></li><li><a href="#2">TLS-0.4.0 and X.509-0.3.0</a></li><li><a href="#3">Adding support for OCaml in PythonTeX</a></li><li><a href="#4">Mtime 0.8.0</a></li><li><a href="#5">OPAM 1.2.1</a></li><li><a href="#6">Other OCaml News</a></li></ol><a name="1" /><hr /><h3>GADT existential asked</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2015-03/msg00105.html">https://sympa.inria.fr/sympa/arc/caml-list/2015-03/msg00105.html</a></p><i>Daniel Bünzli announced:</i><br /><pre>
+Is it possible to escape a GADT existential using some kind of witness
+the same way a universal type would allow me ? I think the answer is
+no, but I'd love to be proven wrong.
+      </pre><i>Milan Stanojević then asked and Daniel Bünzli replied:</i><br /><pre>
+&gt; Can you give some hypothetical example code ?
+type 'a key = ?
+type binding = B : 'a key * 'a -&gt; binding
+type dict = binding list  
+let lookup : dict -&gt; 'a key -&gt; 'a option = fun d k -&gt; ?
+
+Is it possible to specify a `'a key` type that allows `lookup` (with
+the obvious semantics) to be written ? This is trivial to achieve with
+a universal type, see <a href="http://mlton.org/PropertyList">http://mlton.org/PropertyList</a>
+      </pre><i>Milan Stanojević then said:</i><br /><pre>
+This is doable in OCaml.
+Core has one possible implementation.
+<a href="https://github.com/janestreet/core_kernel/blob/master/lib/type_equal.mli#L171">https://github.com/janestreet/core_kernel/blob/master/lib/type_equal.mli#L171</a>
+
+type 'a key = 'a Type_equal.Id.t
+
+let lookup dict key =
+   List.find_map disct ~f:(function
+    | B (key', a) -&gt;
+      match Type_equal.Id.same_witness key key' with
+      | None -&gt; None
+      | Some T -&gt; Some a)
+;;
+
+You can also check out Univ and Univ_map modules in Core.
+
+Note that Univ was possible in OCaml even before first-class
+modules, GADTs and extensible types (which are all used in Type_equal)
+
+<a href="https://blogs.janestreet.com/a-universal-type/">https://blogs.janestreet.com/a-universal-type/</a>
+      </pre><i>Daniel Bünzli then replied:</i><br /><pre>
+Cool, a new trick. My understanding of this is basically to apply to
+types the same idea as Univ by representing them as a first class
+module.
+
+However are you sure your example compiles (tried to check, but Core
+fails on me in the toplevel) ? Trying the following [1] self-contained
+implementation of the idea [1] the compiler still complains about
+escaping types.
+
+&gt; Note that Univ was possible in OCaml even before first-class
+&gt; modules, GADTs and extensible types (which are all used in Type_equal)
+
+Yes, see <a href="http://alan.petitepomme.net/cwn/2010.02.09.html#1">http://alan.petitepomme.net/cwn/2010.02.09.html#1</a> if you are interested how.  
+
+Thanks,
+
+Daniel
+
+[1]
+
+module Key = struct
+  type _ t = ..
+end
+
+module type W = sig
+  type t
+  type _ Key.t += Key : t Key.t
+end
+
+type 'a witness = (module W with type t = 'a)
+
+let witness () (type s) =
+ let module M = struct
+   type t = s
+   type _ Key.t += Key : t Key.t
+ end
+ in
+ (module M : W with type t = s)
+
+type ('a, 'b) eq = Eq : ('a, 'a) eq
+
+let eq (type r) (type s) (r : r witness) (s : s witness)
+  : (r, s) eq option
+  =
+  let module R = (val r : W with type t = r) in
+  let module S = (val s : W with type t = s) in
+  match R.Key with
+  | S.Key -&gt; Some Eq
+  | _ -&gt; None
+
+type 'a key = 'a witness
+type binding = B : 'a key * 'a -&gt; binding
+type dict = binding list
+
+let lookup : dict -&gt; 'a key -&gt; 'a option = fun d k -&gt;
+  let rec find = function
+  | [] -&gt; None
+  | B (k', v) :: bs -&gt;
+      match eq k k' with
+      | None -&gt; find bs
+      | Some Eq -&gt; Some v
+  in
+  find d
+      </pre><i>Jeremy Yallop then said:</i><br /><pre>
+This needs a locally-abstract type ("type a. ") to allow type
+refinement when you match against the GADT
+
+   let lookup : type a. dict -&gt; a key -&gt; a option = fun d k -&gt;
+
+and an additional annotation for the inner function:
+
+  let rec find : dict -&gt; a option = function
+      </pre><i>Much later in the discussion, Jeremy Yallop said and Alain Frisch replied:</i><br /><pre>
+&gt; The exn type doesn't support GADT
+&gt; constructors (since it doesn't have type parameters)
+
+Note that even if exn doesn't have type parameters, it supports the
+GADT syntax to define constructors with existentials:
+
+
+exception A: 'a * ('a -&gt; string) -&gt; exn;;
+      </pre><a name="2" /><hr /><h3>TLS-0.4.0 and X.509-0.3.0</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2015-03/msg00118.html">https://sympa.inria.fr/sympa/arc/caml-list/2015-03/msg00118.html</a></p><i>Hannes Mehnert announced:</i><br /><pre>
+it is my please to announce new releases of TLS and X.509, both purely
+developed in OCaml.  Today OpenSSL announced 14 security issues in
+their code base, thus I thought it would be a good day to release our
+TLS library :)
+
+The bounty of 10 Bitcoins is still ongoing and not broken (although
+~20000 TLS connections were made) -- <a href="http://ownme.ipredator.se">http://ownme.ipredator.se</a>
+
+NEWS:
+TLS
+* client authentication (both client and server side)
+* server side SNI configuration (see sni.md)
+* SCSV server-side downgrade prevention (contributed by Gabriel de
+Perthuis @g2p #5)
+* remove RC4 ciphers from default config #8
+* support for AEAD ciphers, currently CCM #191
+* proper bounds checking of handshake fragments #255
+* disable application data between CCS and Finished #237
+* remove secure renegotiation configuration option #256
+* expose epoch in mirage interface, implement 2.3.0 API (error_message)
+* error reporting (type failure in engine.mli) #246
+* hook into Lwt event loop to feed RNG #254
+
+X.509
+* more detailed error messages (type certificate_failure modified)
+* no longer Printf.printf debug messages
+* error reporting: `Ok of certificate option | `Fail of
+certificate_failure
+* fingerprint verification can work with None as host (useful for
+client authentication where host is not known upfront)
+* API reshape: X509 is the only public module, X509.t is the abstract
+certificate
+
+Preliminary API documentation (pull requests welcome) is available now
+at <a href="https://mirleft.github.io/ocaml-x509/">https://mirleft.github.io/ocaml-x509/</a> ;
+<a href="https://mirleft.github.io/ocaml-tls/">https://mirleft.github.io/ocaml-tls/</a>
+
+The packages are not yet in the opam repository, but waiting for
+Travis <a href="https://github.com/ocaml/opam-repository/pull/3770">https://github.com/ocaml/opam-repository/pull/3770</a>
+      </pre><a name="3" /><hr /><h3>Adding support for OCaml in PythonTeX</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2015-03/msg00083.html">https://sympa.inria.fr/sympa/arc/caml-list/2015-03/msg00083.html</a></p><i>Continuing the thread from last week, Thomas Gazagnaire said and Ashish Agarwal added:</i><br /><pre>
+&gt; Maybe something like <a href="https://github.com/agarwal/oloop">https://github.com/agarwal/oloop</a> could help?
+&gt; 
+&gt; (I'm not one the author, and I have no idea what it does exactly)
+
+The goal of oloop is to help authors of blog posts, books, etc.
+include OCaml code blocks in their writing, and have the code
+automatically evaluated through the toplevel. This is done for example
+on OCaml.org, and we wanted to factor out that code and make it more
+robust. If it can be extended in any way for other purposes, please
+add an issue and/or submit a pull request.
+      </pre><i>Roberto Di Cosmo also said:</i><br /><pre>
+Well, an ugly but effective perl script has been used for ages for
+doing this...
+
+<a href="http://caml.inria.fr/pub/old_caml_site/caml-list-ar/0651.html">http://caml.inria.fr/pub/old_caml_site/caml-list-ar/0651.html</a>
+
+Many of us (including me) have a modified version adapted to their
+LaTeX style.
+
+If somebody takes the time to revamp all this, and properly package
+it, with documentation, etc. , that would be really cool :-)
+      </pre><a name="4" /><hr /><h3>Mtime 0.8.0</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2015-03/msg00133.html">https://sympa.inria.fr/sympa/arc/caml-list/2015-03/msg00133.html</a></p><i>Daniel Bünzli announced:</i><br /><pre>
+It's my pleasure to announce the first release of Mtime, best described as:
+
+ Mtime is an OCaml module to access monotonic wall-clock time. It
+ allows to measure time spans without being subject to operating system
+ calendar time adjustments.
+
+ Mtime depends only on your platform system library. The optional
+ JavaScript support depends on js_of_ocaml. It is distributed
+ under the BSD3 license.
+  
+ Home page: <a href="http://erratique.ch/software/mtime">http://erratique.ch/software/mtime</a>
+ API docs: <a href="http://erratique.ch/software/mtime/doc/Mtime">http://erratique.ch/software/mtime/doc/Mtime</a>
+ Github mirror: <a href="https://github.com/dbuenzli/mtime">https://github.com/dbuenzli/mtime</a>
+
+It should be available shortly in opam.
+
+Best,
+
+Daniel
+
+P.S. Since I'm too tired to fight with build systems and packaging at
+the moment jsoo is a hard dep and not a deptopt as it should be. This
+will be fixed at some point in the future.
+
+P.P.S. A Windows hacker is welcome for
+<a href="https://github.com/dbuenzli/mtime/issues/2">https://github.com/dbuenzli/mtime/issues/2</a> as I don't have the time to
+solve this right now.
+      </pre><i>Daniel Bünzli then added:</i><br /><pre>
+So should v0.8.1 which fixes a stupid arithmetic bug on 32-bit
+platforms with a POSIX clock.
+
+Thanks to Stephen Dolan for the report and the fix.
+      </pre><a name="5" /><hr /><h3>OPAM 1.2.1</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2015-03/msg00150.html">https://sympa.inria.fr/sympa/arc/caml-list/2015-03/msg00150.html</a></p><i>Louis Gesbert announced:</i><br /><pre>
+We're glad to announce the release of the version 1.2.1 of the OPAM
+package manager. This point release features a number of stability
+improvements, better processing of package operations, better
+messages, and fixes.
+
+See the announcement and get the update at
+<a href="http://opam.ocaml.org/blog/opam-1-2-1-release/">http://opam.ocaml.org/blog/opam-1-2-1-release/</a>
+
+Thanks to all the contributors, testers and issue reporters!
+      </pre><a name="6" /><hr /><h3>Other OCaml News</h3><i>From the ocamlcore planet blog:</i><br /><pre>
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <a href="http://planet.ocaml.org/">http://planet.ocaml.org/</a>.
+
+Mini Cloud/Cluster v2.0:
+  <a href="https://rwmj.wordpress.com/2015/03/23/mini-cloudcluster-v2-0/">https://rwmj.wordpress.com/2015/03/23/mini-cloudcluster-v2-0/</a>
+
+A lighter Core:
+  <a href="https://blogs.janestreet.com/a-lighter-core/">https://blogs.janestreet.com/a-lighter-core/</a>
+
+Part 3: Running your own DNS Resolver with MirageOS:
+  <a href="http://hh360.user.srcf.net/blog/2015/03/part-3-running-your-own-dns-resolver-with-mirageos/">http://hh360.user.srcf.net/blog/2015/03/part-3-running-your-own-dns-resolver-with-mirageos/</a>
+
+Namespace archeology:
+  <a href="http://gallium.inria.fr/blog/namespace-archeology">http://gallium.inria.fr/blog/namespace-archeology</a>
+
+Binomial Heap:
+  <a href="http://typeocaml.com/2015/03/17/binomial-heap/">http://typeocaml.com/2015/03/17/binomial-heap/</a>
+
+OPAM 1.2.1 Released:
+  <a href="http://ocaml.org/">http://ocaml.org/</a>
+      </pre><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

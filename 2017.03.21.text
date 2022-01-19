@@ -1,0 +1,321 @@
+Hello,
+
+Here is the latest OCaml Weekly News, for the week of March 14 to 21, 2017.
+
+1) New release of visitors
+2) Named pipe on Windows.
+3) Preview: B-tree library
+4) Jane Street development opam repository
+5) Exceptions and Gc.
+6) Ocaml Github Pull Requests
+7) Other OCaml News
+
+========================================================================
+1) New release of visitors
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2017-03/msg00051.html>
+------------------------------------------------------------------------
+** Continuing the thread from last week, François Pottier announced:
+
+> I will probably prepare a blog post with a cleaned up solution...
+
+Done:
+
+  <http://gallium.inria.fr/blog/from-visitors-to-iterators/>
+      
+========================================================================
+2) Named pipe on Windows.
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2017-03/msg00054.html>
+------------------------------------------------------------------------
+** Paul Lachat asked:
+
+I need to setup communication between two Ocaml processes on Windows.
+I think that using the named pipe of Windows is the good method to do this task.
+
+But I can't find any module for Ocaml who allow using the system call of Windows.
+
+I have already find this module <https://opam.ocaml.org/packages/named-pipe/>, but
+it use C, and I would like to avoid depending on another langage than Ocaml or
+software like Cygwin.
+
+Does anybody know a way to use named pipe of Windows in Ocaml ?
+
+Thank you in advance for your answer !
+
+Ps : Sorry if it's the wrong mailing list to ask, it's the first time I use one.
+      
+** Johannes Kanig replied:
+
+For the client side, you can simply use Unix.openfile on the pipe name:
+
+    let name = "\\\\.\\pipe\\" ^ socket_name in
+    Unix.openfile name [Unix.O_RDWR] 0
+
+For the server side, you need to call the Win32 API functions CreateNamedPipe
+and ConnectNamedPipe, and for that you need to have bindings in C, exactly like
+the above library does it. I don't think there is another way.
+      
+** David Allsopp also replied:
+
+> I need to setup communication between two Ocaml processes on Windows.
+> I think that using the named pipe of Windows is the good method to do this task.
+
+Depending on your exact needs, you can also accomplish this with anonymous pipes
+- use Unix.pipe (twice, if you need to communicate two ways) and pass the
+appropriate side of each pipe as stdin and stdout to Unix.create_process. That
+of course assumes that you can afford to use stdin/stdout for this. I don't
+think that the Unix module allows you to create inheritable handles, so I think
+that's the only way of passing the pipe descriptor without resorting to
+bindings.
+
+> But I can't find any module for Ocaml who allow using the system call of Windows.
+
+The traditional way is to create bindings in C for the system calls (see
+<https://caml.inria.fr/pub/docs/manual-ocaml/intfc.html>). The library you have
+found is certainly an example of doing this.
+
+> I have already find this module <https://opam.ocaml.org/packages/named-pipe/>,
+> but it use C,
+> and I would like to avoid depending on another langage than Ocaml or software
+> like Cygwin.
+
+The OCaml runtime is implemented in C, so in some senses you can't avoid it!
+Note that Cygwin is in this context an operating system - you can bind to
+Windows system calls using stubs written in C and still not depend on Cygwin (if
+you use the Microsoft Visual C ports of OCaml, you don't even need Cygwin to
+compile your code). If you are using the actual Cygwin ports of OCaml, then
+although you can bind to Windows system calls, you shouldn't - you should use a
+normal Unix "file-based" pipe (see Unix.mkfifo).
+
+> Does anybody know a way to use named pipe of Windows in Ocaml ?
+
+The library you have found is the usual way - you may also like to investigate
+<https://github.com/ocamllabs/ocaml-ctypes> which, I believe has good Windows
+support these days (it's on my list of things to investigate and replace my own
+Windows C bindings...).
+      
+** David Scott also replied:
+
+Although I'm one of the authors of that particular library I now prefer to use
+this other library instead:
+
+<https://github.com/fdopen/uwt>
+<https://opam.ocaml.org/packages/uwt/>
+
+where "Uwt.Pipe" is a Unix domain socket on Unix and a named pipe on Windows.
+I'm very happy with "uwt" -- it seems to be very stable and reliable, despite
+the relatively low version number.
+
+Personally I don't want my final executables to depend on the cygwin.dll but I
+don't mind if my development environment uses cygwin for the Unix utilities like
+"make", "vi" etc. I usually install OCaml one Windows using this installer:
+
+<http://fdopen.github.io/opam-repository-mingw/installation/>
+
+-- this installs everything you need (including Cygwin). I then `opam install`
+my dependencies and `make`, like I can on Unix. My resulting .exe files are
+independent of cygwin.dll and I ship them as-is.
+      
+** David Scott then said and David Allsopp replied:
+
+> With regards to ocaml on windows, has anyone tried using bash on windows and
+> ocaml built using msvc/mingw?
+> 
+> Bash on windows now supports calling native windows binaries from within the
+> bash shell itself.
+> 
+> <https://msdn.microsoft.com/en-us/commandline/wsl/interop#invoking-windows-binaries-from-wsl>
+> 
+> I am guessing this probably makes Cygwin redundant as a ocaml build environment.
+
+Yes ? I had patched it for MSVC. The results are very good and at some point
+I?ll package it up properly for merging.
+
+Note that the interop is trickier for the mingw ports because the resulting
+executables need to be able to call into LXSS. There?s also some pain with
+setting environment variables when calling Win32 processes, which is why I
+hadn?t got around to finishing it off.
+
+Cygwin will only truly redundant if/when LXSS is available on all platforms ?
+it?s only Windows 10 and not Server 2016 (to say nothing of older versions of
+Windows).
+      
+========================================================================
+3) Preview: B-tree library
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2017-03/msg00061.html>
+------------------------------------------------------------------------
+** Tom Ridge announced:
+
+This may be of interest for people thinking about on-disk storage etc.
+
+<https://github.com/tomjridge/tjr_btree/>
+
+It is not really in state to release, hence the "preview".
+
+It is the core library in the upcoming "ImpFS" filesystem which (with SibylFS)
+comes from the "Future filesystems" project.
+      
+** Frédéric Bour asked and Tom Ridge replied:
+
+> Thanks for sharing this project, this looks promising. It seems this is a
+> proven library?
+>
+> Do you have links to this "Future filesystems" project? (and maybe the other
+> names you mentioned).
+ 
+At the moment, there is only the SibylFS website:
+
+<https://sibylfs.github.io/>
+
+And the EPSRC grant description:
+
+<http://gow.epsrc.ac.uk/NGBOViewGrant.aspx?GrantRef=EP/K022741/1>
+
+But when things are further down the line, I will put together a website for
+ImpFS.
+      
+** Hendrik Boom asked and Tom Ridge replied:
+
+> The interesting point about this system is in the README:
+>
+> tjr_btree is a B-tree library. The core is written in Isabelle/HOL and exported
+> to OCaml
+>
+> Does this mean something like that the code has been generated from a formal
+> proof of its correctness?
+
+Not at this point. But yes, previous versions have had (often partial) formal
+proofs developed. So I would say that the code is likely to be pretty good from
+a correctness point of view. Obviously the full formal proof for the core would
+be desirable. But other projects can probably start using the code now, hence
+why I released it relatively early.
+      
+========================================================================
+4) Jane Street development opam repository
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2017-03/msg00074.html>
+------------------------------------------------------------------------
+** Jeremie Dimino announced:
+
+If you were previously using the opam repository for Jane Street
+development packages on github [1], you can now switch to a new url
+[2]:
+
+  opam repo add janestreet-dev <https://ocaml.janestreet.com/opam-repository>
+
+This repository is a mirror of the github one but with static archives
+rather than git urls. This means that `opam update` will be much
+faster as it won't have to check the individual git repositories one
+by one.
+
+[1] <https://github.com/janestreet/opam-repository>
+[2] <https://ocaml.janestreet.com/opam-repository>
+      
+========================================================================
+5) Exceptions and Gc.
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2017-03/msg00076.html>
+------------------------------------------------------------------------
+** Romain Beauxis announced:
+
+Apologies if I'm beating a dead horse but I think I've never wondered about
+this: What are the assumptions related to the garbage collector when an
+exception is raised?
+
+I sort-of always assumed it would be run but it doesn't seem that this is the
+case. This code:
+let () =
+  let g () =
+    let f _ =
+      Printf.printf "Collecting x\n%!"
+    in
+    let x = Bytes.create 1024 in
+    Gc.finalise f x;
+    ()
+  in
+  g ();
+  Gc.full_major();
+  raise Not_found
+
+Shows that the finalization function is never call if I remove the call to
+full_major. Any reason for that?
+
+The reason I'm asking if that I know I've been writing C bindings where some
+cleanup operations are wrapped up in the finalization code with the expectation
+that, except for a hard crash, it would always be executed at some point in the
+future..
+      
+** Dmitry Bely replied:
+
+It has nothing to do with exceptions. The problem is that OCaml
+runtime does not execute the garbage collector on program exit. But
+you can write
+
+let _ = at_exit Gc.full_major
+
+if you need to force GC.
+      
+** Max Mouratov then added:
+
+It won't guarantee running all finalisers, as some of the objects may
+still be reachable. As part of a yet unmerged patch [1] that will land 
+in 4.06, I have added an option that makes the runtime shut down 
+properly on process exit (by an implicit call to the new caml_shutdown
+function), but unfortunately it doesn't handle Gc.finalise yet, as the
+relevant logic is not so trivial (and is probably a subject for a
+different PR). However, custom blocks [2] are guaranteed to be
+finalised properly with caml_shutdown, so you might look into this.
+
+Links:
+[1] <https://github.com/ocaml/ocaml/pull/71>
+[2] <https://caml.inria.fr/pub/docs/manual-ocaml/intfc.html#sec442>
+      
+========================================================================
+6) Ocaml Github Pull Requests
+------------------------------------------------------------------------
+** Gabriel Scherer and the editor compiled this list:
+
+Here is a sneak peek at some potential future features of the Ocaml
+compiler, discussed by their implementers in these Github Pull Requests.
+
+- Remove statically allocated compare stack
+  <https://github.com/ocaml/ocaml/pull/1073>
+- Allow creation of empty .cmxa files on macOS
+  <https://github.com/ocaml/ocaml/pull/1094>
+- Rudimentary documentation of ocamlnat
+  <https://github.com/ocaml/ocaml/pull/1096>
+      
+========================================================================
+7) Other OCaml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Here are links from many OCaml blogs aggregated at OCaml Planet,
+<http://ocaml.org/community/planet/>.
+
+Trivial meta-programming with cinaps
+ <https://blogs.janestreet.com/trivial-meta-programming-with-cinaps/>
+
+New OPAM Features: ?opam build?
+ <http://www.ocamlpro.com/2017/03/16/new-opam-features-opam-build/>
+
+new opam features: "opam build"
+ <https://opam.ocaml.org/blog/opam-build/>
+
+One more talk, two more videos
+ <https://blogs.janestreet.com/one-more-talk-two-more-videos/>
+
+Full Time: Fullstack System Engineer at issuu in Copenhagen, Denmark
+ <http://jobs.github.com/positions/46f4e1c0-08e0-11e7-8bae-613c73194cc5>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

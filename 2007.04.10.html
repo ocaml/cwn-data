@@ -1,0 +1,114 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2007.04.03.html">Previous week</a> <a href="index.html">Up</a> <a href="2007.04.17.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of April 03 to 10, 2007.</p><ol>
+      <li>
+        <a href="#1">camlp4: let binding</a>
+      </li>
+    </ol><a name="1" /><hr /><h3>camlp4: let binding</h3><p>Archive: <a href="http://groups.google.com/group/ocaml-developer/browse_frm/thread/60e0ea039394bff6">http://groups.google.com/group/ocaml-developer/browse_frm/thread/60e0ea039394bff6</a></p><i>Hugo Ferreira asked, Martin Jambon said, and Nicolas Pouillard answered:</i><br /><pre>
+&gt; &gt; I would like to use a reserved word and substitute that by a function 
+&gt; &gt; call. For example, the following: 
+&gt; &gt;
+&gt; &gt; let  _ = HEAP in 
+&gt; &gt; let h1 = HEAP in 
+&gt; &gt;
+&gt; &gt; would become 
+&gt; &gt;
+&gt; &gt; let __heap = new_heap () in 
+&gt; &gt; let     h1 = new_heap () in 
+
+
+As always it will be a lot simpler to do that kind of thing using a 
+filter in camlp4 3.10. 
+... 
+match (* do things bottom-up *) super#expr e with 
+| &lt;:expr@loc&lt; let _ = HEAP in $e$ &gt;&gt; -&gt; 
+     &lt;:expr@loc&lt; let __heap = new_heap () in $e$ &gt;&gt; 
+| &lt;:expr@loc&lt; let $p$ = HEAP in $e$ &gt;&gt; -&gt; 
+     &lt;:expr@loc&lt; let $p$ = new_heap () in $e$ &gt;&gt; 
+| e -&gt; e 
+... 
+
+&gt; You shouldn't try to do this because the parser looks only one token ahead 
+&gt; to make its decision. If you add a rule that starts from "let" (it has 
+&gt; to), the token which enables the parser to select this rule is in position 
+&gt; 3, so it comes too late. Camlp4 will not warn you about the conflict but 
+&gt; fail during preprocessing because it will choose either the predefined 
+&gt; "let" rule or yours without knowing if it's the right one. 
+
+In fact it's wrong camlp4 can takes more than one token of look ahead. 
+It will try to match the input with all the firsts terminals of a rule. 
+However you're right to discourage him to try that kind of thing. 
+Indeed it's highly dependent on the left factorization mechanism 
+performed by camlp4.
+		</pre><i>Hugo Ferreira asked and Nicolas Pouillard answered:</i><br /><pre>
+&gt; Just a comment: my greatest difficulty with camlp4 is twofold: 
+&gt;
+&gt; - knowing how the AST maps to the actual Ocaml syntax. 
+
+
+You can ask to camlp4 itself! 
+Using the old one... 
+
+$ cat test.ml 
+(* here is some expression that you want to understand *) 
+fun e -&gt; &lt;:expr&lt; let x= HEAP in $e$ &gt;&gt; 
+
+$ camlp4o q_MLast.cmo pr_o.cmo test.ml 
+let _ = 
+  fun e -&gt; 
+    MLast.ExLet 
+      (_loc, false, [MLast.PaLid (_loc, "x"), MLast.ExUid (_loc, "HEAP")], e) 
+
+&gt; - knowing when/where the camlp4 parser does its transformations so that 
+&gt; I may alter these transformations (match and replace expressions). 
+
+That's not really transformations of the AST. 
+However there is some grammar tranformations: 
+When you add a rule to a grammar entry at a specific level camlp4 
+insert it in a tree to factor out the prefix or rules as much as 
+possible. 
+
+e1 = SELF; "+"; e2 = SELF -&gt; ... 
+e1 = SELF; "*"; e2 = SELF -&gt; ... 
+
+is in fact something like: 
+
+e1 = SELF; [ "+"; e2 = SELF -&gt; ... | "*";  e2 = SELF -&gt; ... ] 
+
+So if you add something make it as much as possible a prefix of existing ones. 
+
+[...] 
+
+&gt; In effect I write Ocaml "expression" which is automatically matched and 
+&gt; I only need write an Ocaml expression to introduce the changes I want. 
+&gt; All this using simply using the quotation system. The rules and the AST 
+&gt; structure itself should, in my humble opinion, be avoided. 
+
+Indeed, extension that are highly dependent on the actual grammar 
+should be avoided. 
+
+&gt; This will also allow the underlying camlp4 system to change without unduly 
+&gt; affecting user's code. 
+
+Exactly!
+		</pre><hr /><h3>Using folding to read the cwn in vim 6+</h3><p>Here is a quick trick to help you read this CWN if you are viewing it using vim (version 6 or greater).</p><pre>:set foldmethod=expr<br />:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'&amp;lt;1':1<br />zM</pre><p>If you know of a better way, please let me know.</p><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right">
+      <i>
+        <a href="http://alan.petitepomme.net/">Alan Schmitt</a>
+      </i>
+    </p><p align="right">
+      <script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script>
+      <script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" />
+      <script src="http://www.google-analytics.com/urchin.js" type="text/javascript" />
+      <script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script>
+    </p></body>
+</html>

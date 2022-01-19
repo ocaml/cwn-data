@@ -1,0 +1,483 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2011.08.02</cwn_date>
+    <cwn_prev>2011.07.26</cwn_prev>
+    <cwn_next>2011.08.09</cwn_next>
+    <cwn_date_text>July 26 to August 02, 2011</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>Hashtbl performance</cwn_title>
+      <cwn_url>https://sympa-roc.inria.fr/wws/arc/caml-list/2011-07/msg00117.html</cwn_url>
+      <cwn_who>Toby Kelsey asked and Fabrice Le Fessant replied</cwn_who>
+      <cwn_what>
+&gt; I have written two versions of a small program, one using an (int list) 
+&gt; data structure and the other an ((int*int) list); and I tested using 
+&gt; Hashtbl, Set and (Jean-Christophe Filliatre's) Trie to cache these elements 
+&gt; in each version.
+&gt; The relative run times of the programs turns out to be:
+&gt; 
+&gt;                  Hashtbl  Set  Trie
+&gt; (int list)         1      2.1  2.0
+&gt; ((int*int) list)  34.7    2.6  2.1
+&gt; 
+&gt; 
+&gt; There is a slight inherent speed difference between the 2 versions but the 
+&gt; major effect is the cache type (in fact the caching difference must be 
+&gt; larger than these ratios due to non-cache computations). I expected Hashtbl 
+&gt; might be a bit slower than more specialised data structures, but the large 
+&gt; speed difference with different data structures was unexpected. Presumably 
+&gt; the slow-down is due to excessive hash collisions.
+&gt; 
+&gt; I had expected that the generic Hashtbl would be written to give adequate 
+&gt; speed for all types of data and when I look at OCaml code on the web 
+&gt; Hashtbl is usually used, so it seems most OCaml programmers believe the 
+&gt; standard Hashtbl is a reasonable choice for most data types as well.
+&gt; 
+&gt; I haven't tested the Batteries or OCaml-Core hash tables so these may be 
+&gt; more consistent, but if not, my question is can you predict how well 
+&gt; Hashtbl will work for different types of data and so what to use it with, 
+&gt; or it is just not reliable enough for general-purpose caching/memoization?
+&gt; 
+&gt; If anyone wants to look at the code, the (int list) Hashtbl version is at 
+&gt; &lt;http://rosettacode.org/wiki/Sokoban#OCaml&gt; and the other versions are in 
+&gt; &lt;http://pastebin.com/hGn1AL9L&gt; temporarily. Apart from the caching and the 
+&gt; int/int pair changes they should be identical.
+ I think it is a well known bug of the hash function:
+
+let list = ref [];;
+for i = 1 to 30 do
+  list := i :: !list;
+  Printf.printf "%d " (Hashtbl.hash !list)
+done;;
+
+1 65601 8392706 797307010 578301955 797307010 8392706 65601 1 0 0 0 0 0
+0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+
+As you can see, long lists all have the same hash value. It is due to
+the fact that the hash function does a depth-first traversal of the
+datastructure, starting with the last field, instead of a breadth-first
+traversal, and, as it only visits 10 nodes, they are always the same
+ones for all lists of length &gt; 10.
+
+Thus, you should consider using your own hash function, probably only
+considering the ints in the list and its length. Then, use the functor
+in the Hashtbl module.
+      </cwn_what>
+      <cwn_who>Nicolas Barnier then said</cwn_who>
+      <cwn_what>
+You could also use the hash_param : int -&gt; int -&gt; 'a -&gt; int
+function in the functor which allows to specify the number
+of nodes traversed to compute the key :
+
+# let list = ref [];;
+  for i = 1 to 30 do
+  list := i :: !list;
+  Printf.printf "%d " (Hashtbl.hash_param 50 50 !list)
+done  ;;
+1 65601 8392706 797307010 578301955 731304131 182476804 222011652
+582000645 696017221 383840262 291574150 409554951 301052359 474071048
+875971080 459423753 1026998857 314757130 771437194 56324107 59478731
+841228300 921690892 921690892 841228300 59478731 56324107 771437194
+314757130 - : unit = ()
+      </cwn_what>
+      <cwn_who>Xavier Leroy then added</cwn_who>
+      <cwn_what>
+Both Fabrice's and Nicolas's suggestions are excellent.
+
+Let me just add that this problem with lists as hashtable keys is one
+of the known issues with OCaml's current generic hash function: the
+other is that the mixing functions used are simplistic and exhibit
+some statistical bias, even for strings.
+
+The SVN trunk for OCaml contains a complete reimplementation of the
+generic hash function that addresses both issues: lists and other
+complex keys are traversed breadth-first in a more cautious manner
+than before, and the mixing functions are based on MurmurHash 3, which
+exhibits very good statistical properties.  All this should go in the
+next major release 3.13.  So, everyone with an interest in efficient
+hash tables is welcome to try the trunk sources and let me know of any
+problems encountered.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>utop 1.0 released</cwn_title>
+      <cwn_url>https://sympa-roc.inria.fr/wws/arc/caml-list/2011-07/msg00128.html</cwn_url>
+      <cwn_who>Jérémie Dimino announced</cwn_who>
+      <cwn_what>
+I am pleased to announce the first release of utop, a new toplevel for
+OCaml.
+
+utop has two modes; in can run in a terminal or in emacs. In the
+terminal it supports real-time completion, colors, parenthesis matching
+and prompt customization. In emacs it supports completion and
+integration with the tuareg mode, and behaves more like a toplevel than
+the default one of the tuareg mode, i.e. you cannot erase the prompt.
+
+You can download utop here:
+
+  https://forge.ocamlcore.org/projects/utop/
+      </cwn_what>
+      <cwn_who>Gabriel Scherer then added</cwn_who>
+      <cwn_what>
+In case someone else is interested, I computed the transitive closure
+of the various dependencies. If you want to play with utop you will
+need:
+- utop:
+    https://forge.ocamlcore.org/frs/download.php/664/utop-1.0.tar.gz
+- which depends on lambda-term:
+    https://forge.ocamlcore.org/frs/download.php/663/lambda-term-1.0.tar.gz
+- which itself depends on zed:
+    https://forge.ocamlcore.org/frs/download.php/662/zed-1.0.tar.gz
+- which relies on a version &gt;= 8 of Camomile; if you still have
+  version 7, compilation is going to fail (but only after the configure
+  step; Jérémie, consider this a bug report)
+    http://prdownloads.sourceforge.net/camomile/camomile-0.8.3.tar.bz2
+
+The good news is that you don't have to look at the build system used,
+"./configure; make; sudo make install" works like a charm.
+      </cwn_what>
+      <cwn_who>Thomas Gazagnaire also added</cwn_who>
+      <cwn_what>
+And also ocamlfind, react and lwt :-)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Great Renaming</cwn_title>
+      <cwn_url>https://sympa-roc.inria.fr/wws/arc/caml-list/2011-07/msg00135.html</cwn_url>
+      <cwn_who>Damien Doligez announced</cwn_who>
+      <cwn_what>
+We have implemented the decision taken at this year's OCaml meeting: to
+change the name of the language and system to "OCaml" in one word, with
+capital O and capital C, and nothing between them.
+
+That makes it much easier to find on search engines, so we suggest that
+everyone uses this new name (most of you already do anyway).
+
+With a non-negligible amount of work, I have changed the sources
+(including the copyright headers!), the Web site, and the documentation.
+As a side-effect, recompiling the documentation fixed PR#5317 at last.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Time to register for CUFP</cwn_title>
+      <cwn_url>https://sympa-roc.inria.fr/wws/arc/caml-list/2011-07/msg00145.html</cwn_url>
+      <cwn_who>Yaron Minsky announced</cwn_who>
+      <cwn_what>
+The talks and tutorials for CUFP are now up, and it's a really
+interesting protocols, covering a broad range of FP topics, and
+including quite a bit that touches on OCaml specifically.
+
+Note: The deadline for reduced-fee registrations is August 15th.
+
+I hope to see a lot of you there!
+
+y
+_____________________________________________________________ 
+
+   Commercial Users of Functional Programming Workshop 
+                       (CUFP) 2011
+
+                 Call for Participation 
+
+                  Sponsored by SIGPLAN 
+
+                Co-located with ICFP 2011
+
+_____________________________________________________________ 
+
+                 September 22-24, 2011
+                     Tokyo, Japan
+
+        http://cufp.org/conference/schedule/2011
+
+       Reservation available through ICFP's website
+     https://regmaster3.com/2011conf/ICFP11/register.php
+
+_____________________________________________________________ 
+
+
+Functional programming languages have been a hot topic of academic
+research for over 35 years, and they have seen an ever larger
+practical impact in settings ranging from tech startups to financial
+firms to biomedical research labs. At the same time, a vigorous
+community of working programmers employing functional languages 
+has come into existence.
+
+CUFP is designed to serve this community. The annual CUFP workshop is
+a place where people can see how others are using functional
+programming to solve real world problems; where practitioners meet and
+collaborate; where language designers and users can share ideas about
+the future of their favorite language; and where one can learn
+practical techniques and approaches for putting functional programming
+to work.
+
+CUFP 2011 will feature two days of tutorials given by language
+experts, on the 22nd and 23rd, and a day of talks on the 24th.
+Attendees may register for any subset of the days.
+
+Day 1, Tutorials (September 22nd)
+=================================
+
+   Morning:
+     - Building reliable Client-Server Applications in Erlang
+       (Francesco Cesarini)
+     - Jane Street's OCaml Core library (Yaron Minsky)
+   Afternoon:
+     - Building a functional OS (Anil Madhavapeddy, David Scott,
+       Richard Mortier)
+     - Collaborative Scientific Software (Ashish Agarwal)
+
+Day 2, Tutorials (September 23rd)
+=================================
+
+   Morning:
+     - Parallel Programming in Haskell (Simon Peyton Jones, Simon
+       Marlow, Manuel Chakravarty)
+     - Systems Programming in Scala (Steven Jensen, Marius Eriksen)
+   Afternoon:
+     - The Snap framework for web applications in Haskell (Gregory
+       Collins)
+     - F# for the working functional programmer (Michael Sperber)
+
+Day 3, Talks     (September 24th)
+=================================
+
+   Keynote
+     Lennart Augustsson (Standard Chartered)
+
+   Theorem-based derivation of an AES Implementation
+     John Launchbury (Galois)
+   
+   Discrete Event Simulation using Erlang
+     Olivier Boudeville (EDF)
+
+   Model based testing of AUTOSAR automotive components
+     Thomas Arts (Quviq)
+
+   HTML5 web application development in OCaml
+     Keigo Imai (IT Planning)
+
+   Large-scale Internet Services in Scala at Twitter
+     Steve Jenson and Wilhelm Bierbaum (Twitter)
+
+   Applying Functional Programming to Build Platform-Independent
+   Mobile Applications
+     Adam Granicz (Intellifactory)
+
+   Fourteen Days of Haskell: A Real Time Programming Project in Real
+   Time
+     Gregory Wright (Alcatel-Lucent)
+
+   Disco: using Erlang to implement Mapreduce, Nokia
+     Prashanth Mundkur and Ville Tuulos and Jared Flatow (Nokia)
+
+   Functional mzScheme DSLs in Game Development
+     Dan Liebgold (Naughty Dog)
+
+   OCaml and Acunu Experience Report
+     Tom Wilkie and Andrew Byde (Acunu)
+
+There will be no published proceedings, as the meeting is intended to 
+be more a discussion forum than a technical interchange, but videos
+of all the talks will be placed online after the event. 
+
+For more information, including presentation abstracts  and the most
+recent schedule information, visit:
+
+   http://cufp.org
+
+See you there! 
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Linear Scan Register Allocator for ocamlopt/ocamlnat</cwn_title>
+      <cwn_url>https://sympa-roc.inria.fr/wws/arc/caml-list/2011-08/msg00000.html</cwn_url>
+      <cwn_who>Benedikt Meurer announced</cwn_who>
+      <cwn_what>
+As mentioned earlier we have a student working on an implementation of the 
+Linear Scan Register Allocator [1] for ocamlopt (and thereby ocamlnat). It 
+took some time, but now there's a first working patch which looks promising. 
+This work is done by Marcell Fischbach as part of his diploma thesis. The 
+idea is to use the linear scan algorithm to drive the register allocation in 
+the native top-level ocamlnat at some point, as suggested by Fabrice Le 
+Fessant [2].
+
+Marcell is now working to implement a proof-of-concept of an inline assembler 
+for ocamlnat on i386 based on code from Alain Frisch an Fabrice Le Fessant. 
+The result will also be contributed once ready, and will be used to 
+effectively compare ocamlnat and the byte-code ocaml top-level.
+
+The linear scan implementation reuses as much of the existing ocamlopt 
+functionality as possible, so additional maintenance overhead should be 
+manageable. Comments and suggestions are welcome of course. Please keep 
+Marcell CC'ed with any replies as he's not subscribed to the list.
+
+greets,
+Benedikt
+
+
+[1] http://portal.acm.org/citation.cfm?id=330250
+[2] 
+http://caml.inria.fr/pub/ml-archives/caml-list/2010/11/a1b0ed0934ff51df4ac07c5e9da6e9d6.en.html
+
+(Please see the archive link for the attached file.)
+      </cwn_what>
+      <cwn_who>Benedikt Meurer then added</cwn_who>
+      <cwn_what>
+Mantis ticket created: http://caml.inria.fr/mantis/view.php?id=5324
+      </cwn_what>
+      <cwn_who>Gabriel Scherer asked and Benedikt Meurer replied</cwn_who>
+      <cwn_what>
+&gt; This work is meant to make a compromise between generated code quality
+&gt; and compilation speed to have good performances in rapid
+&gt; prototyping/development scenario.
+&gt; 
+&gt; Do you have more precise measurements on
+&gt; - the relative costs of the successive transformations during native
+&gt; compilation (including external linking etc.)? Which proportion of
+&gt; time is currently used for register allocation?
+
+Right now most of the time in ocamlnat is spent in waiting for the assembler 
+and linker to finish and the runtime linker to load the generated library 
+file. However there are no precise timing results yet.
+
+Marcell did a rough test with ocamlopt last week, building the test suite 
+with both graph coloring and linear scan on a 2009 iMac (Core 2 Duo). The 
+overall time spent in the register allocator dropped from 28s to 8s.
+
+&gt; - the performance cost of this new allocator in the generated code? I
+&gt; suppose the results may vary between different architectures (eg. x86
+&gt; is probably more sensitive to good allocation decisions than x86_64).
+
+Same here... not yet. From what I've seen, the generated amd64 code is really 
+close to the graph coloring code (isomorphic up to register renaming in most 
+cases). Dunno for i386 yet.
+      </cwn_what>
+      <cwn_who>Wojciech Meyer said and Benedikt Meurer replied</cwn_who>
+      <cwn_what>
+&gt; It's also worth to note that there is some generic mid/back-end code ready, 
+&gt; in my OCaml native compiler framework called DragonKit in a spirit of LLVM, 
+&gt; which I am currently actively working on. It's already able to express a 
+&gt; toy language and JIT compile and run it within the same process on top of 
+&gt; x86 architecture:
+&gt; 
+&gt; The code includes:
+&gt; - SSA based IL using polymorphic variants
+&gt; - monadic code generator
+&gt; - plugable passes using first class modules
+&gt; - very ad-hoc register allocator
+&gt; - X86 backend
+&gt; - example that evolved from LLVM kaleidoscope ported to DragonKit to 
+&gt; Pascal/ML like language, and another example using direct translation to 
+&gt; X86 backend.
+&gt; 
+&gt; The code is functorised and almost purely functional (with few exceptions 
+&gt; where there is no benefit of doing that).
+&gt; 
+&gt; Maybe it could have some use in your new toplevel, or maybe it would be 
+&gt; worth to reuse some of your work in DragonKit (or viceversa).
+&gt; 
+&gt; I welcome anybody wanting to join me in this effort.
+&gt; 
+&gt; Please take a look at:
+&gt; 
+&gt; http://www.github.com/danmey/DragonKit
+
+I doubt that this would be applicable in the context of ocamlopt. What we are 
+heading for is simply a way to avoid the external as and ld invocations by 
+doing the work in-process. Code generation is done already, we just replace 
+the last phase (see emit.ml).
+
+BTW: On a related note, we also have a student working on a LLVM backend for 
+ocamlopt as part of his bachelor thesis, which may be related to what you do.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>ocaml puzzles</cwn_title>
+      <cwn_url>https://sympa-roc.inria.fr/wws/arc/caml-list/2011-07/msg00143.html</cwn_url>
+      <cwn_who>William Le Ferrand announced</cwn_who>
+      <cwn_what>
+Last week, we were three friends experimenting an "ocaml hackathon" :
+we met and we built a simple webservice where you can either post
+problems or try to solve them.
+
+It's now online at http://www.baoug.org and the code is released at
+https://github.com/baoug/ocaml-challenges . It's an 100% ocsigen 2.0
+website, leveraging the newest features of the framework
+(client/server interactions, message bus, etc ..)
+
+Although baoug.org is still lacking a lot of features (syntax
+highlighting, client side code checking, solution ranking, etc etc),
+we hope that it can already provide at least as much fun as we got
+when we wrote it. Actually, it's already waiting for your challenges
+:)
+
+This website is also the seminal event of baoug, the Bay Area OCaml
+User Group. We plan to organize some ocaml events here; the next one
+will be another hackathon to improve on baoug (if we get some feedback
+from you all!); we're based in California but everyone is invited, as
+we can get remote contributions. So far we're three, Marc Simon, Mike
+Well an I (William Le Ferrand), but we'll grow up, hopefully.
+
+If you want to contribute to the platform or if you have some ideas
+for fresh features, please get in touch !
+
+If you want to get more information about ocsigen and the way we
+leverage it, please don't hesitate either.
+
+What about posting a little challenge on www.baoug.org now :) ?
+      </cwn_what>
+      <cwn_who>William Le Ferrand later added</cwn_who>
+      <cwn_what>
+By the way, we have a dedicated mailing-list for the Bay Area OCaml
+User Group (actually it's a google group)
+http://groups.google.com/group/baoug
+Feel free to register to stay tuned; we'll organize a new meeting in
+the coming weeks.
+
+Many thanks to Cedric for his challenge on www.baoug.org ; who'll be
+the next poster :) ?
+      </cwn_what>
+      <cwn_who>rixed suggested and William Le Ferrand replied</cwn_who>
+      <cwn_what>
+&gt; To make this a little more fun, you should add scores :
+&gt; you'd earn points when solving puzzles and also when contestants
+&gt; fail to solve yours.
+
+Right; there is now a "top 5" of best solvers per problem, but we can
+add a real gaming dimension. That's stuff for a new hackathon :)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other Caml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocamlcore.org/&gt;.
+
+Opportunity:
+  &lt;http://blog.camlcity.org/blog/search1.html&gt;
+
+Rethinking Univ:
+  &lt;http://ocaml.janestcapital.com/?q=node/95&gt;
+
+Functional circular doubly linked lists:
+  &lt;https://forge.ocamlcore.org/projects/fcdll/&gt;
+
+Time to register for CUFP!:
+  &lt;http://ocaml.janestcapital.com/?q=node/94&gt;
+
+Objective Caml renamed to OCaml:
+  &lt;http://caml.inria.fr/ocaml/name.en.html&gt;
+
+utop:
+  &lt;https://forge.ocamlcore.org/projects/utop/&gt;
+
+Definability and extensionality of the modulus of continuity functional:
+  &lt;http://math.andrej.com/2011/07/27/definability-and-extensionality-of-the-modulus-of-continuity-functional/&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

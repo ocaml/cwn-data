@@ -1,0 +1,484 @@
+<?xml version="1.0" encoding="ISO-8859-15"?>
+<cwn>
+<cwn_head>
+  <cwn_date>2004.07.13</cwn_date>
+  <cwn_prev>2004.07.06</cwn_prev>
+  <cwn_next>2004.07.20</cwn_next>
+  <cwn_date_text>06 to 13 July, 2004</cwn_date_text>
+</cwn_head>
+<cwn_body>
+  <cwn_entry>
+    <cwn_title>Thread and kernel 2.6 pb still there in CVS</cwn_title>
+    <cwn_who>As a followup to last week's thread, Alex Baretta said</cwn_who>
+    <cwn_what>
+Xavier Leroy wrote:
+
+&gt;If the above sounds mildly irritated, that&apos;s because I am.
+
+Xavier is not the only irritated with the o(1) scheduler: see the
+following link from HP.
+
+http://www.hpl.hp.com/research/linux/kernel/o1-openmp.php
+    </cwn_what>
+    <cwn_who>Christophe Raffalli said and Xavier Leroy answered</cwn_who>
+    <cwn_what>
+&gt; I did again some testing, with a Caml program with 2 thread, one doing
+&gt; only float computation for a long time with no allocation. The nanosleep
+&gt; suggestion seems much better than the actual version doing nothing:
+
+I tried the nanosleep() trick on a different workload (several
+compute-bound threads).  Scheduling was less fair than with the &quot;do
+nothing&quot; implementation.
+    </cwn_what>
+    <cwn_who>Donald Wakefield said and Damien Doligez answered</cwn_who>
+    <cwn_what>
+&gt;I know this comes a bit late in this &apos;thread&apos;, but there&apos;s been
+&gt;discussion on Slashdot on a new scheduler framework called Bossa. I
+&gt;posted a quote from Xavier&apos;s discussion of sched_yield, and another
+&gt;poster replied. In brief:
+
+I read that post and I don&apos;t think it makes any sense at all.
+
+&gt;&quot;...OpenOffice.org and Ocaml have to wait too long for their next CPU
+&gt;quantum, but that&apos;s because they are CPU bound tasks and it&apos;s their
+&gt;own fault.
+
+In other words, a CPU-bound task should not expect to get CPU time.
+Duh.
+
+&gt;&quot;The bug was in past versions of Linux where, although it was
+&gt;pre-emptive, sched_yield was allowed some power - it should have been
+&gt;ignored in user-space and the scheduler decided what gets CPU and
+&gt;when. Depending on that bug is also a bug and the mis-users deserve
+&gt;everything they get.&quot;
+
+This implies that the new scheduler is just as buggy as the old one,
+since it doesn&apos;t ignore sched_yield either.
+
+The real problem, IMO, is that there are two &quot;yield&quot; primitives
+needed: one for yielding to another thread, and one for yielding
+to another process.  They (basically) changed sched_yield from
+one to the other, but the right solution would be to provide both.
+
+&gt;The full reply can be read at:
+&gt;
+&gt;  http://slashdot.org/comments.pl?sid=113880&amp;cid=9655540
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Does Caml have slow arithmetics ?</cwn_title>
+    <cwn_who>Diego Olivier Fernandez Pons asked and Richard Jones answered</cwn_who>
+    <cwn_what>
+&gt; Does the Caml integer/pointer bit trick make arithmetics slower (with
+&gt; respect to &apos;pure&apos; 32 bit arithmetics) because of some mask/shift
+&gt; intermediate operations or is it just the same ?
+
+There&apos;s hardly any penalty because the code generator does lots
+of tricks.  See:
+
+http://www.merjis.com/developers/ocaml_tutorial/ch11/
+
+(Editor&apos;s note: the original post spawned a long thread that you can read at:
+http://caml.inria.fr/archives/200407/msg00059.html)
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Tail calls</cwn_title>
+    <cwn_who>Following the previous thread, Xavier Leroy explained</cwn_who>
+    <cwn_what>
+Just for the record, here is the exact situation regarding tail-call
+elimination in OCaml.  It is performed in any of the following
+situations:
+
+1- Compilation to bytecode (with ocamlc).
+2- When the function being tail-called is the current function
+   (tail recursion).
+3- When the function being tail-called has no more than N arguments,
+   keeping in mind that a function with free variables has one extra
+   hidden argument representing its environment.
+
+Here, N is a constant that depend on the target processor: it&apos;s 6 for
+the Intel x86, and 10 or more for the other supported processors.
+This constant is the number of processor registers used for parameter
+passing.  The tail-call issue appears when extra parameters need to be
+passed on stack.
+
+In other words, the only case where tail-call elimination isn&apos;t
+performed is: native-code compilation, more than N arguments, and the
+function being tail-called is not the current function.
+
+Before case 2 (tail call to self) was implemented, we often received
+problem reports from x86 users.  Since the addition of case 2, we
+haven&apos;t received any.  This makes me suspect that the lack of
+tail-call elimination in the situation described above isn&apos;t that much
+of a problem in practice.
+
+Proper elimination of tail calls in ocamlopt in all cases is feasible
+but requires a bit of work.  In particular, the current code
+generation convention &quot;caller deallocates stack-allocated arguments&quot;
+must be changed to &quot;callee deallocates stack-allocated arguments&quot;.
+Also, some stack manipulations are needed that would make tail-calls
+slightly more expensive (in time) than regular calls.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>How OCaml objects of sum types can be passed to a C/C++ functions?</cwn_title>
+    <cwn_who>Claudio Trento asked and Basile Starynkevitch answered</cwn_who>
+    <cwn_what>
+&gt; on the subject of interfacing OCaml with C/C++, it is not clear
+&gt; to me whether and how OCaml objects of sum types can be passed
+&gt; to a C/C++ function.  For example, suppose I have the declaration
+&gt;
+&gt; type expr =
+
+(* I Basile added the 2 cases below for explanations *)
+       Nonsense
+     | Bizarre
+
+&gt;    | Variable of int
+&gt;    | Coefficient of int
+&gt;    | UPlus of expr
+&gt;    | UMinus of expr
+&gt;    | Sum of (expr * expr)
+&gt;    | Difference of (expr * expr)
+&gt;    | Product of (expr * expr)
+&gt;
+&gt; What is the best way to pass an expr object to C/C++?
+
+It is documented in the reference manual:
+http://caml.inria.fr/ocaml/htmlman/manual032.html sections 18.2.2 and
+18.3.4
+
+The two cases Nonsense and Bizarre I added (for the example) have no
+argument (i.e. no &quot;of&quot; keyword - for representation issues, Foo of unit
+is not like just Foo). So they are represented by small non-negative
+integer, so Nonsense is 0 and Bizarre is 1.
+
+The other cases have an &quot;of&quot; keyword, so are represented as tagged
+blocks. The first case Variable has tag 0, the next Coefficient has
+tag 1, etc
+
+&gt; How can C/C++ code visit such a structure?
+
+Test if a value is a tagged integer, and otherwise it is a block, test
+its tag:
+
+in Ocaml:
+   external c_fun : expr -&gt; unit = &quot;c_fun_ml&quot;
+
+in C // untested code
+
+value c_fun_ml(value ex) {
+   CAMLparam1(ex);
+   switch (ex) {
+   case Val_int(0): /* Nonsense */
+     break;
+   case Val_int(1): /* Bizarre */
+     break;
+   default: {
+     int tag = Tag_val(ex);
+     switch (tag) {
+       case 0: /* Variable varnum */
+         { int varnum = Int_val(Field(ex,0);
+           break; }
+       case 1: /* Coefficient */
+       default:
+           break;
+      } /* end switch tag */
+     break;
+   };
+   } /* end switch ex */
+   CAMLreturn(Val_unit);
+}
+
+
+I hope you got the idea. I advise you to avoid coding in C, and to
+call C functions only inside your Ocaml wrappers (which do appropriate
+checks, raise exceptions, etc...)
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>MLpcap 0.9</cwn_title>
+    <cwn_who>Jonathan Heusser announced</cwn_who>
+    <cwn_what>
+I released MLpcap 0.9 some days ago,
+
+MLpcap provides bindings for the network capture library Pcap
+(http://www.tcpdump.org)
+Source code and debian packages are available under:
+   http://www.drugphish.ch/~jonny/mlpcap.html
+
+The changelog for this version includes:
+
+        o added libpcap 0.8 compatibility with
+          libpcap 0.7 backward compatibility
+        o added following new API functions:
+                pcap_list_datalinks
+                pcap_set_datalink
+                pcap_datalink_name_to_val
+                pcap_datalink_val_to_name
+                pcap_datalink_val_to_description
+                pcap_breakloop
+                pcap_dump_flush
+                pcap_lib_version
+                pcap_get_selectable
+        o license fix, changed from GPL to LGPL
+       o more configure arguments for enhanced
+         configurability
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>OCaml-Mingw-Maxi</cwn_title>
+    <cwn_who>Christoph Bauer announced</cwn_who>
+    <cwn_what>
+OCaml on Windows isn&apos;t very well supported. So I put some precompiled
+binaries (compiler
++ add-on libraries) in a zip file.
+
+http://lasagne.unix-ag.uni-kl.de/omm/
+
+It includes (til now):
+
+OCaml 3.08-CVS, linked against tk8.4.6
+ocamake 1.31
+findlib-1.0.4
+PCRE-4.4 (precompiled from GnuWin32 project)
+PCRE-OCaml 5.08.1
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Passwdgen 0.1</cwn_title>
+    <cwn_who>Alicia Young announced</cwn_who>
+    <cwn_what>
+I have just added a password generator library to the linkdb. It&apos;s called
+passwdgen and it generates secure human readable passwords.
+Password generator will return a password of configurable length. It can add
+special characters, digits, and capital letters to the password as well. The
+number of digits, special characters and capital letters is also
+configurable.
+
+You can get all the info and this library from: http://www.npc.de/ocaml/linkdb
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>new release of OcamlJitRun - release 1.5-fetnat</cwn_title>
+    <cwn_who>Basile Starynkevitch announced</cwn_who>
+    <cwn_what>
+Thanks to the hard work of Paolo Bonzini &amp; Laurent Michel, GNU
+lightning has evolved (see its CVS for details).
+
+I was also able to correct some bugs in OcamlJitRun.
+
+Now OcamlJitRun is running successfully on x86 and PowerPC, passing
+all the tests. There is still a bug on Sparc (the t120-getstringchar
+test fails), but it is not any more a very useful architecture - I
+don&apos;t know if the bug is in Lightning or in OcamlJit, and the [only]
+Sparc machine I am using here is so slow (SpartStation5) that it is
+unusable for debugging.
+
+Since OcamlJitRun is now running on PowerPC, I can now use it on my
+PowerBook (12&quot;, 1.33GHz G4, 768Mb RAM).
+
+If you have some big programs (compiled as a bytecode for future
+Ocaml3.08 or Ocaml CVS) I will be glad to test them with OcamlJitRun,
+or you can test them also. Any bytecode program (compiled with future
+Ocaml3.08 or the latest CVS, not 3.07!) should do.
+
+I am seeking significant Ocaml programs (compilable as bytecode with
+future 3.08 or latest CVS) running more than half a minute of CPU (on
+eg a 2GHz x86 PC) - and if possible less than 20 or 30 minutes of
+CPU. Please suggest me some such programs. Neither Coq, nor CIL or
+MetaOcaml are easily compilable with future 3.08 or recent CVS Ocaml -
+because of ocamlp4 changes (the ABI for locations has changed) or C
+primitive names (the C primitives routines have now a name starting
+with caml_ and some programs incorrectly use the name of internal
+primitive in the runtime).
+
+If some people happens to use ocamljitrun, please tell me, in
+particular the performance gain w.r.t ocamlrun (a factor of nearly two
+is typical, provided the JIT translation overhead is negligible -
+about 1 microsecond / bytecode instruction), hence my wish of running
+times bigger than 10 seconds.
+
+Ocamljitrun mimics the behavior (i.e. the stack and the heap) of the
+bytecode interpreter ocamlrun. In particular, it interpret all
+tail-recursive functions (even those with hundreds of arguments,
+contrarily to ocamlopt) tail-recursively, without eating the stack.
+
+Ocamljitrun works with the toplevel, dynamic linking (Dynlink module)
+and runtime bytecode generators (MetaOcaml) - but it cannot be running
+a debugged Ocaml bytecode program. OcamlJitRun requires a bytecode
+program compiled by the future 3.08 release or the current CVS
+snapshot of OCaml (3.07 or earlier Ocaml releases won&apos;t work).
+
+See http://cristal.inria.fr/~starynke/ocamljit.html for more (a
+submitted paper explains the internals of OcamlJitRun). OcamlJitRun is
+free software LGPL license, and there is no restriction on the
+bytecode program it executes.
+
+Feel free to give any (positive or negative) feedback about OcamlJitRun.
+    </cwn_what>
+    <cwn_who>Nicolas Cannasse asked and Basile Starynkevitch answered</cwn_who>
+    <cwn_what>
+&gt; Hello Basile, and thanks for your work on JIT. I didn&apos;t have time yet to
+&gt; give it a try, but I might do in a near future. One suggestion of typical
+&gt; OCaml application that performances could be compared is the ocaml compiler
+&gt; ocamlc itself, running on a large set of files : the ocamlc sources for
+&gt; example. Creation and manipulation of AST as well as typing algorithms are
+&gt; good test apllications (heavy use of recursive functions and pattern
+&gt; matching).
+
+This is of course a test I&apos;m using very often. However, most ocamlc
+(or even ocamlopt) compilations are very short (typically, each ocamlc
+invocation last less than 0.1 or 0.2 second), so the JIT translation
+time is not at all negigible (it takes about 0.13 seconds on an AMD
+2000 running at 1.66GHz). And since the JIT translation occurs in
+every ocamlc process, you may actually observe an overall
+slowdown. For example, in ocaml/stdlib make runs in 5.2 seconds, but
+make RUNTIME=ocamljitrun takes 14.4 seconds (because ocamlc was invoked
+84 times, and the bytecode was JIT translated 84 times)
+
+On big compilation (in a single ocamlc or ocamlopt process),
+OcamlJitRun gives a speedup of about 2. For example, the C-- compiler
+contains a x86imkasm.ml file (of 3253 lines) which is compiled by
+ocamlopt (with the bytecode interpreter ocamlrun) in 59.8 sec, and by
+the same ocamlopt bytecode interpreted by ocamljitrun in 30.3 sec. For
+reference, the native ocamlopt.opt does the same job in 17.2 sec.
+
+Another interesting test would be a non-trivial toplevel
+execution (The toplevel can be executed by OcamlJitRun, as avery
+other bytecode), or programs using DynLink.
+
+Thanks for your comments.
+    </cwn_what>
+    <cwn_who>Benjamin Geer asked, Basile Starynkevitch said, and Benjamin Geer replied</cwn_who>
+    <cwn_what>
+Basile Starynkevitch wrote:
+&gt;Benjamin Geer wrote:
+&gt;&gt;Is there any chance you could package it for GODI?
+&gt;
+&gt;OcamlJitRun is in fact a C program (since it replaces the ocamlrun
+&gt;bytecode interpreter). Is GODI good for these?
+
+Yes.  GODI includes OCaml itself as a package (it&apos;s the first one it
+installs), and therefore ocamlrun.
+
+The current development version of GODI builds and installs the CVS
+version of OCaml, so you wouldn&apos;t have to worry about that dependency.
+It would be nice to package GNU Lightning as well.  When an OCaml
+library depends on a C library, the tendency in GODI is to package the C
+library as well, so it can be built automatically if the user doesn&apos;t
+already have it.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Embedded OCaml</cwn_title>
+    <cwn_who>Skaller said, Brandon J. Van Every replied, and Alex Baretta said</cwn_who>
+    <cwn_what>
+Brandon J. Van Every wrote:
+&gt;Skaller wrote:
+
+&gt;&gt;How about an aircraft heads-up display and instrument
+&gt;&gt;unit using a PIII, and Ocaml? I can&apos;t see why you&apos;d
+&gt;&gt;not want to opt for a language where you can actually
+&gt;&gt;reason the code is correct -- would you prefer your
+&gt;&gt;aircraft to use a C program?
+&gt;
+&gt;
+&gt;That sounds like theory.  Show me an embedded device actually programmed
+&gt;in OCaml.  C interfaces are important when speaking to low level
+&gt;hardware, and OCaml doesn&apos;t have a particularly good one.  I&apos;m aware of
+&gt;some other research work in the ML language family regarding &quot;typed
+&gt;assembly language,&quot; such as the TILT compiler.
+&gt;http://www.cs.cornell.edu/Info/People/jgm/tilt.html  OCaml doesn&apos;t
+&gt;strike me as being oriented towards low-level hardware problems though.
+
+We are about to ship our first embedded ocaml application: an automatic
+glass cutting table. The PLC is 2Ghz Celeron with 256MB RAM, Linux 2.4
+and Ocaml 3.07+2. It&apos;s just magnificent!
+
+We are working on a logical control framework based on Ocaml. We will
+release under the GPL when the API will have stabilized.
+    </cwn_what>
+    <cwn_who>Brandon J. Van Every replied and Alex Baretta said</cwn_who>
+    <cwn_what>
+&gt;Sounds interesting.  Love to hear about things that aren&apos;t theory.
+
+Very much, commercially. Industrial control is one of the few
+applications of computing where there still is some money to earn.
+
+&gt;&gt;We are working on a logical control framework based on Ocaml. We will
+&gt;&gt;release under the GPL when the API will have stabilized.
+&gt;
+&gt;
+&gt;How does a GPL license help anyone else in commercial industry?  Or are
+&gt;you going to do one of those &quot;GPL or you can pay us&quot; licenses?
+
+We currently develop the complete automation solution: PLC kernel,
+low-level hardware drivers, application logic. We are more than willing
+to share our technology with the Ocaml community in order to further the
+development of the core and enhance our ability to develop custom
+application logic at lightning speed.
+
+And, BTW of benchmarking Ocaml vs. anything else, here are the figures.
+It does memory management, driver management and process management. We
+currently compile to bytecode for testing purposes because we are too
+lazy to use ocamlopt, yet the kernel runs an order of magnitude faster
+that the physical layer can handle. We spend most of our time waiting
+for IO. Typical CPU loads are under 10% on the above mentioned 2GHz
+Celeron. Typical memory usage is under 2MB.
+
+To communicate with the UI, the PLC kernel uses a stateless
+request-response binary protocol running over a TCP connection. This
+protocol is implemented with ocaml&apos;s native marshalling. The actual UI
+application has been written in Xcaml, my company&apos;s web application server.
+
+The PLC kernel was developed in two days and debugged in a couple more.
+The web UI required about a man week. The low level driver required a
+couple of man weeks. We believe that no other computer language would
+have given us anything close to the results we achieved with Ocaml.
+
+The conclusion: Ocaml is a mature industrial language. It&apos;s definitely
+not plain theory.
+    </cwn_what>
+    <cwn_who>Brandon J. Van Every asked, Richard Jones said, and Alex Baretta replied</cwn_who>
+    <cwn_what>
+Richard Jones wrote:
+&gt;Brandon J. Van Every wrote:
+&gt;
+&gt;&gt;Great... again, how is a GPL license workable for others with a
+&gt;&gt;commercial interest in the technology?  I am saying that license is not
+&gt;&gt;workable.
+&gt;
+&gt;
+&gt;The GPL works fine in situations where you don&apos;t want a company to
+&gt;steal you hard work for nothing, and the LGPL works fine in
+&gt;circumstances where you will allow people to link to your work but you
+&gt;also don&apos;t want them to steal it.  What is your point exactly?
+&gt;
+&gt;Rich.
+&gt;
+
+We are willing to allow other companies to use our code in their
+products, so long as they are willing to release such products to the
+community for mutual benefit. Essentially, anyone interested in using
+our technology has two alternatives:
+1) invest time and programming resources to improve our technology (and
+release it under the GPL or not release it at all)
+2) invest money into a consulting contract with us to help them develop
+their products, whereby we would improve the core technology and
+continue to release it under the GPL.
+
+Overall, we&apos;ve been in business for 20 months now, so we are no longer a
+newborn company. Our experience is significant, I think. We&apos;ve been
+living by making GPLed software. Any code we release is covered by the
+GPL. We are still climbing the Himalayas of technology, so I can&apos;t say
+we are making cartloads of money, but we are making cartloads of
+technology while maintaining a non-negative cash-flow. We consider our
+results extremely pleasing. And, let this be noted, all our code is
+either written in Ocaml or in any one of a number of DSLs whose compiler
+we have written in Ocaml.
+    </cwn_what>
+  </cwn_entry>
+</cwn_body>
+</cwn>

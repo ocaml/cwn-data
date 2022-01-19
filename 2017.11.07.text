@@ -1,0 +1,1894 @@
+Hello,
+
+Here is the latest OCaml Weekly News, for the week of October 24 to November 07, 2017.
+
+Sorry for the hiatus, I was in vacations last week with no internet.
+
+1) What if exn was not an open type?
+2) Sample emacs plugin using ecaml?
+3) Alternative to Streams?
+4) OCaml 4.06.0+rc1
+5) Upcoming breaking changes in Ocamldoc 4.06
+6) nsq-ocaml
+7) New release of ocaml-kafka
+8) LablGTK 2.18.6 and LablTk 8.06.3
+9) Digestif 0.4
+10) Salsa20 0.1.0
+11) Notty 0.2.0
+12) OCaml release 4.06.0
+13) RISC-V OCaml 4.06
+14) ANN: jbuilder 1.0+beta15
+15) omake-0.10.3
+16) Ecaml: OCaml Emacs plugins tutorial
+17) Other OCaml News
+
+========================================================================
+1) What if exn was not an open type?
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2017-10/msg00079.html>
+------------------------------------------------------------------------
+** Continuing the thread from last week, Richard Jones said:
+
+Petter A. Urkedal wrote:
+> Richard Jones wrote:
+> > Since I first used OCaml I have wished for a simple (and type safe)
+> > return statement.
+> 
+> It's possible to wrap a bit type (and exception) safety about
+> exceptions used for return:
+> 
+>   val with_return : (('a -> 'b) -> 'a) -> 'a
+> 
+>   let with_return (type b) f =
+>     let exception Return of b in
+>     try f (fun y -> raise (Return y)) with Return y -> y
+> 
+> E.g.
+> 
+>   with_return (fun return -> List.iter (function 0 -> () | i -> return
+> i) [0; 0; 24; 0]; -1);;
+
+Thanks, that's interesting.
+
+	--
+
+As mine was a bit of a "Hit and run" comment, let me expand on
+why a return statement is useful for the kind of dull code that
+I write.
+
+I often have to write functions of the form:
+
+  let f () =
+    if some_problem then (
+      printf "sorry, can't do that\n";
+      (* return *)
+    )
+    else if some_other_problem then (
+      printf "sorry, can't do that either\n";
+      (* return *)
+    )
+    else (
+      match something with
+      | None ->
+         (* return *)
+      | Some v ->
+         (* finally we get to do some work! *)
+         ...
+    )
+
+Real code is often heavily indented, or we have to put the work into
+awkward nested functions.  This file contains a few real examples:
+<https://github.com/libguestfs/libguestfs/blob/master/daemon/inspect_fs_unix_fstab.ml>
+
+This would work a lot better with a return statement rather than
+workarounds.
+
+Having said all that I was writing a little ML language last
+year and I tried to implement a return statement, but it was very
+awkward to work out how to map that to my lambda calculus, so
+I understand how return statements are rather difficult to implement
+in practice.
+      
+** Ivan Gotovchits then said:
+
+The return statement is in fact a tamed exception, as it provides an
+exceptional, i.e., a non-local control flow. However, exceptions are not
+first class citizens in functional programming languages as they are not
+explicitly represented in typed lambda calculus, and are not really
+represented in the type system (in a sence that an expression with and
+without exception has the same type). Thus dealing with expressions that
+may raise an exception is hard, as well as dealing with any expression that
+has a side effect. OCaml multicore project is actually bringing more than
+the multicore support, they also reify the effect system into the language.
+Thus exceptions, as well as the return statements, can be soon easily
+implemented on top of the effect system and can be reasoned in a much more
+natural way.
+
+With all that said, safe and first class exceptions can be implemented in
+plain OCaml, or any other functional programming language that provides
+higher order polymorphism (type classes, functors, etc). The limited form
+of an exception can be implemented even without it. As it was already
+noticed, the Maybe monad, as well as the Error monad, or any other monad
+that reifies non-total computations can be used to implement a poor man
+return statement. The problem is that when one computation yields the null
+value, the rest of the computation chain is still evaluated. This is not a
+big issue if a chain is written manually (i.e., is a block of code, like in
+your example), but it could be serious if the chain is very long (i.e.,
+processing a big list), or even worse infininte. If the problem with a list
+of computations can be solved on the monad implementation (as we do in the
+[Monads][2] library), the problem with the infinite computation can be
+easily addressed in a non-total monad.
+
+The answer is to use the continuation passing style (CPS). We can use
+delimited continuations (as in the upcoming multicore), or we can use plain
+non-delimited continuations. The rough idea, is that if you have function
+that needs to escape the computation prematurely, you can pass a
+continuation to that function, e.g.,
+
+     let do_stuff return =
+       if world_is_bad then return None
+       else if moon_phase_is_bad then return None
+       else return (compute_some_stuff ())
+
+You may notice, that we still need the else statement as our return
+function has type `'a -> 'a`, but for the non-local return we need
+something of type `'a -> 'b`, to implement this we need to switch to the
+continuation passing style, where each computation is a continuation, i.e.,
+a function of type `('a -> 'b) -> 'b`. For example, this is how the
+List.fold function will look in the CPS:
+
+        let fold xs ~init ~f =
+          let rec loop xs k = match xs with
+            | [] -> k
+            | x :: xs -> fun k' ->  k (fun a -> loop xs (f a x) k') in
+          loop xs (fun k -> k init)
+
+Programming in this style directly is a little bit cubersome, but the good
+news, is that the continuation passing style can be encoded as a monad. The
+[Continuation monad][2] has only one extra operator, called call/cc, that
+calls a function and passes the current continuation (i.e., a first class
+return statement) to it, e.g.,
+
+       let do_stuff ~cc:return =
+         if world_is_bad then return () >>= fun () ->
+         if moon_phase_is_bad then return () >>= fun () ->
+         compute_some_stuff ()
+
+     let main () = Cont.call do_stuff
+
+The interesting thing with the non-delimited continuation is that  `cc`
+here is a first class value that can be stored in a container, resumed
+multiple times, etc. This gives us enough freedom to implement lots of
+weird variants of a control flow, e.g., return statement, exceptions,
+couroutines, concurrency, and, probably, even the [COMEFROM][4]
+instruction. Basically, a continuation is a first class program label.
+
+Is it good or bad, you can decide yourself. Maybe this is too much freedom,
+however, this is totally a part of the lambda calculus, and is not using
+any type system escape hatches, like exceptions, even given that the
+`return` function has type `a -> 'b t`.
+
+P.S. Although I took your examples for demonstration purposes of the Cont
+monad, I still believe that for your particular case a non-total monad
+would be much nicer and more natural. Using the Monads library Error monad,
+it can be expressed as:
+
+   let do_stuff () =
+     if world_is_bad then failf "the world is wrong" () >>= fun () ->
+     if moon_phase_is_bad then failf "look at the Moon!" () >>= fun () ->
+     compute_some_stuff ()
+
+The Error monad implements the Fail interface, that provides mechanisms for
+diverging the computation with an exception (not real exception of course),
+as well as provides the catch operator. The Error monad has a much stricter
+type discipline, and limited control flow variants, that can be considered
+as boon in most cases.
+
+
+[1]: <http://kcsrk.info/ocaml/multicore/2015/05/20/effects-multicore/>
+[2]: <http://binaryanalysisplatform.github.io/bap/api/v1.3.0/Monads.Std.html>
+[3]:
+<http://binaryanalysisplatform.github.io/bap/api/v1.3.0/Monads.Std.Monad.Cont.html>
+[4]: <https://en.wikipedia.org/wiki/COMEFROM>
+[5]:
+<http://binaryanalysisplatform.github.io/bap/api/v1.3.0/Monads.Std.Monad.Fail.S.html>
+      
+** Oleg then said:
+
+It is interesting that we have this discussion about, even advocacy
+for, monads at the time effects are coming to the front stage. The
+language Eff (<http://eff-lang.org>), which is essentially OCaml, states
+right upfront its advantages over monads. (Monads do not compose.)
+Daan Leijen talk past month about the web server implemented in Koka
+stressed the absence of monads. In Koka, if we need an effectful
+operation, we just do it. As the Multicore OCaml project has shown,
+effects can be very efficiently implemented. 
+
+I fully agree with Ivan Gotovchits that recommends Rich Jones' code
+rely on exceptions rather than monads. Where I disagree is the
+contention that ``When you need to write system code or any code that
+deals with effects, monads become inevitable sooner or later unless
+you're willing to use the escape hatch of mutability.'' Monads are not
+inevitable!
+
+First of all, not all effects can be represented as monads (which was
+pointed long time ago by Wadler himself). My talk at the ML workshop
+last month
+        <http://okmij.org/ftp/tagless-final/nondet-effect.html>
+described several other effects that aren't monadic and that
+commitment to monads precludes several useful implementations (e.g.,
+code generation, which cannot be thought in monadic terms).  Hence,
+there is real harm in trying to squeeze everything into a
+monad. Incidentally, alternative ideas of effects as interactions go
+back to 1970s.
+
+Richard Jones wrote:
+> Having said all that I was writing a little ML language last
+> year and I tried to implement a return statement, but it was very
+> awkward to work out how to map that to my lambda calculus, so
+> I understand how return statements are rather difficult to implement
+> in practice.
+
+Perhaps this gives a hint that lambda-calculus isn't the best model of
+computation -- as the Founding Father has recognized very early
+on. There is a reason he spent his life after ML working on process
+calculi. Indeed, it takes lots of hops to implement a simple return
+statement -- not to speak about real IO -- whereas it a process
+calculus, we just say !a. Done. Sending the result to another process
+(or to the context) is a built-in operation. There are no
+continuations to pass around or capture, no monads (which become
+totally unnecessary), no binding. Erlang has shown very well that this
+way of programming is realistic, and rather effective.
+
+lambda-calculus has its uses: it works spectacularly well for what it
+has been designed for: expressing definitions (and logical
+derivations). However, just because it is possible to express
+arithmetic in lambda-calculus does not mean that we should be stuck
+with Church-numerals. There are better ways to handle numbers -- and
+there are better ways to handle communication and control -- outside
+lambda-calculus.
+      
+** Philippe Veber said and Richard Jones replied:
+
+> isn't that a context where error monads do a pretty decent job?
+> 
+> check_some_problem () >>= fun () ->
+> check_some_other_problem () >>= fun () ->
+> expect_something () >>= fun something ->
+> finally_do something
+
+Right, but the main problem with monads is they scare off ordinary
+programmers :-/
+
+When writing open source code in OCaml we have two -- conflicting --
+goals.  Goal #1 is to write elegant, short, fast, safe code, and OCaml
+really wins there.  Goal #2 is to attract outside programmers to work
+on the project, and that's pretty hard with OCaml code, but we manage
+it.  But it gets much much harder if we use any concept which strays
+too far from imperative/C-like code.  You will see if you look through
+our codebase that it's pretty imperative and -- quite deliberately --
+avoids doing strange stuff with modules, functors or really anything
+which is "excessively functional" (sorry for the loose term, but I
+hope you know what I mean :-).
+
+However when I have the time after my current conference I will try
+to rewrite the code I linked to with monads to see if I can make
+something which is both simple and readable.
+      
+** Ivan Gotovchits then said:
+
+Well, we have the same constraint, as we are trying to write code, that is
+understandable by students, who may not know OCaml. However, we are also
+trying to enforce pure functional programming, that, we believe, teaches
+the right thinking and produces programs that are easier to understand.
+When you need to write system code or any code that deals with effects,
+monads become inevitable sooner or later unless you're willing to use
+the escape hatch of mutability. The monadic code usually scares people (and
+the Continuation monad usually scared even the bravest). However, there are
+ways to deal with it. You can use different syntax extensions, like the
+[ppx_let][1], that is very light, [ppx_monadic][2], that provides a real
+do-notation so that you can write your code in the true imperative style.
+You can even rely on camlp4 or camlp5 do provide you a full support for the
+do-notation.
+
+I, myself, do not really like the do-notation (even in Haskell, or F#)
+because I believe, that it hides the real notion of computation. So, we
+stick to the regular syntax of OCaml. I'm always explaining the concept of
+Monad using the imperative C-like language, by pointing that a monad is
+just a way to parametrize your semicolon operator. So the idea is not
+really from functional programming and should be understandable by someone
+who has only an imperative programming background.
+
+With all this said, I think, that your code should rely on exceptions, not
+the monads. Since libguestfs is totally imperative library, that deals with
+imperative primitives, using OCaml exceptions is a perfectly valid
+solution. You are already dealing with primitives that bear hidden effects,
+so your computations are not pure on the first hand, thus adding exceptions
+will not add anything more to it. The essence of each monad is the `run`
+function, that evaluates monadic operations (orders) and produces an
+explicit state. Since you can't really reify the run function in your case,
+using monads will only obscure things. To make the long story short, you
+should use monad only with pure code in cases when you can represent
+effects as an OCaml value. Mixing imperative code with monadic code is the
+worst thing one can imagine - as you will deal with wolves in lamb's skins,
+functions that pretend to be pure while in fact, they are inherently
+effectful.
+
+
+[1]: <https://blog.janestreet.com/let-syntax-and-why-you-should-use-it/>
+[2]: <https://bitbucket.org/camlspotter/ppx_monadic>
+      
+** Philippe Veber said and Leo White replied:
+
+> I thought one big selling argument of monads was also that the type of
+> the functions shows which effect it performs. As I understand it, it
+> is not the case for effects, at least not in existing implementations
+> like multicore ocaml.
+
+Whilst the current implementation in multicore OCaml does not track
+effects at the type level,there is a prototype version which does:
+
+    <https://github.com/lpw25/ocaml-typed-effects>
+
+I spoke about it at HOPE last year:
+
+    <https://www.youtube.com/watch?v=ibpUJmlEWi4&list=PLnqUlCo055hVLWbmrXyxqYXcJJWSgU6Z5&index=1>
+    <http://www.lpw25.net/talks/hope2016.pdf>
+      
+** oleg also replied:
+
+How expressive are the types of effectful computations pretty much
+depends on a particular type system in use. Let me cite from the message
+that I received from Nick Palladinos (CCed) the other week, who implemented
+extensible effects in F#, a rather close relative of OCaml. You can
+write the code as below
+
+let example () =
+    eff {
+        do! put 1
+        let! x = get ()
+        let! y = ask ()
+        return x + y
+    }
+
+(Here, `eff' is a tag of so-called computational expressions of F#, a
+very handy feature).
+
+The *inferred* type is as follows
+  val example : unit -> Eff<'U,int> when 'U :> Reader<int> and 'U :> State<int>
+
+clearly stating that example is an effectful expression that uses at
+least Reader and State effects. The example also illustrates
+composability, your second question: put/get and ask are operations of two
+distinct effects (State and Reader, resp). You can combine them freely
+within the same program.
+
+(I hope Nick will write a paper explaining his implementation so that
+we can all learn from it.)
+
+To give more references (in addition to Leo's work), I should point to Koka
+        <https://koka-lang.github.io/koka/doc/kokaspec.html>
+
+which is an OCaml-like language based on effects and
+effect-typing. The language is mature enough to write a web server in
+it (as Daan Leijen described in his talk at the ML Family workshop
+this year).
+
+        Other references are the recent Effekt library in Scala
+        <http://b-studios.de/scala-effekt/>
+        and extensible-effect library
+        <http://okmij.org/ftp/Haskell/extensible/>
+which, although being first proposed for Haskell has also been ported
+to Scala (and now F#). Purescript's extensible effects are also
+similar.
+      
+** Several days later, Richard Jones said:
+
+As promised, I tried rewriting some code with this style.  The
+good news is that it does look a lot more like the original C code.
+
+The bad news is that with_return as defined above doesn't really work
+like the C return statement, as in the small example below.  The
+example is very contrived but it reflects a problem that I found in
+real code.
+
+The problem is that the return statement could be called from many
+contexts, all with different types.  The compiler expects to unify all
+these types (as the same type 'b) which is not possible.
+
+It wasn't immediately clear to me if this was solvable.
+
+Rich.
+
+----------------------------------------------------------------------
+
+let with_return (type b) f =
+  let exception Return of b in
+  try f (fun y -> raise (Return y)) with Return y -> y
+
+let f () =
+  with_return (fun return ->
+      if false then return "error";
+      let a =
+        match Some "abc" with
+        | None -> return "another error"
+        | Some a -> a in
+      a
+  )
+      
+** Max Mouratov then suggested:
+
+See how it's done in Batteries:
+
+type 'a t = 'a -> exn
+
+let return label value =
+  raise (label value)
+
+let label (type u) (f : u t -> u) : u =
+  let module M = struct exception Return of u end in
+  try f (fun x -> M.Return x)
+with M.Return u -> u
+      
+** octachron also suggested:
+
+This issue can be solved by making the type of return more precise, capturing
+the fact that return always raises:
+
+    type 'a return = { return: 'b. 'a -> 'b } [@@unboxed]
+    let with_return (type b) f =
+      let exception Return of b in
+      try f {return = (fun y -> raise (Return y))} with Return y -> y;;
+
+It becomes then possible to write
+
+    let f () =
+      with_return (fun {return} ->
+        if false then return "error";
+        let a =
+          match Some "abc" with
+          | None -> return "another error"
+          | Some a -> a in
+        a
+    )
+      
+** Yaron Minsky then said:
+
+FWIW, this idiom is supported by Base.
+
+<https://github.com/janestreet/base/blob/master/src/with_return.mli>
+
+I notice we're not yet using the unboxed attribute, though, so we
+should fix that...
+      
+** Gabriel Scherer then added:
+
+We also have return-by-local-exceptions in Batteries (the BatReturn
+module), but reports from js_of_ocaml users (namely, Clément
+Pit-Claudel) is that this style gets translated to extremely slow
+Javascript code -- functions from Batteries using this style (string
+search functions in particular) were a performance bottleneck on the
+javascript backend. I fixed the issue by rewriting all uses of
+BatReturn in Batteries libraries themselves.
+Long-term, it would be better to have Javascript backends produce
+better code on this, but I think it is rather difficult -- it is easy
+to compile efficiently local exceptions that are raised in the same
+basic block, but with_return takes a callback so you have to both
+inline and specialize before you are within reach of the optimization.
+      
+** Petter Urkedal said and Richard Jones replied:
+
+> I vouch for octachron solution to the lack of polymorphism in the
+> return function.
+> 
+> I tried to reformat the inspect_fs_unix_fstab.ml more along my own
+> coding style to get a feel for the issue:
+> 
+> <https://gist.github.com/paurkedal/80b89c8fabe041e62eccc596d51f382b>
+> 
+> What doesn't work with this style is falling though to the next block,
+> though I'm not sure that's I good for maintainability anyway.  This
+> is, however, even further away from the C style.
+
+That appears to mainly play with indentation, which just means that
+our tools won't work well.
+
+FWIW here's the updated version I ended up with:
+
+  <https://gist.github.com/rwmjones/426821925fd1250096d7ddaac4103a12#file-gistfile1-txt-L57>
+
+This was formed by going back to the original C code:
+
+  <https://github.com/libguestfs/libguestfs/blob/5b74dd98a7926191cc085fc36be57f58bd6d80d8/lib/inspect-fs-unix.c#L1273>
+
+and rearranging the OCaml code to look more like it, adding return
+statements to achieve this.
+
+For those wondering why, the aim here is to translate the code from C
+to OCaml as closely as possible (at first) in order to minimize the
+inevitable bugs that will be added during the translation.  The C code
+is very well tested over years.  I have plans to rework the code
+completely later to make real use of OCaml, but first don't break
+things.
+      
+========================================================================
+2) Sample emacs plugin using ecaml?
+Archive: <https://discuss.ocaml.org/t/sample-emacs-plugin-using-ecaml/1016/1>
+------------------------------------------------------------------------
+** Bikal Gurung asked and bcc32 replied:
+
+> Does anyone know of any sample emacs plugin using <https://github.com/janestreet/ecaml>?
+
+I put together a very small example to show how building can work. It does very
+little but should give a decent idea of how the general structure is: define
+some functions, then declare that you provide a certain package.
+
+It currently only works with the version of Ecaml on opam (v0.9.0), and relies
+on the executable format being a valid shared object (seems to be true on macOS,
+and I think Linux (ELF) too).
+
+<https://github.com/bcc32/ecaml-hello>
+      
+========================================================================
+3) Alternative to Streams?
+Archive: <https://discuss.ocaml.org/t/alternative-to-streams/1020/1>
+------------------------------------------------------------------------
+** Perry Metzger asked:
+
+This:
+
+<https://caml.inria.fr/mantis/view.php?id=6711>
+
+...leads me to wonder what the future of the Streams interface might be. I'm
+currently using it in a project so that I can have input to a lexical analyzer
+come from either a string (for unit testing) or a file with the same API. Should
+I be building my own similar gadget instead? (I'm not that in love with the
+interface anyway, I seem to prefer things that return options rather than
+throwing exceptions...)
+      
+** Gabriel Radanne replied:
+
+My personal vote goes to [sequence](<https://github.com/c-cube/sequence/>) and
+[gen](<https://github.com/c-cube/gen/>).
+
+In a few OCaml version, we might be able to use
+<https://github.com/ocaml/ocaml/pull/1002> to replace those.
+      
+** Daniel Bünzli then said:
+
+But it's certainly not what you want you want to use if you are streaming from
+files (and the actual reason why I'm against its inclusion in the stdlib).
+      
+** Perry Metzger then asked and Daniel Bünzli replied:
+
+> Somewhat confused by that last comment?
+
+When you are streaming from/to files you need to be able to handle errors and
+resource disposal, these thing won't do it and simply plugging file reading
+functions in there will easily result in pain like too many open fds etc. (you
+would be doing the equivalent of Haskell's lazy IO, google for that you should
+be able to find plenty of discussion about its shortcomings).
+
+One way to side step the issue is to first read the whole file in memory and
+start from that, but then you are no longer streaming.
+
+There was more discussion in the first
+[PR](<https://github.com/ocaml/ocaml/pull/635>) but somehow it got subsequently
+ignored.
+      
+** Perry Metzger then asked:
+
+Okay, so you're saying that these won't work for me particularly well. Do you
+have suggestions on what will? I could also try to build something primitive
+myself, it wouldn't be too hard, but I would have hoped for a more generic
+solution.
+
+(Oh, and on file descriptor leaks, I presume from that there isn't any way in
+OCaml to attach a finalizer to a data structure to (for example) free a fd if no
+one is using it any more...?)
+      
+** Gabriel Radanne then said and Daniel Bünzli replied:
+
+> While @dbuenzli?s concerns about resources are generally justified, using gen
+> for lexing/parsing is, in practice, perfectly fine and you can find several
+> people doing exactly that.
+
+Indeed if I remember correctly `Gen` are [simple
+generators](<http://okmij.org/ftp/continuations/PPYield/>) and in those the
+producer drives the generation which allows to control the resources more
+precisely ([here's](<https://gist.github.com/dbuenzli/74be3c9fe51e017790b5>) a few
+implementation of them from first principles).
+      
+========================================================================
+4) OCaml 4.06.0+rc1
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2017-10/msg00103.html>
+------------------------------------------------------------------------
+** Gabriel Scherer announced:
+
+We have created a first release candidate of the upcoming
+OCaml 4.06.0 release for your repeated testing pleasure. It is
+available as opam switches 4.06.0.+rc1 (or +rc1+flambda, etc.)
+
+  opam switch 4.06.0+rc1
+
+or as source archives at
+
+  <http://caml.inria.fr/pub/distrib/ocaml-4.06/>
+
+The Changelog since 4.05.0 is available at
+
+  <http://caml.inria.fr/pub/distrib/ocaml-4.06/notes/Changes.4.06.0+rc1.txt>
+
+The more specific list of changes since 4.06.0+beta2 is
+included at the end of this email.
+
+We are hoping to make the actual 4.06.0 release shortly. If
+you are the maintainer of a publicly-distributed OCaml
+package, now is the time to make sure you have made
+a 4.06-ready release.
+
+Happy hacking,
+
+-- Gabriel Scherer for the OCaml team.
+
+
+Changes since beta2:
+
+* MPR#7598, GPR#1402: the magic numbers used by the OCaml
+  compiler (versioning numbers for object files and the binary
+  AST format) have been updated, which means that some tools
+  may have to be updated to the 4.06-specific magic numbers,
+  even if they appeared to work fine in
+  4.06.0+beta2. (Apologies updating so late in the release
+  cycle.)
+  (Damien Doligez, review by Alain Frisch, Xavier Leroy and Sébastien Hinderer,
+  report by Bart Jacobs)
+
+- GPR#594: New manual chapter on polymorphism troubles: weakly
+  polymorphic types, polymorphic recursion,and higher-ranked
+  polymorphism.
+  (Florian Angeletti, review by Damien Doligez, Gabriel Scherer,
+   and Gerd Stolpmann)
+
+  You can preview this chapter (and the whole 4.06.0 manual) at:
+    <http://www.polychoron.fr/ocaml-beta-manual/4.06+rc1/polymorphism.html>
+
+- GPR#1409: Fix to enable NetBSD/powerpc to work.
+  (Håvard Eidnes)
+
+- MPR#7657, GPR#1424: ensures correct call-by-value semantics
+  when eta-expanding functions to eliminate optional arguments
+  (Alain Frisch, report by sliquister, review by Leo White and Jacques
+  Garrigue)
+
+- GPR#1457, ocamldoc: restore label for exception in the latex
+  backend (omitted since 4.04.0)
+  (Florian Angeletti, review by Gabriel Scherer)
+
+- MPR#6329, GPR#1437: Introduce padding word before "data_end"
+  symbols to ensure page table tests work correctly on an
+  immediately preceding block of zero size.
+  (Mark Shinwell, review by Xavier Leroy)
+
+- MPR#7658, GPR#1439: Fix Spacetime runtime system compilation
+  with -force-safe-string
+  (Mark Shinwell, report by Christoph Spiel, review by Gabriel Scherer)
+
+- GPR#1407: Fix raw_spacetime_lib
+  (Leo White, review by Gabriel Scherer and Damien Doligez)
+      
+** David Allsopp then added:
+
+One of the big changes for the native Windows ports of OCaml is that we now have
+support for UTF-8 filenames in the runtime.
+
+TL;DR functions like Sys.readdir no longer return garbage (or at best
+locale-specific strings).
+
+I wrote up a post about the details of this large patch at
+<http://www.dra27.uk/blog/platform/2017/10/30/ocaml-unicode.html>, which also
+includes details on compiling OCaml on Windows, as the instructions have altered
+slightly with 4.06.0.
+
+Some of the fruits of this labour can be seen in our Camel and Cyrillic-laden
+AppVeyor logs, for example
+<https://ci.appveyor.com/project/avsm/ocaml/build/1.0.4836>
+      
+** Mattias Engdegård then asked and David Allsopp replied:
+
+>> One of the big changes for the native Windows ports of OCaml is that
+>> we now have support for UTF-8 filenames in the runtime.
+>>
+>> TL;DR functions like Sys.readdir no longer return garbage (or at best
+>> locale-specific strings).
+> 
+> This sounds like very good news, but just for curiosity, how are
+> unpaired surrogates in file names handled? (I have no Windows machine
+> handy.) Does readdir raise an exception, or return useless rubbish, or
+> somehow encode the surrogates in a form that can be used by other file
+> handling functions?
+
+This is a good question - and indeed is a section I should add to the post. At
+the moment, you will get a Sys_error exception informing you that "No mapping
+for the Unicode character exists in the target multi-byte code page" - in other
+words, the runtime refuses to give invalid UTF-8 in this case.
+
+If you configure OCaml with WINDOWS_UNICODE=0 then, as in previous versions, you
+will get a nonsense string, but no exception.
+
+We plan in 4.07.0 to address this but it hasn't been dealt with in this release
+mainly because unpaired surrogates in filenames are a highly parasitic case and
+also because this issue does not (I believe) only affect Windows.
+      
+========================================================================
+5) Upcoming breaking changes in Ocamldoc 4.06
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2017-11/msg00004.html>
+------------------------------------------------------------------------
+** octachron announced:
+
+The upcoming version 4.06.0 of the ocaml distribution contains an unusual amount
+of bug fixes for ocamldoc. Unfortunately, three of these changes may break some
+workflow; these breaking changes concern
+
+ - the definition of module preamble
+ - the semantic of ocamldoc heading levels
+ - the html structure produced by ocamldoc
+
+Nevertheless, only the first change may affect users using the default ocamldoc
+settings and only in some corner cases. Contrarily, the heading level and html
+output changes should mostly affect users of custom documentation styles.
+
+More precisely,
+
+- First(GPR#1037 <https://github.com/ocaml/ocaml/pull/1037>), the preamble of
+  the documentation is now defined as the first documentation comment present in a
+  ml or mli file, only if this documentation comment comes before any module
+  elements. The intent here is to avoid using as a preamble a documentation
+  comment extracted from the middle of the mli file and avoid repeating this
+  comment:
+
+       type t = A | B
+       val x: t
+
+      (** In other words, before 4.06, this documentation comment was considered
+          as both a preamble for the whole file and a documentation comment for
+          "y"
+      *)
+      val y: t
+
+  This may cause some troubles with open statements laying at the top of an
+  interface files:
+
+       open M
+
+       (** This is not considered as a preamble anymore *)
+
+
+- Second(GPR#830 <https://github.com/ocaml/ocaml/pull/830>), the semantic of
+  heading level in ocamldoc has been changed to make it possible to use "{1" for
+  standard documentation section. Before this change section headings should have
+  started at "{2" and "{1" was reserved for the module titles. This is no longer
+  the case.
+
+  The default css style and mapping to latex and texinfo heading levels have
+  been updated to make this change invisible in the default ocamldoc setting.
+
+  As a consequence ocamldoc html backend maps now the ocamldoc heading level
+  "{n" to the html heading level "<h(n+1)>". Custom css style that redefined the
+  style of these headings will need to be updated.
+
+  The other ocamldoc backends have been updated to translate both heading level
+  "{1" and "{2" to the same heading level in the target language by default, but
+  this can be changed using the "-latextitle" or "-infotitle" option.
+
+
+- Third(GPR#802 <https://github.com/ocaml/ocaml/pull/802> and GPR#804
+  <https://github.com/ocaml/ocaml/pull/804>), the output of the html renderer has
+  been significantly updated to replace all use of "<br>" tags by semantic html
+  tags which should make much easier to style consistently the resulting html with
+  css. Similarly, the paragraph tag is now used in a much more regular way.
+
+  Unfortunately, this also means that custom css that tried to recover semantic
+  information from the position of "<br>" tags will need to be updated.
+      
+========================================================================
+6) nsq-ocaml
+Archive: <https://discuss.ocaml.org/t/ann-nsq-ocaml/467/3>
+------------------------------------------------------------------------
+** Ryan Slade announced:
+
+Just thought I'd let everyone know that nsq-ocaml is now available on opam:
+
+<https://opam.ocaml.org/packages/nsq/>
+      
+========================================================================
+7) New release of ocaml-kafka
+Archive: <https://discuss.ocaml.org/t/new-release-of-ocaml-kafka/1032/1>
+------------------------------------------------------------------------
+** Didier Wenzek announced:
+
+I'm pleased to announce a new [OPAM
+release](<http://opam.ocaml.org/packages/kafka/>) of
+[ocaml-kafka](<https://github.com/didier-wenzek/ocaml-kafka>), the OCaml bindings
+for [Kafka](<http://kafka.apache.org/>).
+
+This release fixes a few bugs and an inconvenient dependency over older versions
+of OCaml.
+
+Before implementing support for more recent features of Kafka (like ingestion
+time), I would like to have some feedback from the community about the API.
+Having written the code I needed for my projects, some pieces might be missing,
+clumsy or even uneasy to use elsewhere.
+
+Any remark or suggestion is welcome!
+      
+========================================================================
+8) LablGTK 2.18.6 and LablTk 8.06.3
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2017-10/msg00108.html>
+------------------------------------------------------------------------
+** Jacques Garrigue announced:
+
+This is just to indicate that there are fresh versions of LablGTK and LablTk available,
+compatible with OCaml 4.06 (in particular with -safe-string).
+
+You can install them through opam, or find them at their usual locations:
+	<http://lablgtk.forge.ocamlcore.org/>
+	<https://forge.ocamlcore.org/projects/labltk/>
+
+We are still considering how to move out of the (supposedly extinguishing) forge,
+but the code is already mirrored on GitHub (including lablGL):
+	<https://github.com/garrigue/lablgtk>
+	<https://github.com/garrigue/labltk>
+	<https://github.com/garrigue/lablgl>
+      
+** Yotam Barnoy then asked and Jacques Garrigue replied:
+
+> Any plans to upgrade to GTK+ 3.0 support?
+
+This was discussed on the lablgtk-list in July, and there was little enthusiasm
+for a switch to GTK+-3.0.
+	<https://lists.forge.ocamlcore.org/pipermail/lablgtk-list/2017-July/thread.html>
+
+The current situation is that there is already some code to analyze gir data and
+generate bindings automatically (see the gtk3 branch in the repository), but there
+is still a lot of work to do to make it usable, and not so much interest.
+      
+========================================================================
+9) Digestif 0.4
+Archive: <https://discuss.ocaml.org/t/ann-digestif-0-4/1038/1>
+------------------------------------------------------------------------
+** Calascibetta Romain announced:
+
+I'm happy yo announce a new release of
+[`digestif.0.4`](<https://github.com/mirage/digestif/releases/tag/v0.4>),
+available for installation via OPAM.
+
+Digestif is a library which contains some hashes algorithms like:
+* MD5
+* SHA1
+* SHA224
+* SHA256
+* SHA384
+* SHA512
+* BLAKE2B
+
+And this new release integrate:
+* BLAKE2S
+* RIPEMD160
+
+As the previous release, this library provides 2 implementations. One in C and
+one in OCaml. You need to link your program/library with `digestif.c` to get the
+first one or `digestif.ocaml` to get the second one (and compile with
+`js_of_ocaml`.
+
+This release is well-tested on the advise of @cfcs and we did a little benchmark
+with `core_bench`.
+
+For the C implementation:
+```
+????????????????????????????????????????????????????????????????
+? Name                       ? Time/Run ? mWd/Run ? Percentage ?
+????????????????????????????????????????????????????????????????
+? sha1 (bigstring:1024)      ?   5.39us ?  22.00w ?     32.49% ?
+? sha1 (bytes:1024)          ?   5.46us ?  17.00w ?     32.94% ?
+? sha256 (bigstring:1024)    ?   8.75us ?  22.00w ?     52.72% ?
+? sha256 (bytes:1024)        ?  10.39us ?  19.00w ?     62.64% ?
+? sha512 (bigstring:1024)    ?   7.48us ?  22.00w ?     45.10% ?
+? sha512 (bytes:1024)        ?   7.11us ?  23.00w ?     42.87% ?
+? ripemd160 (bigstring:1024) ?  13.60us ?  22.00w ?     82.00% ?
+? ripemd160 (bytes:1024)     ?  16.59us ?  17.00w ?    100.00% ?
+? blake2b (bigstring:1024)   ?   4.59us ?  22.00w ?     27.68% ?
+? blake2b (bytes:1024)       ?   4.47us ?  23.00w ?     26.93% ?
+? blake2s (bigstring:1024)   ?   5.51us ?  22.00w ?     33.19% ?
+? blake2s (bytes:1024)       ?   5.60us ?  19.00w ?     33.75% ?
+????????????????????????????????????????????????????????????????
+```
+
+And the OCaml implementation:
+```
+??????????????????????????????????????????????????????????????????????????????????????
+? Name                       ? Time/Run ? mWd/Run ? mjWd/Run ? Prom/Run ? Percentage ?
+??????????????????????????????????????????????????????????????????????????????????????
+? sha1 (bigstring:1024)      ?  85.62us ? 17.21kw ?   12.82w ?   12.82w ?     52.31% ?
+? sha1 (bytes:1024)          ?  86.27us ? 17.16kw ?   12.91w ?   12.91w ?     52.70% ?
+? sha256 (bigstring:1024)    ? 163.68us ? 29.84kw ?   43.93w ?   43.93w ?    100.00% ?
+? sha256 (bytes:1024)        ? 138.79us ? 29.80kw ?   45.09w ?   45.09w ?     84.79% ?
+? sha512 (bigstring:1024)    ?  71.31us ? 19.89kw ?   33.58w ?   33.58w ?     43.57% ?
+? sha512 (bytes:1024)        ?  72.74us ? 19.86kw ?   31.70w ?   31.70w ?     44.44% ?
+? ripemd160 (bigstring:1024) ? 121.48us ? 26.25kw ?   18.14w ?   18.14w ?     74.22% ?
+? ripemd160 (bytes:1024)     ? 118.38us ? 26.22kw ?   18.55w ?   18.55w ?     72.32% ?
+? blake2b (bigstring:1024)   ?  77.51us ? 19.72kw ?   20.17w ?   20.17w ?     47.35% ?
+? blake2b (bytes:1024)       ?  68.31us ? 19.69kw ?   21.23w ?   21.23w ?     41.73% ?
+? blake2s (bigstring:1024)   ? 145.73us ? 33.06kw ?   34.12w ?   34.12w ?     89.03% ?
+? blake2s (bytes:1024)       ? 150.63us ? 33.01kw ?   34.48w ?   34.48w ?     92.03% ?
+??????????????????????????????????????????????????????????????????????????????????????
+```
+
+As my previous announcement, if you want a specific hash algorithm, you can ask
+to the [issue tracker](<https://github.com/mirage/digestif/issues>).
+      
+========================================================================
+10) Salsa20 0.1.0
+Archive: <https://discuss.ocaml.org/t/ann-salsa20-0-1-0/1039/1>
+------------------------------------------------------------------------
+** Alfredo Beaumont announced:
+
+I'm happy to announce the first release of [salsa20,
+0.1.0](<https://github.com/abeaumont/ocaml-salsa20/releases/tag/0.1.0>), available
+for installation via OPAM.
+
+salsa20 is an OCaml implementation of the Salsa20 encryption functions, built on
+top of [Salsa20 Core
+functions](<https://github.com/abeaumont/ocaml-salsa20-core>).
+
+Repo: <https://github.com/abeaumont/ocaml-salsa20>
+Documentation: <https://abeaumont.github.io/ocaml-salsa20>
+      
+========================================================================
+11) Notty 0.2.0
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2017-11/msg00001.html>
+------------------------------------------------------------------------
+** David Kaloper Mer?injak announced:
+
+I'd like to announce the release of Notty 0.2.0 [1]. The blurb:
+
+"Notty is a declarative terminal library for OCaml structured around a
+notion of composable images. It tries to abstract away the basic
+terminal programming model, providing a simpler and more expressive
+one."
+
+Change log [2] for this release is relatively long, since the last
+release was a while ago. It comprises a mixture of new features, and
+performance and memory improvements. Some notable changes are:
+
+- compatibility with the abstract Uchar.t;
+- ability to render to formatters, which in turn enables toplevel
+integration [3]; and
+- support for 24-bit colors [4].
+
+Feedback is, as always, welcome.
+
+
+Best,
+David
+
+
+[1] - <https://github.com/pqwy/notty>
+[2] - <https://github.com/pqwy/notty/releases/tag/v0.2.0>
+[3] - <https://asciinema.org/a/ZIXzn2ZmIxK39qoT3eJla5OyO>
+[4] - <https://asciinema.org/a/NgpF9Im8qfUICC39GDDAe9Ede>
+      
+========================================================================
+12) OCaml release 4.06.0
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2017-11/msg00005.html>
+------------------------------------------------------------------------
+** Damien Doligez announced:
+
+We have the pleasure of celebrating the birthdays of André Malraux and
+Tezuka Osamu by announcing the release of OCaml version 4.06.0.
+
+It is available as an OPAM switch and also as a source download:
+< <http://caml.inria.fr/download.en.html> >
+
+Happy hacking,
+
+-- Damien Doligez and Gabriel Scherer, for the OCaml team
+
+
+
+OCaml 4.06.0 (3 Nov 2017):
+--------------------------
+
+(Changes that can break existing programs are marked with a "*")
+
+### Language features:
+
+- MPR#6271, MPR#7529, GPR#1249: Support "let open M in ..."
+  in class expressions and class type expressions.
+  (Alain Frisch, reviews by Thomas Refis and Jacques Garrigue)
+
+- GPR#792: fix limitations of destructive substitutions, by
+  allowing "S with type t := type-expr",
+  "S with type M.t := type-expr", "S with module M.N := path"
+  (Valentin Gatien-Baron, review by Jacques Garrigue and Leo White)
+
+* GPR#1064, GPR#1392: extended indexing operators, add a new class of
+  user-defined indexing operators, obtained by adding at least
+  one operator character after the dot symbol to the standard indexing
+  operators: e,g ".%()", ".?[]", ".@{}<-":
+    let ( .%() ) = List.nth in [0; 1; 2].%(1)
+  After this change, functions or methods with an explicit polymorphic type
+  annotation and of which the first argument is optional now requires a space
+  between the dot and the question mark,
+  e.g. "<f:'a.?opt:int->unit>" must now be written "<f:'a. ?opt:int->unit>".
+  (Florian Angeletti, review by Damien Doligez and Gabriel Radanne)
+
+- GPR#1118: Support inherited field in object type expression
+    type t = < m : int >
+    type u = < n : int; t; k : int >
+  (Runhang Li, reivew by Jeremy Yallop, Leo White, Jacques Garrigue,
+   and Florian Angeletti)
+
+* GPR#1232: Support Unicode character escape sequences in string
+  literals via the \u{X+} syntax. These escapes are substituted by the
+  UTF-8 encoding of the Unicode character.
+  (Daniel Bünzli, review by Damien Doligez, Alain Frisch, Xavier
+  Leroy and Leo White)
+
+- GPR#1247: M.(::) construction for expressions
+  and patterns (plus fix printing of (::) in the toplevel)
+  (Florian Angeletti, review by Alain Frisch, Gabriel Scherer)
+
+* GPR#1252: The default mode is now safe-string, can be overridden
+  at configure time or at compile time.
+  (See GPR#1386 below for the configure-time options)
+  This breaks the code that uses the 'string' type as mutable
+  strings (instead of Bytes.t, introduced by 4.02 in 2014).
+  (Damien Doligez)
+
+* GPR#1253: Private extensible variants
+  This change breaks code relying on the undocumented ability to export
+  extension constructors for abstract type in signature. Briefly,
+    module type S = sig
+      type t
+      type t += A
+    end
+   must now be written
+    module type S = sig
+      type t = private ..
+      type t += A
+   end
+  (Leo White, review by Alain Frisch)
+
+- GPR#1333: turn off warning 40 by default
+  (Constructor or label name used out of scope)
+  (Leo White)
+
+- GPR#1348: accept anonymous type parameters in `with` constraints:
+    S with type _ t = int
+  (Valentin Gatien-Baron, report by Jeremy Yallop)
+
+### Type system
+
+- MPR#248, GPR#1225: unique names for weak type variables
+    # ref [];;
+    - : '_weak1 list ref = {contents = []}
+  (Florian Angeletti, review by Frédéric Bour, Jacques Garrigue,
+   Gabriel Radanne and Gabriel Scherer)
+
+* MPR#6738, MPR#7215, MPR#7231, GPR#556: Add a new check that 'let rec'
+  bindings are well formed.
+  (Jeremy Yallop, reviews by Stephen Dolan, Gabriel Scherer, Leo
+   White, and Damien Doligez)
+
+- GPR#1142: Mark assertions nonexpansive, so that 'assert false'
+  can be used as a placeholder for a polymorphic function.
+  (Stephen Dolan)
+
+### Standard library:
+
+- MPR#1771, MPR#7309, GPR#1026: Add update to maps. Allows to update a
+  binding in a map or create a new binding if the key had no binding
+    val update: key -> ('a option -> 'a option) -> 'a t -> 'a t
+  (Sébastien Briais, review by Daniel Buenzli, Alain Frisch and
+  Gabriel Scherer)
+
+- MPR#7515, GPR#1147: Arg.align now optionally uses the tab character '\t' to
+  separate the "unaligned" and "aligned" parts of the documentation string. If
+  tab is not present, then space is used as a fallback. Allows to have spaces in
+  the unaligned part, which is useful for Tuple options.
+  (Nicolas Ojeda Bar, review by Alain Frisch and Gabriel Scherer)
+
+* GPR#615: Format, add symbolic formatters that output symbolic
+  pretty-printing items. New fields have been added to the
+  formatter_out_functions record, thus this change will break any code building
+  such record from scratch.
+  When building Format.formatter_out_functions values redefinining the out_spaces field,
+  "{ fmt_out_funs with out_spaces = f; }" should be replaced by
+  "{ fmt_out_funs with out_spaces = f; out_indent = f; }" to maintain the old behavior.
+  (Richard Bonichon and Pierre Weis, review by Alain Frisch, original request by
+  Spiros Eliopoulos in GPR#506)
+
+* GPR#943: Fixed the divergence of the Pervasives module between the stdlib
+  and threads implementations.  In rare circumstances this can change the
+  behavior of existing applications: the implementation of Pervasives.close_out
+  used when compiling with thread support was inconsistent with the manual.
+  It will now not suppress exceptions escaping Pervasives.flush anymore.
+  Developers who want the old behavior should use Pervasives.close_out_noerr
+  instead.  The stdlib implementation, used by applications not compiled
+  with thread support, will now only suppress Sys_error exceptions in
+  Pervasives.flush_all.  This should allow exceedingly unlikely assertion
+  exceptions to escape, which could help reveal bugs in the standard library.
+  (Markus Mottl, review by Hezekiah M. Carty, Jeremie Dimino, Damien Doligez,
+  Alain Frisch, Xavier Leroy, Gabriel Scherer and Mark Shinwell)
+
+- GPR#1034: List.init : int -> (int -> 'a) -> 'a list
+  (Richard Degenne, review by David Allsopp, Thomas Braibant, Florian
+  Angeletti, Gabriel Scherer, Nathan Moreau, Alain Frisch)
+
+- GRP#1091 Add the Uchar.{bom,rep} constants.
+  (Daniel Bünzli, Alain Frisch)
+
+- GPR#1091: Add Buffer.add_utf_{8,16le,16be}_uchar to encode Uchar.t
+  values to the corresponding UTF-X transformation formats in Buffer.t
+  values.
+  (Daniel Bünzli, review by Damien Doligez, Max Mouratov)
+
+- GPR#1175: Bigarray, add a change_layout function to each Array[N]
+  submodules.
+  (Florian Angeletti)
+
+* GPR#1306: In the MSVC and Mingw ports, "Sys.rename src dst" no longer fails if
+  file "dst" exists, but replaces it with file "src", like in the other ports.
+  (Xavier Leroy)
+
+- GPR#1314: Format, use the optional width information
+  when formatting a boolean: "%8B", "%-8B" for example
+  (Xavier Clerc, review by Gabriel Scherer)
+
+- c9cc0f25138ce58e4f4e68c4219afe33e2a9d034: Resurrect tabulation boxes
+  in module Format. Rewrite/extend documentation of tabulation boxes.
+  (Pierre Weis)
+
+### Other libraries:
+
+- MPR#7564, GPR#1211: Allow forward slashes in the target of symbolic links
+  created by Unix.symlink under Windows.
+  (Nicolas Ojeda Bar, review by David Allsopp)
+
+* MPR#7640, GPR#1414: reimplementation of Unix.execvpe to fix issues
+  with the 4.05 implementation.  The main issue is that the current
+  directory was always searched (last), even if the current directory
+  is not listed in the PATH.
+  (Xavier Leroy, report by Louis Gesbert and Arseniy Alekseyev,
+   review by Ivan Gotovchits)
+
+- GPR#997, GPR#1077: Deprecate Bigarray.*.map_file and add Unix.map_file as a
+  first step towards moving Bigarray to the stdlib
+  (Jérémie Dimino and Xavier Leroy)
+
+* GPR#1178: remove the Num library for arbitrary-precision arithmetic.
+  It now lives as a separate project <https://github.com/ocaml/num>
+  with an OPAM package called "num".
+  (Xavier Leroy)
+
+- GPR#1217: Restrict Unix.environment in privileged contexts; add
+  Unix.unsafe_environment.
+  (Jeremy Yallop, review by Mark Shinwell, Nicolas Ojeda Bar,
+  Damien Doligez and Hannes Mehnert)
+
+- GPR#1321: Reimplement Unix.isatty on Windows. It no longer returns true for
+  the null device.
+  (David Allsopp)
+
+### Compiler user-interface and warnings:
+
+- MPR#7361, GPR#1248: support "ocaml.warning" in all attribute contexts, and
+  arrange so that "ocaml.ppwarning" is correctly scoped by surrounding
+  "ocaml.warning" attributes
+  (Alain Frisch, review by Florian Angeletti and Thomas Refis)
+
+- MPR#7444, GPR#1138: trigger deprecation warning when a "deprecated"
+  attribute is hidden by signature coercion
+  (Alain Frisch, report by bmillwood, review by Leo White)
+
+- MPR#7472: ensure .cmi files are created atomically,
+  to avoid corruption of .cmi files produced simultaneously by a run
+  of ocamlc and a run of ocamlopt.
+  (Xavier Leroy, from a suggestion by Gerd Stolpmann)
+
+* MPR#7514, GPR#1152: add -dprofile option, similar to -dtimings but
+  also displays memory allocation and consumption.
+  The corresponding addition of a new compiler-internal
+  Profile module may affect some users of
+  compilers-libs/ocamlcommon (by creating module conflicts).
+  (Valentin Gatien-Baron, report by Gabriel Scherer)
+
+- MPR#7620, GPR#1317: Typecore.force_delayed_checks does not run with -i option
+  (Jacques Garrigue, report by Jun Furuse)
+
+- MPR#7624: handle warning attributes placed on let bindings
+  (Xavier Clerc, report by dinosaure, review by Alain Frisch)
+
+- GPR#896: "-compat-32" is now taken into account when building .cmo/.cma
+  (Hugo Heuzard)
+
+- GPR#948: the compiler now reports warnings-as-errors by prefixing
+  them with "Error (warning ..):", instead of "Warning ..:" and
+  a trailing "Error: Some fatal warnings were triggered" message.
+  (Valentin Gatien-Baron, review by Alain Frisch)
+
+- GPR#1032: display the output of -dtimings as a hierarchy
+  (Valentin Gatien-Baron, review by Gabriel Scherer)
+
+- GPR#1114, GPR#1393, GPR#1429: refine the (ocamlc -config) information
+  on C compilers: the variables `{bytecode,native}_c_compiler` are deprecated
+  (the distinction is now mostly meaningless) in favor of a single
+  `c_compiler` variable combined with `ocaml{c,opt}_cflags`
+  and `ocaml{c,opt}_cppflags`.
+  (Sébastien Hinderer, Jeremy Yallop, Gabriel Scherer, review by
+   Adrien Nader and David Allsopp)
+
+* GPR#1189: allow MSVC ports to use -l option in ocamlmklib
+  (David Allsopp)
+
+- GPR#1332: fix ocamlc handling of "-output-complete-obj"
+  (François Bobot)
+
+- GPR#1336: -thread and -vmthread option information is propagated to
+  PPX rewriters.
+  (Jun Furuse, review by Alain Frisch)
+
+### Code generation and optimizations:
+
+- MPR#5324, GPR#375: An alternative Linear Scan register allocator for
+  ocamlopt, activated with the -linscan command-line flag. This
+  allocator represents a trade-off between worse generated code
+  performance for higher compilation speed (especially interesting in
+  some cases graph coloring is necessarily quadratic).
+  (Marcell Fischbach and Benedikt Meurer, adapted by Nicolas Ojeda
+  Bar, review by Nicolas Ojeda Bar and Alain Frisch)
+
+- MPR#6927, GPR#988: On macOS, when compiling bytecode stubs, plugins,
+  and shared libraries through -output-obj, generate dylibs instead of
+  bundles.
+  (whitequark)
+
+- MPR#7447, GPR#995: incorrect code generation for nested recursive bindings
+  (Leo White and Jeremy Yallop, report by Stephen Dolan)
+
+- MPR#7501, GPR#1089: Consider arrays of length zero as constants
+  when using Flambda.
+  (Pierre Chambart, review by Mark Shinwell and Leo White)
+
+- MPR#7531, GPR#1162: Erroneous code transformation at partial applications
+  (Mark Shinwell)
+
+- MPR#7614, GPR#1313: Ensure that inlining does not depend on the order
+  of symbols (flambda)
+  (Leo White, Xavier Clerc, report by Alex, review by Gabriel Scherer
+  and Pierre Chambart)
+
+- MPR#7616, GPR#1339: don't warn on mutation of zero size blocks.
+  (Leo White)
+
+- MPR#7631, GPR#1355: "-linscan" option crashes ocamlopt
+  (Xavier Clerc, report by Paul Steckler)
+
+- MPR#7642, GPR#1411: ARM port: wrong register allocation for integer
+  multiply on ARMv4 and ARMv5; possible wrong register allocation for
+  floating-point multiply and add on VFP and for floating-point
+  negation and absolute value on soft FP emulation.
+  (Xavier Leroy, report by Stéphane Glondu and Ximin Luo,
+   review and additional sightings by Mark Shinwell)
+
+* GPR#659: Remove support for SPARC native code generation
+  (Mark Shinwell)
+
+- GPR#850: Optimize away some physical equality
+  (Pierre Chambart, review by Mark Shinwell and Leo White)
+
+- GPR#856: Register availability analysis
+  (Mark Shinwell, Thomas Refis, review by Pierre Chambart)
+
+- GPR#1143: tweaked several allocation functions in the runtime by
+  checking for likely conditions before unlikely ones and eliminating
+  some redundant checks.
+  (Markus Mottl, review by Alain Frisch, Xavier Leroy, Gabriel Scherer,
+  Mark Shinwell and Leo White)
+
+- GPR#1183: compile curried functors to multi-argument functions
+  earlier in the compiler pipeline; correctly propagate [@@inline]
+  attributes on such functors; mark functor coercion veneers as
+  stubs.
+  (Mark Shinwell, review by Pierre Chambart and Leo White)
+
+- GPR#1195: Merge functions based on partiality rather than
+  Parmatch.irrefutable.
+  (Leo White, review by Thomas Refis, Alain Frisch and Gabriel Scherer)
+
+- GPR#1215: Improve compilation of short-circuit operators
+  (Leo White, review by Frédéric Bour and Mark Shinwell)
+
+- GPR#1250: illegal ARM64 assembly code generated for large combined allocations
+  (report and initial fix by Steve Walk, review and final fix by Xavier Leroy)
+
+- GPR#1271: Don't generate Ialloc instructions for closures that exceed
+  Max_young_wosize; instead allocate them on the major heap.  (Related
+  to GPR#1250.)
+  (Mark Shinwell)
+
+- GPR#1294: Add a configure-time option to remove the dynamic float array
+  optimization and add a floatarray type to let the user choose when to
+  flatten float arrays. Note that float-only records are unchanged: they
+  are still optimized by unboxing their fields.
+  (Damien Doligez, review by Alain Frisch and Mark Shinwell)
+
+- GPR#1304: Mark registers clobbered by PLT stubs as destroyed across
+  allocations.
+  (Mark Shinwell, Xavier Clerc, report and initial debugging by
+  Valentin Gatien-Baron)
+
+- GPR#1323: make sure that frame tables are generated in the data
+  section and not in the read-only data section, as was the case
+  before in the PPC and System-Z ports.  This avoids relocations in
+  the text segment of shared libraries and position-independent
+  executables generated by ocamlopt.
+  (Xavier Leroy, review by Mark Shinwell)
+
+- GPR#1330: when generating dynamically-linkable code on AArch64, always
+  reference symbols (even locally-defined ones) through the GOT.
+  (Mark Shinwell, review by Xavier Leroy)
+
+### Tools:
+
+- MPR#1956, GPR#973: tools/check-symbol-names checks for globally
+  linked names not namespaced with caml_
+  (Stephen Dolan)
+
+- MPR#6928, GPR#1103: ocamldoc, do not introduce an empty <h1> in index.html
+  when no -title has been provided
+  (Pierre Boutillier)
+
+- MPR#7048: ocamldoc, in -latex mode, don't escape Latin-1 accented letters
+  (Xavier Leroy, report by Hugo Herbelin)
+
+* MPR#7351: ocamldoc, use semantic tags rather than <br> tags in the html
+  backend
+  (Florian Angeletti, request and review by Daniel Bünzli )
+
+* MPR#7352, MPR#7353: ocamldoc, better paragraphs in html output
+  (Florian Angeletti, request by Daniel Bünzli)
+
+* MPR#7363, GPR#830: ocamldoc, start heading levels at {1 not {2 or {6.
+  This change modifies the mapping between ocamldoc heading level and
+  html heading level, breaking custom css style for ocamldoc.
+  (Florian Angeletti, request and review by Daniel Bünzli)
+
+* MPR#7478, GPR#1037: ocamldoc, do not use as a module preamble documentation
+  comments that occur after the first module element. This change may break
+  existing documenation. In particular, module preambles must now come before
+  any `open` statement.
+  (Florian Angeletti, review by David Allsopp and report by Daniel Bünzli)
+
+- MPR#7521, GPR#1159: ocamldoc, end generated latex file with a new line
+  (Florian Angeletti)
+
+- MPR#7575, GPR#1219: Switch compilers from -no-keep-locs
+  to -keep-locs by default: produced .cmi files will contain locations.
+  This provides better error messages. Note that, as a consequence,
+  .cmi digests now depend on the file path as given to the compiler.
+  (Daniel Bünzli)
+
+- MPR#7610, GPR#1346: caml.el (the Emacs editing mode) was cleaned up
+  and made compatible with Emacs 25.
+  (Stefan Monnier, Christophe Troestler)
+
+- MPR#7635, GPR#1383: ocamldoc, add an identifier to module
+  and module type elements
+  (Florian Angeletti, review by Yawar Amin and Gabriel Scherer)
+
+- GPR#681, GPR#1426: Introduce ocamltest, a new test driver for the
+  OCaml compiler testsuite
+  (Sébastien Hinderer, review by Damien Doligez)
+
+- GPR#1012: ocamlyacc, fix parsing of raw strings and nested comments, as well
+  as the handling of ' characters in identifiers.
+  (Demi Obenour)
+
+- GPR#1045: ocamldep, add a "-shared" option to generate dependencies
+  for native plugin files (i.e. .cmxs files)
+  (Florian Angeletti, suggestion by Sébastien Hinderer)
+
+- GPR#1078: add a subcommand "-depend" to "ocamlc" and "ocamlopt",
+  to behave as ocamldep. Should be used mostly to replace "ocamldep" in the
+  "boot" directory to reduce its size in the future.
+  (Fabrice Le Fessant)
+
+- GPR#1036: ocamlcmt (tools/read_cmt) is installed, converts .cmt to .annot
+  (Fabrice Le Fessant)
+
+- GPR#1180: Add support for recording numbers of direct and indirect
+  calls over the lifetime of a program when using Spacetime profiling
+  (Mark Shinwell)
+
+- GPR#1457, ocamldoc: restore label for exception in the latex backend
+  (omitted since 4.04.0)
+  (Florian Angeletti, review by Gabriel Scherer)
+
+### Toplevel:
+
+- MPR#7570: remove unusable -plugin option from the toplevel
+  (Florian Angeletti)
+
+- GPR#1041: -nostdlib no longer ignored by toplevel.
+  (David Allsopp, review by Xavier Leroy)
+
+- GPR#1231: improved printing of unicode texts in the toplevel,
+  unless OCAMLTOP_UTF_8 is set to false.
+  (Florian Angeletti, review by Daniel Bünzli, Xavier Leroy and
+   Gabriel Scherer)
+
+### Runtime system:
+
+* MPR#3771, GPR#153, GPR#1200, GPR#1357, GPR#1362, GPR#1363, GPR#1369, GPR#1398,
+  GPR#1446, GPR#1448: Unicode support for the Windows runtime.
+  (ygrek, Nicolas Ojeda Bar, review by Alain Frisch, David Allsopp, Damien
+  Doligez)
+
+* MPR#7594, GPR#1274, GPR#1368: String_val now returns 'const char*', not
+  'char*' when -safe-string is enabled at configure time.  New macro Bytes_val
+  for accessing bytes values.
+  (Jeremy Yallop, reviews by Mark Shinwell and Xavier Leroy)
+
+- GPR#71: The runtime can now be shut down gracefully by means of the new
+  caml_shutdown and caml_startup_pooled functions. The new 'c' flag in
+  OCAMLRUNPARAM enables shutting the runtime properly on process exit.
+  (Max Mouratov, review and discussion by Damien Doligez, Gabriel Scherer,
+  Mark Shinwell, Thomas Braibant, Stephen Dolan, Pierre Chambart,
+  François Bobot, Jacques Garrigue, David Allsopp, and Alain Frisch)
+
+- GPR#938, GPR#1170, GPR#1289: Stack overflow detection on 64-bit Windows
+  (Olivier Andrieu, tweaked by David Allsopp)
+
+- GPR#1070, GPR#1295: enable gcc typechecking for caml_alloc_sprintf,
+  caml_gc_message. Make caml_gc_message a variadic function. Fix many
+  caml_gc_message format strings.
+  (Olivier Andrieu, review and 32bit fix by David Allsopp)
+
+- GPR#1073: Remove statically allocated compare stack.
+  (Stephen Dolan)
+
+- GPR#1086: in Sys.getcwd, just fail instead of calling getwd()
+  if HAS_GETCWD is not set.
+  (Report and first fix by Sebastian Markbåge, final fix by Xavier Leroy,
+   review by MarK Shinwell)
+
+- GPR#1269: Remove 50ms delay at exit for programs using threads
+  (Valentin Gatien-Baron, review by Stephen Dolan)
+
+* GPR#1309: open files with O_CLOEXEC (or equivalent) in caml_sys_open, thus
+  unifying the semantics between Unix and Windows and also eliminating race
+  condition on Unix.
+  (David Allsopp, report by Andreas Hauptmann)
+
+- GPR#1326: Enable use of CFI directives in AArch64 and ARM runtime
+  systems' assembly code (asmrun/arm64.S).  Add CFI directives to enable
+  unwinding through [caml_c_call] and [caml_call_gc] with correct termination
+  of unwinding at [main].
+  (Mark Shinwell, review by Xavier Leroy and Gabriel Scherer, with thanks
+  to Daniel Bünzli and Fu Yong Quah for testing)
+
+- GPR#1338: Add "-g" for bytecode runtime system compilation
+  (Mark Shinwell)
+
+* GPR#1416, GPR#1444: switch the Windows 10 Console to UTF-8 encoding.
+  (David Allsopp, reviews by Nicolás Ojeda Bär and Xavier Leroy)
+
+### Manual and documentation:
+
+- MPR#6548: remove obsolete limitation in the description of private
+  type abbreviations
+  (Florian Angeletti, suggestion by Leo White)
+
+- MPR#6676, GPR#1110: move record notation to tutorial
+  (Florian Angeletti, review by Gabriel Scherer)
+
+- MPR#6676, GPR#1112: move local opens to tutorial
+  (Florian Angeletti)
+
+- MPR#6676, GPR#1153: move overriding class definitions to reference
+  manual and tutorial
+  (Florian Angeletti)
+
+- MPR#6709: document the associativity and precedence level of
+  pervasive operators
+  (Florian Angeletti, review by David Allsopp)
+
+- MPR#7254, GPR#1096: Rudimentary documentation of ocamlnat
+  (Mark Shinwell)
+
+- MPR#7281, GPR#1259: fix .TH macros in generated manpages
+  (Olaf Hering)
+
+- MPR#7507: Align the description of the printf conversion
+  specification "%g" with the ISO C90 description.
+  (Florian Angeletti, suggestion by Armaël Guéneau)
+
+- MPR#7551, GPR#1194 : make the final ";;" potentially optional in
+  caml_example
+  (Florian Angeletti, review and suggestion by Gabriel Scherer)
+
+- MPR#7588, GPR#1291: make format documentation predictable
+  (Florian Angeletti, review by Gabriel Radanne)
+
+- MPR#7604: Minor Ephemeron documentation fixes
+  (Miod Vallat, review by Florian Angeletti)
+
+- GPR#594: New chapter on polymorphism troubles:
+  weakly polymorphic types, polymorphic recursion,and higher-ranked
+  polymorphism.
+  (Florian Angeletti, review by Damien Doligez, Gabriel Scherer,
+   and Gerd Stolpmann)
+
+- GPR#1187: Minimal documentation for compiler plugins
+  (Florian Angeletti)
+
+- GPR#1202: Fix Typos in comments as well as basic grammar errors.
+  (JP Rodi, review and suggestions by David Allsopp, Max Mouratov,
+  Florian Angeletti, Xavier Leroy, Mark Shinwell and Damien Doligez)
+
+- GPR#1220: Fix "-keep-docs" option in ocamlopt manpage
+  (Etienne Millon)
+
+### Compiler distribution build system:
+
+- MPR#6373, GPR#1093: Suppress trigraph warnings from macOS assembler
+  (Mark Shinwell)
+
+- MPR#7639, GPR#1371: fix configure script for correct detection of
+  int64 alignment on Mac OS X 10.13 (High Sierra) and above; fix bug in
+  configure script relating to such detection.
+  (Mark Shinwell, report by John Whitington, review by Xavier Leroy)
+
+- GPR#558: enable shared library and natdynlink support on more Linux
+  platforms
+  (Felix Janda, Mark Shinwell)
+
+* GPR#1104: remove support for the NeXTStep platform
+  (Sébastien Hinderer)
+
+- GPR#1130: enable detection of IBM XL C compiler (one need to run configure
+  with "-cc <path to xlc compiler>"). Enable shared library support for
+  bytecode executables on AIX/xlc (tested on AIX 7.1, XL C 12).
+  To enable 64-bit, run both "configure" and "make world" with OBJECT_MODE=64.
+  (Konstantin Romanov, Enrique Naudon)
+
+- GPR#1203: speed up the manual build by using ocamldoc.opt
+  (Gabriel Scherer, review by Florian Angeletti)
+
+- GPR#1214: harden config/Makefile against '#' characters in PREFIX
+  (Gabriel Scherer, review by David Allsopp and Damien Doligez)
+
+- GPR#1216: move Compplugin and friends from BYTECOMP to COMP
+  (Leo White, review by Mark Shinwell)
+
+* GPR#1242: disable C plugins loading by default
+  (Alexey Egorov)
+
+- GPR#1275: correct configure test for Spacetime availability
+  (Mark Shinwell)
+
+- GPR#1278: discover presence of <sys/shm.h> during configure for afl runtime
+  (Hannes Mehnert)
+
+- GPR#1386: provide configure-time options to fine-tune the safe-string
+  options and default settings changed by GPR#1525.
+
+  The previous configure option -safe-string is now
+  renamed -force-safe-string.
+
+  At configure-time, -force-safe-string forces all module to use
+  immutable strings (this disables the per-file, compile-time
+  -unsafe-string option). The new default-(un)safe-string options
+  let you set the default choice for the per-file compile-time
+  option. (The new GPR#1252 behavior corresponds to having
+  -default-safe-string, while 4.05 and older had
+  -default-unsafe-string).
+
+  (Gabriel Scherer, review by Jacques-Pascal Deplaix and Damien Doligez)
+
+- GPR#1409: Fix to enable NetBSD/powerpc to work.
+  (Håvard Eidnes)
+
+### Internal/compiler-libs changes:
+
+- MPR#6826, GPR#828, GPR#834: improve compilation time for open
+  (Alain Frisch, review by Frédéric Bour and Jacques Garrigue)
+
+- MPR#7127, GPR#454, GPR#1058: in toplevel, print bytes and strip
+  strings longer than the size specified by the "print_length" directive
+  (Fabrice Le Fessant, initial PR by Junsong Li)
+
+- GPR#406: remove polymorphic comparison for Types.constructor_tag in compiler
+  (Dwight Guth, review by Gabriel Radanne, Damien Doligez, Gabriel Scherer,
+   Pierre Chambart, Mark Shinwell)
+
+- GRP#1119: Change Set (private) type to inline records.
+  (Albin Coquereau)
+
+* GPR#1127: move config/{m,s}.h to byterun/caml and install them.
+  User code should not have to include them directly since they are
+  included by other header files.
+  Previously {m,s}.h were not installed but they were substituted into
+  caml/config.h; they are now just #include-d by this file. This may
+  break some scripts relying on the (unspecified) presence of certain
+  #define in config.h instead of m.h and s.h -- they can be rewritten
+  to try to grep those files if they exist.
+  (Sébastien Hinderer)
+
+- GPR#1281: avoid formatter flushes inside exported printers in Location
+  (Florian Angeletti, review by Gabriel Scherer)
+
+### Bug fixes
+
+- MPR#5927: Type equality broken for conjunctive polymorphic variant tags
+  (Jacques Garrigue, report by Leo White)
+
+- MPR#6329, GPR#1437: Introduce padding word before "data_end" symbols
+  to ensure page table tests work correctly on an immediately preceding
+  block of zero size.
+  (Mark Shinwell, review by Xavier Leroy)
+
+- MPR#6587: only elide Pervasives from printed type paths in unambiguous context
+  (Florian Angeletti and Jacques Garrigue)
+
+- MPR#6934: nonrec misbehaves with GADTs
+  (Jacques Garrigue, report by Markus Mottl)
+
+- MPR#7070, GPR#1139: Unexported values can cause non-generalisable variables
+  error
+  (Leo White)
+
+- MPR#7261: Warn on type constraints in GADT declarations
+  (Jacques Garrigue, report by Fabrice Le Botlan)
+
+- MPR#7321: Private type in signature clashes with type definition via
+  functor instantiation
+  (Jacques Garrigue, report by Markus Mottl)
+
+- MPR#7372, GPR#834: fix type-checker bug with GADT and inline records
+  (Alain Frisch, review by Frédéric Bour and Jacques Garrigue)
+
+- MPR#7344: Inconsistent behavior with type annotations on let
+  (Jacques Garrigue, report by Leo White)
+
+- MPR#7468: possible GC problem in caml_alloc_sprintf
+  (Xavier Leroy, discovery by Olivier Andrieu)
+
+- MPR#7496: Fixed conjunctive polymorphic variant tags do not unify
+  with themselves
+  (Jacques Garrigue, report by Leo White)
+
+- MPR#7506: pprintast ignores attributes in tails of a list
+  (Alain Frisch, report by Kenichi Asai and Gabriel Scherer)
+
+- MPR#7513: List.compare_length_with mishandles negative numbers / overflow
+  (Fabrice Le Fessant, report by Jeremy Yallop)
+
+- MPR#7519: Incorrect rejection of program due to faux scope escape
+  (Jacques Garrigue, report by Markus Mottl)
+
+- MPR#7540, GPR#1179: Fixed setting of breakpoints within packed modules
+  for ocamldebug
+  (Hugo Herbelin, review by Gabriel Scherer, Damien Doligez)
+
+- MPR#7543: short-paths printtyp can fail on packed type error messages
+  (Florian Angeletti)
+
+- MPR#7553, GPR#1191: Prevent repeated warnings with recursive modules.
+  (Leo White, review by Josh Berdine and Alain Frisch)
+
+- MPR#7563, GPR#1210: code generation bug when a module alias and
+  an extension constructor have the same name in the same module
+  (Gabriel Scherer, report by Manuel Fähndrich,
+   review by Jacques Garrigue and Leo White)
+
+- MPR#7591, GPR#1257: on x86-64, frame table is not 8-aligned
+  (Xavier Leroy, report by Mantis user "voglerr", review by Gabriel Scherer)
+
+- MPR#7601, GPR#1320: It seems like a hidden non-generalized type variable
+  remains in some inferred signatures, which leads to strange errors
+  (Jacques Garrigue, report by Mandrikin)
+
+- MPR#7609: use-after-free memory corruption if a program debugged
+  under ocamldebug calls Pervasives.flush_all
+  (Xavier Leroy, report by Paul Steckler, review by Gabriel Scherer)
+
+- MPR#7612, GPR#1345: afl-instrumentation bugfix for classes.
+  (Stephen Dolan, review by Gabriel Scherer and David Allsopp)
+
+- MPR#7617, MPR#7618, GPR#1318: Ambiguous (mistakenly) type escaping the
+  scope of its equation
+  (Jacques Garrigue, report by Thomas Refis)
+
+- MPR#7619, GPR#1387: position of the optional last semi-column not included
+  in the position of the expression (same behavior as for lists)
+  (Christophe Raffalli, review by Gabriel Scherer)
+
+- MPR#7638: in the Windows Mingw64 port, multithreaded programs compiled
+  to bytecode could crash when raising an exception from C code.
+  This looks like a Mingw64 issue, which we work around with GCC builtins.
+  (Xavier Leroy)
+
+- MPR#7656, GPR#1423: false 'unused type/constructor/value' alarms
+  in the 4.06 development version
+  (Alain Frisch, review by Jacques Garrigue, report by Jacques-Pascal Deplaix)
+
+- MPR#7657, GPR#1424: ensures correct call-by-value semantics when
+  eta-expanding functions to eliminate optional arguments
+  (Alain Frisch, report by sliquister, review by Leo White and Jacques
+  Garrigue)
+
+- MPR#7658, GPR#1439: Fix Spacetime runtime system compilation with
+  -force-safe-string
+  (Mark Shinwell, report by Christoph Spiel, review by Gabriel Scherer)
+
+- GPR#1155: Fix a race condition with WAIT_NOHANG on Windows
+  (Jérémie Dimino and David Allsopp)
+
+- GPR#1199: Pretty-printing formatting cleanup in pprintast
+  (Ethan Aubin, suggestion by Gabriel Scherer, review by David Allsopp,
+  Florian Angeletti, and Gabriel Scherer)
+
+- GPR#1223: Fix corruption of the environment when using -short-paths
+  with the toplevel.
+  (Leo White, review by Alain Frisch)
+
+- GPR#1243: Fix pprintast for #... infix operators
+  (Alain Frisch, report by Omar Chebib)
+
+- GPR#1324: ensure that flambda warning are printed only once
+  (Xavier Clerc)
+
+- GPR#1329: Prevent recursive polymorphic variant names
+  (Jacques Garrigue, fix suggested by Leo White)
+
+- GPR#1308: Only treat pure patterns as inactive
+  (Leo White, review by Alain Frisch and Gabriel Scherer)
+
+- GPR#1390: fix the [@@unboxed] type check to accept parametrized types
+  (Leo White, review by Damien Doligez)
+
+- GPR#1407: Fix raw_spacetime_lib
+  (Leo White, review by Gabriel Scherer and Damien Doligez)
+      
+========================================================================
+13) RISC-V OCaml 4.06
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2017-11/msg00006.html>
+------------------------------------------------------------------------
+** Nicolás Ojeda Bär announced:
+
+I am happy to announce the release of the RISC-V native-code backend for OCaml
+4.06. See <https://sympa.inria.fr/sympa/arc/caml-list/2016-11/msg00012.html> for
+the 4.04 announcement (note there was no 4.05 release).
+
+The source code is available in the 4.06 branch of
+
+  <https://github.com/nojb/riscv-ocaml>
+
+It currently targets the 64-bit variant of the RISC-V architecture, with
+some preliminary work to support the 32-bit variant.
+
+If you would like to experiment with it, a Docker image with Fedora/RISC-V
+and OCaml 4.06 already installed is available.  Simply run
+
+  docker run -it nojb/riscv-ocaml:4.06
+
+All comments warmly welcome.
+      
+========================================================================
+14) ANN: jbuilder 1.0+beta15
+Archive: <https://discuss.ocaml.org/t/ann-jbuilder-1-0-beta15/1063/1>
+------------------------------------------------------------------------
+** Rudi Grinberg announced:
+
+On behalf of the jbuilder team, I?m happy to announce the release of the 15th
+beta of jbuilder. This release contains some nice improvements to odoc
+generation, an important fix for 4.06.0, and completely reworked aliases. The
+new aliases gets rid of the so called "recursive" aliases. Now all aliases,
+whether defined by the user or jbuilder, are non-recursive. The only thing that
+is now "recursive" is when asking jbuilder to build an alias `@path/foo`, it
+will build all aliases `@foo` defined under all recursive subdirectories in
+`path`. For example, `$ jbuilder build @src/doc` will build all the docs defined
+in the all libraries under `src`.
+
+Some of you may have noticed that jbuilder.1.0+beta15 already made it to
+opam-repository and then was pulled. This was done entirely due to my mistake. I
+apologize for any inconvenience I might have caused. Hopefully by the time
+you're reading this, the resubmitted release will be merged to opam-repository.
+
+As usual, the change log is available here for your convenience:
+
+- Change the semantic of aliases: there are no longer aliases that are
+  recursive such as `install` or `runtest`. All aliases are
+  non-recursive. However, when requesting an alias from the command
+  line, this request the construction of the alias in the specified
+  directory and all its children recursively. This allows users to get
+  the same behavior as previous recursive aliases for their own
+  aliases, such as `example`. Inside jbuild files, one can use `(deps
+  (... (alias_rec xxx) ...))` to get the same behavior as on the
+  command line. (#268)
+
+- Include sub libraries that have a `.` in the generated documentation index
+  (#280).
+
+- Fix "up" links to the top-level index in the odoc generated documentation
+  (#282).
+
+- Fix `ARCH_SIXTYFOUR` detection for OCaml 4.06.0 (#303)
+      
+========================================================================
+15) omake-0.10.3
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2017-11/msg00009.html>
+------------------------------------------------------------------------
+** Gerd Stolpmann announced:
+
+in order to support OCaml-4.06, an update of omake is required. I just
+released omake-0.10.3 for that. The main change is that it is now built
+with -safe-string. A smaller change is that all case conversions in the
+omake DSL and for filenames are now restricted to ASCII. A full switch
+from Latin-1 to UTF-8 will be done later. (Note that this might affect
+Windows users, but the changes in OCaml-4.06 demanded immediate action.)
+
+The minimum OCaml version is now 4.03.0.
+
+For docs and the download link see
+<http://projects.camlcity.org/projects/omake.html>. opam is underway.
+      
+========================================================================
+16) Ecaml: OCaml Emacs plugins tutorial
+Archive: <https://discuss.ocaml.org/t/ann-ecaml-ocaml-emacs-plugins-tutorial/1074/1>
+------------------------------------------------------------------------
+** bcc32 announced:
+
+Hi folks. I'm pleased to announce the first post in a series of blog articles
+about getting started with [Ecaml](<https://github.com/janestreet/ecaml>). I hope
+you find it interesting, and feedback is more than welcome! Future entries in
+the series will also be posted here, in the same thread.
+
+<https://blag.bcc32.com/ecaml-getting-started/2017/11/05/emacs-plugins-in-ocaml-1/>
+      
+========================================================================
+17) Other OCaml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Here are links from many OCaml blogs aggregated at OCaml Planet,
+<http://ocaml.org/community/planet/>.
+
+OCaml 4.06.0 released
+ <http://caml.inria.fr/pub/distrib/ocaml-4.06/>
+
+Windows Unicode Support - A Bug-Fix 12 Years in the Making
+ <https://ocamllabs.github.io//general/2017/10/30/WindowsUnicode.html>
+
+Nesting quoted strings in OCaml
+ <http://blog.shaynefletcher.org/2017/10/nesting-quoted-strings-in-ocaml.html>
+
+Fuzzing for CI Workflows
+ <https://ocamllabs.github.io//general/2017/10/24/Bun.html>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

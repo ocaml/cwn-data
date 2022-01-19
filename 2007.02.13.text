@@ -1,0 +1,153 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of February 13 to 20, 2007.
+
+1) Amb
+2) Using OpenGL with the native OCaml Graphics module
+
+========================================================================
+1) Amb
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/d919ffcfd7af90e3/f9f4d239cca2f32b#f9f4d239cca2f32b>
+------------------------------------------------------------------------
+** Andrej Bauer asked and Oleg answered:
+
+> let me point out that amb is supposed to work as an _angelic_
+> nondeterministic choice operator. This means it must choose a value
+> that, if at all possible, leads to successful completion of the
+> computation.... The scheme implementation involves callcc magic. 
+> If anyone knows a reasonable implementation of amb, I'd be
+> interested to know.
+
+Here it is. Ocaml has something better than call/cc: delimited
+continuations. So, amb is trivially implementable, in two lines of
+code. We also need a `toplevel function', to tell us if the overall
+computation succeeded. One may think of it as St.Peter at the
+gate. For now, we take a computation that raises no exception as
+successful. In general, even non-termination within a branch can be
+dealt with intelligently (cf. `cooperative' threading which must yield
+from time to time).
+
+Regarding effects incurred while evaluating branches: one deal with
+them as one deal with effects when implementing any transactional
+mechanism: you prohibit them, you log the updates, you log the state
+before the beginning so to undo, you use zipper for functional
+`mutations' (which can be done with delimited continuations, too), you
+operate in a sandbox, etc. The ZFS talk gives an example:
+ <http://pobox.com/~oleg/ftp/Computation/Continuations.html#zipper-fs>
+
+Here are the tests. The second one requires a three-step clairvoyance:
+
+let test1 () =
+  let v = 
+    if (amb [(fun _ -> false); (fun _ -> true)]) then
+      7
+    else failwith "Sinner!"
+  in Printf.printf "got the result %d\n" v;;
+let test1r = toplevel test1;;
+(* got the result 7 *)
+
+(* Test that invokes the Pythagorean spirit *)
+let numbers = List.map (fun n -> (fun () -> n)) [1;2;3;4;5];;
+let pyth () = 
+  let (v1,v2,v3) =
+    let i = amb numbers in
+    let j = amb numbers in
+    let k = amb numbers in
+    if i*i + j*j = k*k then (i,j,k) else failwith "too bad"
+  in Printf.printf "got the result (%d,%d,%d)\n" v1 v2 v3;;
+
+let pythr = toplevel pyth;;
+(* got the result (3,4,5) *)
+
+(* Open the DelimCC library
+  <http://pobox.com/~oleg/ftp/Computation/Continuations.html#caml-shift>
+*)
+open Delimcc;;
+let shift p f = take_subcont p (fun sk () ->
+  push_prompt p (fun () -> (f (fun c -> 
+    push_prompt p (fun () -> push_subcont sk c)))))
+;;
+
+(* How evaluation has finished *)
+type res = 
+    Done                             (* Finished with the result *)
+  | Exc     of exn                   (* Got an exception -- no good *)
+  | Choices of (unit -> res) list    (* Alternative universes *)
+
+exception Amb		             (* Raise when all choices are bad *)
+;;
+
+let topprompt = new_prompt ();;
+
+(* If it looks like an OS scheduler, it's because it is *)
+let toplevel thunk =
+  let rec loop queue = function 
+  | Done (* evaluation of a branch finished successfully *)
+     -> ()
+  | Exc _ -> try_another queue
+  | Choices more  -> (* OK, add them to the end: breadth-first *)
+      try_another (queue @ more)
+  and try_another = function
+  |  [] -> raise Amb (* No more choices *)
+  |  h::t -> loop t (try h () with e -> Exc e)
+  in
+  loop [] (push_prompt topprompt 
+	     (fun () -> try let _ = thunk () in Done with e -> Exc e))
+;;
+
+(* Split the universe. Something like `fork (2)' *)
+let amb choices = shift topprompt (fun sk -> 
+  Choices (List.map (fun choice -> (fun () -> sk choice)) choices));;
+			
+========================================================================
+2) Using OpenGL with the native OCaml Graphics module
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/af61e8a3906d7c1d/f615ecb89511e972#f615ecb89511e972>
+------------------------------------------------------------------------
+** Elliott Oti announced:
+
+I've always thought it would be nice if it were possible to use OpenGL 
+calls in a window created with the Ocaml Graphics module. This would 
+prevent the need to require external toolkits such as SDL or GLUT for 
+some applications. 
+The Ocaml Graphics module is quite limited compared to SDL or GLUT, 
+and also fills a slightly different niche, but it does come with a 
+number of useful functions for drawing text, various graphics 
+primitives, and for polling mouse and keyboard events. Simple 
+standalone programs or demos can be created and distributed without 
+requiring that the SDL or GLUT shared library be present on those 
+systems. 
+
+To get an Ocaml window working with OpenGL I wrote a small stub file 
+in C and a few lines of ML code. A gzipped tar file containing all 
+necessary code to get OpenGL working in a native Ocaml graphic window, 
+along with an example for windows and linux, can be obtained from 
+<http://www.elliottoti.com/code/glgraphics/glgraphics.tar.gz> 
+
+A screenshot and a little more documentation is available at 
+<http://www.elliottoti.com/index.php?p=24>
+			
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

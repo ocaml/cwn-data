@@ -1,0 +1,855 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of July 22 to August 26, 2008.
+
+Sorry for the long hiatus. I have moved in and I'm now ready to get back to caml news. Time to catch up!
+
+1) Understanding Monads
+2) newbie ocaml and delimited continuations
+3) 'Nondeterministic' evaluation wrt exceptions
+4) Released Mikmatch 1.0.0 and Micmatch 1.0.0
+5) OCaml and Matlab
+6) pa_where 0.4 : backward declarations
+7) [camlp4] expr_of_string, string_of_expr functions exist?
+8) virt-mem 0.2.8 has been released
+9) native vs bytecode
+10) Value shadowing
+11) Opis, reliable distributed systems in OCaml
+12) bitstring mailing list
+13) Developing Chamo
+
+========================================================================
+1) Understanding Monads
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/03e42ce999db1dd3#>
+------------------------------------------------------------------------
+** Continuing the thread from a month ago, Nicolas Pouillard said:
+
+Two key points that helped me:
+
+* Monads help to separate some plumbing from your code.
+
+* Monads provide a way to abstract code over some "let" construct.
+
+I will note that specific "let" construct "let!", it's somewhat
+like the do-notation but more atomic.
+
+Monads also come with "return", but that's not the essence of them.
+
+Think about that example:
+
+ val div : int -> int -> int option
+ val square : int -> option
+
+ let f x y =
+   match div x y with
+   | None -> None (* here 'y' was equal to 0 *)
+   | Some z ->
+       match square z with
+       | None -> None
+       | Some x2 -> Some x2
+
+In the previous example the plumbing is error handling (where errors are
+represented by None), and the "let!" construct is:
+
+ let! x = e1 in e2   ===>   match e1 with None -> None | Some x -> e2
+
+And "return" is "Some".
+
+Another similar example:
+
+ type ('a,'b) either = Left of 'a | Right of 'b
+
+ val div : int -> int -> (string, int) either
+ val square : int -> (string, int) either
+
+ let f x y =
+   match div x y with
+   | Left error_msg -> Left error_msg
+   | Right z ->
+       match square z with
+       | Left error_msg -> Left error_msg
+       | Right x2 -> Right x2
+
+Here the plumbing is still there for "error handling", but is somewhat
+different. The "let!" construct is:
+
+ let! x = e1 in e2   ===>   match e1 with Left m -> Left m | Right x -> e2
+
+And "return" is "Right".
+
+Finally one could have used the "let!" construct
+abstractly (and also "return").
+
+ let f x y =
+   let! z = div x y in
+   let! x2 = square z in
+   return x2
+
+One can obtain the two previous versions by choosing
+which "let!"/"return" we want, namely choosing the monad.
+			
+** Dario Teixeira said:
+
+Some months ago someone posted a comment on the Programming
+Reddit that brilliantly summarises monads.  It's the best
+intro I've read so far:
+
+<http://www.reddit.com/r/programming/info/64th1/comments/c02u9mb>
+			
+** Christophe Troestler said:
+
+You may want to take a look to 
+<http://cufp.galois.com/2007/slides/ChrisWaterson.ppt>
+for an actual use of monads in a concrete product.
+			
+========================================================================
+2) newbie ocaml and delimited continuations
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/07b5c913607a7933#>
+------------------------------------------------------------------------
+** Atkinson Julian asked and Oleg answered:
+
+> Is it likely that this package may be incorporated into a later official
+> relase of ocaml (ie receive first class support ) ?. continuations would
+> appear to offer considerable programming expressiveness even if not widely
+> supported in other languages (cf scheme).
+
+The library delimcc is a pure library in the sense it does not patch
+OCaml in any way. Therefore, it does not have to be incorporated into
+the official release of OCaml. There are many very useful OCaml
+libraries (Core or Extlib to name a few) that will never be part of
+the official release. Since Inria does not have many resources to
+devote to OCaml, they rather concentrate on the compiler and the basic
+run-time system, and leave the libraries to the
+community. Incidentally, GHC Haskell system is being developed in a
+similar fashion.
+
+> And a very basic tech question - It is obviously necessary that the package
+> runs as interpreted bytecode - so that the activation record of the
+> function/closure may be saved/serialized off.
+
+Although the current delimcc library does support bytecode only, that
+is not the fundamental limitation. It is possible in principle to
+capture and resume continuations in ocamlopt-compiled programs. That
+is, however, quite more involved, requires the use of frame tables,
+etc. There has not been much interest in ocamlopt-delimited
+continuations to justify the development. 
+
+Incidentally, a new version of the library
+	<http://okmij.org/ftp/packages/caml-shift.tar.gz>
+just has been released, with many optimizations reducing the size of
+captured continuations. The original library was not optimized at all.
+			
+========================================================================
+3) 'Nondeterministic' evaluation wrt exceptions
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/e02b5d17b39f1e53#>
+------------------------------------------------------------------------
+** Dawid Toton asked:
+
+Let's look at my OCaml program as a poset of function applications. 
+Some its elements throw exceptions. 
+I need to evaluate all applications except of those that 'Follow' 
+exception-throwing ones. 
+This 'Follow' corresponds to the ordering in my poset. 
+Unfortunately standard tools allow only to do this with 'Follow' 
+corresponding to some total order. 
+Could you give me some advice how to evaluate really all applications 
+that precede throwing an exception? 
+
+---------- 
+Full story 
+
+I have many similar programs that do calculations for me. Some steps are 
+very computationally heavy. Every such function do_heavy_thing starts 
+another process (on other computer) and throws an exception that means 
+"the result will be available later". Everything that relies on this 
+result of do_heavy_thing cannot be evaluated. And it won't be because I 
+don't catch the exception. 
+
+So I run my programs repeatedly. I correct and extend them while 
+heavy_thing is done somewhere else (usually for few days). 
+do_heavy_thing checks for the result. If it's finished at the moment of 
+execution, it downloads the data and returns. Then the data undergoes 
+some cheap transformations and some next do_heavy_thing function can be 
+called. 
+
+Every time I execute the program I get some more useful output and 
+"Fatal error: exception ..." message. So far this scheme worked very well. 
+
+This is basically breaking the calculation at some point with respect to 
+a total order (the order of source code). Some calculations should be 
+done in parallel, since there are many of them. I solved this problem 
+with run_many adapter: firstly collect a list of heavy calculations, 
+then execute them as a one node in the total order of evaluation. 
+
+Currently I hit the following problem: my new programs (call them 
+'Calcs') are too complex to apply the evasion with run_many. So my 
+latest calculations are done one-by-one. This is so bad, that I can 
+spend several days in order to solve this in a systematical way. 
+
+These Calcs are managed by other set of OCaml tools. I have complete 
+control over all the code. The tools already do tiny changes to Calcs 
+with simple string operations, not real syntax extension. I hope some 
+witty preprocessor can help. 
+
+I have no idea what code the syntax extension should produce. My first 
+guess is to wrap everything in 
+ type 'a wrapped = Exception | Value 'a 
+and make all aplications evaluated. But this seems to be a big headache. 
+Maybe this is well-known, already solved problem? Any ideas?
+			
+** Gabriel Kerneis replied:
+
+The wrapping you describe looks a lot like a monad, and your problem
+definitely looks like having many (cooperative) threads, some of them needing
+to be detached (because they are blocking).
+
+You could have a look at <http://ocsigen.org/lwt> and adapt it to suit your
+needs. Pay attention in particular to the detach() function.
+
+Please, note I might be seeing monads and continuation-passing style
+everywhere, since this is my current research topic.
+			
+** Xavier Leroy also replied:
+
+Could you give me some advice how to evaluate really all applications
+that precede throwing an exception?
+
+I'm not sure I fully understand what you're trying to achieve, but I'm
+reminded of "futures", a construct for parallel computation that
+was popular in the Lisp world in the 80's.  The classic reference
+is Halstead's Multilisp system:
+  <http://www.cs.wisc.edu/~fischer/cs538.s04/multilisp.pdf>
+
+In a nutshell, a future is like a lazy value, but the underlying
+computation is evaluated speculatively in parallel with the main
+program, rather than waiting until its value is needed as in the case
+of lazy evaluation.
+			
+** Dawid Toton then added:
+
+Let me show an example of what I exactly mean. I start with a code: 
+
+1: let a = heavy 1 
+2: let b = heavy 2 
+3: let c = report (a + b) 
+4: let d = heavy 4 
+5: let e = heavy d 
+
+Then I want to translate it automatically so that three applications of 
+heavy are evaluated (lines 1, 2, 4). The addition a + b won't be 
+evaluated untill a and b are successfully returned. 
+
+It's easier to get only two heavy operations started at once: 
+
+0: type 'a future_t = 'a Lazy.t 
+1: let a = future heavy 1 
+2: let b = future heavy 2 
+3: let c = report ((force a) + (force b)) 
+4: let d = future heavy 4 
+5: let e = future heavy (force d) 
+
+Computation of c hangs or throws an exception. Hence lines 4 an 5 are 
+not executed. So I think I need some more invasive transformarion: 
+
+0: type 'a future_t = 'a Lazy.t 
+1: let a = future heavy 1 
+2: let b = future heavy 2 
+3: let c = lazy (report (force a) + (force b)) 
+4: let d = future heavy 4 
+5: let e = future heavy (force d) 
+6: let _ = force c 
+
+In this case we have a problem: line 5 throws an exception, so report in 
+line 3 is not executed even if first two heavy operations are finished. 
+The function report could even contain some other heavy operations that 
+need to be started as soon as possible. 
+
+So I can conctruct a tree of deferred computations, but probably I can't 
+force it to do as much as possible. Forcing is governed by total order. 
+Let's consider: 
+
+7: let f = foo (force c) (force e) 
+
+If one of arguments fails first, the other is not forced. This is bad. 
+
+So I go to the original idea: thread the exception across everything. 
+Wrap with variant instead of Lazy.t. 
+
+0: type 'a lifted_t = Exception | Value 'a 
+1: let a = start heavy 1 
+2: let b = start heavy 2 
+3: let c = bind2 (fun a b -> return (report (a+b))) a b 
+4: let d = start heavy 4 
+5: let e = bind1 (fun d -> start heavy d) d 
+7: let f = bind2 (fun c e -> return (foo c e)) c e 
+
+Function 'start' starts calculation and returns Exception or returns 
+Value result if it's available. 
+bindX functions evaluate the function passed as a parameter if all 
+arguments are Values. 
+
+Is is easy to lift every heavy call to 'start heavy arg arg arg ...' - 
+since in any case I have to distinguish heavy functions manually. 
+I need to decide about granularity of bindX incrustation. I can have 
+some modules marked as 'nondeterministic' and leave the other ones 
+untouched. 
+I could wrap into lifted_t all single values in 'nondeterministic' 
+modules. This would mean placing bindX for every integer addition, every 
+string concatenation... 
+
+I need rules: where should I place bindX and return in the original 
+code. At the moment I don't know. 
+
+I have looked at the Lwt library - as far as I understand in my case the 
+idea boils down to threading something across all expressions.
+			
+** Christophe Troestler then suggested:
+
+You may want to have a look to 
+<http://enfranchisedmind.com/blog/2007/08/06/a-monad-tutorial-for-ocaml/> 
+especially the "Russian Nesting Doll Monads" section for ideas.
+			
+========================================================================
+4) Released Mikmatch 1.0.0 and Micmatch 1.0.0
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/b46ad785eeff71e1#>
+------------------------------------------------------------------------
+** Martin Jambon announced:
+
+I am pleased to announce the availability of Micmatch for the new Camlp4. The
+new package is called "Mikmatch", with a K. "Micmatch" with a C refers to the
+original implementation which now uses Camlp5.
+
+   <http://martin.jambon.free.fr/micmatch.html>
+
+or  GODI if you want to jump directly to the installation.
+
+
+Micmatch is a Camlp4 syntax extension that allows to use regexps in match-with
+constructs. Compilation of the underlying PCRE or Str regexp is done
+transparently, just once. The syntax of the regexps is reminiscent of
+ocamllex. For those who are not familiar with ocamllex, this syntax is very
+OCaml-friendly and in particular avoids backslash headaches.
+
+
+This is a double announcement:
+
+micmatch-1.0.0 (stable except for possibly some packaging issues):
+ Legacy implementation, slightly modified to work with
+ Camlp5 (thanks to John Gregorski for the patch).
+
+mikmatch-1.0.0 (beta quality):
+ Partial reimplementation that supports Camlp4 3.10 aka the
+ "new Camlp4". Currently there is no toplevel support.
+ For details on the changes, see
+ <http://martin.jambon.free.fr/mikmatch-changes.txt>
+
+
+Have fun, program safely, and please report problems to
+
+ micmatch@googlegroups.com
+ (archive at <http://groups.google.com/group/micmatch> )
+
+
+Thanks to the OCamlForge team for providing free and worry-free hosting.
+			
+========================================================================
+5) OCaml and Matlab
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/78b120aebfae5205#>
+------------------------------------------------------------------------
+** Maurice Bremond announced:
+
+Here is an updated version for ocaml >= 3.10 with *Camlp5* :
+
+<http://gforge.inria.fr/frs/download.php/4062/ocamlmex-2.1.0.tar.gz>
+
+(from <http://ocamlmex.gforge.inria.fr/>)
+
+It has been tested with Matlab 2007b, 2008a and Octave on a Ubuntu Hardy
+
+(Ocaml 3.10.1, Camlp5 5.04 (transitional mode), Octave 3.0)
+
+For any trouble with this, please mail me directly.
+			
+========================================================================
+6) pa_where 0.4 : backward declarations
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/9f98fdc2278eb869#>
+------------------------------------------------------------------------
+** blue storm announced:
+
+mfp and I are pleased to announce the first public release of
+pa_where, a camlp4 extension enabling backward declarations. The
+"where" keyword, available in the revised syntax, and one of the
+truly missed Caml-light friends, is back.
+
+The syntax, however, is slightly different from the usual one :
+"where" should be followed by another declarative keyword, such
+as "let" : a where let a = b
+
+It is possible to use the "where let" form inside expressions,
+and the "where val" form at toplevel (structure items). Having
+a different syntaxic form for toplevel and local declarations is
+not the classical syntax standard, but was needed for
+disambiguation issues.
+
+It is however possible to use the good old "where a = b" syntax :
+in absence of any declarative keyword, the "let" keyword is used
+as default.
+
+The revised syntax "where" is restricted because of the "dangling
+and" issue. pa_where has no such restriction (what's one more
+ambiguity in the classical syntax anyway ?). Here are the two
+ambiguous cases :
+   a where b where c => (a where b) where c
+   let a = b where c and d => let a = (b where c and d)
+
+It would be possible to extend the backward declarations to other
+constructions such as "where module" or "where type". If you see
+any use for it, do not hesitate to ask for the feature or send
+a patch.
+
+The final syntax, wich I think is a good compromise, is the
+result of a debate on the #ocaml IRC channel (Freenode). If you
+are about to write a syntax extension yourself, you should really
+consider discussing your syntax considerations there (or maybe on
+the mailing-list ?) : it is amazing how helpful such a debate can
+be on a so subjective question.
+
+Thanks in advance for any testing, comment, criticism, request or
+patch.
+
+
+URL : <http://bluestorm.info/camlp4/pa_where/list.php>
+
+Available archives (test and META files included) :
+- <http://bluestorm.info/camlp4/pa_where/pa_where-0.4-.tar.gz>
+- <http://bluestorm.info/camlp4/pa_where/pa_where-0.4-.zip>
+
+Highlighted HTML source for online reading :
+- <http://bluestorm.info/camlp4/pa_where/pa_where.ml.html>
+			
+========================================================================
+7) [camlp4] expr_of_string, string_of_expr functions exist?
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/f35452d085654bd6#>
+------------------------------------------------------------------------
+** Richard Jones asked and Yitzhak Mandelbaum answered:
+
+> Maybe a simple question, but does camlp4 have functions to turn
+> expr and patt AST structures to and from strings?
+
+I don't know about the new camlp4, but in the old one the code looked
+something like this (where my AST is a list of str_item-s):
+
+open Pcaml
+
+let ast_to_strings ast =
+ List.map (function str_item -> string_of pr_str_item str_item) ast
+			
+** Christophe Troestler also answered:
+
+Parsing:
+
+ open Camlp4.PreCast
+
+ let loc = Loc.ghost;;
+
+ Syntax.AntiquotSyntax.parse_expr loc "x = 1";;
+
+ Syntax.AntiquotSyntax.parse_patt loc "Failure _";;
+
+Printing:  I do not know a way to print to a string, only to a file.
+I guess this asymmetry is due to the fact that a string output was
+never needed... (but it would be useful to me too!)  Moreover, you can
+only print str_item's, so you have to wrap your expr and patt.  E.g.
+
+ let e = <:expr< 1 + 1 >>;;
+
+ Printers.OCaml.print_implem ~output_file:"/tmp/o.ml" <:str_item< $exp: e$ >>;;
+ (* will print
+ let _ = 1 + 1;;
+ *)
+
+ Printers.OCaml.print_implem ~output_file:"/tmp/o.ml"
+   (let _loc = Ast.loc_of_expr e in Ast.StExp(_loc, e));;
+ (* will print
+ 1 + 1;;
+ (but I do not know whether this is a feature!) *)
+			
+** Jeremy Yallop also answered:
+
+One way to do it is to use the Camlp4.Printers module. To illustrate the idea,
+here's a complete working program that prints out all expressions found in a
+file.
+
+open Camlp4.PreCast
+open Syntax
+
+(* Instantiate the module that allows us to print AST values.
+  This gives us an object with methods `expr', `patt', etc.,
+  each with type `Format.formatter -> t -> unit'. *)
+let printer = let module P = Camlp4.Printers.OCaml.Make(Syntax)
+             in new P.printer ()
+
+(* Transform a formatter function into a to_string function. *)
+let format_to_string (f : Format.formatter -> 'a -> unit) (v : 'a) : string =
+ let buf = Buffer.create 128 in
+ let fmt = Format.formatter_of_buffer buf in
+ let () = f fmt v in
+ let () = Format.pp_print_flush fmt () in
+    Buffer.contents buf
+
+(* Some to_string functions for particular AST types. *)
+let expr_of_string : Ast.expr -> string = format_to_string printer#expr
+let patt_of_string : Ast.patt -> string = format_to_string printer#patt
+
+(* A "filter" that prints out expressions encountered in the AST (top-down). *)
+let print_stuff = object
+ inherit Ast.map as super
+ method expr e =
+    let () = print_endline ("expr: "^ expr_of_string e) in
+       super#expr e
+end
+
+(* Register the filter with camlp4 *)
+let () = AstFilters.register_str_item_filter print_stuff#str_item
+
+
+Compile:
+  ocamlc -c -I +camlp4 print.ml
+Run:
+  camlp4of print.cmo file.ml
+			
+========================================================================
+8) virt-mem 0.2.8 has been released
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/46f6603351a7b3b4#>
+------------------------------------------------------------------------
+** Richard Jones announced:
+
+[Perhaps people wonder what I do at Red Hat.  Copied below is an
+announcement of some virtualization management tools that we wrote in
+OCaml.  This might be interesting to people on this list because it
+heavily uses DSLs written in camlp4 and other camlp4 features such as
+"Reflective OCaml".  It's also a real world program specifically
+designed to be used by system administrators who, frankly, won't care
+about implementation details but will only care that it works.  If you
+want to find out about the many other management tools I'm writing
+please go to <http://et.redhat.com/~rjones/>  As with all Red Hat
+software, this is Free and open source, and I'd like to encourage
+anyone to contribute back patches, suggestions and documentation.]
+
+----------------------------------------------------------------------
+
+I'm pleased to announce the latest release of the virt-mem tools,
+version 0.2.8.
+
+These are tools for system administrators which let you find things
+like kernel messages, process lists and network information of your
+guests.
+
+For example:
+
+ virt-uname
+   'uname' command, shows OS version, architecture, etc.
+ virt-dmesg
+   'dmesg' command, shows kernel messages
+ virt-ps
+   'ps' command, shows process list 
+
+Nothing needs to be installed in the guest for this to work, and the
+tools are specifically designed to allow easy scripting and
+integration with databases and monitoring systems.
+
+Source is available from the web page here:
+
+ <http://et.redhat.com/~rjones/virt-mem/>
+
+The latest version (0.2.8) reworks the internals substantially so that
+we have direct access to basically any kernel structure, and this will
+allow us to quickly add the remaining features that people have asked
+for (memory usage information, lists of network interfaces and so on).
+
+As usual, patches, feedback, suggestions etc. are very welcome!
+
+Binaries will be available in Fedora 10 (Rawhide) at some point soon.
+			
+========================================================================
+9) native vs bytecode
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/d30afbc4d16299f8#>
+------------------------------------------------------------------------
+** Ben Aurel asked and Alain Frisch replied:
+
+> - is it possible to dynamically load bytecode libraries into a bytecode 
+program? 
+
+Yes: 
+<http://caml.inria.fr/pub/docs/manual-ocaml/manual041.html> 
+
+> - is it possible to dynamically load native libraries into a native program? 
+
+This will be possible in the next release of OCaml (3.11). The API is 
+the same as for bytecode (Dynlink module), although the model is a 
+little bit different (specific linking phase to produce dynlinkable units). 
+
+> - is it possible to dynamically load bytecode libraries into a native 
+program? 
+
+ > - is it possible to dynamically load native libraries into a bytecode 
+program? 
+
+No.
+			
+========================================================================
+10) Value shadowing
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/4adaa33c66747856#>
+------------------------------------------------------------------------
+** Deep in this long thread, blue storm announced:
+
+Here is a draft of camlp4 extension warning on value shadowing :
+  <http://bluestorm.info/camlp4/dev/pf_shadow/list.php>
+
+You can use it as a preprocessor to your source file, and it will raise
+warnings on value shadowing.
+For example (more examples in the test.ml file), your input gives the warning :
+<W> File "input.ml", line 4, characters 6-8: shadowing binding 'xs' from File "input.ml", line 2, characters 8-10
+
+Recursive bindings are handled, but classes, types and modules are not : it is
+a reasonable proof of concept, and if somebody is interested in more
+exhaustiveness, i (or whoever) could probably extend it easily.
+			
+========================================================================
+11) Opis, reliable distributed systems in OCaml
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/793cf2291e975233#>
+------------------------------------------------------------------------
+** Pierre-Evariste Dagand announced:
+
+After having delayed this announce for months, I think that Opis is
+now mature enough to be publicly released. The literate code and a
+technical report are available here:
+
+<http://perso.eleves.bretagne.ens-cachan.fr/~dagand/opis/>
+
+---------------------------
+What Opis is about ?
+---------------------------
+
+Opis is a toolkit for large-scale distributed system programming. It
+aims at easing the development of complex and reliable distributed
+systems by:
+  - embedding a domain-specific language (EDSL) in OCaml: hence
+offering a reactive, dataflow-oriented programming style while not
+reinventing the wheel (type-checker, efficient code generation, ...))
+  - assisting the developer with powerful, integrated tools: network
+simulator, debugger, model-checker and performance profiler
+  - working with purely-functional constructs: therefore lowering the
+barrier to certify critical parts of the distributed system in a
+theorem prover
+
+----------------------
+Technical details:
+----------------------
+
+The EDSL is based on the Arrow abstraction
+[<http://www.haskell.org/arrows/>]. First, the developer defines some
+pure functions, then abstracts them in the Arrow world and finally
+wires them together using the Arrow combinators. The resulting
+function is termed an "event function": it receives input events from
+the network, the timer or the user interfaces and reacts with output
+events.
+
+Then, these output events are interpreted by the "launcher" subsystem.
+For instance, the event function might ask to "Send( ip_x , TCP , data
+)". Thus, the Network Launcher opens a TCP connection to "ip_x",
+marshals "data" to a string and finally sends it.
+
+Internally, the Arrow combinators build a Mealy automaton out of the
+user-defined pure functions. Interestingly, Mealy automata has been
+introduced and used by Lamport for decades to describe distributed
+systems [<http://en.wikipedia.org/wiki/State_machine_replication>].
+
+Hence, there already exists some encouraging, successful formalization
+of Mealy-based systems [<http://coq.inria.fr/contribs/fairisle.html>].
+We are currently experimenting with Coq to completely develop the
+event functions in Coq (and to prove non trivial properties about the
+behavior of the resulting distributed system).
+
+
+Beyond an EDSL, Opis also provides some useful tools to speed-up the
+development and deployment of event functions. Hence, given an event
+function and without any modification, we can:
+
+  - deploy it on a real network
+  - simulate a network executing the event function, to test the
+behavior of the system "in the large"
+  - debug a network of nodes running the event function, to inspect
+the system "in the small", with forward and backward execution steps,
+state inspection, ...
+  - model-check the distributed system against safety properties,
+featuring a dynamic partial-order reduction mode that avoids the usual
+combinatorial explosion in most systems
+   - performance-debug the pure functions, by measuring their
+processing time and inferring their (algorithmic) complexity
+
+
+Finally, by using OCaml and staying in the purely-functional world, we
+benefit from:
+
+   - OCaml excellent performances (both on the computational side and
+on the networking side) as well as its thoroughly tested type-checker
+   - the "code export" capability of theorem provers (Isabelle, Coq,
+....): we have been able to certify critical code in Isabelle, export
+the corresponding code and integrates it smoothly in an existing
+system
+   - the usual benefit of functional programming: easier (informal)
+reasoning and testing
+
+
+--------------------------
+Acknowledgements
+--------------------------
+
+I would like to thanks Zheng Li, Oleg Kiselyov and Jacques Garrigue
+for their help on this list to design an efficient Arrow instance.
+
+At this point of this long mail, I think I must also thank the reader
+that have bravely read up to here ;-)
+			
+========================================================================
+12) bitstring mailing list
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/51544aa549645d7e#>
+------------------------------------------------------------------------
+** Richard Jones announced:
+
+We've set up a mailing list to continue discussion of bitstring.  It's
+not just for developers though, if you'd like to ask user-oriented
+questions too we'd be glad to help.
+
+<http://groups.google.com/group/bitstring>
+
+----------------------------------------
+
+<http://code.google.com/p/bitstring/>
+
+The ocaml-bitstring project adds Erlang-style bitstrings and matching
+over bitstrings as a syntax extension and library for OCaml.
+
+(This project was formerly known as "bitmatch").
+
+You can use this module to both parse and generate binary formats,
+files and protocols.
+
+Bitstring handling is added as primitives to the language, making it
+exceptionally simple to use and very powerful.
+			
+========================================================================
+13) Developing Chamo
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/d8a0f5f28b9c55b0#>
+------------------------------------------------------------------------
+** Deep in this thread, Maxence Guesdon said:
+
+Indeed it's a lot of work and I wish I had more time to work on it.
+Here are some comments about my experience developping Chamo[1].
+
+It's important for me to be able to change the editor/IDE I use without
+having to change the build process or the organisation of the source files.
+It's kind of easy to force the developper to use some tools and the way to
+use them, saying "If you use my wonderful editor, you have to put your code
+here, use this tool and not this other, etc.". The hard part is to keep
+flexibility and so to foresee what must be customizable by the user. And
+this flexibility is required to be able to contribute on projects using
+different organisations and build processes.
+
+For this reason, I never developped a "project manager" in Cameleon,
+because I did not want to put my includes and other flags (for example) in
+a specific file and become "cameleon-dependent" (and so for the possible
+contributors). So I keep on writing Makefiles.
+
+(Chamo is part of Cameleon. Cameleon aimed at being an IDE, with
+documentation browsing, version control, etc., and using Chamo as
+default source code editor)
+
+So my recent efforts were on Chamo, a source code editor, like emacs but
+written in ocaml and using ocaml rather than elisp to write configuration
+and extensions. Again, the difficulty is to foresee what the user will want
+to change because in ocaml a function f cannot be *redefined*: it is
+possible to define *another* function f, but functions using the first
+definition will continue to use the first definition, not the new one. So
+I added "commands" in Chamo, like shell commands. These are only names, and
+the user can change the ocaml function associated to these names. This
+allows the user to write the ocaml code which calls its favorite tools and
+to for example bind this code to the keyboard shortcuts he wants (see
+examples at [3]).
+
+The GUI represents a big part of the work, even using an existing source
+code editor widget (gtksourceview). There is a lot of information
+to keep and display, a lot of things possibly happening. Moreover, as
+soon as there is interaction with the user, error handling is required at
+every line...
+
+For ocaml-specific aspects:
+- Chamo uses .annot files to display type information (Alt-t),
+- ocamlbuild is supported,
+- errors messages in compilation processes (ocamlbuild, make or any command)
+are parsed and the cursor is positionned at the location of the error.
+
+So I already use Chamo for my daily work (development, edition of text
+files). What's missing now is access to more information like location of
+definitions, completion and so on. I'm waiting for the result of
+ocamlwizard[3] to see how to use these tools in Chamo to provide these
+missing features.
+
+Since these tools will surely need some information about compilation
+flags, there are two solutions:
+1. Add a way to indicate these flags to Chamo/Cameleon, but keep this way
+flexible so that any user can import them from any other location
+(makefile, etc.)
+2. Use "dump" files to store the results of these tools and Makefile targets
+to produce them (that the way ocamldoc is used in Cameleon for browsing
+documentation)
+
+Regards,
+
+Maxence
+
+[1] <http://home.gna.org/cameleon/chamo.en.html>
+[2] <http://home.gna.org/cameleon/snippets.en.html>
+[3] <http://osp.janestcapital.com/files/ocamlwizard.pdf>
+			
+** Richard Jones then suggested and Maxence Guesdon replied:
+
+> > So I already use Chamo for my daily work (development, edition of text
+> > files). What's missing now is access to more information like location of
+> > definitions, completion and so on.
+> 
+> You've looked at cmigrep?
+> 
+>  <http://caml.inria.fr/cgi-bin/hump.en.cgi?contrib=560>
+
+No. I just donwloaded it and indeed it could be used from chamo to provide
+some more features in a flexible way.
+
+Thanks !
+			
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

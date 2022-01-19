@@ -1,0 +1,275 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+	<cwn_head>
+		<cwn_date>2008.07.15</cwn_date>
+		<cwn_prev>2008.07.08</cwn_prev>
+		<cwn_next>2008.07.22</cwn_next>
+		<cwn_date_text>July 8 to 15, 2008</cwn_date_text>
+	</cwn_head>
+	<cwn_body>
+		<cwn_entry>
+			<cwn_title>New library: Easy-format 0.9.0</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/61252c85858fe7ea#</cwn_url>
+			<cwn_who>Martin Jambon announced</cwn_who>
+			<cwn_what>
+I would like to announce a small library (a module in fact) that is meant to
+make it easy to produce pretty-printed text:
+
+ http://martin.jambon.free.fr/easy-format.html
+
+The data to be printed goes through a tree that carries all the information
+required for pretty-printing. After that, a single call to
+Easy_format.Pretty.to_stdout (for instance) outputs the indented result.
+
+There's a reasonably complete example at
+
+ http://martin.jambon.free.fr/easy_format_example.html
+			</cwn_what>
+			<cwn_who>He later added</cwn_who>
+			<cwn_what>
+I've just released a richer version of Easy-format.
+The main URL is still http://martin.jambon.free.fr/easy-format.html
+
+It now offers the following additional features:
+
+- Support for separators that stick to the next list item (e.g. "|")
+- More wrapping options
+- Added Custom kind of nodes for using Format directly or existing
+ pretty-printers
+- Support for markup and escaping, allowing to produce colorized output
+ (HTML, terminal, ...) without interfering with the computation of
+ line breaks and spacing.
+
+Easy-format now takes advantage of most features of the Format module, with
+the notable exception of tabulation boxes. I'd be curious so see any
+interesting use of tabulation boxes.
+
+
+This release has slight incompatibilities with version 0.9.0 which was
+released earlier this week, simply because more options were added:
+
+- Deprecated use of Easy_format.Param. Instead, inherit from
+ Easy_format.list,
+ Easy_format.label or Easy_format.atom.
+- Atom nodes have now one additional argument for parameters.
+- All record types have been extended with more fields.
+ Using the "with" mechanism for inheritance is the best way of limiting
+ future incompatibilities.
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>Troublesome nodes</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/943eb2043c8c1266#</cwn_url>
+			<cwn_who>Deep in this thread, Dario Teixeira said</cwn_who>
+			<cwn_what>
+For the sake of future reference, I'm going to summarise the solution to
+the original problem, arrived at thanks to the contribution of various
+people in this list (your help was very much appreciated!).  This might
+came in handy in the future if you run into a similar problem.
+
+So, we have a document composed of a sequence of nodes.  There are four
+different kinds of nodes, two of which are terminals (Text and See)
+and two of which are defined recursively (Bold and Mref).  Both See and
+Mref produce links, and we want to impose a constraint that no link node
+shall be the immediate ancestor of another link node.  An additional
+constraint is that nodes must be created via constructor functions.
+Finally, the structure should be pattern-matchable, and the distinction
+between link/nonlink nodes should be preserved so that Node-to-Node
+functions do not require code duplication and/or ugly hacks.
+
+Using conventional variants, the structure can be represented as follows.
+Alas, this solution is not compatible with constructor functions and
+requires unwanted scaffolding:
+
+module Ast =
+struct
+   type super_node_t =
+       | Nonlink_node of nonlink_node_t
+       | Link_node of link_node_t
+   and nonlink_node_t =
+       | Text of string
+       | Bold of super_node_t list
+   and link_node_t =
+       | Mref of string * nonlink_node_t list
+       | See of string
+end
+
+
+Below is the solution that was finally obtained.  Nodes are represented
+using polymorphic variants, and the module itself is recursive to get
+around the "type not fully defined" problem:
+
+module rec Node:
+sig
+   type nonlink_node_t = [ `Text of string | `Bold of Node.super_node_t list ]
+   type link_node_t = [ `See of string | `Mref of string * nonlink_node_t list ]
+   type super_node_t = [ nonlink_node_t | link_node_t ]
+
+   val text: string -&gt; nonlink_node_t
+   val bold: [&lt; super_node_t] list -&gt; nonlink_node_t
+   val see: string -&gt; link_node_t
+   val mref: string -&gt; nonlink_node_t list -&gt; link_node_t
+end =
+struct
+   type nonlink_node_t = [ `Text of string | `Bold of Node.super_node_t list ]
+   type link_node_t = [ `See of string | `Mref of string * nonlink_node_t list ]
+   type super_node_t = [ nonlink_node_t | link_node_t ]
+
+   let text txt = `Text txt
+   let bold seq = `Bold (seq :&gt; super_node_t list)
+   let see ref = `See ref
+   let mref ref seq = `Mref (ref, seq)
+end
+
+
+If you try it out, you will see that this solution enforces the basic
+node constraints.  The values foo1-foo4 are valid, whereas the compiler
+won't accept foo5, because a link node is the parent of another:
+
+open Node
+let foo1 = text "foo"
+let foo2 = bold [text "foo"]
+let foo3 = mref "ref" [foo1; foo2]
+let foo4 = mref "ref" [bold [see "ref"]]
+let foo5 = mref "ref" [see "ref"]
+
+
+Now, suppose you need to create an Ast-to-Node sets of functions (a likely
+scenario if you are building a parser for documents).  The solution is
+fairly straightforward, but note the need to use the cast operator :&gt;
+to promote link/nonlink nodes to supernodes:
+
+module Ast_to_Node =
+struct
+   let rec convert_nonlink_node = function
+       | Ast.Text txt          -&gt; Node.text txt
+       | Ast.Bold seq          -&gt; Node.bold (List.map convert_super_node seq)
+
+   and convert_link_node = function
+       | Ast.Mref (ref, seq)   -&gt; Node.mref ref (List.map convert_nonlink_node seq)
+       | Ast.See ref           -&gt; Node.see ref
+
+   and convert_super_node = function
+       | Ast.Nonlink_node node -&gt; (convert_nonlink_node node :&gt; Node.super_node_t)
+       | Ast.Link_node node    -&gt; (convert_link_node node :&gt; Node.super_node_t)
+end
+
+
+Finally, another common situation is to build functions to process nodes.
+The example below is that of a node-to-node "identity" module.  Again, it
+is fairly straightforward, but note the use of the operator # and the need
+to cast link/nonlink nodes to supernodes:
+
+module Node_to_Node =
+struct
+   open Node
+
+   let rec convert_nonlink_node = function
+       | `Text txt              -&gt; text txt
+       | `Bold seq              -&gt; bold (List.map convert_super_node seq)
+
+   and convert_link_node = function
+       | `See ref               -&gt; see ref
+       | `Mref (ref, seq)       -&gt; mref ref (List.map convert_nonlink_node seq)
+
+   and convert_super_node = function
+       | #nonlink_node_t as node -&gt; (convert_nonlink_node node :&gt; super_node_t)
+       | #link_node_t as node    -&gt; (convert_link_node node :&gt; super_node_t)
+end
+			</cwn_what>
+			<cwn_who>He later added</cwn_who>
+			<cwn_what>
+Sorry, but in the meantime I came across two problems with the supposedly
+ultimate solution I just posted.  I have a correction for one, but not
+for the other.
+
+The following statements trigger the first problem:
+
+let foo1 = text "foo"
+let foo2 = see "ref"
+let foo3 = bold [foo1; foo2]
+
+Error: This expression has type Node.link_node_t but is here used with type
+        Node.nonlink_node_t
+      These two variant types have no intersection
+
+The solution that immediately comes to mind is to make the return types
+for the constructor functions open:  (I can see no disadvantage with
+this solution; please tell me if you find any)
+
+
+module rec Node:
+sig
+   type nonlink_node_t = [ `Text of string | `Bold of Node.super_node_t list ]
+   type link_node_t = [ `See of string | `Mref of string * nonlink_node_t list ]
+   type super_node_t = [ nonlink_node_t | link_node_t ]
+
+   val text: string -&gt; [&gt; nonlink_node_t]
+   val bold: [&lt; super_node_t] list -&gt; [&gt; nonlink_node_t]
+   val see: string -&gt; [&gt; link_node_t]
+   val mref: string -&gt; nonlink_node_t list -&gt; [&gt; link_node_t]
+end =
+struct
+   type nonlink_node_t = [ `Text of string | `Bold of Node.super_node_t list ]
+   type link_node_t = [ `See of string | `Mref of string * nonlink_node_t list ]
+   type super_node_t = [ nonlink_node_t | link_node_t ]
+
+   let text txt = `Text txt
+   let bold seq = `Bold (seq :&gt; super_node_t list)
+   let see ref = `See ref
+   let mref ref seq = `Mref (ref, seq)
+end
+
+
+The second problem, while not a show-stopper, may open a hole for misuse of
+the module, so I would rather get it fixed.  Basically, while the module
+provides constructor functions to build nodes, nothing prevents the user
+from bypassing them and constructing nodes manually.  The obvious solution
+of declaring the types "private" results in an "This fixed type has no row
+variable" error.  Any way around it?
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>Name of currently executing function</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/25c9706b89196140#</cwn_url>
+			<cwn_who>Dave Benjamin asked and blue storm answered</cwn_who>
+			<cwn_what>
+&gt; Is there any way to find out the name of the currently executing 
+&gt; function from within an OCaml program? I guess, technically, I'm 
+&gt; interested in the grandparent. Something that would allow this: 
+&gt; 
+&gt; let log msg = 
+&gt;    Printf.eprintf "%s: %s\n%!" 
+&gt;      (get_caller_function_name ()) 
+&gt;      msg 
+&gt; 
+&gt; I'm guessing the above is not possible, but perhaps there's some way to 
+&gt; accomplish this using some combination of camlp4, back traces, 
+&gt; profiling, or debugging?
+
+Here is a little camlp4 code for an ad-hoc solution :
+http://bluestorm.info/camlp4/Camlp4GenericProfiler.ml
+
+It's based upon the Camlp4Filters/Camlp4Profiler.ml from the camlp4
+distribution.
+The GenericMake functor will traverse your code and apply the
+parametrized function to the body of each function declaration. You
+can use it with a functor providing a  (with_fun_name : string -&gt;
+Ast.expr -&gt; Ast.expr), transforming the Ast to your liking, given the
+function name.
+
+I've written a small LoggingDecorator module that operates on the
+__LOG__ identifier. Example code :
+ let __LOG_FUNC__ func msg =  Printf.eprintf "in function %s: %s\n%!" func msg
+ let test_function p = if not p then __LOG__ "p is false !"
+
+It will replace the __LOG__ identifier with a __LOG_FUNC__ "p".
+
+You can change that behavior, in particular you could be interested
+(for logging purpose) in the location of the function declaration, not
+only his name : see how the initial Camlp4Profiler behavior (wich i
+kept in the ProfilingDecorator) do that (Loc.dump).
+			</cwn_what>
+		</cwn_entry>
+	</cwn_body>
+</cwn>

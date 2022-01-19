@@ -1,0 +1,268 @@
+Hello,
+
+Here is the latest Caml Weekly News, week 8 to 15 October, 2002.
+
+1) Camlp4: generating printers of types
+2) OCamlODBC : help wanted
+3) Cameleon debian packages available
+4) cameleon-list
+5) PostgreSQL and Ocaml
+6) Num library
+7) xlib out of cdk
+
+======================================================================
+1) Camlp4: generating printers of types
+----------------------------------------------------------------------
+Daniel de Rauglaudre announced:
+
+In Camlp4 tutorial (current version), I added a section explaining how
+to make a syntax extension which, when loaded, automatically generates
+printers of all your types:
+
+For example, if your input file contains:
+
+    type colour = Red | Green | Blue
+
+this will be interpreted like this:
+
+    type colour = Red | Green | Blue
+    let print_colour =
+      function
+        Red -> print_string "Red"
+      | Green -> print_string "Green"
+      | Blue -> print_string "Blue"
+
+If you are interested, this is here:
+    http://caml.inria.fr/camlp4/tutorial.new/tutorial007.html#toc51
+
+======================================================================
+2) OCamlODBC : help wanted
+----------------------------------------------------------------------
+Maxence Guesdon asked:
+
+Erik Arneson would like to use bound parameters in ODBC queries.
+We would like to have something like :
+
+let db = new Ocamlodbc.data_base "foo" "bar" "baz" in
+    let query = db#prepare "INSERT INTO mytable VALUES (?, ?)" in
+      try
+        db#begin_transaction;
+        List.iter (fun x -> query#execute (nth x 1) (nth x 2))
+          [ [ "x"; "y" ]; [ "a"; "b" ] ]
+        db#commit
+      with SQL_Error(s) -> db#rollback
+    ;;
+
+The problem is we're both quite busy at the moment.
+
+If you know about ODBC and OCaml and you don't know what to code these
+days, may be you can have a look at it.
+
+thanks,
+
+OCamlODBC : http://www.maxence-g.net/Tools/tools.html
+
+======================================================================
+3) Cameleon debian packages available
+----------------------------------------------------------------------
+Jérôme Marant announced:
+
+Premilimary Debian packages for Cameleon are
+available at:
+
+  http://people.debian.org/~jerome/cameleon
+
+With APT:
+
+  deb http://people.debian.org/~jerome cameleon/
+
+('apt-get install cameleon' installs everything)
+
+Please report problems directly to me. Thanks.
+
+======================================================================
+4) cameleon-list
+----------------------------------------------------------------------
+Maxence Guesdon announced:
+
+I created the cameleon mailing list, for cameleon users.
+To subscribe, see
+http://sympa-rocq.inria.fr/wws/info/cameleon-list
+
+======================================================================
+5) PostgreSQL and Ocaml
+----------------------------------------------------------------------
+Alessandro Baretta asked and Chris Hecker suggested:
+
+>If nobody has, would anyone like to join me in the project of writing
+>an add-in for PostgreSQL supporting Ocaml stored procedures? I have
+>little experience in this, but it should not be too difficult: it
+>should be a matter of writing a C dll which, upon initialization,
+>starts a bytecode compiler and interpreter, and has callbacks through
+>with which the server can request the compilation of a text string or
+>the execution of a bytecode cmo blob.
+
+I have no time to help you with this, but I have a suggestion.  I would
+write this dll in caml and use the asmdynlink library (which,
+unfortunately, is bound rather tightly into the apparently-moribund cdk
+at this point, but it still appears to work).  I'm planning on using
+asymdynlink for some of my game work, and it appears to be just the
+trick for using caml as a dynamic scripting language (you can eval
+strings, load cmo files, the loaded caml can call native caml code
+transparently, etc.).  This would allow you to write 90% of the dll in
+native mode caml, and still dynaload programs.
+
+There are two main issues I've found that I will probably try to solve:
+
+1.  You need to have all the cmi files around, which is annoying and a
+    logistical nightmare.  This is true of the toplevel and the regular
+    bytecode dynlink library too, and it sucks.  The optimal solution
+    would be to bind in all the cmis as data resources into the program.
+    Slightly less optimal but still better than nothing would be to use
+    the -pack option, get a single big .cmi, and use that.  I think
+    you'd have to -pack the whole standard library first, and then link
+    with that because the modules will now be nested in the pack module.
+
+2.  The asmdynlink interpreter is supposedly fairly slow (I haven't done
+    any timings yet).  This is not that big of a deal for what I'm going
+    to use it for, but if I find it is too slow, there are a couple
+    options.  First, Fabrice has a mostly-finished JIT in the cdk
+    version.  It's x86 only I think, but it might be useful.  [As an
+    aside to Fabrice and/or Xavier, why didn't the JIT generate Cmm code
+    instead of x86, and then link in the compiler backend from the
+    current platform, and that way it would be cross-platform?  That
+    would work, right?]  The other option is to rewrite the interpreter
+    by porting the C interpreter over the the asmdynlink
+    environment...that should be fairly easy and should run at the same
+    speed as the regular bytecode interpreter.
+
+======================================================================
+6) Num library
+----------------------------------------------------------------------
+Alain Frisch asked and Pierre Weis explained:
+
+> Maybe you can give some information yourself about the library. If I
+> want to manipulate only integers (no rational numbers), most of which
+> will be small integers, is it better to use Num or Big_int ?  Would
+> Num benefit to be specialized to (small+big) integers (that is,
+> throwing away the Ratio constructor) ?  Because int values and Big_int
+> values can be distinguished at runtime, one could imagine implementing
+> the union "by hand" (without explicit tagging, and thus avoiding a lot
+> of memory allocation and garbage collection). What would be the gain ?
+
+The Num library is fairly sophisticated and fairly well integrated
+into the Caml language. We still need some lexical additions to be
+quite confortable to input numbers, but still it is a really mature
+and useful library.
+
+Now, some quick info to understand why it is so difficult to bench
+unubounded precision arithmetic packages.
+
+Our Num library has 4 arithmetic layers:
+
+- nat: positive integers. Allocation is explicit, operations are pure
+side effects (result is stored in operands).
+
+- big_int: signed integers. Allocation is implicit, operations are
+functional.
+
+- ratio: rational numbers. Allocation is implicit, operations are
+functional, but normalization is a side-effect. Normalization is
+either automatic or explicitely required by the user. You have to know
+that this sophisticated normalization discipline is just mandatory to
+obtain good performance with this layer: just changing the
+normalization regime of rational arithmetic primitives can have an
+exponential impact on the runtime (either systematic normalization or
+no normalization at all may exponentiallly win or loose depending on
+the computation at hand!)
+
+- num: the higer layer. Numbers are small integers, big integers, or
+rational numbers. Necessary coercion between those types are handled
+automatically by the library.
+
+The num layer is the more convenient to write programs. The nat layer
+is the most efficient if you just need integers. The big_int layer is
+generally a bit faster that the num layer, but if you want to be
+really efficient you need to use the nat layer. The programmation in
+the nat layer is a bit difficult, but the efficiency is (normally)
+what you gain: you end with no garbage collection at all, the numbers
+are allocated from the beginning of the computation with the right
+size to contain the final result, the operations are minimized (both
+in the size of operands and in the number of operations required to
+obtain the final result). We use to say that nat programming was the
+algorithmic proof level: you must state and prove your invariants
+while programming; a very profitable and refreshing exercice.
+
+Also the Num library is optimized for computation, not for
+printing. The idea being that normally you compute a lot and just
+print the final result. If your bench is just printing a lot of big
+numbers that are easily obtained with almost no computation (for
+instance factorial numbers), you will think the Num library to be very
+slow. However, we know that in the Num library the printing of big
+numbers is too slow and has to be revisited to go faster.
+
+As for the suggested improvement on the num type ``by hand'', some
+Caml compilers were (once) able to automatically do the optimization
+you just described (by the way not only for small ints but for the 3
+constructors of the type). As you may suspect, the gain depends a lot
+on the application at hand. In some cases, the speedup was impressive
+(I remember a matrices package that almost never use big numbers,
+except in case of ill-conditioned problems: the improvement of num
+arithmetic versus big_int arithmetic was impressive). However, you
+cannot have the same arithmetic efficiency with small integers
+represented as num values since you need to check for potential
+overflows for each operation (meaning at least 5 to 10 instructions
+instead of 1).
+
+Also this optimization does not fit very well with the pattern
+matching compiler technology of the current compiler. In addition, it
+is not clear that it will be a big win in general (I mean out of the
+big number arithmetic domain, where it is clearly a win).
+
+> General question: the library seems to be extremely stable since a
+> several years. Does it mean you consider that it is just good as it
+> is, or does it mean you don't want to continue working on it  ?
+
+Yes, the library is extremely stable, and this is an extremely
+desirable property: bugs are also extremely well chased.
+
+Concerning the development of the library, I once wrote a new
+implementation of the library from scratch. Unfortunately, I stopped
+when facing the problem of fast printing which is not so trivial. We
+may also consider to reimplement the Num library on top of another big
+numbers implementation (GMP or Numerix, if only some volonteers added
+assembly code for as many processors as necessary to run on all
+the platforms where Objective Caml is available).
+
+======================================================================
+7) xlib out of cdk
+----------------------------------------------------------------------
+Discussing the death of the CDK, malc announced:
+
+On 14 Oct 2002, David Frese wrote:
+> On Mon, 2002-10-14 at 11:15, Chris Hecker wrote:
+> 
+> > I assumed there were more than just asmdynlink that are now
+> > "trapped" in the CDK, but maybe that's the only one.
+> 
+> No that's not the only one. The library that I want to use is the
+> Xlib, and it depends on the Concur module, which itself depends on the
+> Unix2 module, for example. But I'm now trying to "unfold" it.
+
+I unfolded it a while ago, it's bundled as part of:
+http://algol.prosalg.no/~malc/icedock/icedock-xlib-0.09.tar.gz
+
+Xlib subdirectory inside the archive contains completely self contained
+version of the library.
+
+======================================================================
+Old cwn
+----------------------------------------------------------------------
+
+If you happen to miss a cwn, you can send me a message
+(alan.schmitt@inria.fr) and I'll mail it to you. If you also wish to
+receive it every week by mail, just tell me so.
+
+======================================================================
+
+Alan Schmitt

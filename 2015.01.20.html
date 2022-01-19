@@ -1,0 +1,448 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>OCaml Weekly News</title>
+  </head>
+  <body>
+    <a href="2015.01.13.html">Previous week</a> <a href="index.html">Up</a> <a href="2015.01.27.html">Next week</a><p>Hello</p><p>Here is the latest OCaml Weekly News, for the week of January 13 to 20, 2015.</p><p /><ol><li><a href="#1">ppx_monadic.1.0.2, ppx for monadic do, pattern guards and monadic comprehension</a></li><li><a href="#2">Quizz</a></li><li><a href="#3">ppx_deriving 2.0, ppx_deriving_yojson 2.3</a></li><li><a href="#4">Detecting dead code, discovering a project's structure...</a></li><li><a href="#5">ocamlnet-4.0.1</a></li><li><a href="#6">new releases: pxp, webdav, cache, netamqp, wdialog</a></li><li><a href="#7">Other OCaml News</a></li></ol><a name="1" /><hr /><h3>ppx_monadic.1.0.2, ppx for monadic do, pattern guards and monadic comprehension</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2015-01/msg00061.html">https://sympa.inria.fr/sympa/arc/caml-list/2015-01/msg00061.html</a></p><i>Jun Furuse announced:</i><br /><pre>
+I have OPAM-released ppx_monadic.1.0.2, a ppx extension for
+
+* Monadic do notation:  do_;
+* Pattern guards:  when p &lt;-- e -&gt; ..
+* List and monadic comprehension:  [%comp x || p &lt;-- e; ..]
+
+These 3 extensions share the same do-sequence syntax sugar, which is a
+sequence of the following phrases:
+
+* Monadic bind : p &lt;-- e
+* Action: e
+* Escape: (); e    (to write the normal sequential execution)
+* let .. in .. and [%x .. ]
+
+It is already available via OPAM: opam intall ppx_monadic. More
+detailed documentation and source code is available at:
+<a href="https://bitbucket.org/camlspotter/ppx_monadic">https://bitbucket.org/camlspotter/ppx_monadic</a>
+
+Enjoy!
+      </pre><i>oleg then said and Jun Furuse replied:</i><br /><pre>
+&gt;&gt; * Monadic do notation:  do_;
+&gt;&gt; * Pattern guards:  when p &lt;-- e -&gt; ..
+&gt;
+&gt; This reminds me: MetaOCaml incorporates the let! notation suggested by
+&gt; Nicolas Pouillard and implemented by Alain Frisch. The following is
+&gt; the example of using the notation, excerpted from the file
+&gt;         metalib/test/pythagorian_triples.ml
+&gt; in the BER MetaOCaml distribution/source.
+&gt;
+&gt; (* The example uses left recursion and truly infinite streams! *)
+&gt; (* Don't try this in Prolog or in Haskell's MonadPlus. *)
+&gt;
+&gt; let rec numb () =                       (* infinite stream of integers *)
+&gt;     yield (mplus (let! n = numb in ret (n+1))         (* left recursion! *)
+&gt;                (ret 0)) ()
+&gt; ;;
+&gt;
+&gt; let pyth : (int * int * int) NonDet.stream =
+&gt;   let! i  = numb in
+&gt;   let! () = guard (i&gt;0) in
+&gt;   let! j  = numb in
+&gt;   let! () = guard (j&gt;0) in
+&gt;   let! k  = numb in
+&gt;   let! () = guard (k&gt;0) in
+&gt;   (* Just to illustrate the `let' form within let! *)
+&gt;   let test x = x*x = j*j + k*k in
+&gt;   let! () = guard (test i) in
+&gt;   ret (i,j,k)
+&gt; ;;
+&gt;
+&gt; let [(5, 4, 3); (5, 3, 4); (10, 8, 6); (10, 6, 8); (13, 12, 5); (13, 5, 12);
+&gt;      (15, 12, 9); (15, 9, 12); (17, 15, 8); (17, 8, 15)]
+&gt;  =
+&gt; run 10 pyth;;
+&gt;
+&gt;
+&gt; (The file also implements the non-determinism monad that is
+&gt; illustrated in the example.)
+
+Thanks,
+
+let! is not valid in the vanilla syntax therefore I guess you have
+patched the compiler.
+
+Current OCaml syntax has shortage of pattern binding expression and
+only usable is let%xxx p = e in which is a bit pain for ppx writers.
+
+The pattern part of   p &lt;-- e  is actually an expression and you
+cannot simply write real patterns like   (x, y) as z. You still can
+write it using an extension like [%p? (x,y) as z] but it is lousy...
+      </pre><i>oleg then said and Alain Frisch replied:</i><br /><pre>
+&gt;&gt; Current OCaml syntax has shortage of pattern binding expression and
+&gt;&gt; only usable is let%xxx p = e in which is a bit pain for ppx writers.
+&gt;
+&gt; Indeed. One may wish that
+&gt;
+&gt;          let rec p = e1 in e2
+&gt;
+&gt; were treated as if it were
+&gt;          let[@ocaml.let "rec"] p = e1 in e2
+&gt;
+&gt; and likewise let module.
+
+Please, no!  Attributes are intended to add meta-data for external
+tools (ppx, tools parsing .cmt files, etc), perhaps also to tweak the
+behavior of the compiler (trigger/control warnings, etc), certainly
+not to encode core language features (otherwise, let's use
+s-expressions instead of Parsetree).  Facilitating language
+experiments is also a good use for attributes, but not as a long-term
+solution for the official compiler.
+
+&gt; Come to think of it, 'rec! or 'module' are
+&gt; annotations on let.
+
+"let module" has a different shape (module
+identifiers/types/expressions) than "let".  And it doesn't seem
+realistic to merge, say, core types and module types, or core
+expressions and module expressions.
+      </pre><i>Gabriel Scherer then said and Alain Frisch replied:</i><br /><pre>
+&gt; (On the other hand, the remark that the existing uses of keyword-bang in
+&gt; the language, namely (method!) and (open!), could now be represented as
+&gt; annotations is fairly reasonable.)
+
+Indeed, these ! markers only affect warnings, and don't change the
+static or dynamic semantics otherwise, so I wouldn't be shocked if
+they were represented internally with attributes.  Unless perhaps if
+we consider that forcing users to mark method overrides, as in many
+other class-based OO languages, should become part of the language
+definition (i.e. turned into a strong error at some point).
+      </pre><i>Jeremy Yallop then added:</i><br /><pre>
+A nit: for methods, at least, the ! already produces an error in the
+case where the method is not previously defined:
+
+   # object method! m = 3 end;;
+  Characters 7-20:
+    object method! m = 3 end;;
+           ^^^^^^^^^^^^^
+  Error: The method `m' has no previous definition
+      </pre><i>Alain Frisch also replied to Jun Furuse:</i><br /><pre>
+&gt; Current OCaml syntax has shortage of pattern binding expression and
+&gt; only usable is let%xxx p = e in which is a bit pain for ppx writers.
+
+If it's a pain, it's rather for users of ppx, no?
+
+Providing "alternative" forms of existing constructs (i.e. forms that
+look syntactically similar to these constructs) to be interpreted
+before they reach the type-checker, is indeed what extension nodes
+[%foo ...] were designed for.  For expression constructs starting with
+a keyword, the short form KEYWORD%foo ... makes the use of extension
+nodes very cheap syntactically.
+
+I can appreciate that authors of tools that requires special syntactic
+support would love to have their new forms look completely native to
+users, but the counter-argument can be made that keeping an explicit
+syntax (through the '%' character) for features that are not part of
+the official language is a good property.  (Camlp4/campl5 are still
+available for people who want to play with the concrete syntax.)
+
+
+With the short form, an alternative binding construct can be as short as:
+
+ let%L p = e in ....
+
+I'm not suggesting to reserve one-letter extension identifiers for
+specific projects, but each tool could let the user choose explicitly
+which letter to use:
+
+
+  [%%Project1 alt_id = "L"]
+  [%%Project2 alt_id = "A"]
+  ...
+  ...
+    let%L p1 = e1 in ....
+    let%A p2 = e2 in ....
+      </pre><i>Drup then said and Jun Furuse replied:</i><br /><pre>
+&gt; I personally like the explicitness of the syntax a lot. The only issue
+&gt; in OCaml currently is that, given the need for retro compatibility, it
+&gt; goes sometimes against the terseness. For example the impossibility to
+&gt; do " x@foo" instead of "x[@foo]". That's unavoidable, though.
+&gt; 
+&gt; This is, by the way, a point I dislike a lot with ppx_monadic. It
+&gt; abuses the native syntax in completely alien ways and without
+&gt; annotations.
+&gt; 
+&gt; I like ppx_monad's syntax quite better due to the fact that it's
+&gt; always explicitly a ppx (thanks to %monad) and do not overload the
+&gt; "do_" identifier.
+
+I know what you wrote, since I always asked myself “isn’t it too
+bizarre?” when I was writing ppx_monadic. Here are some justifications
+I made:
+
+The first intension of ppx_monadic is to port my code with pa_monad
+without pain. Unfortunately ppx_monad required too many small fixes
+due to the following reasons:
+
+· “perform” needed to be replaced by “begin%monad .. end” or “[%monad .
+. ]” which requires closing, which is really pain. Ppx_monad provides
+“fun%monad”, “match%monad” without closing but they were not always
+helpful for me.
+· The pattern “p” of “p &lt;- e” is limited to a variable, since it
+overrides the syntax of object member mutation. In addition, I use
+lots of monadic binds inside my class methods. Therefore this override
+is not acceptable for me.
+
+Secondary, I see the monadic syntax sugar is to reduce the number of
+key types, and I accepted some alien syntax weirdness for the purpose.
+If the number of key types would not matter, I would be happy with the
+good old bind (&gt;&gt;=) chains and would not use “do” at all. People think
+bind chains are hard to read but my experience with Jane Street Async
+tells me it it not quite. Ppx_monad does not really gain in this point
+unfortunately: I was often forced to write “let%monad (x,y) = e in”
+just for “(x,y) &lt;-- e;”. I write Haskell do-notations daily and wanted
+to have something comparable in OCaml.
+
+Anyway, the current OCaml syntax is limited to have do-notation which
+makes everyone happy. If there would be a way in OCaml to write “foo
+e” for some keyword “foo” which is like “begin” but does not require
+“end”, I would be pretty happy to change the weird “Option.do_; e” to
+“foo%Option e”. Before implementing “do_; e”, I tried a bit of “[%do]
+e” but it did not work well since “[%do] p &lt;-- e” is parsed as “([%do]
+p) &lt;-- e”, not “[%do] (p &lt;-- e)”.
+      </pre><a name="2" /><hr /><h3>Quizz</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2015-01/msg00064.html">https://sympa.inria.fr/sympa/arc/caml-list/2015-01/msg00064.html</a></p><i>Thomas Braibant asked:</i><br /><pre>
+Here is a quizz that can easily be solved using OCaml (version
+4.02.1), but it would be less fun than trying to infer which functions
+are accepted.
+
+```
+module type S = sig val test : 'a list end
+
+type t = (module S)
+
+let a (x : t) =
+  let module M = (val x) in
+  List.length M.test
+
+let b (module M : S) =
+  List.length M.test
+
+let c ((module M) : t) =
+  List.length M.test
+
+let d (module M : t) =
+  List.length M.test
+
+let e (x : (module S)) =
+  let module M = (val x) in
+  List.length M.test
+
+let f ((module M) : (module S)) =
+  List.length M.test
+
+let g : (module S) -&gt; int = fun (module M) -&gt;
+  List.length M.test
+
+let h ((module M) : (module sig val test : 'a list end)) =
+  List.length M.test
+
+```
+(I am sure I have missed interesting variations, though.)
+
+I have read through
+
+<a href="http://caml.inria.fr/pub/docs/manual-ocaml/types.html">http://caml.inria.fr/pub/docs/manual-ocaml/types.html</a>
+<a href="http://caml.inria.fr/pub/docs/manual-ocaml/modtypes.html">http://caml.inria.fr/pub/docs/manual-ocaml/modtypes.html</a>
+<a href="http://caml.inria.fr/pub/docs/manual-ocaml/extn.html#sec230">http://caml.inria.fr/pub/docs/manual-ocaml/extn.html#sec230</a>
+
+but what I do not get is how to make a variation of `h` work. That is,
+I would like to inline the module signature. Is that possible?
+      </pre><i>Leo White replied:</i><br /><pre>
+In OCaml 4.01 and earlier, first-class modules were typed
+nominatively. In other words, their type was based on the name of the
+module type used, not its structure. For example:
+
+            OCaml version 4.01.0
+
+    # module type T = sig type t end;;
+    module type T = sig type t end
+
+    # module type S = sig type t end;;
+    module type S = sig type t end
+
+    # let f (x : (module T)) : (module S) = x;;
+    Characters 38-39:
+      let f (x : (module T)) : (module S) = x;;
+                                            ^
+    Error: This expression has type (module T)
+           but an expression was expected of type (module S)
+
+This obviously requires that the module type has a name:
+
+    # type t = (module sig type t end);;
+    Characters 17-20:
+      type t = (module sig type t end);;
+                       ^^^
+    Error: Syntax error
+
+In version 4.02, the type-checking of first-class modules was changed to
+be structural instead of nominative:
+
+            OCaml version 4.02.1
+
+    # module type T = sig type t end;;
+    module type T = sig type t end
+
+    # module type S = sig type t end;;
+    module type S = sig type t end
+
+    # let f (x : (module T)) : (module S) = x;;
+    val f : (module T) -&gt; (module S) = &lt;fun&gt;
+
+This means that it would now be possible to support first-class modules
+for types which have no name, but such support has not yet been
+added. (There are some awkward issues around the syntax in relation to
+with constraints, but they are probably solvable.)
+
+So, in summary, you can't do that, but it is now at least theoretically
+something you could do.
+      </pre><i>Milan Stanojević then asked and Leo White replied:</i><br /><pre>
+&gt; Are there any concrete plans to add syntax support?
+
+I don't think there are any concrete plans. Jacques mentioned it was a
+possibility in a comment on Mantis:
+
+  <a href="http://caml.inria.fr/mantis/view.php?id=6333#c10990">http://caml.inria.fr/mantis/view.php?id=6333#c10990</a>
+
+and other than that I don't think anyone has mentioned it.
+      </pre><i>Jacques Garrigue replied:</i><br /><pre>
+The main problem is not so much syntax, as the fact it would require to make
+all definitions in the Types module mutually recursive. Not only that, but
+operations like path substitution need to be mutually recursive in the same
+way. So the question is whether the small gain in flexibility is worth making the
+implementation more complex.
+(Note that an extra gain is that it becomes possible to expand a module type
+definition when leaving its scope)
+      </pre><i>Milan Stanojević then asked, Leo White replied, and Jacques Garrigue confirmed:</i><br /><pre>
+&gt;&gt; In my work I mostly just wanted to be able to just do something like
+&gt;&gt; (module M : Intable with type t = t), i.e just specializing existing
+&gt;&gt; module type with "with type =" or "with type :=".
+&gt;&gt; Is this special case any easier to implement?
+&gt; 
+&gt; "with type t =" already works. I'm not sure, but I think that "with type
+&gt; t :=" could indeed be implemented without the increased implementation
+&gt; complexity that Jacques was referring to.
+
+Indeed it could.
+Module type names + non-parameterized constraints are ok, because you only have
+to recurse on types, not concrete signatures.
+      </pre><a name="3" /><hr /><h3>ppx_deriving 2.0, ppx_deriving_yojson 2.3</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2015-01/msg00080.html">https://sympa.inria.fr/sympa/arc/caml-list/2015-01/msg00080.html</a></p><i>Peter Zotov announced:</i><br /><pre>
+I'm glad to announce the releases of ppx_deriving[1] and
+ppx_deriving_yojson[2]. These releases add support
+for open types. They will be available in OPAM shortly.
+
+Many thanks to Zoggy for implementing this feature.
+
+[1]: <a href="https://github.com/whitequark/ppx_deriving">https://github.com/whitequark/ppx_deriving</a>
+[2]: <a href="https://github.com/whitequark/ppx_deriving_yojson">https://github.com/whitequark/ppx_deriving_yojson</a>
+      </pre><a name="4" /><hr /><h3>Detecting dead code, discovering a project's structure...</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2015-01/msg00081.html">https://sympa.inria.fr/sympa/arc/caml-list/2015-01/msg00081.html</a></p><i>Yoann Padioleau replied to this old thread:</i><br /><pre>
+Indeed the codegraph tool, part of Pfff, does some
+global analysis of an ocaml project using the .Mt (generated by ocamlc
+-bin_annot) and generates
+an index of a codebase (a graph_code.marshall file).
+Not all features of Ocaml are supported though (e.g. functors).
+
+Once the graph_code.marshall file has been generated,
+you can use check, also part of pfff, to detect dead code
+or other errors.
+
+<a href="https://github.com/facebook/pfff/wiki/CodeGraph">https://github.com/facebook/pfff/wiki/CodeGraph</a>
+<a href="https://github.com/facebook/pfff/wiki/Scheck">https://github.com/facebook/pfff/wiki/Scheck</a>
+      </pre><a name="5" /><hr /><h3>ocamlnet-4.0.1</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2015-01/msg00087.html">https://sympa.inria.fr/sympa/arc/caml-list/2015-01/msg00087.html</a></p><i>Gerd Stolpmann announced:</i><br /><pre>
+after some testing I could finally release OCamlnet-4.0.1. Find it at
+the usual place:
+
+<a href="http://projects.camlcity.org/projects/ocamlnet.html">http://projects.camlcity.org/projects/ocamlnet.html</a>
+
+This is a major release, and there are incompatible changes, in
+particular in the following areas:
+
+ - How ocamlnet is configured (new switches: -enable-gnutls,
+   -enable-gssapi, gone: -enable-ssl, -enable-crypto)
+ - How to use TLS (formerly SSL) in protocols (see below)
+ - Unicode tables need to be explicitly linked in (package
+   netunidata), or conversions between character encodings
+   may be unavailable
+ - IPv6 is now enabled by default if there is a global IPv6
+   address
+ - A number of modules has been renamed (e.g. Http_client is
+   now Nethttp_client)
+ - A number of modules have been split up (e.g. some functions
+   of Uq_engines are now in Uq_client and other modules)
+
+But these are only the most visible changes. Besides that, there are
+also plenty of new features, all about authentication and security.
+
+1. TLS
+
+The old support for OpenSSL (via the ocaml ssl bindings) are no longer
+supported. Instead, there is an integrated wrapper for GnuTLS, which has
+much nicer API and has better support for the latest TLS updates.
+
+Read more here:
+<a href="http://projects.camlcity.org/projects/dl/ocamlnet-4.0.1/doc/html-main/Tls.html">http://projects.camlcity.org/projects/dl/ocamlnet-4.0.1/doc/html-main/Tls.html</a>
+
+2. SASL authentication
+
+OCamlnet-4 implements all important SASL authentication mechanisms (for
+both clients and servers): PLAIN, CRAM-MD5, DIGEST-MD5, SCRAM-SHA1,
+GS2-KRB5 (more on that one below). SASL is integrated into the protocol
+interpreters for POP and  SMTP.
+
+3. GSSAPI/Kerberos
+
+Before this release, the was only very preliminary support for the
+GSSAPI. This has changed, as there is now a binding of the system-level
+GSSAPI functions. In particular, this permits protocol interpreters to
+support Kerberos, and in Ocamlnet-4 SunRPC, HTTP clients, and FTP have
+been "kerberized" this way. You can also run Kerberos on top of SASL via
+bridging.
+
+If you are unfamiliar with Kerberos, this is a single-sign-on security
+framework for LANs, and it can be frequently found in company networks.
+
+At the moment, we cannot support Kerberos on Windows, though (as Windows
+doesn't provide a standard-compliant GSSAPI library).
+
+4. Pluggable security modules
+
+The security mechanisms are all pluggable. If you e.g. want to use a
+different TLS provider, you "only" need to ensure that it has a module
+interface compatible with TLS_PROVIDER. There's also SASL_MECHANISM,
+HTTP_MECHANISM, and GSSAPI. The mechanisms are passed as normal values
+to the protocol interpreters thanks to first-class modules. This permits
+it to support several implementations, and also to weakly bind to
+security mechanisms (e.g. use only TLS if available).
+      </pre><a name="6" /><hr /><h3>new releases: pxp, webdav, cache, netamqp, wdialog</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2015-01/msg00088.html">https://sympa.inria.fr/sympa/arc/caml-list/2015-01/msg00088.html</a></p><i>Gerd Stolpmann announced:</i><br /><pre>
+as followup to OCamlnet-4.0.1 there are also new releases of these
+libraries that have been ported to OCamlnet-4.0.1:
+
+<a href="http://projects.camlcity.org/projects/pxp.html">http://projects.camlcity.org/projects/pxp.html</a>
+<a href="http://projects.camlcity.org/projects/webdav.html">http://projects.camlcity.org/projects/webdav.html</a>
+<a href="http://projects.camlcity.org/projects/cache.html">http://projects.camlcity.org/projects/cache.html</a>
+<a href="http://projects.camlcity.org/projects/netamqp.html">http://projects.camlcity.org/projects/netamqp.html</a>
+<a href="http://projects.camlcity.org/projects/wdialog.html">http://projects.camlcity.org/projects/wdialog.html</a>
+      </pre><a name="7" /><hr /><h3>Other OCaml News</h3><i>From the ocamlcore planet blog:</i><br /><pre>
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <a href="http://planet.ocaml.org/">http://planet.ocaml.org/</a>.
+
+Unikernels for everyone!:
+  <a href="http://amirchaudhry.com/unikernels-for-everyone">http://amirchaudhry.com/unikernels-for-everyone</a>
+
+Work summary @ OCaml labs:
+  <a href="http://yansnotes.blogspot.com/2015/01/work-summary-ocaml-labs.html">http://yansnotes.blogspot.com/2015/01/work-summary-ocaml-labs.html</a>
+      </pre><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

@@ -1,0 +1,824 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2006.04.11.html">Previous week</a> <a href="index.html">Up</a> <a href="2006.04.25.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of April 11 to 18, 2006.</p><p>I will be away for two weeks with very limited internet access, so there
+might be no CWN for two weeks.</p><ol>
+      <li>
+        <a href="#1">Dynamic binding library</a>
+      </li>
+      <li>
+        <a href="#2">ocamlopt, windows, and no console</a>
+      </li>
+      <li>
+        <a href="#3">Announcing OMake 0.9.6.9</a>
+      </li>
+      <li>
+        <a href="#4">Menhir mailing list and new release</a>
+      </li>
+      <li>
+        <a href="#5">dump in camlimages</a>
+      </li>
+      <li>
+        <a href="#6">release 3.09.2</a>
+      </li>
+      <li>
+        <a href="#7">lablgtk2: receiving messages from network?</a>
+      </li>
+      <li>
+        <a href="#8">Generic print function</a>
+      </li>
+      <li>
+        <a href="#9">OCaml interface to WordNet</a>
+      </li>
+      <li>
+        <a href="#10">recursion/iterator question</a>
+      </li>
+    </ol><a name="1" /><hr /><h3>Dynamic binding library</h3><p>Archive: <a href="http://thread.gmane.org/gmane.comp.lang.caml.general/32720/focus=32720">http://thread.gmane.org/gmane.comp.lang.caml.general/32720/focus=32720</a></p><i>Oleg announced:</i><br /><pre>
+Dynamic binding adds expressiveness; as Luc Moreau emphasized, it is,
+when used in moderation, quite useful: for parameterizing a function
+deep in the code without changing the interface of all callers; for
+propagating the environment information like the current working
+directory, printing-depth, etc.  Dynamic binding is inescapable in
+mobile code or continuation-based web servers. Dynamic binding, in
+some restricted form, is already present in OCaml: exception handlers
+are dynamically bound by the 'handle' form. This message announces the
+availability of general dynamic binding. This is joint work with
+Chung-chieh Shan and Amr Sabry.
+
+Dynamic binding is implemented as a regular library (dependent on the
+delimited continuations library announced earlier on this list).  No
+changes to the OCaml system and no code transformations are required;
+(parts of the) code that do not use dynamic variables incur no
+overhead and run at the same speed as before. Here's the interface:
+
+type 'a dynvar
+val dnew : unit -&gt; 'a dynvar
+
+   Given a dynvar, a value and a thunk, evaluate the thunk in the dynamic
+   environment extended with the binding of the given value to the
+   given dynvar
+val dlet : 'a dynvar -&gt; 'a -&gt; (unit -&gt; 'w) -&gt; 'w
+
+   Dereferencing: obtain the value associated with the dynvar
+   by the closest dynamically-enclosing dlet
+val dref : 'a dynvar -&gt; 'a
+
+   Mutation: obtain the current value of the dynvar and change that
+   value to the given one. This `mutation' has the effect only
+   within the dynamic scope of the latest dlet
+val dset : 'a dynvar -&gt; 'a -&gt; 'a
+
+   Given a dynvar and a function, apply the function to the current
+   value of the dynvar, and return the result. The application
+   is evaluated in the dynamic environment _outside_ of the
+   closest dynamically-enclosing dlet.
+val dupp : 'a dynvar -&gt; ('a -&gt; 'w) -&gt; 'w
+
+Our dynamic variables are mutable (cf. fluid-variables in many Scheme
+systems); mutations however are visible only within the scope of the
+dlet statement where they occurred. Here's the simple example
+
+let test12 =
+  let p = dnew () in
+  dlet p 1 (fun () -&gt;
+    let v1 = dref p in
+    let v2 = dlet p 2 (fun () -&gt;
+      let v3 = dset p 12 in
+      let v4 = dref p in
+      (v3,v4)) in
+    let v5 = dref p in
+    (v1,v2,v5))
+
+which yields (1, (2, 12), 1). The function 'dupp' is an extension of
+the conventional dynamic binding. It lets us obtain not only the
+current binding to the dynamic variable, but any of the previous
+bindings as well. In general, we can fold over the execution stack as
+if it were a list (please see the 'nub' example in the test code
+below).
+
+Because dynamic binding is implemented in terms of delimited
+continuations, the two features harmoniously interact. We can use
+dynamic variables in shift-based, cooperative threads. At thread
+creation time, the user can `designate' some existing dynamic
+variables to be private to the thread; the rest are inherited from the
+parent. New dynamic variables and new bindings automatically become
+thread-private, so the above designation is accomplished with just
+dlet.  Mutation and rebinding of private dynamic variables have effect
+only in the corresponding thread. Mutations to shared variables are
+visible to everyone. Likewise, a re-parameterization of a dynamic
+variable in the parent thread is visible in all child threads sharing
+that variable. Such partial inheritance of dynamic environment among
+threads is an often desired feature; luckily, it is inherent in our
+design and thus available `for free'. The end of the test code
+vdynvar.ml demonstrates the partial inheritance among the parent and
+two cooperatively run threads.
+
+The implementation is surprisingly, short. In particular,
+
+let dref p      = shift p (fun f -&gt; fun v -&gt; f v v)
+let dset p newv = shift p (fun f -&gt; fun v -&gt; f v newv)
+let dupp p g    = shift p (fun f -&gt; fun y -&gt; f (g y) y)
+
+with dlet taking not much longer.
+
+        <a href="http://pobox.com/~oleg/ftp/ML/dynvar.mli">http://pobox.com/~oleg/ftp/ML/dynvar.mli</a>
+        <a href="http://pobox.com/~oleg/ftp/ML/dynvar.ml">http://pobox.com/~oleg/ftp/ML/dynvar.ml</a>
+The test code:
+        <a href="http://pobox.com/~oleg/ftp/ML/vdynvar.ml">http://pobox.com/~oleg/ftp/ML/vdynvar.ml</a>
+The dependency:
+   <a href="http://pobox.com/~oleg/ftp/Computation/Continuations.html#caml-shift">http://pobox.com/~oleg/ftp/Computation/Continuations.html#caml-shift</a>
+      </pre><a name="2" /><hr /><h3>ocamlopt, windows, and no console</h3><p>Archive: <a href="http://thread.gmane.org/gmane.comp.lang.caml.general/32711/focus=32711">http://thread.gmane.org/gmane.comp.lang.caml.general/32711/focus=32711</a></p><i>Jonathan Roewen asked and Dmitry Bely answered:</i><br /><pre>
+&gt; How does one generate an .exe using ocamlopt that doesn't launch a
+&gt; console window?
+
+What Ocaml build are you using? If Mingw one then I am afraid it's not
+possible, but if it's MSVC-based I would try to play with
+
+-cclib /link -cclib /subsystem:windows
+
+options.
+      </pre><i>Igor Peshansky suggested:</i><br /><pre>
+In MinGW, you should be able to pass in the -mwindows flag to gcc (see
+<a href="http://www.mingw.org/docs.shtml">http://www.mingw.org/docs.shtml</a>).
+      </pre><i>Jonathan Roewen said and Harry Chomsky answered:</i><br /><pre>
+&gt; &gt; -cclib /link -cclib /subsystem:windows
+&gt;
+&gt; Indeed I was scanning the options, and found those. The problem is
+&gt; that when you use that, you have to use WinMain instead...
+
+You can use the linker flag "/entry:mainCRTStartup" alongside the 
+"/subsystem:windows" flag to achieve what you want: an executable with no 
+console but using main() as the starting point.  That's what my OCaml-Win32 
+library does when you link the tiny file lkwinapp.obj into your application. 
+There's some discussion of the pros and cons of this approach in the 
+build.txt file.  If you're curious, the library is available at:
+
+<a href="http://www.speakeasy.org/~hchomsky/ocaml-win32.html">http://www.speakeasy.org/~hchomsky/ocaml-win32.html</a>
+      </pre><i>David Allsopp suggested:</i><br /><pre>
+One other option is to change the startup mode of the executable after
+compiling and linking it. I did this years ago with &lt;cough&gt; Visual Basic to
+make true console applications (the reverse of your problem). I can't find
+the code archive, but IIRC it involves changing a single byte in the PE
+header that indicates the subsystem to use. The concept of main and winmain
+come entirely from C - the actual entry point of your image is independent
+of its subsystem so this gets around your linking problem.
+
+I can't get at the machine with the archive of the tool I wrote for doing
+this at the moment &lt;sigh&gt;. However, Microsoft have some utilities for doing
+this although I don't know whether they will only work for programs
+generated with their compiliers - google for Visual Basic's Link utility and
+MSVC++'s editbin tool.
+      </pre><a name="3" /><hr /><h3>Announcing OMake 0.9.6.9</h3><p>Archive: <a href="http://thread.gmane.org/gmane.comp.lang.caml.general/32732/focus=32732">http://thread.gmane.org/gmane.comp.lang.caml.general/32732/focus=32732</a></p><i>Aleksey Nogin announced:</i><br /><pre>
+We are proud to announce the latest release of the OMake Build System -
+OMake version 0.9.6.9.
+
+OMake is a build system designed for scalability and portability. It 
+uses a syntax similar to make utilities you may have used, but it 
+features many additional enhancements, including the following.
+
+   - Support for projects spanning several directories or directory
+     hierarchies.
+
+   - Fast, reliable, automated, scriptable dependency analysis using MD5
+     digests, with full support for incremental builds.
+
+   - Fully scriptable, includes a library that providing support for
+     standard tasks in C, C++, OCaml, and LaTeX projects, or a mixture
+     thereof.
+
+     Often, a configuration file is as simple as a single line
+
+     .DEFAULT: OCamlProgram(prog, foo bar baz)
+
+     which states that the program "prog" is built from the files foo.ml,
+     bar.ml, and baz.ml. This one line will also invoke the default
+     standard library scripts for discovering implicit dependencies in
+     OCaml files.
+
+   - Full native support for rules that build several files at once.
+
+   - Portability: omake provides a uniform interface on Linux/Unix
+     (including 64-bit architectures), Win32, Cygwin, Mac OS X, and other
+     platforms that are supported by OCaml.
+
+   - Built-in functions that provide the most common features of programs
+     like grep, sed, find, and awk. These are especially useful on Win32.
+
+   - Active filesystem monitoring, where the build automatically restarts
+     whenever you modify a source file. This can be very useful during
+     the edit/compile cycle.
+
+   - A built-in command-interpreter osh that can be used interactively.
+
+OMake preserves the style of syntax and rule definitions used in 
+Makefiles, making it easy to port your project to OMake. There is no 
+need to code in Perl (cons), or Python (scons). However, there are a few 
+things to keep in mind:
+
+  1. Indentation is significant, but tabs are not required.
+  2. The OMake language is functional: functions are first-class and
+     there are no side-effects apart from I/O.
+  3. Scoping is dynamic.
+
+OMake is licensed under a mixture of the GNU GPL license (OMake engine 
+itself) and the MIT-like license (default configuration files).
+
+OMake version 0.9.6.9 in minor bugfixes/feature enhancements release. 
+The changes in this version include:
+
+    - Significantly improved C++ support; minor improvements in OCaml
+      support.
+    - Significantly updated the default (sample) OMakefile.
+    - Significantly improved the performance of the built-in find
+      command.
+    - Several other bug fixes and improvements.
+    - A number of documentation fixes and improvements.
+
+For a more verbose change log, please visit 
+<a href="http://omake.metaprl.org/changelog.html#0.9.6.9">http://omake.metaprl.org/changelog.html#0.9.6.9</a> .
+
+Source and binary packages of OMake 0.9.6.9 may be downloaded from 
+<a href="http://omake.metaprl.org/download.html">http://omake.metaprl.org/download.html</a> (Windows and OS X binaries are 
+not there yet,  but should become available soon). In addition, OMake 
+may be obtained via the GODI packaging system (release lines "3.08", 
+"3.09" and "dev").
+
+To try it out, run the command "omake --install" in a project directory, 
+and modify the generated OMakefile.
+
+OMake 0.9.6.9 is still an alpha release.  While we have made an effort 
+to ensure that it is bug-free, it is possible some functions may not 
+behave as you would expect.  Please report any comments and/or bugs to 
+the mailing list omake@metaprl.org and/or at <a href="http://bugzilla.metaprl.org/">http://bugzilla.metaprl.org/</a>
+      </pre><a name="4" /><hr /><h3>Menhir mailing list and new release</h3><p>Archive: <a href="http://thread.gmane.org/gmane.comp.lang.caml.general/32736/focus=32736">http://thread.gmane.org/gmane.comp.lang.caml.general/32736/focus=32736</a></p><i>Francois Pottier announced:</i><br /><pre>
+I would like to announce the existence of a mailing list for announcements and
+discussion of issues related to Menhir, the LR(1) parser generator for
+Objective Caml.
+
+The Web interface to the mailing list is at
+
+  <a href="http://yquem.inria.fr/cgi-bin/mailman/listinfo/menhir-list">http://yquem.inria.fr/cgi-bin/mailman/listinfo/menhir-list</a>
+
+I would also like to announce a new release of Menhir. The most prominent
+change is that the conflict explanations even got better: comparing derivation
+trees is made easier by factoring out a greatest common factor. The new
+release is available via GODI or via the Web at
+
+  <a href="http://pauillac.inria.fr/~fpottier/menhir/">http://pauillac.inria.fr/~fpottier/menhir/</a>
+      </pre><a name="5" /><hr /><h3>dump in camlimages</h3><p>Archive: <a href="http://thread.gmane.org/gmane.comp.lang.caml.general/32727/focus=32727">http://thread.gmane.org/gmane.comp.lang.caml.general/32727/focus=32727</a></p><i>Jonathan Roewen asked and Jun Furuse answered:</i><br /><pre>
+&gt; Quick question :)
+&gt; 
+&gt; Do the dump functions in the camlimages library basically create a
+&gt; string equivalent to an RAW image file?
+
+Quick answer :)
+
+Yes. 
+
+RGBRGB... stream for 24bit-depth image for example. Size is equal to
+3 x width x height.
+      </pre><i>Florent Monnier added:</i><br /><pre>
+(maybe you don't mind, but just in case)
+there are such features in OCaml/ImageMagick too.
+you can load all the image data (in jpg, png, raw, etc..) in a string (which 
+is usefull for exemple to send an image to a web browser from a cgi-bin)
+
+you can get all the data in a BigArray too for direct exchange of data between 
+ImageMagick and OCaml (which feature is only available in the devel version 
+of the binding yet)
+      </pre><a name="6" /><hr /><h3>release 3.09.2</h3><p>Archive: <a href="http://thread.gmane.org/gmane.comp.lang.caml.general/32740/focus=32740">http://thread.gmane.org/gmane.comp.lang.caml.general/32740/focus=32740</a></p><i>Damien Doligez announced:</i><br /><pre>
+It is our pleasure to announce the availability of OCaml version 3.09.2.
+
+This is mainly a bug-fix release, with only one big new feature: the  
+port
+to Mac OS X on Intel processors.
+
+See below for a list of changes with respect to 3.09.1.
+
+It is currently available in source form at
+<a href="http://caml.inria.fr/pub/distrib/ocaml-3.09/">http://caml.inria.fr/pub/distrib/ocaml-3.09/</a> and it will shortly be
+added to our Web page at <a href="http://caml.inria.fr/ocaml/release.en.html">http://caml.inria.fr/ocaml/release.en.html</a>,
+where binary packages will soon be available.
+
+-- The OCaml team
+
+Bug fixes:
+- Makefile: problem with "make world.opt" PR#3954
+- compilers: problem compiling several modules with one command line  
+PR#3979
+- compilers,ocamldoc: error message that Emacs cannot parse
+- compilers: crash when printing type error PR#3968
+- compilers: -dtypes wrong for monomorphic type variables PR#3894
+- compilers: wrong warning on optional arguments PR#3980
+- compilers: crash when wrong use of type constructor in let rec PR#3976
+- compilers: better wording of "statement never returns" warning PR#3889
+- runtime: inefficiency of signal handling PR#3990
+- runtime: crashes with I/O in multithread programs PR#3906
+- camlp4: empty file name in error messages PR#3886
+- camlp4: stack overflow PR#3948
+- otherlibs/labltk: ocamlbrowser ignores its command line options  
+PR#3961
+- otherlibs/unix: Unix.times wrong under Mac OS X PR#3960
+- otherlibs/unix: wrong doc for execvp and execvpe PR#3973
+- otherlibs/win32unix: random crash in Unix.stat PR#3998
+- stdlib: update_mod not found under Windows PR#3847
+- stdlib: Filename.dirname/basename wrong on Win32 PR#3933
+- stdlib: incomplete documentation of Pervasives.abs PR#3967
+- stdlib: Printf bugs PR#3902, PR#3955
+- tools/checkstack.c: missing include
+- yacc: crash when given argument "-" PR#3956
+
+New features:
+- ported to MacOS X on Intel PR#3985
+- configure: added support for GNU Hurd PR#3991
+      </pre><a name="7" /><hr /><h3>lablgtk2: receiving messages from network?</h3><p>Archive: <a href="http://thread.gmane.org/gmane.comp.lang.caml.general/32749/focus=32749">http://thread.gmane.org/gmane.comp.lang.caml.general/32749/focus=32749</a></p><i>Ivan Matveich asked:</i><br /><pre>
+I'm writing a gtk program that must receive data through a tcp
+connection and react to it immediately.
+
+What's the best way to implement this?
+Can gtk call me back when data is available on a socket?
+How do I use Marshal without blocking?
+      </pre><i>Markus Mottl suggested:</i><br /><pre>
+You can set the socket options Unix.SO_RCVTIMEO and Unix.SO_SNDTIMEO
+using Unix.setsockopt_float, passing the number of seconds until
+timeout as argument.
+      </pre><i>Eric Cooper also suggested:</i><br /><pre>
+You can use the Glib.IO interface to create a glib io_channel from
+your TCP socket, and then use add_watch to associate a callback with
+it.  Your socket will then be polled as part of the Glib main event loop.
+      </pre><i>Remi Vanicat also suggested:</i><br /><pre>
+As someone already tell you, you could use the Glib.IO interface.
+There is also equeue of Gerd Stolpman that is integrated with the Gtk
+main loop, see
+<a href="http://www.ocaml-programming.de/programming/equeue.html">http://www.ocaml-programming.de/programming/equeue.html</a>
+      </pre><i>Ivan Matveich then asked and Jacques Garrigue answered:</i><br /><pre>
+&gt; Thanks, module Glib.Io is what I needed.
+&gt; 
+&gt; Now I have another question. I've started writing some code,
+&gt; 
+&gt; module Channel =
+&gt;   struct
+&gt;     type event =
+&gt;       | Connected of Unix.sockaddr
+&gt;       | Dropped of Unix.sockaddr
+&gt;       | Received of Unix.sockaddr * x
+&gt;       | Sent of Unix.sockaddr * x
+&gt;     type action =
+&gt;       | Associate of Unix.sockaddr
+&gt;       | Dissociate of Unix.sockaddr
+&gt;       | Send of Unix.sockaddr * x
+&gt; 
+&gt; where x will be something returned by Marshal.from_string.
+&gt; 
+&gt; How do I properly specify its type?
+
+I suppose x should be Obj.t, meaning that you're going to use Obj.repr
+and Obj.obj. This is clearly unsafe, but any use of Marshal is.
+      </pre><a name="8" /><hr /><h3>Generic print function</h3><p>Archive: <a href="http://thread.gmane.org/gmane.comp.lang.caml.general/32760/focus=32760">http://thread.gmane.org/gmane.comp.lang.caml.general/32760/focus=32760</a></p><i>Oleg announced:</i><br /><pre>
+The facility that prints results and types of expressions evaluated at
+the top-level is now available anywhere in the program -- in bytecode-
+or natively compiled programs. Generic printing is a (perhaps
+unintentional) `side-effect' of MetaOCaml -- of the fact that a code
+value is not merely AST; the code value also captures the type and the
+type environment of variables and other values. Generic printing is a
+library that works with the unmodified MetaOCaml (which is _fully_
+compatible with the regular OCaml).
+
+MOTIVATION
+
+First of all, there is an, arguably small, matter of print_int,
+print_char, etc.  Most of the time the typechecker knows exactly what
+is the type of the data to print. Why should we spell it out in the
+suffix of 'print' (or as a format specifier in Printf).
+
+This small annoyance gets bigger if we deal with a complex data
+structure, such as a list of records whose elements are variants and
+arrays. There is no built-in print_xxx function for it: we _have to_
+write our own. What is annoying is that OCaml knows darn well how to
+print the structure, if the structure is the result of an expression
+evaluated at top level. Alas, such printing is _not_ available in
+standalone programs, or if we want to use the print function somewhere
+in the code, where the structure is produced as an intermediate
+result. Such a printing is a useful debugging aid. We may also want to
+use the printing facility to write out the data structure, in a
+human-readable form, into various files. The top-level output is quite
+pretty and is useful beyond the top level.
+
+INTERFACE and SIMPLE EXAMPLE
+
+The core function is
+    val fprint : Format.formatter -&gt; ('a,'b) code -&gt; string 
+which takes a code value of any type, and pretty-prints it on the
+given formatter. The printed result is exactly the same as that by
+the top-level value printing. The function [fprint] returns the
+representation of the expression's type, as a string. The latter
+is arguably a frill, but it was easy to do, so just as well.
+
+For example,
+
+    let pr_type et = Format.printf "\n%s &lt;at&gt; ." et
+
+    let () = 
+      let x = Some ([|(10,true);(11,false)|]) in 
+      pr_type (print .&lt;x&gt;.)
+
+prints the following two lines:
+
+       Some [|(10, true); (11, false)|]
+       (int * bool) array option
+
+The first line is the value, and the latter (printed by pr_type)
+is the type. There was no need to define any custom printer for the
+value or its components. A more involved examples is 65 lines down
+in this message.
+
+AVAILABILITY
+
+        <a href="http://pobox.com/~oleg/ftp/ML/gprint/">http://pobox.com/~oleg/ftp/ML/gprint/</a>
+
+The included Makefile builds bytecode and native gprint libraries,
+and runs the validation test vgprint.ml -- at the top-level
+(no need to compile any library), in a byte-code executable,
+and a native code executable.
+
+        The implementation depends on the unmodified MetaOCaml.  To
+compile the library, MetaOCaml distribution is required. The
+implementation is surprisingly simple and can be easily integrated
+with MetaOCaml. <a href="http://www.metaocaml.org/">http://www.metaocaml.org/</a>
+
+DESIGN
+
+MetaOCaml lets us manipulate pieces of code as values. Whereas 1 is an
+int value, .&lt;1&gt;. is a code value, of the type ('a,int) code. MetaOCaml
+can print those code values:
+
+     # let x = 1 in Trx.npc .&lt;x&gt;.;;
+     .&lt;1&gt;.
+     # let x = 'a' in Trx.npc .&lt;x&gt;.;;
+     .&lt;'a'&gt;.
+so far, so good. However,
+
+     # let x = "a" in Trx.npc .&lt;x&gt;.;;
+    .&lt;(* cross-stage persistent value (as id: x) *)&gt;.
+And here we hit the snag. If we use a different printing function,
+     # let x = "a" in Trx.printcode .&lt;x&gt;.;;
+     expression ([0,0+-1]..[0,0+-1]) ghost
+     Pexp_cspval &lt;compiled_code&gt; (as id: "x")
+
+we see that the code value is internally an AST, Parsetree.expression.
+We also see that aside from a few simple cases, MetaOCaml does not
+inline the values from the captured variables; rather, MetaOCaml
+incorporates references to such variables (so-called, cross-stage
+persistent (CSP) variables).
+
+We need the second observation: the code value is intended to be
+evaluated (i.e., `run'). The compilation of a code value generally
+requires its type. For example, to compile [match x with Foo -&gt; ...]
+we need to know the type of [x]. In particular, we need to know if
+[Foo] is the only variant. If so, the above match is exhaustive and we
+do not need to compile the default case: [_ -&gt; raise Match_error].
+Therefore, when MetaOCaml captures the reference to a CSP variable, it
+has to, in general, capture the type as well. And it does, in a
+special AST node, which contains the corresponding
+Typedtree.expression. The latter includes the type and the
+type environment with declarations, etc. These are
+exactly the data that top-level's generic print function needs.
+
+The common, and correct, reply to the frequently asked question as
+to why OCaml does not have generic print is follows: printing a value
+requires the knowledge of its type. Indeed, a machine integer '1' may
+represent, inter alia, both an integer 0 and a boolean 'false'. The
+type information is not preserved in the compiled code. Fortunately,
+MetaOCaml's code values do preserve the necessary type information.
+
+COMPLEX EXAMPLE
+
+Let us first define the following complex data type:
+
+module C = struct
+  type 'a color = Blue | Green | Rgb of 'a
+end;;
+
+type 'a image = {title : string; pixels : 'a C.color array};;
+type big = int image list;;
+
+let v = [
+  {title = "im1";
+   pixels = [| C.Blue; C.Rgb 10 |]};
+  {title = "im2";
+   pixels = [| C.Green |]};
+]
+
+The following expression
+    let () = pr_type (print .&lt;v&gt;.)
+prints exactly what we expect.
+
+Before continuing the example, we should note a drawback of the current
+lack of integration of the generic print facility with MetaOCaml.  When
+doing [print .&lt;x&gt;.] where x is of a variant type and its current value
+is a constant constructor (e.g., None), we see the output 
+'(* cross-stage persistent value (as id: x) *)'. This is a drawback of
+some optimizations in MetaOCaml, and will be fixed if this code is
+integrated into MetaOCaml. Fortunately, there is an easy workaround:
+replace [print .&lt;x&gt;.] with [print (let z = [x] in .&lt;z&gt;.)].
+
+We now continue the example:
+
+open C
+let some_processing ims =
+  let brighten px =
+      let new_px = match px with
+                    Blue  -&gt; Green
+                  | Green -&gt; Rgb 10
+                  | Rgb x -&gt; Rgb (x+1) in
+      let () = Format.printf " &lt;at&gt; .pixel: %a -&gt; %a  &lt;at&gt; ."
+               (fun ppf v -&gt; ignore (fprint ppf v))
+               (let x = [px] in .&lt;x&gt;.)
+               (fun ppf v -&gt; ignore (fprint ppf v))
+               (let x = [new_px] in .&lt;x&gt;.) in
+      new_px in
+  let process im =
+    let () = Format.printf "Processing: " in
+    let _  = print .&lt;im&gt;. in
+    {im with pixels = Array.map brighten im.pixels} in
+  let res = List.map process ims in
+  let _ = print .&lt;res&gt;. in
+  Format.printf " &lt;at&gt; ."
+
+let () = some_processing v;;
+
+The list of images, an image itself, and a single pixel were all
+printed generically. We did not have to define any custom
+printers. Here's the output:
+
+Processing: {title = "im1"; pixels = [|Blue; Rgb 10|]}
+pixel: [Blue] -&gt; [Green] 
+
+pixel: [Rgb 10] -&gt; [Rgb 11] 
+Processing: {title = "im2"; pixels = [|Green|]}
+pixel: [Green] -&gt; [Rgb 10] 
+[{title = "im1"; pixels = [|Green; Rgb 11|]};
+ {title = "im2"; pixels = [|Rgb 10|]}]
+
+POLYMORPHISM vs. GENERIC
+
+The function print is generic but not polymorphic. For example, if we
+define
+     let pr x = print .&lt;x&gt;.; x
+
+and invoke the function as "pr [10]", we see the printed output
+"&lt;poly&gt;". The function 'pr' has the type 'a-&gt;'a -- that is, it
+promises to take the value of any type, regardless of its
+structure. The function does not even need to know what is the exact
+type of its argument, because it is irrelevant. Informally, an OCaml
+function of the type ['a-&gt; ...]  corresponds to the Haskell function
+[a -&gt; ...]. OTH, an OCaml function of the type [('a,'b) code -&gt; ...]
+corresponds to Haskell's [Typeable b =&gt; b -&gt; ...]. The latter
+enables generic programming.
+      </pre><a name="9" /><hr /><h3>OCaml interface to WordNet</h3><p>Archive: <a href="http://thread.gmane.org/gmane.comp.lang.caml.general/32766/focus=32766">http://thread.gmane.org/gmane.comp.lang.caml.general/32766/focus=32766</a></p><i>Ramu Ramamurthy announced:</i><br /><pre>
+This package contains the OCaml Interface to WordNet.
+It enables Ocaml programs to use
+the Wordnet dictionary for (english) word forms and
+meanings. For more information on WordNet refer
+<a href="http://wordnet.princeton.edu/">http://wordnet.princeton.edu/</a>
+
+This library directly parses the WordNet dictionary
+files, and does not depend on any other libraries.
+This library is released under the BSD license and
+is available at:
+
+<a href="http://ramamurthy.ramu.googlepages.com/ocamlwordnet">http://ramamurthy.ramu.googlepages.com/ocamlwordnet</a>
+
+The package contains:
+
+    * README.txt 
+    * wordnet.mli (Module Interface)
+    * wordnet.ml  (Module Implementation)
+    * related.ml  (Example Application OCaml WordNet
+API)
+
+Example Application:
+
+related.ml contains a toy application of the 
+api. Given a word, it finds related words - related
+as a synonym or as a "sibling" under the HYPONYM/
+HYPERNYM relationship between meanings.
+
+   relatedWords "camel"
+   gives
+
+ [(0, "camel"); (0, "hippo"); (0, "hippopotamus");
+ (0, "hippopotamus_amphibius"); (0, "llama"); (0,
+"musk_hog");
+ (0, "peccary"); (0, "river_horse"); (0, "ruminant");
+(0, "swine");
+ (0, "vicugna_vicugna"); (0, "vicuna")]
+
+   relatedWords "google"
+   gives
+
+ [(0, "google"); (0, "google"); (1, "cast_around");
+(1, "re-explore");
+ (0, "ask_jeeves"); (0, "beat_about"); (0,
+"cast_about"); (0, "prospect");
+ (0, "yahoo")]
+      </pre><a name="10" /><hr /><h3>recursion/iterator question</h3><p>Archive: <a href="http://thread.gmane.org/gmane.comp.lang.caml.general/32755/focus=32755">http://thread.gmane.org/gmane.comp.lang.caml.general/32755/focus=32755</a></p><i>Tato Thetza asked:</i><br /><pre>
+Given a list, I would like to iterate over all triplets in the list. For
+example, in mathematcs, its not uncommon to have expressions such as
+"for all i,j,k in set X, do f(i,j,k)"
+
+The only way I can think of is to create a list with all triplets of the
+list, so:
+  triplets([1,2,3,4]) = [(1,2,3),(1,2,4),(1,3,4),(2,3,4)]
+and take this list and map a function f to it.
+
+questions: 
+1) what would be the best way to write triplets?
+2) is there a cleaner way to iterate over all triplets in a list?
+      </pre><i>David Powers suggested:</i><br /><pre>
+The best way would probably be to write a permutation function that 
+returns a list of triplets given a list, and then to use List.iter and a 
+local function to split out each triplet to work on the component 
+parts... something like:
+
+let for_each_trip lst =
+    let real_work (a, b, c) =
+        (* do some stuff with a b and c in here *)
+    in
+        List.iter real_work (permute_triples lst)
+
+(loose code - forgive my laziness)
+
+This could be made more general by improving the permute code to take a 
+number option and to return triplets of that number  (permute 3 lst).  
+In addition you could make the internal function (real_work) be a 
+parameter of the for_each... which would reduce all of this to the more 
+general
+
+List.iter any_function_I_want (permute 3 lst)
+
+Finally, you might want to consider using lazy evaluation in your 
+permute function to avoid calculating every permutation up front.  See 
+<a href="http://caml.inria.fr/pub/docs/manual-ocaml/libref/Lazy.html">http://caml.inria.fr/pub/docs/manual-ocaml/libref/Lazy.html</a> for more on 
+that.
+      </pre><i>Martin Jambon suggested:</i><br /><pre>
+&gt; 1) what would be the best way to write triplets?
+
+You can use list comprehensions.
+See <a href="http://oandrieu.nerim.net/ocaml/#pa_compr">http://oandrieu.nerim.net/ocaml/#pa_compr</a>
+
+let triplets l = [+ (x, y, z)
+                 | x &lt;- l
+                 | y &lt;- l
+                 | z &lt;- l
+                 | when x &lt; y &amp;&amp; y &lt; z ];;
+
+That's not optimal, but it's pretty clear.
+
+&gt; 2) is there a cleaner way to iterate over all triplets in a list?
+
+You can do that, it should perform better:
+
+let rec iter_full f = function
+     [] -&gt; ()
+   | x :: l -&gt; f x l; iter_full f l
+
+let iter_tail iter f l = iter_full (fun x l -&gt; iter (f x) l) l
+
+let iter_full3 f l = iter_tail (iter_tail iter_full) f l
+
+let iter3 f l = iter_full3 (fun x y z _ -&gt; f x y z) l
+      </pre><i>Jon Harrop suggested:</i><br /><pre>
+&gt; 1) what would be the best way to write triplets?
+
+As 3-tuples, as you have done.
+
+&gt; 2) is there a cleaner way to iterate over all triplets in a list?
+
+I think you mean _tabulate_ all triplets _from_ a list. You can write a 
+function to tabulate all pairs like this:
+
+# let rec f2 = function
+    [] -&gt; []
+  | a::t -&gt; List.map (fun b -&gt; a, b) t  &lt;at&gt;  f2 t;;
+val f2 : 'a list -&gt; ('a * 'a) list = &lt;fun&gt;
+
+and then another to tabulate all triplets like this:
+
+# let rec f3 = function
+    [] -&gt; []
+  | a::t -&gt; List.map (fun (b, c) -&gt; a, b, c) (f2 t)  &lt;at&gt;  f3 t;;
+val f3 : 'a list -&gt; ('a * 'a * 'a) list = &lt;fun&gt;
+
+On the example you gave:
+
+# f3 [1;2;3;4];;
+- : (int * int * int) list = [(1, 2, 3); (1, 2, 4); (1, 3, 4); (2, 3, 4)]
+      </pre><i>Christian Stork then added:</i><br /><pre>
+Just in case you didn't know, you're looking for an enumeration of all
+"3-sets" or "combinations" out of the set X.  See for example
+<a href="http://mathworld.wolfram.com/Combination.html">http://mathworld.wolfram.com/Combination.html</a> .
+
+&gt; &gt; The only way I can think of is to create a list with all triplets of the
+&gt; &gt; list, so:
+&gt; &gt;   triplets([1,2,3,4]) = [(1,2,3),(1,2,4),(1,3,4),(2,3,4)]
+&gt; &gt; and take this list and map a function f to it.
+
+&gt; &gt; questions:
+&gt; &gt; 1) what would be the best way to write triplets?
+
+&gt; As 3-tuples, as you have done.
+
+Or, if you choose to represent triplets as lists of three elements, you can
+generalize Jon's solution to
+
+  let rec combs = function
+      | (0, _) -&gt; [[]]
+      | (n, es) when n &gt; List.length es -&gt; []
+      | (n, e::es) -&gt; List.map (fun l -&gt; e::l) (combs (n-1, es))  &lt;at&gt;  combs (n, es)
+  let triplets es = combs (3, es)
+
+Question to the rest of the list:  The ocaml compiler complains with 
+  ...
+  Warning P: this pattern-matching is not exhaustive.
+  Here is an example of a value that is not matched:
+  (1, [])
+  (However, some guarded clause may match this value.)
+  ...
+
+Am I right to assume there's no way to get rid of this warning short of
+disabling P-warnings on the command line?  (I can't list all the lacking
+patterns since they depend on n, right?)
+      </pre><i>Jonathan Roewen answered:</i><br /><pre>
+Personally, if you know it can never be reached, then an assertion is
+probably better.
+
+| otherwise -&gt; assert false (* I prefer using a name like otherwise
+rather than _ for pure readability value *)
+      </pre><i> Li-Thiao-Té Sébastien replied to the original message and Nils Gesbert added:</i><br /><pre>
+&gt; I suggest turning the list into an array, then using for-loops instead 
+&gt; of trying to explicitly generate the list of all possible triplets. If 
+&gt; you need to accumulate the results, you can use a list ref. This amounts 
+&gt; to implementing a set using an array instead of a list; unfortunately it 
+&gt; is not functional :(
+&gt; 
+&gt; let iterate f l =
+&gt;    let t = Array.of_list l in
+&gt;    let n = Array.length t in
+&gt;    let results = ref [] in
+&gt;    for i = 0 to n-1 do
+&gt;      for j = 0 to n-1 do
+&gt;        for k = 0 to n-1 do
+&gt;          results := f (t.(i),t.(j),t.(k)) :: results
+&gt; done done done
+&gt; ;;
+
+A functional version of this could be (assuming f is curryed, and without keeping results) :
+let iter3 f l =
+   let rec it2 iter g = function
+      h::t -&gt; iter (g h) l; it2 iter g t
+    | _ -&gt; ()
+   in it2 (it2 List.iter) f l
+
+But I think the goal was to iterate over triplets (a,b,c) with a &lt; b &lt; c, not over all triplets. If I am not
+mistaken, it suffices to replace the l on line 3 by t to get this behaviour.
+      </pre><i>Xavier Leroy also replied to the original message:</i><br /><pre>
+Folds are more general than maps and tend to compose better.
+Consider:
+
+let list_fold_right_3 f l1 l2 l3 =
+  List.fold_right
+    (fun x1 -&gt; List.fold_right (fun x2 -&gt; List.fold_right (f x1 x2) l3) l2)
+    l1
+
+Examples:
+
+# list_fold_right_3 (fun x y z a -&gt; (x,y,z)::a) [1;2] [3;4] [5;6] [];;
+- : (int * int * int) list =
+[(1, 3, 5); (1, 3, 6); (1, 4, 5); (1, 4, 6); (2, 3, 5); (2, 3, 6); (2,
+4, 5);
+ (2, 4, 6)]
+# list_fold_right_3 (fun x y z a -&gt; (x+y+z)::a) [1;2] [3;4] [5;6] [];;
+- : int list = [9; 10; 10; 11; 10; 11; 11; 12]
+# list_fold_right_3 (fun x y z a -&gt; x*y*z + a) [1;2] [3;4] [5;6] 0;;
+- : int = 231
+      </pre><hr /><h3>Using folding to read the cwn in vim 6+</h3><p>Here is a quick trick to help you read this CWN if you are viewing it using vim (version 6 or greater).</p><pre>:set foldmethod=expr<br />:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'&amp;lt;1':1<br />zM</pre><p>If you know of a better way, please let me know.</p><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right">
+      <i>
+        <a href="http://alan.petitepomme.net/">Alan Schmitt</a>
+      </i>
+    </p><p align="right">
+      <script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script>
+      <script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" />
+      <script src="http://www.google-analytics.com/urchin.js" type="text/javascript" />
+      <script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script>
+    </p></body>
+</html>

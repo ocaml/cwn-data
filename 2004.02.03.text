@@ -1,0 +1,320 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of 27 January to 03 February, 2004.
+
+1) SoCaml - (minimal) Open Inventor binding for OCaml
+2) PostgreSQL-OCaml 1.0.1, and related DB binding questions
+3) Poll for a graph library
+4) A small slew of releases (MySQL, Extlib, etc.)
+5) Library to read and write CSV files
+
+========================================================================
+1) SoCaml - (minimal) Open Inventor binding for OCaml
+------------------------------------------------------------------------
+** Issac Trotts announced:
+
+SoCaml is a binding for the object-oriented 3D scene library Open
+Inventor (tm) (<http://oss.sgi.com/projects/inventor/>).
+
+Here's what can be done in SoCaml so far:
+
+o Create an Inventor scene graph from a string.
+o Display the scene graph with an examiner viewer.
+o Type in commands that are echoed in a heads-up display.
+o Run your own event loop, for greater flexibility and compatibility
+  with other graphical systems.
+
+SoCaml is available at
+
+  <http://redwood.ucdavis.edu/~issac/software/socaml-1.1.tar.gz>
+
+To try it, edit the Makefile to fit your system and then type make.
+Some demos are created.  The documentation is sparse, but the demo
+sources should be helpful.
+
+Requirements:
+  o OCaml 3.07beta2
+  o Camlidl
+  o g++ 2.95
+  o SGI's version of Open Inventor
+
+Caveats:
+  So far it has only been tested on an Intel/Debian system, using the
+  inventor-dev package.  I haven't yet made it work with Coin
+  (www.coin3d.org) because of some linking issues.  No attempt has been
+  made to use it with TGS's version of Inventor.  Also, lots of things
+  haven't been wrapped yet.
+
+License: GPL
+    
+========================================================================
+2) PostgreSQL-OCaml 1.0.1, and related DB binding questions
+------------------------------------------------------------------------
+** Markus Mottl announced:
+
+I am pleased to announce the first release of PostgreSQL-OCaml, a very
+complete library for accessing the PostgreSQL-database. This library
+builds on Alain Frisch's previous interface (postgres-20010808).
+
+The code has been cleaned up, a few not so important additions have been
+made, a few functions, methods and types have been renamed (as well as
+the library) and may expect or return different types of parameters. The
+interface is very well-documented now, and the library can be easily
+installed and used with findlib. It should be fairly straightforward to
+adapt existing code that uses the old version.
+
+You can download the library here:
+
+  <http://www.oefai.at/~markus/home/ocaml_sources.html#postgresql-ocaml>
+    
+** Stefano Zacchiroli asked and Alain Frisch answered:
+
+> This sentence doesn't clarify an issue: is this library supposed to
+> supersede Alain's bindings or to be a fork?
+
+Markus and I discussed the issue.
+
+I'll continue to maintain my library, but it is very stable (no bug
+reported in 3 years), so in practice, it only means that the package will
+remain available. However, it is considered deprecated: new users should
+better use Markus' revision.  Existing users can continue with my version
+if they are happy with it, or switch to the new interface (the transition
+should be easy; OTOH it will mainly bring an aesthetic improvement).
+
+For distribution package maintainers, I think the best thing is to keep my
+library available and provide Markus' one under another name.
+    
+** Richard Jones proposed:
+
+If people think that the mod_caml DBI approach is the right one (and
+it may not be, although it certainly Works For Us), then I could spin
+this off into a separate package to make it easier to install.
+
+This is dbi.mli:
+
+<http://savannah.nongnu.org/cgi-bin/viewcvs/modcaml/modcaml/dbi.mli?rev=HEAD&content-type=text/vnd.viewcvs-markup>
+
+This is dbi_postgres.mli, which is the driver we use all the time in
+production at Merjis, hence the most stable / developed:
+
+<http://savannah.nongnu.org/cgi-bin/viewcvs/modcaml/modcaml/dbi_postgres.mli?rev=HEAD&content-type=text/vnd.viewcvs-markup>
+
+This is the driver for Perl DBDs:
+
+<http://savannah.nongnu.org/cgi-bin/viewcvs/modcaml/modcaml/dbi_perl.mli?rev=HEAD&content-type=text/vnd.viewcvs-markup>
+
+The interface is designed to make it quick to access databases, in the
+sense that you write the minimum code necessary.  It's not type safe,
+in the sense that if you write garbage SQL, it won't be detected until
+runtime.  Alex Baretta is, I believe, pursuing an alternative approach
+using Camlp4 which is supposed to be type safe.
+    
+** Richard Jones added:
+
+Here's a few more examples I've culled from our code.  We're doing
+some (I think) neat stuff here, eg. using sth#map and sth#iter
+to quickly iterate over the results from queries:
+
+<http://www.annexia.org/tmp/dbi-ex2.txt>
+
+.... combined with pre-prepared statements:
+
+<http://www.annexia.org/tmp/dbi-ex3.txt>
+
+And we have some neat code that lets you tie a variable to a
+particular field in the database, a kind of (primitive) persistence:
+
+<http://www.annexia.org/tmp/dbi-ex4.txt>
+
+We use this to tie Gtk widgets to database fields, using the
+transaction capabilities of the database to implement Save and
+Rollback operations in the GUI.
+    
+** Gerd Stolpmann answered Richard Jones:
+
+I think we really need this type of interface. I have some experience
+with Perl DBI, and although our company did have the need to support
+several database systems in the same product, this made things a lot
+easier, simply because you don't have to learn a new API when you switch
+to a another database system.
+
+So I would it really appreciate if this interface were released as
+independent package.
+
+Of course, I have also some technical remarks:
+
+- I don't understand why there are several ways to represent NULL.
+  For example, what is the difference between `Null,
+  `TimestampOption None, and `Timestamp ts where ts.ts_is_null=true?
+
+- Using host,port,user,password to identify and authenticate a connection
+  works in most cases, but is not very wise for the long-term stability
+  of the interface. For example, it is already possible to authenticate
+  with X509 certificates, which cannot be expressed with this scheme.
+  I would suggest to only have two strings, one called "system_id",
+  the other called "authenticator". In general, these strings are
+  interpreted by the driver, but there are conventions, e.g.
+  "host=XXX,port=XXX" for the system_id, and "user=XXX,password=XXX"
+  or "user=XXX,x509privatekey=XXX,x509passphrase=XXX" for the authenticator.
+
+- There is no way to pass options to the driver when one uses the Factory.
+  I think it would be a good idea to have a string for driver options,
+  again in the format "key=value,...".
+
+- There should be method for escaping strings (so one can generate SQL
+  statements)
+
+- One exception should be special: That transactions are aborted because
+  of conflicts (think of Postgres' MVCC) or deadlocks and should be repeated.
+  I think the other possible errors can be subsumed in one Sql_error exception
+  as it is currently done.
+
+- There should be a possibility to coerce a generic connection object
+  back to the driver's class. This can be done by adding a method
+  driver_handle that just raises a driver-specific exception
+  returning the handle. This way it is possible to switch to low-level
+  code at any time, e.g. for optimizations for certain DBMS.
+
+- Following the coding guidelines for O'Caml, methods with side-effects
+  should have a functional type, e.g. finish : unit->unit instead
+  of just finish:unit. This has also the advantage of making it
+  simpler to later add optional arguments to methods.
+
+- There was the question how to handle BLOBs. I worked with DBMS where
+  TEXT is a BLOB type. I think there should be a BLOB class like
+
+  class type blob = object
+    method length : int64
+    method get_chunk : pos:int64 -> len:int -> string
+    method write_file : string -> unit
+  end
+
+  and there should be methods (of the connection) creating such BLOBs:
+
+  method create_blob_from_string : string -> blob
+  method create_blob_from_file : string -> blob
+
+  I think this is the minimal BLOB interface we should support. More
+  advanced BLOB interfaces can be implemented in the drivers.
+
+I hope we get a really good generic DBMS layer soon.
+    
+** Richard Jones then said:
+
+I pretty much agree with all of Gerd's comments.  I'll accelerate the
+process of splitting out Dbi from mod_caml so that it can be used and
+developed separately.
+    
+========================================================================
+3) Poll for a graph library
+------------------------------------------------------------------------
+** Jean-Christophe Filliatre said:
+
+Sylvain  Conchon, Julien  Signoles  and myself  have  started a  graph
+library for ocaml. Before going further and releasing this library, we
+would like to get some  feedback from people currently using graphs in
+ocaml applications or willing to  do so. More precisely, we would like
+to  know what  kind of  operations on  the graph  structure  and graph
+algorithms are commonly used by such users.
+
+Could you please tell us if you  are the author of a graph library not
+already mentioned in the ocaml hump?
+    
+** He then clarified:
+
+Thomas Fischbacher writes:
+>
+> What do you mean by "graph library"?
+>
+> A library of graph algorithms (highly desirable - right now I am working
+> at a problem where efficient generation of planar graphs is THE main
+> issue, and I do it in lisp/ocaml), a graph layout library in the sense
+> of a re-implementation of graphviz in ocaml (would also be very nice to
+> have), or a plotting library in the sense of gnuplot?
+>
+> I think you should clarify this a bit more on the list...
+
+You're right, I  should have been clearer. We didn't  want to give too
+many details  before the first release,  but let's go.  Our library is
+currently providing
+
+ 1. Several  data  structures for  graphs  (persistent or  imperative,
+    directed  or not,  with labeled  edges  or not,  etc.), sharing  a
+    common minimal signature (iterators over vertices, edges, etc.)
+
+ 2. Several  algorithms  over graphs,  written  as  functors and  thus
+    independently of the graph  implementation (it means you can build
+    your own data structure for graphs and still re-use the algorithms
+    code). Currently we have  the following algorithms coded: Tarjan's
+    strongly   connected   components,   Dijkstra's   shortest   path,
+    Ford-Fulkerson's maximal flow,  Warshall's transitive closure, DFS
+    and BFS traversal, cycle detection.
+
+    We  are  currently  adding   random  graph  generations  based  on
+    algorithms   from  Knuth's   Stanford  GraphBase,   including  the
+    generation of random planar graphs.  (This at least seems to be in
+    connection with what you're doing.)
+
+ 3. Utilities, such  as a graphviz output  --- an ascii  output in the
+    DOT format  to be precise (So  we are not  re-implementing a graph
+    layout library).
+    
+========================================================================
+4) A small slew of releases (MySQL, Extlib, etc.)
+------------------------------------------------------------------------
+** Shawn Wagner announced:
+
+Ocaml-MySQL 1.0.3: Bindings for using MySQL from ocaml.
+This release hopefully makes it easier to use on systems without dynamic
+linking or native-code compilation. See
+<http://raevnos.pennmush.org/code/ocaml-mysql/>
+
+Extlib 0.11.2: Lots of stuff to complement the standard and unix libraries.
+Same things as the MySQL changes, plus bugfixes and the getrlimit,
+setrlimit, and getrusage unix syscalls. See
+<http://raevnos.pennmush.org/code/extlib/>
+
+Ethread 1.0.1: Useful stuff for multi-threaded programs: Read/write locks,
+barriers, a simple thread-safe message queue that can be tested with select.
+Changes: Better support for systems without native-code compiliation (See a
+trend here?) <http://raevnos.pennmush.org/code/ethread/>
+
+Servinfo 1.0.0: A little tool for looking up entries from /etc/services (I
+got tired of using grep). <http://raevnos.pennmush.org/code/servinfo/>
+    
+========================================================================
+5) Library to read and write CSV files
+------------------------------------------------------------------------
+** Answering a question, Richard Jones proposed:
+
+Probably not quite what you want, but I have a library for reading and
+writing comma-separated values (CSV) files here:
+
+<http://www.merjis.com/developers/csv/>
+<http://www.merjis.com/developers/csv/ocaml-csv-1.0.1.tar.gz>
+    
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

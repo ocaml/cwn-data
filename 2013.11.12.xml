@@ -1,0 +1,457 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2013.11.12</cwn_date>
+    <cwn_prev>2013.11.05</cwn_prev>
+    <cwn_next>2013.11.19</cwn_next>
+    <cwn_date_text>November 05 to 12, 2013</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>Migration plan and bug hunt for ocaml.org - http://preview.ocaml.org</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-11/msg00041.html</cwn_url>
+      <cwn_who>Amir Chaudhry announced</cwn_who>
+      <cwn_what>
+We're close to releasing the new design of ocaml.org but need help from the
+community to identify and fix bugs before we switch next week.
+
+Ashish, Christophe, Philippe and I have been discussing how we should go
+about this and below is the plan for migration. If you'd like to discuss any
+of this, then the infrastructure list is the best place to do so (cced).
+
+1. We've made a new branch on the main ocaml.org repository [1] with the
+redesign. This branch is a fork of the main one and we've simply cleaned up
+and replayed our git commits there.
+
+2. We've built a live version of the new site, which is visible at
+http://preview.ocaml.org - this is rebuilt every few minutes from the branch
+mentioned above.
+
+3. Over the course of one week, we ask the community to review the new site
+and report any bugs or problems on the issue tracker [2]. We triage those
+bugs to identify any blockers and work on those first. This is the phase
+we'll be in from *today*.
+
+4. After one week (7 days), and after blocking bugs have been fixed, we merge
+the site into the main branch. This would effectively present the new site
+to the world.
+
+During the above, we would not be able to accept any new pull requests on the
+old site but would be happy to accept them on the new branch. Hence,
+restricting the time frame to one week.
+
+Please note that the above is only intended to merge the *design* and
+*toolchain* for the new site. Specifically, we've created new landing pages,
+have new style sheets and have restructured the site's contents as well as
+made some new libraries [3, 4]. The new toolchain means people can write
+files in markdown, which makes contributing content a lot easier.
+
+Since the files are on GitHub, people don't even need to clone the site
+locally to make simple edits (or even add new pages). Just click the 'Edit
+this page' link in the footer to be taken to the right file in the repository
+and GitHub's editing and pull request features will allow you to make changes
+and submit updates, all from within your browser [5].
+
+There is still work to be done on adding new features but the above changes
+are already a great improvement to the site and are ready to be reviewed and
+merged.
+
+[1] https://github.com/ocaml/ocaml.org/tree/redesign
+[2] https://github.com/ocaml/ocaml.org/issues
+[3] http://pw374.github.io/posts/2013-09-05-22-31-26-about-omd.html
+[4] http://pw374.github.io/posts/2013-10-03-20-39-07-OPAMaging-MPP.html
+[5] https://help.github.com/articles/creating-and-editing-files-in-your-repository
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>out-of-the-heap 'a arrays ?</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-11/msg00029.html</cwn_url>
+      <cwn_who>Jean Krivine asked and Gerd Stolpmann replied</cwn_who>
+      <cwn_what>
+&gt; I am developing a graph rewriting algorithm which operates on large
+&gt; graphs. Because of the large data structure the GC becomes quite
+&gt; inefficient for two reasons that I am inferring: 
+&gt; 1/ there is no correlation between the time of allocation of an object
+&gt; and its likelihood to be garbage collected.
+&gt; 2/ even when there is nothing to collect, I guess that the GC is still
+&gt; inspecting the heap.
+&gt; 
+&gt; 
+&gt; Point 1 is inducing some memory leak and point 2 is just inefficient.
+&gt; I think I took care of point 1 by using my own allocation heap (so
+&gt; there is nothing to collect for the GC). But to take care of point 2 I
+&gt; guess I need to tell the GC that my heap (an extensible array) should
+&gt; not be inspected.
+&gt; 
+&gt; 
+&gt; As far as I understand there is a module Ancient which I can use to
+&gt; tell the GC to ignore my array but, if I understand well, it would
+&gt; only work if I use my array in a read only fashion. 
+&gt; I also thought I could use Bigarray, but it seems it can only be used
+&gt; for basic array types.
+&gt; 
+&gt; 
+&gt; To summarize my question: is there a (reasonable) way to implement an
+&gt; 'a array out of the ocaml heap ? 
+
+Yes, but it's cumbersome. I did that for the Netmulticore library of
+Ocamlnet.
+
+Here are the basics: You can have a pointer from the normal heap to
+other memory, and the GC will not follow it. You cannot have pointers
+the other way round, because the GC may move in-heap memory, and there
+is no mechanism to update such inverse pointers.
+
+In Ocamlnet you find the required support functions in
+&lt;http://projects.camlcity.org/projects/dl/ocamlnet-3.7.3/doc/html-main/Netsys_mem.html&gt;. This
+functionality shares the same basic ideas of Ancient, but is more complete, and
+especially supports read-write modifications of out-of-heap values in a
+reasonable way. Out-of-heap memory is here encapsulated as bigarrays. With
+Netsys_mem.init_array you can initialize bigarrays so their contents can be
+interpreted as Ocaml array. With Netsys_mem.init_value you can copy arbitrary
+values to bigarrays (i.e. for initializing/setting the elements of the
+array). Netsys_mem.as_value returns the pointer to the structure in the bigarray
+as "normal" OCaml value pointer.
+
+E.g.
+
+type elem = { n : int }
+type arr = elem array
+
+let mem_size = 100000
+let arr_size = 10
+let mem =
+  Bigarray.Array1.create Bigarray.char Bigarray.c_layout mem_size
+let (offs,blen) =
+  Netsys_mem.init_array mem 0 arr_size
+let arr_ooh =
+  Netsys_mem.as_value mem offs
+
+Now arr_ooh contains invalid pointers (which doesn't matter for the
+moment because the GC will not inspect them). Here is how to set all
+elements to some contents:
+
+let next = ref blen
+for k = 0 to arr_size-1 do
+  let v = { n = 5*k } in   (* some random contents *)
+  let (v_offs, v_blen) =
+    Netsys_mem.init_value mem !next v [] in
+  let v_ooh =
+    Netsys_mem.as_value mem v_offs in
+  arr_ooh.(k) &lt;- v_ooh;      (* out-of-heap assignment, see below *)
+  next := !next + v_blen
+done
+
+Of course, you need to do your own memory-management here (there are
+higher-level functions in Ocamlnet for that, see the Netmulticore
+library).
+
+So finally you get an initialized out-of-heap array arr_ooh residing
+within the bigarray.
+
+The assignment arr_ooh.(k) &lt;- v_ooh needs some further discussion. Until
+OCaml-4.00.1 this was fully supported by the OCaml runtime. OCaml-4.01.0
+includes a change that disallows to modify out-of-heap memory with
+normal OCaml assignment operators. Ocamlnet contains a workaround (which
+works by overriding the changed caml_initialize and caml_modify
+functions with their old definitions), and it is automatically enabled
+if you add -package netmulticore at link time. The workaround is
+incompatible with non-custom bytecode links, though.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>final release of OPAM 1.1.0</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-11/msg00071.html</cwn_url>
+      <cwn_who>Thomas Gazagnaire announced</cwn_who>
+      <cwn_what>
+After a while staged as RC, we are proud to announce the final release of OPAM 1.1.0 !
+
+Thanks again to those who have helped testing and fixing the last few issues.
+
+
+== Important note ==
+
+The repository format has been improved with incompatible new features ; to
+account for this, the _new_ repository is now hosted at opam.ocaml.org, and
+the legacy repository at opam.ocamlpro.com is kept to support OPAM 
+1.0 installations, but is unlikely to benefit from many package updates.
+Migration to opam.ocaml.org will be done automatically as soon as you upgrade
+your OPAM version.
+
+You're still free, of course, to use any third-party repositories instead or in addition.
+
+
+== Installing ==
+
+NOTE: When switching from 1.0, the internal state will need to be upgraded.
+THIS PROCESS CANNOT BE REVERTED. We have tried hard to make it fault-
+resistant, but failures might happen. In case you have precious data in your 
+~/.opam folder, it is advised to backup that folder before you upgrade to 
+1.1.0.
+
+Using the binary installer:
+- download and run http://www.ocamlpro.com/pub/opam_installer.sh
+ 
+Using the .deb packages from Anil's PPA (binaries are currently synching, see [1]):
+    add-apt-repository ppa:avsm/ppa
+    apt-get update
+    sudo apt-get install opam
+
+For OSX users, the homebrew package will be updated shortly.
+ 
+or build it from sources at :
+- http://www.ocamlpro.com/pub/opam-full-1.1.0.tar.gz
+- https://github.com/ocaml/opam/releases/tag/1.1.0
+
+== For those who haven't been paying attention ==
+
+OPAM is a source-based package manager for OCaml. It supports multiple
+simultaneous compiler installations, flexible package constraints, and
+a Git-friendly development workflow. OPAM is edited and
+maintained by OCamlPro, with continuous support from OCamlLabs and the
+community at large (including its main industrial users such as
+Jane-Street and Citrix).
+
+The "official" package repository is now hosted at &lt;https://opam.ocaml.org&gt;, synchronised with the
+Git repository at &lt;http://github.com/ocaml/opam-repository&gt;, where you can contribute new packages
+descriptions. Those are under a CC0 license, a.k.a. public domain, to ensure they will always
+belong to the community.
+
+Thanks to all of you who have helped build this repository and made OPAM such a success.
+
+
+== Changes ==
+
+Too many to list here, see
+https://raw.github.com/OCamlPro/opam/1.1.0/CHANGES
+
+For packagers, some new fields have appeared in the OPAM description format:
+- `depexts` provides facilities for dealing with system (non ocaml) dependencies
+- `messages`, `post-messages` can be used to notify the user eg. of licensing information,
+  or help her  troobleshoot at package installation.
+- `available` supersedes `ocaml-version` and `os` constraints, and can contain
+  more expressive formulas
+
+Also, we have integrated the main package repository with Travis, which will help us 
+to improve the quality of contributions (see [2]).
+
+
+Enjoy !
+
+Thomas,  Louis and all the OPAM team
+
+[1] https://launchpad.net/~avsm/+archive/ppa/+builds?build_state=pending
+[2] http://anil.recoil.org/2013/09/30/travis-and-ocaml.html
+      </cwn_what>
+      <cwn_who>Anil Madhavapeddy then added</cwn_who>
+      <cwn_what>
+&gt; Using the .deb packages from Anil's PPA (binaries are currently synching,
+&gt; see [1]):
+&gt; add-apt-repository ppa:avsm/ppa
+&gt; apt-get update
+&gt; sudo apt-get install opam
+
+A common question I'm getting about this PPA is from Debian users.
+Unfortunately, the Debs produced for Ubuntu aren't quite compatible with
+Debian Wheezy (I haven't tried later versions), and so I suspect the best bet
+is to wait for the Debian maintainers to propagate an update to the testing
+repository.
+
+For Ubuntu users who need fixed versions, there is a matrix of OCaml
+3.12.1/4.00.1/4.01.0 + OPAM 1.0/1.1 PPAs available that are suitable for
+automated testing (such as via Travis). See the repo list at:
+https://launchpad.net/~avsm
+
+The avsm/ppa is intended to be a stable one that is suitable for day-to-day
+use with your Ubuntu install, and only updated with major revisions of OCaml
+or OPAM.
+
+&gt; For OSX users, the homebrew package will be updated shortly.
+
+The upstream pull request at Homebrew HQ is:
+https://github.com/mxcl/homebrew/pull/24086
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>opam2debian v0.1.0: Create Debian package that contains a set of OPAM packages</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-11/msg00087.html</cwn_url>
+      <cwn_who>Sylvain Le Gall announced</cwn_who>
+      <cwn_what>
+I am pleased to announce my latest program that allow to create easily snaphsot
+of OPAM and distribute it as a Debian binary package.
+
+You can read a longer description and HOWTO for the program here:
+http://le-gall.net/sylvain+violaine/blog/index.php?post/2013/11/08/opam2debian%2C-a-tool-to-create-Debian-binary-package-out-of-OPAM
+
+Side note:
+This tool uses github VCS and bug tracker but still use the OCaml Forge for
+file distribtuion. I am experimenting a little bit out of the OCaml Forge to be
+up to date.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Real World OCaml is finished</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-11/msg00090.html</cwn_url>
+      <cwn_who>Yaron Minsky announced</cwn_who>
+      <cwn_what>
+Real World OCaml is now done. You can access it a few different ways:
+
+- Online. Note that logging in vai Github is no longer required.
+http://realworldocaml.org
+- A hardcopy: http://amzn.to/1afkSIe
+- An ebook, which you can get without DRM straight from O'Reilly:
+http://oreil.ly/S2Vtdh
+
+And you can read the following if you're interested in the the story
+behind the book.
+
+https://ocaml.janestreet.com/?q=node/117
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Real World OCaml now available online and print</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-11/msg00091.html</cwn_url>
+      <cwn_who>Anil Madhavapeddy also announced</cwn_who>
+      <cwn_what>
+After the gestation period of a respectably sized whale, we are
+pleased to announce the immediate availability of Real World OCaml.
+It can be freely read online under a Creative Commons license:
+
+https://realworldocaml.org/
+
+The book is also available from O'Reilly as a print/eBook edition:
+
+http://oreil.ly/realworldOCaml
+
+And also from Amazon, iBooks and the other usual book retailers.
+If you enjoy it (or indeed, have criticisms), we'd welcome comments
+and reviews on the various sites to help guide our efforts.
+Purchasing a copy will help drive future editions and language
+translations.
+
+Real World OCaml development doesn't end here. We've got exciting
+features in the pipeline such as collaborative exercises using
+js_of_ocaml to facilitate easier teaching, and various chapters
+that didn't make the final book that we're planning to place online
+after some editing work.
+
+For now though, it's time to raise a glass to the fantastic community
+effort that made this possible -- over 2400 (high quality) comments
+in the end, and significant textual contributions from Leo White,
+Jeremy Yallop, Stephen Weeks, tooling help around OPAM and UTop
+from Thomas Gazagnaire, Jeremie Diminio, Louis Gesbert and his
+colleagues at OCamlPro, and the constant advice from the entire
+core development team led by Xavier Leroy (special thanks to Jacques
+Garrigue for working hard to get the short-paths feature into OCaml
+4.01).
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>exenum.0.6: exhaustive enumerations for datatypes</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-11/msg00094.html</cwn_url>
+      <cwn_who>Didier Le Botlan announced</cwn_who>
+      <cwn_what>
+Let me introduce exenum, the "exhaustive enumeration"(1) library.
+
+&lt;shameless teaser&gt;
+You all probably wonder what "the" 42,000th lambda-term is. It happens 
+to be (((fun x -&gt; v) (v v)) ((x x) v))   (2)
+
+As for "the" 10^400th lambda-term, it is
+((((((fun x -&gt; (v v)) ((fun v -&gt; y) (fun x -&gt; x))) ((fun v -&gt; (x 
+x))[...and 20 more lines...]
+
+
+(1) where "exhaustive" means that every value (of the given datatype) is 
+eventually enumerated.
+
+(2) where variables are restricted to "x", "y", "u", "v".
+
+&lt;/teaser&gt;
+
+
+In short :
+
+  - exenum makes it easy to build enumerations for any datatype.
+
+  - Very handy to carry out intensive unit testing
+(Students' motto : "If you know your code is unsound, test it anyway, it 
+might work by accident").
+
+  - exenum is inspired by FEAT for Haskell.
+
+  - Impress coq's users with statements such as: "I have successfully 
+checked my code up to index 17 !"
+
+  - Quick overview and API on the homepage:
+http://exenum.forge.ocamlcore.org/
+
+  - Install with: opam install exenum
+
+* * *
+
+As a side dish, let me mention the oasis- and ocamlbuild-based packaging 
+I used for this library.
+
+For quite a while, I had been looking for a neat way to pack an ocaml 
+library, that is:
+  - Only one main module is "exported" to users (or, say, just a couple 
+of modules).
+  - The library may define several internal modules, but they should 
+remain hidden (that is, as hidden as possible). In particular, they 
+should not pollute the global module namespace.
+
+I was not able to find satisfactory examples on the net (most likely, 
+though, I have not searched enough).
+
+Finally, I wrote an _oasis file as follows (excerpt):
+## Exported library
+Library "exenum"
+   Path:            src/
+   Modules:         ExEnum
+   BuildDepends:    exenum.internals
+   Install:         true
+
+## This library packs internal modules, so that they may not conflict 
+with anything else.
+Library "exenum_internals"
+   Path:	           src/
+   Modules:         Convenience
+   InternalModules: Exen, ExtArray, Parts, Shuffle
+   FindlibParent:   exenum
+   FindlibName:     internals
+   Pack:            true
+
+Thus, the internal modules are all packed in an ocaml module 
+"Exenum_Internals" (the -pack option of ocamlc). Only the main module 
+"ExEnum" and "Exenum_internals" are visible at top-level.
+
+See details at the bottom of:
+http://exenum.forge.ocamlcore.org/
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other Caml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocaml.org/&gt;.
+
+Why is virt-builder written in OCaml?:
+  &lt;http://rwmj.wordpress.com/2013/11/11/why-is-virt-builder-written-in-ocaml/&gt;
+
+The making of Real World OCaml:
+  &lt;https://ocaml.janestreet.com/?q=node/117&gt;
+
+opam2debian, a tool to create Debian binary package out of OPAM:
+  &lt;http://le-gall.net/sylvain+violaine/blog/index.php?post/2013/11/08/opam2debian%2C-a-tool-to-create-Debian-binary-package-out-of-OPAM&gt;
+
+Overriding submodules:
+  &lt;http://gallium.inria.fr/blog/overriding-submodules&gt;
+
+Migration plan for the OCaml.org redesign:
+  &lt;http://amirchaudhry.com/migration-plan-ocaml-org&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

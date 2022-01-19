@@ -1,0 +1,472 @@
+			  ━━━━━━━━━━━━━━━━━━━
+			   OCAML WEEKLY NEWS
+			  ━━━━━━━━━━━━━━━━━━━
+
+
+[Previous Week] [Up] [Next Week]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of June 22 to 29,
+2021.
+
+Table of Contents
+─────────────────
+
+wasicaml - a code emitter for OCaml targeting WebAssembly
+opam 2.1.0~rc2
+Set up OCaml 2.0.0-beta2
+Any OCaml bindings to Apache Arrow?
+Compiler engineer for OCaml and WebAssembly, Germany
+v3.0.0 release of reparse, reparse-lwt, reparse-lwt-unix
+Progress 0.2.0
+http-multipart-formdata v2.0.0
+Old CWN
+
+
+[Previous Week] <https://alan.petitepomme.net/cwn/2021.06.22.html>
+
+[Up] <https://alan.petitepomme.net/cwn/index.html>
+
+[Next Week] <https://alan.petitepomme.net/cwn/2021.07.06.html>
+
+
+wasicaml - a code emitter for OCaml targeting WebAssembly
+═════════════════════════════════════════════════════════
+
+  Archive:
+  <https://sympa.inria.fr/sympa/arc/caml-list/2021-06/msg00017.html>
+
+
+Gerd Stolpmann announced
+────────────────────────
+
+  I'd like to announce a new project to develop a code generator that
+  emits WebAssembly:
+
+  <https://github.com/remixlabs/wasicaml>
+
+  With the support of RemixLabs I could already create a very first
+  version that takes the OCaml bytecode as input and translates it to
+  WebAssembly.  While this approach probably doesn't lead to the fastest
+  code, it is easy to accomplish, and it demonstrates the challenge (and
+  already shows how to solve many of the part problems along the road).
+
+  To be precisely, the target of the translator is wasm32-unknown-wasi,
+  i.e.  the WASI ABI. This ABI is still in early development, but
+  provides already the syscalls (or better, host calls) to access files,
+  to get the current time, and to read the environment. This is almost
+  enough to run a compiler - I only had to add system() so that ocamlc
+  can start external preprocessors.  Also, due to the fact that the
+  current wasm implementations still lack exception handling, I had to
+  assume the presence of a host emulation of exceptions (which is easy
+  to provide if the host environment is Javascript, but not necessarily
+  for other environments).
+
+  The translator takes the OCaml bytecode as input, i.e. you first
+  create an excecutable
+
+  ┌────
+  │ $ ocamlc -o myexec ...
+  └────
+
+  and then make wasm out of it:
+
+  ┌────
+  │ $ wasicaml -o myexec.wasm myexec
+  └────
+
+  If you omit the .wasm suffix, wasicaml will put a preamble in front of
+  the wasm code that starts the execution:
+
+  ┌────
+  │ $ wasicaml -o myexec_wasm myexec
+  │ $ ./myexec_wasm
+  └────
+
+  Because of this trick, many problems of cross-compiling can be
+  avoided.
+
+  You may ask what the benefits of yet another "Web" language are. We
+  already have two emitters targeting Javascript - isn't that enough?
+  Well, two answers here.
+
+  First, WASI is a proper LLVM target. Because of this, you can link
+  code from other languages with your executable (e.g. C or Rust). So
+  you are not limited to OCaml but can use any language that also
+  targets the WASI ABI. E.g. you can do
+
+  ┌────
+  │ $ wasicaml -o myexec.wasm myexec -ccopt -lfoo
+  └────
+
+  to also link in libfoo.a (which must also be compiled to wasm). So it
+  is multi-lingual from the beginning.
+
+  Second, WebAssembly can be used outside the web, too. WASI targets
+  more the command-line, and server plugins, and generally any
+  OS-independent environments. For example, imagine you have an Electron
+  app with a great UI, but for some special functionality you need to
+  include some OCaml code, too. You don't want to give up the
+  OS-independence, and WASI gives you now a natural option to add the
+  OCaml code. And you still have access to the filesystem without
+  hassle. - Another example is edge computing, i.e. when the cloud is
+  extended by computers outside the data center, and the code should be
+  in a form so that it can be run on as many platforms as possible. -
+  All in all, WASI plays well when you need to combine OS-independence
+  with a classic way of organizing the code as command or as server
+  function, and you also need predictable performance.
+
+  The challenge of translating OCaml to wasm is mainly the garbage
+  collector.  Wasm doesn't permit many of the tricks ocamlopt is using
+  to know in which memory (or register) locations OCaml values are
+  stored. In wasm, there are no registers but the closest vehicle are
+  local variables. Now, it is not possible to scan these variables from
+  the GC function, making it practically impossible to put OCaml values
+  there while a function is called that might trigger a GC. There is
+  also no really cheap way of obtaining a stack descriptor.
+
+  Wasicaml inherits the stack from the bytecode interpreter and uses it
+  as its own shadow stack for OCaml values. As wasicaml bases on the
+  bytecode representation of the code, the bytecode instructions already
+  ensure that values always live in this stack when the GC might
+  run. Wasicaml additionally tries to identify values that don't need
+  this special treatment (like ints and bools) and that are preferably
+  stored in local variables, giving the wasm executor freedom to put
+  these into registers or other high-speed locations. (Unfortunately,
+  most of the type information is already erased in the bytecode, and
+  this is definitely one of the deficiencies of the bytecode approach.)
+
+  In order to maximize the performance, it is probably best to avoid the
+  stack whenever possible. The current approach of transforming the
+  bytecode hasn't brought to an end yet with respect to such
+  optimizations. For example, there could be more analyses that figure
+  out when GC runs are actually possible and when it is safe to use
+  local variables.
+
+  Another problem of the bytecode basis is that all function calls are
+  indirect, preventing the wasm executor from inlining functions.
+
+  As a project, I'd like to see wasicaml progressing in two directions.
+  First, make the current approach as good as possible - although basing
+  it on the bytecode representation has its downsides, it is easy to
+  understand and it is possible to figure out what the necessary
+  ingredients for fast code are. Second, get an idea where a possible
+  real wasm backend would fit into the OCaml compiler (maybe it is c–
+  but maybe this doesn't give us much and you start better with lambda).
+
+  Anyway, welcome to the new world of WebAssembly!
+
+  Gerd
+
+  PS. If you are interested in WebAssembly and like to work with me on
+  another Wasm port for some time, there is a position:
+  <https://www.mixtional.de/recruiting/2021-01/index.html>
+
+  PPS. Wasicaml is a project of Figly, Inc., commonly known as
+  RemixLabs, developing a reactive low-code and code collaboration
+  platform.  <https://remixlabs.com/>
+
+
+opam 2.1.0~rc2
+══════════════
+
+  Archive: <https://discuss.ocaml.org/t/ann-opam-2-1-0-rc2/8042/1>
+
+
+David Allsopp announced
+───────────────────────
+
+  The opam team has great pleasure in announcing opam 2.1.0~rc2!
+
+  The focus since beta4 has been preparing for a world with more than
+  one released version of opam (i.e.  2.0.x and 2.1.x). The release
+  candidate extends CLI versioning further and, under the hood, includes
+  a big change to the opam root format which allows new versions of opam
+  to indicate that the root may still be read by older versions of the
+  opam libraries. A plugin compiled against the 2.0.9 opam libraries
+  will therefore be able to read information about an opam 2.1 root
+  (plugins and tools compiled against 2.0.8 are unable to load opam
+  2.1.0 roots).
+
+  Please do take this release candidate for a spin! It is available in
+  the Docker images at ocaml/opam on [Docker Hub] as the opam-2.1
+  command (or you can `sudo ln -f /usr/bin/opam-2.1 /usr/bin/opam' in
+  your `Dockerfile' to switch to it permanently). The release candidate
+  can also be tested via our installation script (see the [wiki] for
+  more information).
+
+  Thank you to anyone who noticed the unannounced first release
+  candidate and tried it out. Between tagging and what would have been
+  announcing it, we discovered an issue with upgrading local switches
+  from earlier alpha/beta releases, and so fixed that for this second
+  release candidate.
+
+  Assuming no showstoppers, we plan to release opam 2.1.0 next week. The
+  improvements made in 2.1.0 will allow for a much faster release cycle,
+  and we look forward to posting about the 2.2.0 plans soon!
+
+
+[Docker Hub] <https://hub.docker.com/r/ocaml/opam/tags>
+
+[wiki]
+<https://github.com/ocaml/opam/wiki/How-to-test-an-opam-feature#from-a-tagged-release-including-pre-releases>
+
+
+Set up OCaml 2.0.0-beta2
+════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-set-up-ocaml-2-0-0-beta2/8046/1>
+
+
+Sora Morimoto announced
+───────────────────────
+
+  This release includes changes to address a corner case primarily
+  related to multicore OCaml.
+
+  <https://github.com/ocaml/setup-ocaml/releases/tag/v2.0.0-beta2>
+
+
+Any OCaml bindings to Apache Arrow?
+═══════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/any-ocaml-bindings-to-apache-arrow/8047/2>
+
+
+UnixJunkie asked and Laurent Mazare announced
+─────────────────────────────────────────────
+
+        Looks interesting:
+
+        <https://arrow.apache.org/>
+
+        <https://arrow.apache.org/overview/>
+
+  I've put together some simple [ocaml-arrow] library. It works
+  reasonably well and is quite battle tested but definitely needs a bit
+  of cleanup as the bits under src/ are deprecated in favor of the ones
+  under c_api/. There is also a ppx to automatically convert ocaml
+  records to/from arrow. Some examples using this can be seen in the
+  [tests directory].
+
+  If there is some interest, I can certainly push up on cleaning this
+  and make an actual opam package.
+
+
+[ocaml-arrow] <https://github.com/LaurentMazare/ocaml-arrow>
+
+[tests directory]
+<https://github.com/LaurentMazare/ocaml-arrow/blob/master/c_api/tests/ppx.ml>
+
+
+Compiler engineer for OCaml and WebAssembly, Germany
+════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/compiler-engineer-for-ocaml-and-webassembly-germany/8053/1>
+
+
+Gerd Stolpmann announced
+────────────────────────
+
+  We are developing a compiler for a no-code platform that translates
+  our DSL to bytecode and/or WebAssembly. The language is largely of
+  functional type but is also able to manage state with a spreadsheet
+  model, allowing reactive programming without having to resort to
+  libraries. The language is statically typed using a Hindley-Milner
+  type checker. The compiler is primarily written in OCaml. Other
+  languages of our platform are Go, C, Elm, and Javascript.
+
+  We are looking for a compiler engineer with skills in code generation
+  for WebAssembly:
+
+  • Translation of an intermediate representation to WebAssembly
+  • Writing runtimes and SDKs targeting WebAssembly
+  • Code optimization
+
+  See the full ad here:
+  <https://www.mixtional.de/recruiting/2021-01/index.html>
+
+
+v3.0.0 release of reparse, reparse-lwt, reparse-lwt-unix
+════════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-v3-0-0-release-of-reparse-reparse-lwt-reparse-lwt-unix/8058/1>
+
+
+Bikal Lem announced
+───────────────────
+
+  I am happy to announce v3.0.0 of `reparse' - an OCaml library for
+  constructing various types of parsers in OCaml.
+
+  The release follows a complete overhaul of the internal working of the
+  library to achieve the following goals:
+
+  1. Allow construction of efficient, zero-copy parsers. See [String
+     parser for example]. The library provides a [Make functor]
+     parametrised over a `Promise' and a `Input' type allowing you
+     control over both parser memory allocation and copying.
+
+  2. Support usage of async libraries - lwt and async. Following the
+     first point the library can now be used together with `lwt' and/or
+     `async'. A lwt parse - for example - can now be used seamlessly
+     with your other lwt code. The integration is seamless.
+
+  3. Provide `Make_buffered' functor to produce parsers where the input
+     type natively doesn't allow random read, for example sockets, lwt
+     streams and channels. There is now two new supporting packages
+     `reparse-lwt' which provides parsing from `char Lwt_stream.t'
+     input type and `reparse-lwt-unix' which provides parsing from
+     `Lwt_unix.file_descr' and ~Lwt_unix.input_channel' respectively.
+
+  4. Provide `Make_unbuffered' functor to produce parsers where the
+     input type natively supports random read, for example strings,
+     bigstrings, bytes.
+
+  5. Introduce function `unsafe_any_char' to allow efficient
+     (zero-copy?) parsing.
+
+  6. Prune dependencies by removing `base'.
+
+  P.S. The documentation is bit behind in this release so please bear
+  with me while work through the issues in the coming days.
+
+  [Reparse repo]
+
+
+[String parser for example]
+<https://github.com/lemaetech/reparse/blob/master/lib/reparse.mli#L1237>
+
+[Make functor]
+<https://github.com/lemaetech/reparse/blob/master/lib/reparse.mli#L1230>
+
+[Reparse repo]
+<https://github.com/lemaetech/reparse/blob/master/lib/reparse.ml>
+
+
+Progress 0.2.0
+══════════════
+
+  Archive: <https://discuss.ocaml.org/t/ann-progress-0-2-0/8063/1>
+
+
+Craig Ferguson announced
+────────────────────────
+
+  I'm pleased to announce the 0.2.0 release of [`Progress'], now
+  available via Opam.
+
+  <https://aws1.discourse-cdn.com/standard11/uploads/ocaml/original/2X/7/727d878b6d17f3c48e6946f4df424bcc59938da3.png>
+
+  `Progress' is an OCaml library for defining and using progress
+  bars. It has the following features:
+
+  • allows user-defined progress bar layouts;
+  • supports rendering multiple progress bars simultaneously;
+  • dynamically responds to changes in terminal size;
+  • supports interleaving logging with progress bar rendering.
+
+  This second release contains a much-improved DSL for specifying
+  progress bars, alongside improvements and extensions to the rendering
+  logic. The bars in the screenshot above are defined as follows:
+
+  ┌────
+  │ let bar ~color ~total =
+  │   let open Progress.Line in
+  │   list
+  │     [ spinner ~color:(Progress.Color.ansi ~green) ()
+  │     ; brackets (elapsed ())
+  │     ; bar ~color total
+  │     ; bytes
+  │     ; parens (const "eta: " ++ eta total)
+  │     ]
+  └────
+
+  It also comes with more complete [documentation] and many more
+  [examples], including:
+
+  • a Cargo-like progress bar w/ logging of intermediate results:
+
+    <https://aws1.discourse-cdn.com/standard11/uploads/ocaml/optimized/2X/4/4b148999f7b6029ac0155b049b6a7cf1fa8b40f1_2_1380x500.png>
+
+  • a Yarn-like stack of spinners:
+
+    <https://aws1.discourse-cdn.com/standard11/uploads/ocaml/original/2X/6/67ccf011a403a4c082829f69d5a609b4c0c23f6e.png>
+
+  • a showcase of various progress bar styles:
+
+    <https://aws1.discourse-cdn.com/standard11/uploads/ocaml/optimized/2X/d/d4df4a2df07fd161982243251fbee56d52a4afbf_2_1034x538.png>
+
+
+  The changelog is [here] and the API documentation is [here]. The
+  library is not yet feature-complete, but should still be reasonably
+  useful :-) Happy hacking!
+
+
+[`Progress'] <https://github.com/craigfe/progress>
+
+[documentation]
+<https://craigfe.github.io/progress/progress/Progress/index.html>
+
+[examples] <https://github.com/CraigFe/progress/tree/main/examples>
+
+[here]
+<https://github.com/CraigFe/progress/blob/0.2.0/CHANGES.md#020-2021-06-26>
+
+[here] <https://craigfe.github.io/progress/progress/Progress/index.html>
+
+
+http-multipart-formdata v2.0.0
+══════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-http-multipart-formdata-v2-0-0/8064/1>
+
+
+Bikal Lem announced
+───────────────────
+
+  I am pleased to announce v2.0.0 release of
+  `http-multpart-formdata'. This release departs from previous in-memory
+  representation of http multipart forms to a streaming, memory
+  efficient representation. The new streaming mechanism should help when
+  processing larg file uploads in your OCaml web applications.
+
+  1. [httpaf sample web app]
+  2. [http-multipart-formdata repo]
+
+
+[httpaf sample web app]
+<https://github.com/lemaetech/http-multipart-formdata/blob/master/examples/multipart_httpaf.ml>
+
+[http-multipart-formdata repo]
+<https://github.com/lemaetech/http-multipart-formdata>
+
+
+Old CWN
+═══════
+
+  If you happen to miss a CWN, you can [send me a message] and I'll mail
+  it to you, or go take a look at [the archive] or the [RSS feed of the
+  archives].
+
+  If you also wish to receive it every week by mail, you may subscribe
+  [online].
+
+  [Alan Schmitt]
+
+
+[send me a message] <mailto:alan.schmitt@polytechnique.org>
+
+[the archive] <https://alan.petitepomme.net/cwn/>
+
+[RSS feed of the archives] <https://alan.petitepomme.net/cwn/cwn.rss>
+
+[online] <http://lists.idyll.org/listinfo/caml-news-weekly/>
+
+[Alan Schmitt] <https://alan.petitepomme.net/>

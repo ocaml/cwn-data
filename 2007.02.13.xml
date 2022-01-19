@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+	<cwn_head>
+		<cwn_date>2007.02.13</cwn_date>
+		<cwn_prev>2007.02.06</cwn_prev>
+		<cwn_next>2007.02.20</cwn_next>
+		<cwn_date_text>February 13 to 20, 2007</cwn_date_text>
+	</cwn_head>
+	<cwn_body>
+		<cwn_entry>
+			<cwn_title>Amb</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/d919ffcfd7af90e3/f9f4d239cca2f32b#f9f4d239cca2f32b</cwn_url>
+			<cwn_who>Andrej Bauer asked and Oleg answered</cwn_who>
+			<cwn_what>
+&gt; let me point out that amb is supposed to work as an _angelic_
+&gt; nondeterministic choice operator. This means it must choose a value
+&gt; that, if at all possible, leads to successful completion of the
+&gt; computation.... The scheme implementation involves callcc magic. 
+&gt; If anyone knows a reasonable implementation of amb, I'd be
+&gt; interested to know.
+
+Here it is. Ocaml has something better than call/cc: delimited
+continuations. So, amb is trivially implementable, in two lines of
+code. We also need a `toplevel function', to tell us if the overall
+computation succeeded. One may think of it as St.Peter at the
+gate. For now, we take a computation that raises no exception as
+successful. In general, even non-termination within a branch can be
+dealt with intelligently (cf. `cooperative' threading which must yield
+from time to time).
+
+Regarding effects incurred while evaluating branches: one deal with
+them as one deal with effects when implementing any transactional
+mechanism: you prohibit them, you log the updates, you log the state
+before the beginning so to undo, you use zipper for functional
+`mutations' (which can be done with delimited continuations, too), you
+operate in a sandbox, etc. The ZFS talk gives an example:
+ http://pobox.com/~oleg/ftp/Computation/Continuations.html#zipper-fs
+
+Here are the tests. The second one requires a three-step clairvoyance:
+
+let test1 () =
+  let v = 
+    if (amb [(fun _ -&gt; false); (fun _ -&gt; true)]) then
+      7
+    else failwith "Sinner!"
+  in Printf.printf "got the result %d\n" v;;
+let test1r = toplevel test1;;
+(* got the result 7 *)
+
+(* Test that invokes the Pythagorean spirit *)
+let numbers = List.map (fun n -&gt; (fun () -&gt; n)) [1;2;3;4;5];;
+let pyth () = 
+  let (v1,v2,v3) =
+    let i = amb numbers in
+    let j = amb numbers in
+    let k = amb numbers in
+    if i*i + j*j = k*k then (i,j,k) else failwith "too bad"
+  in Printf.printf "got the result (%d,%d,%d)\n" v1 v2 v3;;
+
+let pythr = toplevel pyth;;
+(* got the result (3,4,5) *)
+
+(* Open the DelimCC library
+  http://pobox.com/~oleg/ftp/Computation/Continuations.html#caml-shift
+*)
+open Delimcc;;
+let shift p f = take_subcont p (fun sk () -&gt;
+  push_prompt p (fun () -&gt; (f (fun c -&gt; 
+    push_prompt p (fun () -&gt; push_subcont sk c)))))
+;;
+
+(* How evaluation has finished *)
+type res = 
+    Done                             (* Finished with the result *)
+  | Exc     of exn                   (* Got an exception -- no good *)
+  | Choices of (unit -&gt; res) list    (* Alternative universes *)
+
+exception Amb		             (* Raise when all choices are bad *)
+;;
+
+let topprompt = new_prompt ();;
+
+(* If it looks like an OS scheduler, it's because it is *)
+let toplevel thunk =
+  let rec loop queue = function 
+  | Done (* evaluation of a branch finished successfully *)
+     -&gt; ()
+  | Exc _ -&gt; try_another queue
+  | Choices more  -&gt; (* OK, add them to the end: breadth-first *)
+      try_another (queue @ more)
+  and try_another = function
+  |  [] -&gt; raise Amb (* No more choices *)
+  |  h::t -&gt; loop t (try h () with e -&gt; Exc e)
+  in
+  loop [] (push_prompt topprompt 
+	     (fun () -&gt; try let _ = thunk () in Done with e -&gt; Exc e))
+;;
+
+(* Split the universe. Something like `fork (2)' *)
+let amb choices = shift topprompt (fun sk -&gt; 
+  Choices (List.map (fun choice -&gt; (fun () -&gt; sk choice)) choices));;
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>Using OpenGL with the native OCaml Graphics module</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/af61e8a3906d7c1d/f615ecb89511e972#f615ecb89511e972</cwn_url>
+			<cwn_who>Elliott Oti announced</cwn_who>
+			<cwn_what>
+I've always thought it would be nice if it were possible to use OpenGL 
+calls in a window created with the Ocaml Graphics module. This would 
+prevent the need to require external toolkits such as SDL or GLUT for 
+some applications. 
+The Ocaml Graphics module is quite limited compared to SDL or GLUT, 
+and also fills a slightly different niche, but it does come with a 
+number of useful functions for drawing text, various graphics 
+primitives, and for polling mouse and keyboard events. Simple 
+standalone programs or demos can be created and distributed without 
+requiring that the SDL or GLUT shared library be present on those 
+systems. 
+
+To get an Ocaml window working with OpenGL I wrote a small stub file 
+in C and a few lines of ML code. A gzipped tar file containing all 
+necessary code to get OpenGL working in a native Ocaml graphic window, 
+along with an example for windows and linux, can be obtained from 
+http://www.elliottoti.com/code/glgraphics/glgraphics.tar.gz 
+
+A screenshot and a little more documentation is available at 
+http://www.elliottoti.com/index.php?p=24
+			</cwn_what>
+		</cwn_entry>
+	</cwn_body>
+</cwn>

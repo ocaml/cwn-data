@@ -1,0 +1,526 @@
+<?xml version="1.0" encoding="utf-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2020.01.14</cwn_date>
+    <cwn_prev>2020.01.07</cwn_prev>
+    <cwn_next>2020.01.21</cwn_next>
+    <cwn_date_text>January 07 to 14, 2020</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>Calling a single function on every member of a GADT?</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2020-01/msg00007.html</cwn_url>
+      <cwn_who>Ivan Gotovchits asked</cwn_who>
+      <cwn_what>
+I'm basically trying to do the equivalent of this simple ~fold~ function:
+
+#+begin_src ocaml
+module Simple =
+struct
+  type term =
+     | Int of int
+     | Add
+     | App of term * term
+
+  let rec fold i f = function
+    | Int _ as t -&gt; f i t
+    | Add -&gt; f i Add
+    | App (x, y) as t -&gt; f (fold (fold i f x) f y) t
+end
+#+end_src
+
+... but using a GADT:
+
+#+begin_src ocaml
+module Gadt =
+struct
+  type _ term =
+     | Int : int -&gt; int term
+     | Add : (int -&gt; int -&gt; int) term
+     | App : ('b -&gt; 'a) term * 'b term -&gt; 'a term
+
+  let rec fold : type a. 'r -&gt; ('r -&gt; _ term -&gt; 'r) -&gt; 'r = fun i f -&gt; function
+    | Int _ as t -&gt; f i t
+    | Add -&gt; f i Add
+(*
+     ^ Error: This pattern matches values of type (int -&gt; int -&gt; int) term
+        but a pattern was expected which matches values of type int term
+        Type int -&gt; int -&gt; int is not compatible with type int
+*)
+    | App (x, y) as t -&gt; f (fold (fold i f x) f y) t
+end
+#+end_src
+
+I've tried other variants of the syntax and got many encouragements but no green flag from the type-checker.
+Why is the compiler expecting an int term in there? I though the whole point of the ~type a. ...~ syntax was to allow the matched type to vary from one pattern to the next?
+Is there a way to do this?
+      </cwn_what>
+      <cwn_who>Ivan Gotovchits replied</cwn_who>
+      <cwn_what>
+It is the limitation of the let-bound polymorphism. A parameter of a
+function is monomorphic in its body. The classical example doesn't even
+reference any GADT,
+
+#+begin_src ocaml
+    let example f  = f "hello", f 42
+#+end_src
+
+It won't compile even though we can provide a polymorphic function that can
+applied both to integers and to strings, e.g., ~exampe (fun x -&gt; x)~ should
+be possible, but not, because of the let-bounded polymorphism. There are a
+few solutions available in OCaml, the simplest is to use records, e.g.,
+
+#+begin_src ocaml
+    type app = {apply : 'a. 'a -&gt; 'a}
+
+    let example {apply} = apply "hello", apply 42;;
+
+    val example : app -&gt; string * int = &lt;fun&gt;
+#+end_src
+
+Now we have ~app~ that is polymorphic.
+In your case, I would define a visitor type, e.g.,
+
+#+begin_src ocaml
+  type 'r visitor = {visit : 'a. 'a term -&gt; 'r -&gt; 'r}
+
+  let rec fold : type a. 'r -&gt; 'r visitor -&gt; a term -&gt; 'r =
+    fun i f t -&gt; match t with
+      | Int _ as t -&gt; f.visit i t
+      | Add as t -&gt; f.visit i t
+      | App (x,y) as t -&gt;
+          let i = fold i f x in
+          let i = fold i f y in
+          f.visit i t
+#+end_src
+      </cwn_what>
+      <cwn_who>Jacques Garrigue also replied</cwn_who>
+      <cwn_what>
+Actually, this is a rare case where using a polymorphic method may be
+handy too:
+
+#+begin_src ocaml
+let rec fold : type a r. r -&gt; &lt;v : 'b. r -&gt; 'b term -&gt; r&gt; -&gt; a term -&gt; r =
+     fun i f -&gt; function
+     | Int _ as t -&gt; f#v i t
+     | Add -&gt; f#v i Add
+     | App (x, y) as t -&gt; f#v (fold (fold i f x) f y) t
+
+let v =
+   object method v : type a. _ -&gt; a Gadt.term -&gt; _ =
+     fun x -&gt; function
+       | Int n -&gt; x+n
+       | Add -&gt; x+1
+       | App _ -&gt; x+2
+   end
+
+let r = Gadt.fold 0 v (App (App (Add, Int 3), Int 5))
+#+end_src
+
+The point being that to match on a Gadt you will anyway need to use the
+(type a) construct to allow refinement.
+      </cwn_what>
+      <cwn_who>rixed asked and Ivan Gotovchits replied</cwn_who>
+      <cwn_what>
+#+begin_quote
+So there is no lighter syntax to specify that ~f~ should accept any member
+of a GADT than the syntax to specify that ~f~ should accept any type at all?
+#+end_quote
+
+Only three methods of introducing rank-2 polymorphism are known to me:
+1. records
+2. objects
+3. first-class modules
+
+Jacques has demonstrated the solution with objects, which might be a little
+bit more lightweight, at least as you don't need to define a new data type
+beforehand. But the invocation is more verbose and requires an annotation
+from the caller side, which could be confusing. The third solution relies
+on first-class modules and is even more verbose, at least on the definition
+side. Just for the sake of completeness,
+
+#+begin_src ocaml
+  module type Visitor = sig
+    type t
+    val term : t -&gt; 'a term -&gt; t
+  end
+
+  let rec fold : type a r. r -&gt; (module Visitor with type t = r) -&gt; a term
+-&gt; r =
+    fun i ((module Visit) as f) t -&gt; match t with
+      | Int _ as t -&gt; Visit.term i t
+      | Add as t -&gt; Visit.term i t
+      | App (x,y) as t -&gt;
+          let i = fold i f x in
+          let i = fold i f y in
+          Visit.term i t
+
+  let s = fold 0 (module struct
+      type t = int
+      let term x _ = x + 1
+    end)
+#+end_src
+
+And again, it is not about GADT. GADT act as a red herring here. As I've
+demonstrated earlier, using a simple pair will suffice to display the
+limitation of the prenex polymorphism. Even no ADT is required, just apply
+one term to another two and you will get them unified, e.g.,
+
+#+begin_src ocaml
+    let f g x y : unit = g x; g y
+#+end_src
+
+will have type
+
+#+begin_src ocaml
+   val f : ('a -&gt; unit) -&gt; 'a -&gt; 'a -&gt; unit
+#+end_src
+
+because 'a is quantified on the scope of ~f~ not ~g~, in other words, it
+has type (not an OCaml syntax)
+
+#+begin_src ocaml
+   val f : forall 'a. ('a -&gt; unit) -&gt; 'a -&gt; 'a -&gt; unit
+#+end_src
+
+while we would like to have a type
+
+#+begin_src ocaml
+   val f : forall 'b, 'c. (forall 'a. 'a -&gt; unit) -&gt; 'b -&gt; 'c -&gt; unit
+#+end_src
+
+OCaml doesn't allow us to define types like ~('a. 'a -&gt; 'a)~ and the reason
+is not that it is hard to extend the parser it is...
+
+#+begin_quote
+I wonder, is this just a limitation of the OCaml parser or is there some
+deep reason for these work-around (like is the case, from my understanding,
+for the value restriction)?
+#+end_quote
+
+Yep, good catch! It is because of the impurity. Indeed, Haskell has the
+Rank2Types extension that lets us write types like ~(forall a. a -&gt; ()) -&gt;
+b -&gt; c -&gt; ()~, with no extra syntactic burden (modulo having to provide the
+type annotation). But functions in Haskell are pure, therefore it is
+possible. To make the story short and obvious, let me do a simple
+demonstration of how things can go wrong in a language with side-effects.
+Let's go back to the simple example of pairs and the identity function.
+Consider the following nasty identity function,
+
+#+begin_src ocaml
+  let bad_id () =
+    let cache = ref None in
+    fun x -> match cache.contents with
+      | None -> cache := Some x; x
+      | Some cache -> cache
+#+end_src
+
+It has type ~unit -&gt; 'a -&gt; 'a~ therefore, if we would have the rank-1
+polymorphism enabled for functions, we could apply it to the function
+
+#+begin_src ocaml
+     let map2 : fun ('a. 'a -> 'a) -> 'b -> 'c -> 'b * 'c = fun f (x,y) -> f x, f y
+#+end_src
+
+as
+
+#+begin_src ocaml
+   let x,y : string * int = map2 (bad_id ()) "hello", 42
+#+end_src
+
+and will get a segmentation fault, as ~y~ will now have type int but hold a
+string.
+
+And here comes the syntax as a savior as it lets us specify functions that
+are guaranteed to be syntactic values. Indeed, all three solutions
+syntactically guarantee that the provided argument is a function, not a
+closure. Indeed, let's introduce the universal identity via a record,
+
+#+begin_src ocaml
+   type id = { f : 'a. 'a -> 'a}
+#+end_src
+
+and we can see that our ~bad_id~ is not accepted due to the value
+restriction, while good_id, defined as,
+
+#+begin_src ocaml
+   let good_id x = x
+#+end_src
+
+is perfectly fine, e.g.,
+
+#+begin_src ocaml
+  let id1 = {f = good_id} (*accepted *)
+  let id2 = {f = bad_id}   (* rejected *)
+#+end_src
+
+moreover, even a fine, but not syntactic, identity is also rejected
+
+#+begin_src ocaml
+  let fine_id () x = x
+  let id3 = {f = fine_id ()} (* rejected *)
+#+end_src
+
+with the message
+
+#+begin_example
+  This field value has type 'b -&gt; 'b which is less general than 'a. 'a -&gt; 'a
+#+end_example
+
+The same is true with modules,
+
+#+begin_src ocaml
+  module type Id = sig
+    val f : 'a -&gt; 'a
+  end
+  module Id1 : Id = struct let f = good_id end   (* accepted *)
+  module Id2 : Id = struct let f = bad_id () end (* rejected *)
+  module Id3 : Id = struct let f = fine_id () end (* rejected *)
+#+end_src
+
+and with objects (left as an exercise).
+
+To summarize, in order to enable rank2 polymorphism we need a special kind
+of values to bear universal functions, as we can't rely on ordinary
+functions, which could be constructed using partial application. OCaml
+already had objects and records, which serve as a fine media for
+universally quantified functions. Later first class modules were
+introduced, which could also be used for the same purpose. Probably, one
+could devise a special syntax (or rely on the new attributes and extensions
+syntax, e.g., ~map2 [%rank2 : fun x -&gt; x] ("hello",42)~ but probably this
+will lead to an unnecessary bloating of the language and the
+implementation, especially since we already have three solutions with a
+more or less tolerable syntax (and are in the base language, not an
+extension).  Besides, if we will use the ~[@@unboxed]~ annotation, or
+visitor will have the same representation as a function, e.g.,
+
+#+begin_src ocaml
+    type 'r visitor = {visit : 'a. 'r -&gt; 'a term -&gt; 'r} [@@unboxed]
+    let count x _ = x + 1
+    let counter = {visit=count}
+#+end_src
+
+and
+
+#+begin_src ocaml
+  # Core_kernel.phys_same count counter;;
+  - : bool = true
+#+end_src
+
+Concerning rank-n polymorphism, in OCaml is is achieved using functors.
+Yes, they are a little bit syntactically heavy and force us to write
+signatures, but this is necessary anyway as rank-n is undecidable
+(non-inferrable). Finally, as a real-world example [1] of rank-2
+polymorphism consider the universal WAVL tree that is a binary tree with
+each element having a different type (aka heterogeneous map). We use it in
+BAP as a backing store. You might find a few tricks there, especially using
+continuation-passing in the recursive cases.
+
+Cheers,
+Ivan
+
+[1]: https://github.com/BinaryAnalysisPlatform/bap/blob/b40689e636607b977758af048b79d65684ce48c3/lib/knowledge/bap_knowledge.ml#L847-L1693
+      </cwn_what>
+      <cwn_who>Malcolm Matalka asked and Ivan Gotovchits replied</cwn_who>
+      <cwn_what>
+#+begin_quote
+Why is type checking creating a record different than type checking a
+function argument?
+
+If we had the syntax (or something like it):
+
+let map2 : ('a. 'a -&gt; 'a) -&gt; ('b * 'c) -&gt; ('b * 'c)
+
+Why would the type checker not be able to see that
+
+map2 good_id ("hi", 42)
+
+is valid but
+
+map2 (fine_id ()) ("hi", 32)
+
+is not, using the same logic that is verifying creating the "id" record
+is not valid?
+#+end_quote
+
+I believe it is possible, as it is possible in Haskell (with RankNTypes and
+ScopedTypeVariables). The main (theoretical) difference is that in OCaml we
+need to check whether an expression is expansive and use a specialized
+generalization in case if it is (for the relaxed value restriction). It
+will, however, complicate the type inference engine a lot, but most
+importantly, changing the typing rule of functions will have a tremendous
+impact on the language. So this would be a very impractical solution.
+Especially, since we don't have the mechanism of language extensions,
+enabling RankNTypes will make a lot of programs untypeable, as they will
+now require type annotations (recall that RankN is undecidable in general).
+It could probably be implemented as a compiler command line parameter, like
+~-rectypes~ but this will be still quite impractical since more often code
+like ~fun f -&gt; f 1, f true~ is a programmer error, rather than a true
+request for universal polymorphism (the same as with rectypes, recursive
+types a more often an error rather than a deliberate attempt). Therefore,
+enabling RankN(^1) polymorphism will type too many programs (not that it is
+unsound, just many programs won't have sense) at the cost of even more
+obscure type errors. On the other hand, we have three syntactic constructs
+that let us express non-prenex polymorphism of the necessary rank(^2)
+without breaking anything else. So it looks like a good deal - we can have
+rankN polymorphism and decidable type checker at the same time. Just think
+of polymorphic records/methods as an embedded DSL for rankN polymorphism.
+
+============
+Footnotes:
+
+1) An important point, that I forgot to notice, is that enabling scoped
+type variables, will inevitably enable rankN polymorphism, e.g., since now
+any type could be a polytype, then suppose we have type ~'a. ('b.'b -&gt; 'a)
+-&gt; 'a~ could be instantiated to 'a = 'd. ('c. -&gt;  'd) -&gt; 'd, so that our
+type is now ~'d. ('b. 'b -&gt; ('c. 'c -&gt; 'd) -&gt; 'd) -&gt; ('c. 'c -&gt; 'd) -&gt; 'd~
+which is now rank3. Therefore, enabling arbitrary quantification in the
+arrow type will lead to rankN and immediately make undecidable most of the
+type checker.
+
+2) We can craft arbitrary rank using records with universally quantified
+type variables, e.g., here is an example of rank3 polymorphism:
+
+#+begin_src ocaml
+  type 'a rank1 = {f1 : 's. 's -&gt; 'a}
+  type 'a rank2 = {f2 : 'r. 'r -&gt; 'a rank1}
+#+end_src
+
+Indeed, ~f2~ has type ~'a.('r. 'r -&gt; ('s. 's -&gt; 'a)~
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OCamlPro's opam cheat sheet, with a new theme!</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/rfc-ocamlpros-opam-cheat-sheet-with-a-new-theme/4689/3</cwn_url>
+      <cwn_who>Thomas Blanc announced</cwn_who>
+      <cwn_what>
+The opam cheat-sheet is now published in its final form.
+
+You can get the [colored](http://www.ocamlpro.com/wp-content/uploads/2019/11/ocaml-opam.pdf) and [black-and-white](http://www.ocamlpro.com/wp-content/uploads/2020/01/ocaml-opam-bw.pdf) versions from our website.
+
+Happy hacking!
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OCaml 4.10.0, first beta</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ocaml-4-10-0-first-beta/4989/1</cwn_url>
+      <cwn_who>octachron announced</cwn_who>
+      <cwn_what>
+The release of OCaml 4.10.0 is approaching. We have published
+a first beta version to help you adapt your software to the new features
+ahead of the release.
+
+During our preliminary tests for this new beta, we discovered that the recent
+work towards a multicore-ready OCaml runtime introduced compatibility issues
+within some opam packages, that were tweaking the runtime internals.
+Most of those opam packages have been fixed, or will be soon.
+Nevertheless, if you are affected by such compatibility issue, please speak up.
+
+The source code is available at these addresses:
+
+ https://github.com/ocaml/ocaml/archive/4.10.0+beta1.tar.gz \\
+ https://caml.inria.fr/pub/distrib/ocaml-4.10/ocaml-4.10.0+beta1.tar.gz
+
+The compiler can also be installed as an OPAM switch with one of the
+following commands.
+#+begin_src shell
+opam switch create ocaml-variants.4.10.0+beta1 --repositories=default,beta=git+https://github.com/ocaml/ocaml-beta-repository.git
+#+end_src
+or
+#+begin_src shell
+opam switch create ocaml-variants.4.10.0+beta1+&lt;VARIANT&gt; --repositories=default,beta=git+https://github.com/ocaml/ocaml-beta-repository.git
+#+end_src
+ where you replace &lt;VARIANT&gt; with one of these:
+ - afl
+ - flambda
+ - fp
+ - fp+flambda
+
+We want to know about all bugs. Please report them here:
+
+ https://github.com/ocaml/ocaml/issues
+
+Happy hacking.
+      </cwn_what>
+      <cwn_who>Kate added</cwn_who>
+      <cwn_what>
+For the people wanting to give OCaml 4.10.0beta1 a shot, here is an opam overlay which adds fixes to major packages for them to work with this beta: https://github.com/kit-ty-kate/opam-alpha-repository
+
+To use it, simple call:
+#+begin_example
+$ opam switch 4.10
+$ opam repository add alpha git://github.com/kit-ty-kate/opam-alpha-repository.git
+#+end_example
+
+Obviously, this repository should not be used in production and probably contains a few bugs, but at least it allows everyone to have almost as many packages available as with OCaml 4.09. Only 60ish packages are still not available, but apart from the notable exception of ~merlin~ all the essential packages and dependencies are there.
+
+This work has been part of the release-readyness effort founded by the OCaml Software Foundation as announced here: https://discuss.ocaml.org/t/ann-the-ocaml-software-foundation/4476/13
+
+The rest of the effort is going to be put towards having ~merlin~ available for OCaml 4.10 and upstreaming all the fixes from opam-alpha-repository (most of them have PRs associated already). I'm hopeful for them be all upstreamed and available before the stable release of OCaml 4.10.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Data engineer positions at Elastic, US/Canada/Western Europe (proximate to NA timezones)</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/job-data-engineer-positions-at-elastic-us-canada-western-europe-proximate-to-na-timezones/4991/1</cwn_url>
+      <cwn_who>Hezekiah Carty announced</cwn_who>
+      <cwn_what>
+Our team here at [Elastic](https://www.elastic.co/) has positions open for a few security data engineers (aka wranglers of data and all the systems involved).  We are a distributed company so you don't have to be close to an office to be considered.  Infosec industry experience is _not_ required, though of course welcome.  We're surrounded by experts in the field so you'll have lots of opportunities to learn as you go!
+
+The official postings are available here (both have the same text and only differ in title/seniority):
+- Security data engineer - https://jobs.elastic.co/jobs/security-solutions/amer-distributed-/security-data-engineer/2005140#/
+- Senior security data engineer - https://jobs.elastic.co/jobs/security-solutions/amer-distributed-/security-senior-data-engineer/2005152#/
+
+Language-wise, OCaml/Reason makes up most of the code you’ll be working on. Python makes up most of the rest, in particular taking advantage of the machine learning and natural language processing goodies that ecosystem provides. Most of the tools and service we develop are internally focused, supporting security research and improvements to security protections for our users. For those so-inclined, there are lots of opportunities to present at and attend conferences, present work in blog posts, contribute to open source software projects and otherwise engage the community.
+
+The positions are very similar to our [last hiring announcement](https://discuss.ocaml.org/t/filled-posting-is-no-longer-open-threat-research-engineer-job-endgame-us/1937), though we had a different name at that point!
+
+Please reach out to me if you have any questions. I’m available on the OCaml or Reason Discord servers or by email at hezekiah.carty@elastic.co.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Release of naboris 0.1.0 a simple http server</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/release-of-naboris-0-1-0-a-simple-http-server/4994/1</cwn_url>
+      <cwn_who>Shawn McGinty announced</cwn_who>
+      <cwn_what>
+https://github.com/shawn-mcginty/naboris
+
+I could use input on the API and the documentation.  Working on trying to improve both at the moment.
+
+The goal was to create a very simple library for building RESTful type of web servers.  Make it _very_ easy to manage handle request/response lifecycle and sessions.
+
+In my opinion this type of web server is a great entry point for new developers looking to explore the OCaml/Reason world.
+
+Recently I have fallen in love with OCaml and Reason, and as a mostly web centered developer I've found this area quite lacking.  I'm still new to the language and eco system so any guidance would be highly appreciated!
+      </cwn_what>
+      <cwn_who>Yawar Amin replied</cwn_who>
+      <cwn_what>
+Wow! It seems we had much the same idea–OCaml/Reason more accessible to web developers new to the ecosystem :-D I've been working on something very similar: https://github.com/yawaramin/re-web/
+      </cwn_what>
+      <cwn_who>Ulrik Strid said</cwn_who>
+      <cwn_what>
+There is also opium https://github.com/rgrinberg/opium
+
+And morph https://github.com/reason-native-web/morph that has similar goals.
+
+It would be nice if we could either create a shared core that all could build from or collaborate on one.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>esy@0.6.0 release</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-esy-0-6-0-release/5010/1</cwn_url>
+      <cwn_who>Andrey Popp announced</cwn_who>
+      <cwn_what>
+We've just released a new version of esy. You can install it with npm:
+#+begin_example
+$ npm install -g esy@0.6.0
+#+end_example
+
+[esy](https://esy.sh) is a package.json driven workflow for native development with Reason/OCaml (and even C/C++). It provides per-project build environments which are isolated from each other but share underlying build caches so creating new environments is cheap.
+
+While 0.6.0 is mainly about "quality-of-life" improvements it also got few new features including a basic support for garbage collection of unused build artifacts.
+
+For more info see a [blog post](https://esy.sh/blog/2020/01/12/0.6.0.html) by @prometheansacrifice which highlights important updates in 0.6.0.
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

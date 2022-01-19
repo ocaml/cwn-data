@@ -1,0 +1,258 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2019.05.14</cwn_date>
+    <cwn_prev>2019.05.07</cwn_prev>
+    <cwn_next>2019.05.21</cwn_next>
+    <cwn_date_text>May 07 to 14, 2019</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>Bimap (bi-directional map) implementation</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/bimap-bi-directional-map-implementation/3776/1</cwn_url>
+      <cwn_who>paul announced</cwn_who>
+      <cwn_what>
+An implementation of a bimap, a map that is bi-directional and which any client code can use to look up keys if given values as well as traditional lookup of values given keys. Implemented using functors as a class and a module, with support for multi-maps as well as well as single-valued maps. Master branch uses Core. A no-core branch is a work-in-progress and needs re-writing. OUnit testing also implemented.
+
+https://github.com/pat227/bimap.git
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Modules that extend modules from third-party packages</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/modules-that-extend-modules-from-third-party-packages/3777/1</cwn_url>
+      <cwn_who>Matt Windsor asked</cwn_who>
+      <cwn_what>
+What is the recommended way to structure modules that add extensions onto other modules that come from external packages (over which you have no control)?
+
+How do you then structure those modules so that they can themselves be extended, and/or that the extensions can be taken out separately and, say, applied on top of _other_ extensions or modifications to those libraries (say, if I target ~Base~, being able to apply the extensions to ~Core_kernel~)
+
+Currently I'm doing something like this, where I want to add things to a module in ~Base~:
+
+#+begin_src ocaml
+(* base_exts/bar.mli *)
+
+include module type of Base.Bar
+module Extensions : sig
+  val foo : t -&gt; Something.t -&gt; Something_else.t -&gt; t Base.Or_error.t
+end
+include module type of Extensions
+
+(* base_exts/bar.ml *)
+
+include Base.Bar (* [!] *)
+module Extensions = struct
+  let foo (bar: t) (baz: Something.t) (barbaz: Something_else.t)
+    : t Base.Or_error.t = (* do something *)
+end
+#+end_src
+
+If I then want to re-apply the same extensions to the ~Core_kernel~ version of ~baz~, I'll just import ~Base_exts.Bar.Extensions~ over an include of ~Core_kernel.Bar~.  The extensions still depend on the ~Base~ implementation of everything, but that shouldn't matter as long as the ~t~ agrees?
+
+It occurs to me (after trying to publish an opam package with this setup, natch) that this might be a *Very Bad Idea*:
+
+- That include may _very well_ be copying the whole body of ~Base.Bar~ into my module.  (I'm not sure how includes work, but that'd be the most semantically obvious thing to do.)  I definitely don't want to be distributing half of, say, Jane Street's libraries in my opam packages, for obvious infrastructural and legal reasons!  I've seen parts of ~Core_kernel~ include parts of ~Base~ like this, but it may be that, since they're two parts of the same library family, this is OK to do in that situation.
+- ~odoc~ seems to be picking up the entire API surface of ~Base.Bar~ when I do the above.  This certainly isn't what I want—I want to be loosely saying 're-export everything that ~Base.Bar~ exports', _not_ 're-export this specific thing and this specific thing and then this specific thing', _especially_ since the latter ties the documentation to a specific version of the external library.
+
+So far I've seen two other approaches:
+
+1. Don't re-export anything, just provide extensions to be used as a separate module alongside the original one.  This is what I used to do, and what I think ~Core_extended~ and its various spinoff libraries do?, but I got sick of having to remember which function was in ~Base.Bar~ and which was in ~Base_exts.My_bar~.  In hindsight this was probably an acceptable compromise (and avoids having to remember which things are in the other library and which are the extensions), and I might revert back to it.
+2. ~Core_kernel~ sometimes includes ~Base~ modules in the form
+    #+begin_src ocaml
+    type t = Base.Foo.t [@@deriving stuff]
+    include (Base.Foo : (module type of struct include Base.Foo end with type t := t))
+    #+end_src
+    I'm not sure whether the indirection of hiding ~Base.Foo~'s type inside another module type has any purpose other than enabling the re-declaration of ~t~, but, if so, is this relevant to what I'm looking at?
+
+Other suggestions very welcome :slight_smile:
+      </cwn_what>
+      <cwn_who>Ivan Gotovchits replied</cwn_who>
+      <cwn_what>
+#+begin_quote
+What is the recommended way to structure modules that add extensions onto other modules that come from external packages (over which you have no control)?
+#+end_quote
+
+1. fork the project
+2. extend the module
+3. (optionally, but necessary) submit the patch upstream (aka PR)
+
+Not really the answer you were looking for? Then read below. Modules in OCaml are not extensible, they are closed structures, like final classes in Java, that are not extensible _by design_. OCaml modules are not namespaces. OCaml doesn't have namespaces¹ and modules are not substitution for the namespaces. Trying to use modules as namespaces will leave both parties unhappy, you and OCaml.
+
+Yes, it is harsh, and namespaces is the feature I miss the most when I'm developing large programs in OCaml². However, let's look deeper into the program model of OCaml to understand why this is happening and is there a right way to code in OCaml and be happy.
+
+There are two kinds of modules in OCaml, structures and functors.  Your question is more about the former. OCaml is a language of mathematics, where structures denote _algebras_, i.e., tuples of functions attached to a set. In mathematics there is only one algebra of integers.  You can't have Janestreet's arithmetics, Matt's arithmetics, or Ivan's arithmetics. If you do, then those are different algebras with different laws, and therefore they have different structures. In other words, OCaml wasn't really designed that way, it is the essence of mathematics, our vision of mathematics that we, the humanity, have developed so far. OCaml just inherited this approach, no more no less. And this is where mathematics clashes with its offspring - programming. Yes, as software developers we need namespaces, as we need to reuse software components developed by others, we want to build systems from packages, like engineers are building complex structures from existing building blocks. Not something that mathematics is really offering us, instead it gives us the [theory of categories](https://en.wikipedia.org/wiki/Category_theory) and [homotopy type theory](https://homotopytypetheory.org/book/), that are quite orthogonal to the design patterns of software engineering.
+The main difference of programming as a branch of mathematics is that it has a much lower entrance barrier (you do not need to learn category theory to program) and is much more rapidly developing³. Like it or not, but programming is still mathematics and therefore we have to play by the rules of mathematics.
+
+With all that said, you can still develop software and apply all modern software design patterns in OCaml. Just keep in mind, that a module is not a namespace, not a package, not a component. It is a mathematical structure which is fixed. It is a tuple of values. So keep those values as they are and build new values from existing, rather than trying to destructively substitute them. But before we start to explore the design space, I need to bring here two asides, so that we can develop some context for reasoning.
+
+*** Aside: The OCaml program model
+
+It would be interesting to look inside of OCaml to understand how modules and functions are actually implemented, what semantics the include statement has and so on. In OCaml the values are not referenced by names, unlike Common Lisp, which is the language that indeed offers proper namespacing. In fact, in OCaml values are not referenced at all, there is no such kind of indirection. Values are passed directly to each other. This is a true call-by-value, do-by-value, apply-by-value language. When we see an expression ~f x y~, it is a _value_ ~f~ which is applied to the values ~x~ and ~y~. Not a function named ~f~. When we say ~List.length~ it is not treated as ~["List"; "length"]~, it is always and directly resolved to a concrete value of the ~camlStdlib__list_length~ function, which is a piece of code⁴. A module, e.g., ~List~ is a record (tuple) of pointers. When you do ~include List~ you create a new tuple and copy (as with memcpy) the contents of ~List~ into the new tuple. When you create an implementation of a compilation unit, in other words, when you compile an ~ml~ file, you are actually creating a tuple of values or a structure. The interesting and a very important part here, is that a compilation unit is implicitly parametrized by all modules that occur free in your compilation unit. In other words, when you create a file ~example.ml~ with the following contents,
+
+#+begin_src ocaml
+let list_length = List.length
+#+end_src
+
+and compile it to code, then the code itself will not contain the ~List.length~ value. Essentially, ~example.cmo~ will be like a functor, which is parametrized by a list implementation. It is only during the linking phase, when an actual implementation of the ~List~ module will be applied, and all references to the ~List.length~ will be finally resolved to values. On one side, this is just a side-effect of the separate compilation system, on the other side it gives us an opportunity to treat compilation units as software components and build our software systems on this granularity. But we are not yet at this phase, despite several recent improvements in the OCaml infrastructure, which include bug fixing in the dynamic linker, module aliasing, new dependency analysis, and, last but not least, Dune, compilation units are still not the building blocks. From the program model standing point, we still are operating with values, not with names.
+
+
+*** Aside: Common Lisp, modules, and namespaces
+
+It is also interesting to look into other languages, which provide proper namespaces. Let's pick the Common Lisp as a working example. In Common Lisp we have a notion of symbol, which denotes an object identity. When you call a function ~(f x y)~ you are not applying a value ~f~ to ~x~ and ~y~, like you do in OCaml, but instead you are passing a symbol ~f~ and the runtime extracts a pointer to a function from a specific slot of the symbol object. This is basically the same, as we would be passing references to functions, e.g., if ~let list_length = ref List.length~, and then calling it like ~!list_length [1;2;3]~. This  is, in fact, the operational model of languages with namespaces, you never call a function, you call a name of a function and the name is a variable, which changes dynamically (the level of dynamism differs from language to language). There are, of course, cons and pros of this design. The main disadvantage is that it is hard to reason about the program behavior. Because now every program is not a mathematical object built from other mathematical objects, but rather an expression in the theory of names, that have multiple interpretations in the space of the cartesian product of the sets that denote each symbol. In other words, each program term has many interpretations, like what is ~!list_length [1;2;3]~? You may never be sure.
+
+There is also another lesson, that we can learn from languages with namespaces. The lesson is, you still need modules. For example, in Common Lisp, despite the presence of proper namespaces, programmers are still use names like ~list-length~, but not ~list:length~. Why so? Because ~list-length~ denotes an operation in the theory of ~lists~ with well defined meaning. It is not just a name, but an abstraction, therefore there could be ~edu.cmu.ece:list-length~ or ~com.janestreet.core:list-length~. Therefore, we have an implicit (designed by convention) module ~list~ with some well-known names, which define a structure of the ~list~ algebra. So the takeaway is -- modules and packages are orthogonal.
+
+*** Design for extension: choices
+
+OCaml is a very rich language, that means it has a huge search space for the design choices. It also means, that most likely it is possible to implement any design pattern that you can find in the wild. This design space is not really fully explored (especially since the last years OCaml is rapidly developing) and not all decisions are well accepted by the community. For example, we have classes, which if being adopted by the community, could solve the module extension problem. Imagine, if instead of having the ~List~ module we had instead the ~list~ class. Now, the extension would be simply an inheritance, and names will be all properly indirected, as now when you will do ~list#length~ you will actually reference a symbol which will have multiple interpretations. However, the community didn't really adopt this design. Well, mostly because it ended up in a nightmare :)  And it is not really about classes. Classes in OCaml is just an attempt to tame the names problem. You can go rogue and actually use records of functions instead. And even  make them references, e.g.,
+
+#+begin_src ocaml
+let 'a lists = {
+   mutable length : 'a list -&gt; int;
+   mutable nth : 'a list -&gt; int -&gt; 'a;
+}
+#+end_src
+
+And use it like ~list.length [1;2;3]~. The extension is a little bit hard, as records do not have row-types or an include statement (unlike objects and structures), but enables overriding. This approach is also not extremely popular, but was adopted at least in ppx rewriters.
+
+So, this is all to say, that in OCaml it is possible to adopt any poor choice that was made in the software developing community. Fortunately, they are not very popular (that of course doesn't prove that they are wrong). So, what is the OCaml way of designing reusable components? Ideally, components that follow the [Open-Closed principle](https://en.wikipedia.org/wiki/Open%E2%80%93closed_principle). The solution is to design for extension.
+
+Not everything should be designed this way. This would one of those poor choices. Some entities are inherently and fundamentally not extensible. They are algebras. In the ideal world full of mathematicians and infinite time, we should define algebras as their least fixed points (aka initial algebras). For example, the initial algebra of list (i.e., the minimum set of definitions) is its type definition, so the module ~List~ shall have only one entry (which denotes two constructors).
+
+#+begin_src ocaml
+module List = struct
+   type 'a t = [] | :: of 'a * 'a t
+end
+#+end_src
+
+Everything else should be put aside of the ~List~ module, because it is secondary, e.g., we can have a component called ~stdlib_list_basic_operations.ml~ which you could link into your final solution and use it, which will basically have the following interface
+
+#+begin_src ocaml
+val list_length : 'a List.t -&gt; int
+val list_nth : 'a List.t -&gt; int -&gt; 'a
+val list_hd : 'a List.t -&gt; 'a
+#+end_src
+
+With this approach, it would be easy to compose different components, as there wouldn't be any more competition for the ~List~ module, but instead the list interface will be composed by convention. Anyone could provide a ~list_something~ function and it is your choice as the system developer to select the right components and glue them tightly and correctly. This is, basically, the approach that is used in Common Lisp, C++, Java, and other languages.
+
+Unfortunately, this is not the convention in OCaml. While the initial design of the OCaml exhibits some notions of this approach (cf., ~string_of_int~, ~int_of_string~, and the ~Pervasives~ module itself), at some point of time, this venue was abandoned, and OCaml developers sticked to the "blessed module" approach.  In this approach, operations are blessed by being included in the main module and all other operations are sort of the second sort citizens. As a result, we have modules with exploded interfaces, which are hard to maintain, use, and it takes so much time to compile programs that use Janestreet's libraries.
+
+*** Summary
+
+Design for extensibility, when the extensibility is expected. Use small modules, which define abstractions. Protect those abstractions. If a function doesn't require the access to the internal representation, doesn't rely on the internal invariants of the representation, and could be efficiently implemented using the abstract interface only, the do not put it into the module. Good example, ~list_length~ -  not a part of the module. But ~Map.length~ is, since it needs to access the internal representation of the binary tree. Nor it could be efficiently implemented using ~Map.fold~. Implement all other functions in separate modules, probably structured by their purposes and domains. Use the ~open!~ statements to introduce those names into your namespace.
+
+When you design a software component that should be extensible, parametrize it with abstractions. Use functors, function parameters, whatever -- OCaml gives you a lot of options here. You can even use references to functions, which work especially good with dynamic linking.
+
+When you find someone else's code which is broken, either because of a missing function in the interface or a wrong implementation do not hesitate to fork, patch, and submit. In fact, Dune facilitates this approach, so that you can create your own workspaces with core, base, and whatever libraries, edit them to your taste and get a working solution. If you want it to be reusable -- then push the changes back. And we are back where we started.  Yes, you can do the ~include~ trick and reexport your own ~List~ module, but this is essentially the same as cloning, patching... but not submitting back. Because, at the end of the day we will now have ~Base.List~, ~Core.List~, ~Matt.List~, how does it differ from having multiple forks on github or, even worse, vendoring those modules? Essentially, it is the same. So,
+
+1. fork the project
+2. extend the module
+3. push it back
+
+but before doing this, ask yourself, is the operation that I'm trying to add is really a member of this module?
+
+¹: And will never have, because OCaml  program model operates on values, not on names, as Common Lisp for example.
+
+²: However, when I develop large programs in other languages I miss OCaml modules much more, than I miss namespaces in OCaml :slight_smile:
+
+³: Programming is like mathematics without elitist approach, which is really good.
+
+⁴: Don't worry it is still represented as a pointer, but essentially it is the code.
+      </cwn_what>
+      <cwn_who>Matt Windsor then said</cwn_who>
+      <cwn_what>
+This is a really comprehensive and thoughtful answer, and somewhat confirms my suspicions about what I'm doing being a fairly bad idea—thanks!
+
+&gt; ask yourself, is the operation that I’m trying to add is really a member of this module?
+
+Generally: no.  What I'm doing is trying to insert operations over ~List~​s, etc., that don't directly depend on the intrinsics of how the lists are defined, but instead back-form implementations of patterns that are specific to the library I'm designing.  Effectively, I'm trying to do what you'd do with extension methods in C#, or by defining instances of a new typeclass I've made over ~Base.List~.  (Indeed, I'm coming to OCaml through C#-via-F# and Haskell, so these are the mental models I'm already hardwired to try implement.)
+
+So, if I consider what I'm doing as 'here is a ~List~ module and I'm just yanking all of ~Base.List~ into it while exposing the fact that I've done so', then… of course it makes no sense!
+
+It also makes no sense for me to try to send what I'm doing upstream, because, while I might think that what I'm doing to ~List~ is generally useful, it doesn't make any sense outside the environment that my library is doing, nor is it a key part of ~List~'s initial algebra (it might well define algebraic properties on ~List~, but they're derived ones), and putting it in ~Base~ or ~Core_kernel~ would be bloat.
+
+I got confused by the fact that ~Core_kernel~ really does just sit on top of ~Base~ in the way that I was trying to do---but this is a special case that doesn't generalise to what I want to do at all.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>PSA: dns 2.0 -- a new udns era dawns</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/psa-dns-2-0-a-new-udns-era-dawns/3781/1</cwn_url>
+      <cwn_who>Anil Madhavapeddy announced</cwn_who>
+      <cwn_what>
+The [DNS protocol implementation](https://github.com/mirage/ocaml-dns) in MirageOS has been around for a very, very long time.  The codebase began way back in 2003 and got used in research projects such as [Melange](http://anil.recoil.org/papers/2007-eurosys-melange.pdf) (the precursor to MirageOS) and [the Main Name System](https://tjd.phlegethon.org/words/thesis.pdf).
+
+Over the years, the ocaml-dns codebase has been refactored many times as we developed new libraries: early versions were moved from a declarative parsing language ([lost](https://github.com/avsm/mpl) in the sands of time) over [to bitstring](https://github.com/mirage/ocaml-dns/pull/3) and then to the newly developed [cstruct](https://github.com/mirage/ocaml-cstruct) and so on.  Meanwhile, our overall coding standards and library infrastructure in MirageOS also improved, and the DNS codebase didn't always keep up.
+
+The DNS interfaces tended to leak exceptions from awkward places, whereas other Mirage libraries have been adopting an [explicit approach to error handling](https://github.com/mirage/mirage/pull/743) to ensure exceptions are indeed exceptional events.  The DNS protocol itself has continued to grow many more extensions, and now systems such as [LetsEncrypt](https://letsencrypt.org) that can generate TLS certificates via DNS really motivate supporting these.
+
+So it is with enormous pleasure that I recently merged [mirage/ocaml-dns#159](https://github.com/mirage/ocaml-dns/pull/159) into the trunk branch of the DNS repository.  This represents a rewrite of the implementation of DNS from the ground up using the same rigorous coding standards first adopted in [ocaml-tls](https://github.com/mirage/ocaml-tls), and spearheaded for over two years by @hannes and @cfcs in their [udns library](https://github.com/roburio/udns).  As udns has matured, we recently took the decision for it to merge with the venerable ocaml-dns repository and supplant the old implementation.  You can view the [odoc of the master branch](https://mirage.github.io/ocaml-dns/) online.
+
+This means that the dns.2.0.0 package will essentially be udns (which has deliberately not been released to date).  The first thing I would like to do is to thank @hannes and @cfcs for their enormous persistence and attention to detail in constructing this new version, and then secondly to issue a call for help and contributions from anyone in the OCaml community who is interested in assisting with missing features that have regressed from the 1.x branch.
+
+The core library is in great shape, so I have created some issues for known missing elements that we can tackle before cutting a dns.2.0.0 release:
+
+- [create an Async-based resolver](https://github.com/mirage/ocaml-dns/issues/161)
+- [multicast DNS](https://github.com/mirage/ocaml-dns/issues/160)
+- [localhost tests using mirage-vnetif virtual stacks](https://github.com/mirage/ocaml-dns/issues/106)
+- [server-side TCP requests](https://github.com/mirage/ocaml-dns/issues/44)
+
+If you are a current user of the dns.1.x branch, we would also really like to hear from you about whether the ~master~ branch of [ocaml-dns](https://github.com/mirage/ocaml-dns) is suitable for your use.  Please feel free to [create new issues](https://github.com/mirage/ocaml-dns/issues) about regressions from 1.x, or to make suggestions.  If you're new to DNS and curious to learn more, then do also try to do your own deployment of a DNS server and let us know how it goes!
+
+mirage.io will shortly be running this DNS server as well, of course, and @hannes can no doubt chime in about his own usecases in production with this new codebase over the past few years.
+
+Enjoy!
+      </cwn_what>
+      <cwn_who>Hannes Mehnert then said</cwn_who>
+      <cwn_what>
+I don't quite understand what you mean with TCP server... if you take a look at ns0.robur.io (or ns1.robur.io) or ns1/ns2/ns3.mehnert.org or ns.nqsb.io / sn.nqsb.io (they're all running udns), they are already listening on TCP, and if your request (via udp) is too large to fit into 400 bytes, you get a truncated answer (an example would be ~dig tlsa _letsencrypt._tcp.hannes.nqsb.io @ns.nqsb.io~).
+
+for the motivation behind udns: initially i wanted to write an iterative resolver, but then the "how to configure it" question was raised, and i discovered [NSUPDATE](https://tools.ietf.org/html/rfc2136), an in-protocol dynamic update mechanism (with [authentication](https://tools.ietf.org/html/rfc2845)), and started to implemented these, together with a server implementation. Afterwards I intended to use let's encrypt via DNS (since I hate to have to run web servers for let's encrypt) -- thanks to Michele, the [ocaml-letsencrypt](https://github.com/mmaker/ocaml-letsencrypt) got me started with the DNS challenge).
+
+nowadays, I store TLS certificates (and signing requests) as TLSA in DNS, have the zone in a git repository that is pushed and pulled by the primary implementation, which [NOTIFY](https://tools.ietf.org/html/rfc1996) secondaries (even the let's encrypt service is a (hidden) secondary), and transfers zones [incrementally](https://tools.ietf.org/html/rfc1995).
+
+if you're interested in server-side unikernels, take a look at https://github.com/roburio/unikernels -- they contain primary, secondary, primary-git, let's encrypt, ...
+
+what is more to do? there are still some TODO in the code which should be fixed, the test coverage (esp. in server) is not yet optimal, and various DNS extensions (DNSSec, DNS-over-TLS, irmin-storage-in-dns, tcp-over-dns, ...) are just not there yet... but in the end, I use and rewrite this stack since some years (first commit was from end of april 2017) -- also using the resolver on my laptop :)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Next OUPS meetup May 21st 2019</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2019-05/msg00016.html</cwn_url>
+      <cwn_who>Bruno Bernardo announced</cwn_who>
+      <cwn_what>
+The next OUPS meetup will take place on Tuesday, May 21, 7pm at IRILL on the Jussieu campus. As usual, we will have a few talks, followed by pizzas and drinks.
+
+The talks will be the following:
+
+- Nik Graf, TBD (something related to ReasonML), https://www.nikgraf.com/
+
+- Armaël Guéneau, Incremental Cycles, A certified incremental cycle detection algorithm used in Dune, https://gitlab.inria.fr/agueneau/incremental-cycles
+
+
+Please do note that we are always in demand of talk *proposals* for future meetups.
+
+To register, or for more information, go here: https://www.meetup.com/ocaml-paris/events/261323263
+
+*Registration is required! Access is not guaranteed after 7pm if you're not registered.* (It also helps us to order the right amount of food.)
+
+Access map: \\
+IRILL - Université Pierre et Marie Curie (Paris VI) \\
+Barre 15-16 1er étage \\
+4 Place Jussieu \\
+75005 Paris \\
+https://www.irill.org/pages/access.html
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Here are links from many OCaml blogs aggregated at [[http://ocaml.org/community/planet/][OCaml Planet]].
+
+- [[https://blog.janestreet.com/thoughts-from-aaai-19/][Thoughts from AAAI 2019]]
+- [[https://tarides.com/blog/2019-05-13-on-the-road-to-irmin-v2.html][On the road to Irmin v2]]
+- [[https://tarides.com/blog/2019-05-09-an-introduction-to-ocaml-ppx-ecosystem.html][An introduction to OCaml PPX ecosystem]]
+- [[http://math.andrej.com/2019/05/08/a-course-on-homotopy-type-theory/][A course on homotopy (type) theory]]
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

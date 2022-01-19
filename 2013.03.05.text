@@ -1,0 +1,479 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of February 26 to March 05, 2013.
+
+1) Brand-new BER MetaOCaml for OCaml 4.00.1
+2) Core Suite 109.11.00 released + ocaml_plugin
+3) Research Assistantship at Oxford on Bidirectional Transformations
+4) Other Caml News
+
+========================================================================
+1) Brand-new BER MetaOCaml for OCaml 4.00.1
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-02/msg00199.html>
+------------------------------------------------------------------------
+** Continuing an old thread, Anil Madhavapeddy announced:
+
+Thanks to Cedric Cellier packaging it up and sending us a pull request [1],
+you can try our MetaOCaml BER straight from OPAM via:
+
+$ opam update
+$ opam switch 4.00.1+BER
+$ eval `opam config env`
+$ ocaml...
+
+-anil
+
+[1] <https://github.com/OCamlPro/opam-repository/pull/461>
+      
+========================================================================
+2) Core Suite 109.11.00 released + ocaml_plugin
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-02/msg00213.html>
+------------------------------------------------------------------------
+** Jeremie Dimino announced:
+
+I'm pleased to announce the 109.11.00 release of the Core suite. We
+are now distributing the ocaml_plugin project, which aims at making
+dynlink more easier. It offers a high-level API where the user can get
+a first class module out of a few ml source files, the compilation
+being handled automatically.
+
+ocaml_plugin has been tested only on Linux, but we plan to make it usable
+on other platforms as well.
+
+Files and documentation are available on our website and all packages
+are in opam:
+
+  <https://ocaml.janestreet.com/ocaml-core/109.11.00/individual/>
+  <https://ocaml.janestreet.com/ocaml-core/109.11.00/doc/>
+
+Changelogs for versions 109.08.00 to 109.11.00:
+
+# 109.08.00
+
+## async_extra
+
+- Added module `Async.Command`
+  This is `Core.Command` with additional async functions.  In particular
+  it contains a function `async_basic` that is exactly the same as
+  `Core.Command.basic`, except that the function it wraps returns
+  `unit Deferred.t`, instead of `unit`.  `async_basic` will also start the
+  async scheduler before the wrapped function is run, and will stop the
+  scheduler when the wrapped function returns.
+
+## async_unix
+
+- Added module `Async.Process`
+  This is a new module for creating and dealing with child processes.
+- For `Writer.save`, replaced the `temp_prefix` argument with `temp_file`.
+- Added `Ivar.invariant` function.
+- Added value `Scheduler.fold_fields`
+  This lets one fold over the fields in the scheduler, eliminates an
+  annoying place in catalog browser that reached into the internals of
+  async to compute the sizes of the scheduler fields
+
+## core
+
+- Cleaned up and updated the `README`.
+- Changed executables to enable backtraces if `OCAMLRUNPARAM` is not set.
+- Changed `Command` so that executables show build info and version info
+  This happens when an executatble is called as:
+
+    foo.exe version
+
+  Before this change, rather than display build info, executables
+  would display the not-so-helpful:
+
+  (no option given - printing version)
+- Added back `Float` rounding functions with a hardcoded direction.
+- Exposed `with bin_io` and `with compare` for the =sexp_bool= type.
+- Added value `Core.Never_returns.sexp_of_t`.
+- Added values `Or_error.tag{,_arg}`
+  These are analogous to `Error` functions of the same name.
+- Added functor `Sexpable.Of_sexpable`
+  This is for serializing values of one type as though it were some
+  other isomorphic type.
+- Added module `Backtrace.Exn`
+  This exposes OCaml stdlib's `Printexc` functions for backtraces.
+- Added module `Flags`
+  This implements Unix-style sets of flags that are represented as an
+  `int` with various bits set, one bit for each flag, e.g.,
+  `Linux_ext.Epoll.Flag`.
+- Added module `Uuid`
+  This module implements universally unique identifiers based on version
+  3 of the UUID specification.  It used to be in `Core_extended=`
+- Added module `Type_equal`, which defines the "equality" GADT.
+
+## type_conv
+
+- Fixed type_conv to stop dropping parens in arguments such as:
+
+    type t = {
+      a : int with default(1), sexp_drop_if(fun x -> (x + 1) * 2 = 4)
+    } with sexp
+
+# 109.09.00
+
+## async
+
+- Switched `Async.Std`'s toplevel bindings for `Deferred.Or_error`'s
+`bind` and `map` to use
+  `Deferred.Result`.
+  This allows them to be used with any `'error` type, rather than just
+`Error.t`.
+
+## async_core
+
+- Fixed bug in `Async.Throttle`, in which jobs weren't started in order.
+
+## async_unix
+
+- Added module `Thread_safe_pipe`, for streaming data outside async into async.
+  This a more efficient and feature-ful way to send a sequence of values
+  from outside async into async than `Thread_safe.pipe`, which has been
+  eliminated.
+- Changed functions in `Thread_safe` to always wake up the scheduler.
+  Changed `Thread_safe.run_in_async{,_exn}` to not run a cycle, and
+  instead rely on the scheduler to run the cycle.
+
+## core
+
+- In `Core.Std`, exposed `Or_error.ok_exn` and `Or_error.error`
+- Removed some values exported by `Core.Std`.
+
+  Removed some values from `Core.Std` that weren't widely used, or we
+  didn't think should be exposed, including `ascending`, `descending`,
+  and `equal`, which use polymorphic comparison, and we want to
+  discourage.
+
+  Here's a guide to some of what was removed, and what one should now
+  use instead.
+
+  | removed                           | replace with                          |
+  |-----------------------------------+---------------------------------------|
+  | `Int_replace_polymorphic_compare` | `Int.Replace_polymorphic_compare`     |
+  | `ascending`                       | `Polymorphic_compare.ascending`       |
+  | `descending`                      | `Polymorphic_compare.descending`      |
+  | `equal`                           | `Polymorphic_compare.equal`           |
+  | `ifprintf`                        | `Printf.ifprintf`                     |
+  | `sscanf`                          | `Scanf.sscanf`                        |
+  | `Scan_failure`                    | `Scanf.Scan_failure`                  |
+  | `string_of__of__sexp_of`          | `Sexplib.Conv.string_of__of__sexp_of` |
+  | `of_string__of__of_sexp`          | `Sexplib.Conv.of_string__of__of_sexp` |
+  | `type vec`                        | `type float64_vec`                    |
+
+- Disallowed `<:sexp_of<` with two underscores; using a single
+underscore instead.
+- Added `Command.Spec.Arg_type.of_alist_exn` as an alternative for `of_map`.
+  This captures the common pattern to create the map from an alist.
+- Improved the performance of `Hashtbl`.
+  Constrained hashtbl size to a power of two and used a bitmask rather
+  than mod operation for finding hash buckets.
+- Improved the performance of `Univ`, using the `Type_equal` GADT.
+  The new implementation improves the run-time and space usage over
+  the old one.  In the old implementation, a `Univ.t` was represented
+  as record with three fields: an exception, a string, and a closure.
+  Creating a univ required allocating three heap blocks, the exception
+  (3 words), the closure (3 words), and the three-field record (4
+  words).  In the new implementation, a `Univ.t` is represented as a
+  2-field heap block containing the `Constr.t` and the value.
+  Creating a univ allocates that single 3-word block, improving on the
+  10 words needed previously.
+
+  Matching on univs is also faster.  In the old implementation,
+  matching on a univ required making a function call, testing
+  exception equality, and allocating a `Some` block.  Now, it does
+  just the test and allocation.  Furthermore, it is possible to use
+  `does_match` and `match_exn` to avoid the allocation.
+- Added `Version_util.build_info_as_sexp`.
+- Added `_squelch_unused_module_warning_` to
+  `Comparable.S.Replace_polymorphic_compare`.
+
+## sexplib
+
+- Fixed an `unused rec` warning in the code generated by `pa_sexp` in
+  rare cases.
+
+# 109.10.00
+
+## async_extra
+
+- Fixed a race condition in `Pipe_rpc` and `State_rpc`.  This race
+  could cause an exception to be raised on connection closing.
+
+## async_unix
+
+- Added `Shutdown.do_not_finish_shutdown_before`.  This allows one to
+  add `unit Deferred.t`'s that will delay the `shutdown` from
+  finishing.  The implementation is more efficient than using
+  `at_shutdown`.
+
+## bin_prot
+
+- Improved error messages in presence of GADTs.
+
+## comparelib
+
+- Improved error messages in presence of GADTs.
+
+## core
+
+- Added `|>`, which means the same as `|!`, but is likely to replace
+  it someday.  This is mostly because `|>` is an accepted notation
+  elsewhere, particularly in F#.  In the future, we will consider
+  eliminating `|!` in favor of `|>`, so as to avoid the duplication.
+- Made `module Lazy` into a monad.
+- Renamed
+  `List.stable_dedup_involving_an_application_of_the_set_functor` as
+  `List.stable_dedup_staged`.  Made it use `Staged.t` to make explicit
+  the expectation of partial application.
+- Added pretty printers for the toplevel to `Error` and `Info`.
+
+## fieldslib
+
+- Changed `with fields` on `private` types to not expose mutators or
+  creators.
+
+## pa_ounit
+
+- Rewrote `pa_ounit` to simplify execution order and work better with
+  functors.  Rewrote `pa_ounit` to solve its shortcomings with
+  functors, namely that functors need to be applied with `TEST_MODULE`
+  for their tests to be registered.  The order of execution is also
+  much simpler: tests are executed inline, at the toplevel (or functor
+  application time).  There is still a limitation: when a library
+  doesn't have any occurrence of `TEST`, `TEST_UNIT`, or `TEST_MODULE`
+  inside of it, the test runners are not set up, so tests inside of
+  functors (from other libraries) will not be executed.  Running
+  `inline_test_runner.exe` is not going to run tests anymore; people
+  should run the `inline_test_runner` script instead.  Backtraces are
+  now properly shown when exceptions are thrown.
+
+## sexplib
+
+- Improved error messages in presence of GADTs.
+- Made `with sexp` work with types containing `as` in signatures.
+
+## variantslib
+
+- Improved error messages in presence of GADTs.
+
+# 109.11.00
+
+## async_core
+
+- Extended `Deferred.Or_error` to parallel almost all of the
+  `Core.Or_error` interface.
+- Improved the performance of `Clock.at`, and added a more efficient
+  version, `Clock.run_at`.
+
+  Reworked the async heap of clock alarms to use async jobs as alarms.
+
+  Reworked `Clock.at` to use this and to not use abortable events,
+  which is a performance improvement.
+
+  Added a more efficient version of `Clock.at`, for the common
+  situation when one doesn't need a deferred.
+
+```ocaml
+(*** [run_at time ~f] is a more efficient version of [at time >>> f]. *)
+val run_at : Time.t -> f:(unit -> unit) -> unit
+```
+
+## async_extra
+
+- Exposed a `version` function in `Pipe_rpc` and `State_rpc`.
+
+## async_unix
+
+- Added a check to fail if `Scheduler.go` is called more than once.
+
+## core
+
+- Added module `Interned_string` This has a functor for creating
+  modules of interned strings.  It uses the very simple mechanism of
+  mapping distinct strings to consecutive ints.
+- Added value `Hashtbl.find_and_remove`.
+
+## fieldslib
+
+- `with fields`, for a type `u` that isn't named `t`, creates module
+  `Fields_of_u` rather than module `Fields`.  This allows one to us
+  `with fields` on several types in the same structure.
+      
+** Alain Frisch asked and Yaron Minsky replied:
+
+> ocaml_plugin seems quite interesting!  Can you give some information about
+> possible applications you have in mind?  Did you consider turning the
+> compiler into a library (maybe with some hooks to reroute lookups for .cmi
+> files on the file system into preloaded data), instead of embedding a .tgz
+> of the toolchain in the executable?
+
+We use it internally a lot for configuration of running programs.
+Basically, every time we are tempted to invent a configuration DSL, we
+use OCaml-Plugin instead to allow us to make our specification
+language be OCaml.
+
+One example of this that prodded us to do this release is Jenga, a new
+build system, an early version of which we're about to release.  (Yes,
+we're miserable that we find ourselves writing our own build system.
+No, none of the existing ones are quite suitable to are needs.  Yes, I
+know how ridiculous that all sounds.)
+
+As for your concrete suggestion as to how to structure it as a
+library, Jeremie Dimino told me just yesterday that he and Mathieu
+Barbin are considering precisely this change, to make it more
+portable.  We didn't need to think about this internally, but now that
+we release it, it seems the right thing to do.
+
+> Another question.  Some parts of Core clearly depend on a Unix environment
+> and there is little hope of making it run flawlessly under Windows without
+> some serious porting effort.  If the ambition is to push Core has a
+> recommended alternative to the stdlib, I'd suggest to cleanly separate those
+> OS-related parts to the more portable ones (maybe as two libraries).  It
+> would be cool that once OPAM works under Windows, Windows users can easily
+> benefit from the portable parts of Core.
+
+This is an excellent point, and one that Anil has also mentioned to us
+is a concern for him and for Citrix.  And it's not just a Windows
+issue: he also wants to be able to compile Core to Javascript!
+
+We've agreed in principle to reorganize Core by breaking off some of
+the libraries to a sub-group called Ucore (short for micro-core).
+Ucore will avoid:
+
+ - C bindings (so, no UNIX module, no Bigstrings)
+ - Objects (According to Anil the Oo module is quite big, and is
+   painful to use in Javascript
+ - Threads
+
+Now, I don't think this quite finishes the story, because to make
+Windows (and Javascript) a happy place for Core, someone should really
+re-implement most of our Unix library on Windows, somehow, even if
+most calls are stubbed out.  And we should also implement the missing
+pieces of Async.
+
+We'll probably need help for much of the work of actually building
+compatible alternatives on Windows.  But the breaking-out of the
+core-of-core is a clear win.
+
+(As a side-note, this is another case of wanting to control
+namespaces.  In some programs, you'll want to use the Ucore namespace,
+in some the full Core.Std namespace, and in some cases the Core.Stable
+namespace.)
+      
+** Anil Madhavapeddy then added:
+
+> - Objects (According to Anil the Oo module is quite big, and is
+>   painful to use in Javascript
+
+This was actually referring to the desire to eliminate objects for
+extremely restricted environments such as the 8-bit microcontrollers
+described in:
+<http://www.algo-prog.info/ocaml_for_pic/web/index.php?id=ocapic>
+
+Objects aren't a problem in js_of_ocaml, but the general principle
+of staying away from them in a core library seems to what everyone
+wants anyway.
+      
+** Daniel Bünzli then said:
+
+I agree but there's one exception, the thread-safe generation of
+program uid. I used this more than once to implement the keys of
+heterogenous dictionaries (à la <http://mlton.org/PropertyList>). And
+it's also used in cmdliner here [1].
+
+I would really like to have that in Sys to avoid linking against Oo.
+There's a way to do it yourself but it does rely on implementation
+details of the runtime system, see discussion here [2]. As such for
+now I prefered to use the Oo.id trick.
+
+Best,
+
+Daniel
+
+[1] <https://github.com/dbuenzli/cmdliner/blob/master/src/cmdliner.ml#L156>
+[2] <http://caml.inria.fr/mantis/view.php?id=5436#c6549>
+      
+========================================================================
+3) Research Assistantship at Oxford on Bidirectional Transformations
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-03/msg00012.html>
+------------------------------------------------------------------------
+** Jeremy Gibbons announced:
+
+Postdoctoral Research Assistant 
+"A THEORY OF LEAST-CHANGE FOR BIDIRECTIONAL TRANSFORMATIONS"
+Department of Computer Science, University of Oxford
+
+Applications are invited for a Research Fellowship on an EPSRC-funded project 
+"A Theory of Least-Change for Bidirectional Transformations". The project is 
+a collaboration between Professor Jeremy Gibbons in the Department of 
+Computer Science, University of Oxford, and Dr Perdita Stevens and Dr James 
+Cheney in the School of Informatics, University of Edinburgh. 
+
+The project concerns bidirectional transformations, which are a means of 
+maintaining consistency between multiple information sources: when one source 
+is edited, the others may need updating to restore consistency. There are 
+applications in model-driven engineering, database design, and program 
+development, among others. A bidirectional transformation can be implemented 
+in terms of several unidirectional restoring functions, one per source; but 
+this duplicates information, wasting effort and risking inconsistencies. 
+Bidirectional transformation languages allow one to describe the consistency 
+relationship and the restoring functions with a single declarative 
+specification.
+
+Our aim in this project is to study the principle of least change: that a 
+bidirectional transformation should not make unnecessary or unnecessarily 
+large changes when it re-establishes consistency. The primary focus of the 
+Oxford contribution is the development of a theory of alignment for 
+bidirectional transformations on structured data, especially in the case of 
+non-free datatypes such as associative lists and graphs. We conjecture that 
+the mathematics of container datatypes and combinatorial species will be 
+particularly relevant.
+
+The Fellowship will be under the supervision of Professor Jeremy Gibbons at
+Oxford, and is available for three years from 31st August 2013 (or any time
+before that). The salary is on a standard scale, from £29,541 to £36,298
+per annum. For further details, including a job description and information
+on how to apply, please see the webpage 
+(<http://www.cs.ox.ac.uk/news/619-full.html>). If you have any questions, 
+please write to me 
+(jeremy.gibbons AT cs.ox.ac.uk).
+Please pass this advert on to anyone you think may be interested.
+      
+========================================================================
+4) Other Caml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocaml.org/>.
+
+Generators, iterators, control and continuations:
+  <http://gallium.inria.fr/blog/generators-iterators-control-and-continuations>
+
+Release of OCaml-bitcoin 1.1:
+  <https://forge.ocamlcore.org/forum/forum.php?forum_id=870>
+
+Try Besport! The new Ocsigen based social network about sport:
+  <http://ocsigen.org/>
+
+Mysterious NoReverseMatch Error:
+  <http://y-node.com/blog/2008/oct/30/noreversematch>
+
+Computer Vision: the evolution of one object detection approach:
+  <http://y-node.com/blog/2008/oct/23/objectdetection>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

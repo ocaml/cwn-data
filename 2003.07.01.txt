@@ -1,0 +1,587 @@
+Hello,
+
+Here is the latest Caml Weekly News, week 24 June to 01 July, 2003.
+
+1) Ocaml and 64 bit address spaces?
+2) type inference visualization
+3) OCaml not automatically specialising a polymorphic function
+4) Release version 0.2 of camlserv: the first stable release
+5) syntax of private constructors in CVS version
+6) how to use a module
+7) ocaml polymorphic variants and double coercion
+
+==============================================================================
+1) Ocaml and 64 bit address spaces?
+------------------------------------------------------------------------------
+** Niall Dalton asked and Xavier Leroy answered:
+
+> I haven't had a chance to check, but does the Ocaml compiler
+> allow one to use 64 bit address spaces on 64 bit machines? (modulo
+> the requisite OS support etc., limits with address lines and so on)
+> I'm interested in particular 64-bit ppc and x86-64 based machines.
+> If it does, I'd also be interested in any gotchas that anyone
+> has run across when working with very large heap sizes (several
+> GB).
+
+Yes, on Alpha and Itanium machines.
+
+On Sparc, Mips and PPC, it should be possible to compile the bytecode
+interpreter in 64-bit mode, but the native-code compiler still
+generates 32-bit code.  That might change if there is enough demand,
+e.g. for the new G5 machines.
+
+The x86-64 port of OCaml will be fully 64-bit once it is completed,
+that is, shortly after I get access to one of these machines.
+However, given the lack of "testdrive" programs for the x86-64, I have
+no idea when I'll get a shell account on one of these toys.
+
+==============================================================================
+2) type inference visualization
+------------------------------------------------------------------------------
+** Hugo Simoes announced:
+
+I did a Web application for the visualization of the type inference process for
+the Simple Type System and pure ML. You can "play" with it at:
+
+http://www.ncc.up.pt/typetool
+
+I intend to add other type systems in the future.
+
+==============================================================================
+3) OCaml not automatically specialising a polymorphic function
+------------------------------------------------------------------------------
+** Richard Jones asked and Xavier Leroy answered:
+
+> - max3.ml ------------------------------------------------------------
+> let max a b =
+>   if a > b then a else b
+> in
+>
+> print_int (max 2 3);;
+> ----------------------------------------------------------------------
+>
+> Looking at the assembler, OCaml doesn't work out that "max" has type
+> max : int -> int -> int
+
+Yes, because it has type 'a -> 'a -> 'a according to the ML typing rules...
+But if you help OCaml with a type constraint, you'll get the more
+efficient code that you expect:
+
+  let max (a:int) (b:int) = ...
+
+> , and so it generates very inefficient
+> code. This is a bit surprising because (I think) max can't be called
+> from outside the module, and the one place where it is called
+> specifies the type.
+> So I'm guessing here that OCaml doesn't really optimize across
+> functions?
+
+You're correct that OCaml doesn't do type specialization for
+user-defined functions (only for some predefined operations like ">").
+It does perform some inter-function optimizations such as function
+inlining and known call optimizations.
+
+==============================================================================
+4) Release version 0.2 of camlserv: the first stable release
+------------------------------------------------------------------------------
+** Jurjen Stellingwerff announced:
+
+Camlserv is a full functioning server for highly dynamic websites
+Many bugs are fixed:
+. cookie support
+. correct SSL support
+. more informative error messages
+Short hand alternative notation of language tags (<when test="...">
+becomes #if ...)
+Speedup due to optimization of often used algorithms
+API-Change of 'conn_file' function to include days before file expires
+
+Now I want to focus on providing example scripts and projects. This will
+include a small ocaml-only project (using modules without the internal
+scripting language).
+
+==============================================================================
+5) syntax of private constructors in CVS version
+------------------------------------------------------------------------------
+** Shaddin Doghmi asked:
+
+From the CVS version  changes file, under language features:
+
+- Support for "private types", or more exactly concrete data types
+ with private constructors or labels.  These data types can be
+ de-structured normally in pattern matchings, but values of these
+ types cannot be constructed directly outside of their defining module.
+
+What is the syntax for those? is there some kind of documentation on the
+CVS server, like a development version of the manual or something?
+
+** Brian Rogoff answered:
+
+No documents are available yet. Check out the following:
+
+bpr@granite[bpr]$ ledit ~/bin/ocaml
+        Objective Caml version 3.06+36 (2003-06-19) 
+
+# type t = private { x : int; y : int } ;;
+type t = private { x : int; y : int; }
+# type ('a, 'b) choice = private L of 'a | R of 'b;;
+type ('a, 'b) choice = private L of 'a | R of 'b
+# let p0 = { x = 0; y = 0 } ;;
+One cannot create values of the private type t
+# module Point2D :
+    sig
+      type t = private { x : int; y : int }
+      val grid : int
+      val mkPoint : int -> int -> t
+    end =
+  struct
+    type t = { x : int; y : int }
+    let grid = 10
+
+    let snap i =
+      let rem = i mod grid in
+      if rem <= 0 then
+        i - rem
+      else
+        i - rem + grid
+
+    let mkPoint x y = { x = snap x; y = snap y }
+  end;;
+module Point2D :
+  sig
+    type t = private { x : int; y : int; }
+    val grid : int
+    val mkPoint : int -> int -> t
+  end
+# open Point2D;;
+# match mkPoint 5 5 with { x = x; y = y } -> Printf.printf "(%d, %d)\n" x y;;
+(10, 10)
+- : unit = ()
+
+** Pierre Weis lectured:
+
+[Sketching the semantics of private types, this message is long.]
+
+You're absolutely right on your comments and explanation. However, I
+think we also need to explain the ideas beneath private types and
+their intended uses.
+
+As you should already know, usual sum and product types in Caml
+correspond to the mathematical notion of free algebraic data
+structures. This is fairly useful and allows the modelization of a lot
+of common data structures in practical programming
+situations. However, besides the free algebra structures,
+mathematicians use a lot of non-free algebras (so-called structures
+defined via generators and relations). Private types aim at giving a
+way to modelize those non-free structures. Equivalenetly, you can
+think of private types as providing a way to implement types equipped
+with invariants, quotient structures (i.e. sets of equivalence classes
+for some equivalence relation on a free algebra), or data types with
+canonical normal forms.
+
+As an example, consider a simple modelization of natural integers in
+unary notation:
+
+type nat =
+   | Zero
+   | Succ of nat;;
+
+The nat type is a regular sum type; a value of the nat type is either
+the constant constructor Zero (modelizing the integer 0) or
+constructed with any application of the constructor Succ to a nat
+value (Succ n modelizing the successor of n or n + 1). Hence, the nat
+type is adequate in the sense that it exactly modelizes the unary
+representation of positive integers. Nothing new here, and we can
+easily write a test to 0 as:
+
+let is_zero = function
+  | Zero -> true
+  | _ -> false;;
+
+Now, let's go one step further and imagine we modelize integers
+(either positive or negative). Even if a complex (adequate)
+modelization of those numbers using a regular Caml data type is not
+very complex, let's take, for the sake of explanation, a simple
+approach by generalizing the nat type; we simply add an extra Pred
+constructor to modelize negative integers: Pred n is the predecessor
+of n or n - 1:
+
+type integer =
+   | Zero
+   | Succ of integer
+   | Pred of integer;;
+
+Now, we can modelize all integers in unary notation but the integer
+type is no more adequate, in the sense that we have a problem of
+unicity of representation: a given number can be modelized by
+(infinitely) many distinct values of the integer data type. For
+instance, the terms Succ (Pred Zero) and Zero all represent the number
+0. You may think that this is not a big problem but in fact it is very
+ennoying, because when writing a function over values of type integer,
+you must now pattern match a lot of patterns instead of the only one
+that canonically represents a given integer. For instance
+
+let is_zero = function
+  | Zero -> true
+  | _ -> false;;
+
+is no more the expected predicate. We must write something much more
+complex, for instance
+
+let rec is_zero = function
+  | Zero -> true
+  | Succ (Pred n) -> is_zero n
+  | Pred (Succ n) -> is_zero n
+  | n -> false;;
+
+(BTW: is this code now correct ?)
+
+A private type will solve this problem. We define a module Integer
+whose interface defines the integer type as a private type equipped
+with functions that construct values in the different summands of the
+type:
+
+type integer = private
+   | Zero
+   | Succ of integer
+   | Pred of integer;;
+
+value zero : unit -> integer
+value succ : integer -> integer
+value pred : integer -> integer
+
+In the implementation of the module, we keep the definition of the
+type as regular (say ``public'', if you want) and implement the
+constructing functions such that they ensure the unicity of
+representation of integers:
+
+let zero () = Zero;;
+
+let succ = function
+  | Pred n -> n
+  | n -> Succ n;;
+
+let pred = function
+  | Succ n -> n
+  | n -> Succ n;;
+
+It is now easy to prove that all the integers built with applications
+of functions pred and succ have a unique representation (or
+equivalently that no tree of type integer obtained by composing those
+functions can have an occurrence of the redexes (Pred (Succ ...)) or
+(Succ (Pred ...))).
+
+Now, since all the clients of the Integer module cannot construct
+values of type integer by directly applying the constructors and must
+use the constructing functions instead, we know for sure that the
+unicity property holds. Hence, the naive (and natural) version of
+is_zero is correct again.
+
+In conclusion: private types serve to modelize types with arbitrary
+algebraic invariants (no miracle here: you must program those
+invariants in the definition of the constructing functions).
+
+In contrast with abstract data types, the private types still maintain
+the elegant pattern matching facility of ML outside the module that
+defines the type.
+
+** Chris Hecker asked:
+
+>In contrast with abstract data types, the private types still maintain
+>the elegant pattern matching facility of ML outside the module that
+>defines the type.
+
+So, when do we get views to solve this problem for abstract types?  If
+pattern matching is so great (which it is) it seems a crime to not allow it
+on abstract types (another great feature).  To make an american candy joke,
+peanut butter and chocolate taste great together!
+
+** Brian Rogoff said:
+
+I guess we all know what you're going for when you hit that vending machine!
+
+I was going to reply to a message in last week's thread about polytypic
+programming in which the use of open recursion/fixed points on functions was
+demonstrated, that there is a "dual" trick at the level of types, the
+so-called two level types. One place this trick finds some use is in the
+encoding of views into ML like languages. You can find the trick demonstrated
+for SML here
+
+http://www.cs.princeton.edu/~danwang/drafts/recursion-schemes.pdf
+
+but I'm not sure how much using this style costs in efficiency in OCaml.
+If it costs too much, we'll have to bug Stephen Weeks to implement OCamlton.
+BTW, it's nice to have views (and all kinds of things) supported directly in
+the language but these tricks seem workable to me. It seems like OCaml
+could be a bit nicer than SML here (what a surprise! :), since we could use
+polymorphic variants for the external interface, as there is no type
+abstraction there. For example, something like the following for the earliest
+examples in that paper
+
+module type NAT =
+  sig
+    type t
+    type 'a s = [`Zero | `Succ of 'a]
+    val inj : t s -> t
+    val prj : t -> t s
+  end
+
+module SimpleNat : NAT =
+  struct
+    type 'a s = [`Zero | `Succ of 'a]
+
+    (* Look ma, no intermediate constructor for recursive types! *)
+    type t = t s
+
+    let inj x = x
+    let prj x = x
+  end
+
+module FastNat : NAT =
+  struct
+    type 'a s = [`Zero | `Succ of 'a]
+    type t = int
+
+    let inj = function
+        `Zero -> 0
+      | `Succ n -> n + 1
+
+    let prj = function
+        0 -> `Zero
+      | n -> `Succ (n - 1)
+  end
+
+As a digression, the two level type trick is also used (in OCaml) here
+
+http://www.eecs.harvard.edu/~nr/pubs/mania-abstract.html
+(This is a very appealing paper to me, as the embedded language technique the
+author describes looks applicable to a few things I'm doing)
+
+and here
+
+http://homepage.iis.sinica.edu.tw/~trc/padl00.ps
+
+and of course in a ton of Haskell/Gofer/Squiggol oriented papers.
+
+As another digression, the trick of using open recursive functions and "fixing"
+them manually with special fps is explained nicely here:
+
+ http://www.lfcs.informatics.ed.ac.uk/reports/97/ECS-LFCS-97-375/
+
+though the post last week was the first time I saw it used in quite that way.
+That was quite neat. I wonder how that technique dovetails with two level
+types?
+
+** Pierre Weis also answered Chris Hecker:
+
+> So, when do we get views to solve this problem for abstract types?  If
+> pattern matching is so great (which it is) it seems a crime to not allow it
+> on abstract types (another great feature).  To make an american candy joke,
+> peanut butter and chocolate taste great together!
+
+Hem, the introduction of the private type feature was just my answer   
+to this question. I wanted to get the security of type abstraction   
+without the drawback of loosing pattern matching.
+
+Put it another way:
+
+-- regular data types are concrete, you can freely create their values
+with constructors or labels, you can inspect their values via pattern
+matching,
+
+-- private types are ``semi concrete'', you cannot freely create their
+values (you are obliged to use their construction functions) but you  
+can still inspect their values via pattern matching,
+
+-- abstract types are not concrete, you cannot freely create their
+values (you are obliged to use the construction functions they
+provide) and you cannot inspect their values via pattern matching (you
+are also obliged to use the inspection functions they provide).
+
+Yet another way (coarse and oversimplified view (:)):
+
+-- concrete types are freely readable/writable data types,
+
+-- private types are freely read only data types,
+
+-- abstract types are nor freely readable nor freely writable data types.
+
+And some specific advantages of each:
+
+-- concrete types give you the maximum freedom (no invariants to   
+respect, no burden with construction functions), but you get a maximum
+dependancy on the implementation (modification of the concrete type is
+visible all over the place). Addition of operators is easy.
+
+-- abstract types give you the maximum security (strict enforcement of
+invariants by the compiler), no dependancy on the implementation that
+can be modified as required by the implementor of the type, no
+possibility of confidentiality leaks: the contents of a value that can
+have truely hidden parts. Addition of operators is difficult or impossible.
+
+-- private types give you the same security as abstract types for
+invariants and the same facility for the addition of new
+operators. You loose the ability to hide parts of values.
+
+In my mind, private types give you for free a lot of useful facilities
+that you could have with views, while retaining invaluable, both
+conceptual and implementationnal, simplicity.
+
+You may be right that eventually Caml could still need an extra
+feature as powerful and complex as views for abstract data types, but
+for the time being let's start and experiment with this now available,
+simple, and effective feature. It has already proved to be incredibly
+powerful and efficient for some applications. So let's go and discover
+where we still need more :)
+
+I mean, try it :)
+
+==============================================================================
+6) how to use a module
+------------------------------------------------------------------------------
+** Jung Woon Ho asked and Jean-Baptiste Rouquier answered:
+
+>I'm having trouble (using the modules or the files that I wrote) (in the
+>interactive mode of  OCaml).
+
+(*First, let Caml know where you put your files if they aren't in the
+current directory :*)
+#directory "foo/bar";;
+
+(*This is the "include" directive (see the manual) :*)
+#use "baz.ml";;
+
+(*if you file is already compiled, you can use :*)
+#load "qux.cmo";;  
+
+(*but you have to "#load" all the files that egg uses, for instance if
+egg.ml contains "Graphics.open_graph", then you must load graphics before
+(as when you link the main programm) :*)
+#load "graphics.cma";;
+#load "egg.cmo";;
+
+(*If you want to state "quz ()" instead of "Egg.quz ()", just open this
+module (it requires egg.cmi in the list of searching directories) :*)
+open Egg;;
+
+** Matt Gushee added:
+
+> (*if you file is already compiled, you can use :*)
+> #load "qux.cmo";;
+
+If you know in advance what you want to load, you can also load it by
+passing it as an argument to the toplevel, e.g.:
+
+  $ ocaml qux.cmo
+
+I prefer this approach because it cuts down on the characters I have to
+retype when I make errors (Note to OCaml team: can we *please* get some
+kind of history-editing functionality in the toplevel? I know there are
+licensing and portability issues with GNU readline, but what about the
+getline library used by OCaml2?)
+
+This approach is also handy if you want to quickly check your syntax:
+
+  $ ocaml my_new_module.ml
+
+This doesn't give you an interactive shell, so it's different from
+
+  $ ocaml
+  # #use "my_new_module.ml";;
+
+But it will tell you if there are errors in your code.
+
+** Remi Vanicat said:
+
+> (Note to OCaml team: can we *please* get some kind of
+> history-editing functionality in the toplevel? I know there are
+> licensing and portability issues with GNU readline, but what about
+> the getline library used by OCaml2?)
+
+ledit is there for this. You can found it in the ocaml bazaar :
+http://caml.inria.fr/distrib/bazar-ocaml/
+
+==============================================================================
+7) ocaml polymorphic variants and double coercion
+------------------------------------------------------------------------------
+** Jacques Garrigue said:
+
+The following message is a courtesy copy of an article
+that has been posted to comp.lang.functional as well.
+
+Shaddin Doghmi writes:
+
+> What is the difference between double corcion and single coersion? what
+> can double coercion do that single coercion cant?
+
+Lots of things :-)
+In a single coercion, the expected type is directly built from the
+target type in a predefined way. The algorithm attempts to be clever,
+but if the target type is recursive, or already has a polymorphic
+structure, there is no unique most general expected type. Moreover,
+there are extra restrictions to avoid a blow-up in type inference
+time, namely left hand sides of arrows are not available for subtyping
+(but other contravariant types are...)
+
+Here are typical examples involving polymorphic variants
+
+fun x -> (x :> [`Nil | `Cons of 'a * 'b] as 'b)
+- : [< `Cons of 'b * ([ `Cons of 'a | `Nil ] as 'c) as 'a | `Nil ] -> 'c
+Note that the expected type has only been partially open.
+
+fun x ->
+  (x : [< `Nil | `Cons of 'a * 'b] as 'b :> [`Nil | `Cons of 'a * 'c] as 'c)
+With a double coercion we can get recursion on the expected side.
+
+fun x ->
+  (x : [< `Nil | `Cons of 'a * 'b] as 'b :> [> `Nil | `Cons of 'a * 'c] as 'c)
+This wouldn't work with a single coercion, as the target is polymorphic.
+
+If there is no recursion, you can get this last effect through dispatch:
+function `None | `Some _ as x -> x
+- : [< `None | `Some of 'a ] -> [> `None | `Some of 'a ]
+
+> Also, there doesnt seem to be any good detailed references for
+> polymorphic variants. Both the ocaml manual and the oreilly book dont
+> mention lots of details. Anybody know of any good references?
+
+See my publications for examples and theory with polymorphic variants.
+In particular the paper on code reuse is a good introduction, and the
+syntax is (almost) the current one.
+
+http://wwwfun.kurims.kyoto-u.ac.jp/~garrigue/papers/
+
+There is a very small bit on coercions in "Programming with ..."
+(which uses an older syntax, by the way).
+Basically they work just like for object types, which get a reasonably
+detailed account in the reference manual. The main differences are
+that (1)there is no concept of class type with variants, so you always
+need double coercions to introduce recursion, and (2)with polymorphic
+variants a closed type vt has both a polymorphic subtype [< vt] and a
+polymorphic supertype [> vt], while an object type has only a subtype
+#vt.
+
+==============================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------------
+Here is a quick trick to help you read this cwn if you are viewing it using
+vim (at least version 6).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+
+If you know of a better way, please let me know.
+
+==============================================================================
+Old cwn
+------------------------------------------------------------------------------
+
+If you happen to miss a cwn, you can send me a message
+(alan.schmitt@inria.fr) and I'll mail it to you, or go take a look at
+the archive (http://pauillac.inria.fr/~aschmitt/cwn/). If you also wish
+to receive it every week by mail, just tell me so.
+
+==============================================================================
+
+Alan Schmitt

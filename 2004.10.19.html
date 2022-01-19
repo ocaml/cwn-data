@@ -1,0 +1,567 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2004.10.12.html">Previous week</a> <a href="index.html">Up</a> <a href="2004.10.26.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of 12 to 19 October, 2004.</p><ol>
+      <li>
+        <a href="#1">ssl-libraries</a>
+      </li>
+      <li>
+        <a href="#2">Narrowing class's public interface</a>
+      </li>
+      <li>
+        <a href="#3">a generic print (ugly hack)</a>
+      </li>
+      <li>
+        <a href="#4">ML Workshop Proposal:  request for assistance</a>
+      </li>
+      <li>
+        <a href="#5">Announcing OMake 0.9.3</a>
+      </li>
+      <li>
+        <a href="#6">Current status of wxCaml</a>
+      </li>
+    </ol><a name="1" /><hr /><h3>ssl-libraries</h3><p>Archive: <a href="http://caml.inria.fr/archives/200410/msg00117.html">http://caml.inria.fr/archives/200410/msg00117.html</a></p><i>Johann Spies asked and Samuel Mimram answered:</i><br /><pre>
+&gt; Are there any libraries available for ssl-connections using ocaml?
+
+I have made small &amp; quick bindings to ssl to be able to use ssl
+encryption with unix sockets. I am willing to improve it, just tell me
+if you need some (or much) more functions.
+
+The library is named ocaml-ssl and you can find it here :
+
+<a href="http://savonet.sf.net/">http://savonet.sf.net/</a>
+    </pre><i>Jason Hickey also answered:</i><br /><pre>
+We use openssl in MetaPRL and have implemented an appropriate OCaml API.
+I have extracted the SSL-specific files and placed them in
+<a href="http://www.cs.caltech.edu/~jyh/ssl">http://www.cs.caltech.edu/~jyh/ssl</a> .  This can get you started, but it
+may be a bit more than what you want--it also includes buffered IO and a
+printf function.  You can strip the buffered IO code if you want just a
+plain socket interface.
+    </pre><a name="2" /><hr /><h3>Narrowing class's public interface</h3><p>Archive: <a href="http://caml.inria.fr/archives/200410/msg00122.html">http://caml.inria.fr/archives/200410/msg00122.html</a></p><i>Tony Edgin asked:</i><br /><pre>
+What is the reasoning behind Ocaml not allowing the public methods of a class
+to be hidden?
+
+Some times its nice for a class to have "global" public methods (Java's public
+methods) as well as public methods local to its module (Java's unprefixed
+methods).  This allows for progressive encapsulation, where more distance
+modules no very little about a class, while the more local modules know more
+about the class.  Inheritance could be used to approximate this, but
+sometimes subtyping makes more sense.
+
+I apologize for my lack of clarity.  For those who couldn't understand my
+question, here's an example.
+
+module RandomVariables =
+struct
+        class type rv_type =
+        object
+                method instance : float
+                method scale_by : float -&gt; rv_type
+                method add : rv_type -&gt; rv_type
+        end
+
+        class gaussian _stdev _mean =
+        object
+                method stdev = _stdev
+                method mean = _mean
+
+                method instance =  (* elided *)
+                        (** Returns a draw from the corresponding distribution.
+                          *)
+
+                method scale_by a =
+                        new gaussian ((abs_float a)*._stdev) (a*._mean)
+
+                method add (other : guassian) =
+                        let sigma = sqrt (_stdev**2. +. other#stdev**2.)
+                        and mu = _mean +. other#mean
+                        in
+                                new gaussian sigma mu
+        end
+
+        (* Truncated *)
+end
+
+(* Bad code which I would like to use *)
+class gaussian_rv =
+        (RandomVariables.gaussian float -&gt; float -&gt; RandomVariables.rv_type)
+
+;;
+    </pre><i>Jacques Garrigue answered:</i><br /><pre>
+&gt; What is the reasoning behind Ocaml not allowing the public methods
+&gt; of a class to be hidden?
+
+This is just a type soundness problem: as an ocaml object type only
+describes the interface of an object, you have no way to make sure
+that an object had originally a specific method (with the right type)
+once you have hidden it.
+Of course we could add some kind of declaration like
+   method hidden m : type
+and allow a subclass to convert a public method into such an "hidden"
+one, but I'm quite sure this is not what you are asking for?
+(Note that such an addition would be rather heavy, as "hidden" method
+must appear in object types too, i.e. &lt; hidden m : type; ... &gt;)
+
+&gt; Some times its nice for a class to have "global" public methods
+&gt; (Java's public methods) as well as public methods local to its
+&gt; module (Java's unprefixed methods).  This allows for progressive
+&gt; encapsulation, where more distance modules no very little about a
+&gt; class, while the more local modules know more about the class.
+&gt; Inheritance could be used to approximate this, but sometimes
+&gt; subtyping makes more sense.
+
+This problem has been thought of :-)
+Look at the user's manual, section 3.17, for how to define "friend"
+methods, i.e. methods accessible only from code in the same module.
+Note that since ocaml modules are hierarchical, this actually allows
+you more precision than Java's packages.
+
+<a href="http://wwwfun.kurims.kyoto-u.ac.jp/soft/ocaml/htmlman/manual005.html#ss:friends">http://wwwfun.kurims.kyoto-u.ac.jp/soft/ocaml/htmlman/manual005.html#ss:friends</a>
+    </pre><i>John Prevost added:</i><br /><pre>
+To expand a bit on what Jacques said, there are a lot of places in
+O'Caml where there are very very elegant ways to do things that a
+background in more traditional OO languages might not make you think
+of.  Here's a version of your original code that highlights just a
+couple of those things:
+
+module RandomVariables =
+  (struct
+
+    (* First thought: What if we make a generic random_variable class
+       that could work for types other than float?  The most generic
+       version can only describe its type and the method that returns
+       an instance of the RV.  Here we see a class type with a type
+       variable, describing a method instance that returns a value of
+       that type.  There's no real reason to define this class type,
+       except to provide a shorthand--when we say "x random_variable",
+       we mean a random variable that returns values of type x. *)
+
+    class type ['a] random_variable =
+      object
+        method instance : 'a
+      end
+
+    (* Of course, the rv_type class that you originally described had
+       slightly more functionality.  Specifically, a scale_by method and
+       an add method.  The first thing to note here is the type 's, which
+       is the "self type" for the object.  An object that is a
+       float_random_variable has a method scale_by that takes a float and
+       returns a new object with the same type as the original object.
+       Likewise, add on an object of type t takes a second object of the
+       same type, and returns a new object of the type those objects
+       share.  This also shows us that if we want to add arbitrary
+       random variables together (not just random variables of the same
+       type), we're going to have to do things differently some day.
+
+       The "inherit [float] random_variable" is shorthand for including
+       that class type in this class type, specialized for the given
+       type "float".  Since O'Caml uses structural subtyping, it's not
+       necessary to inherit just to say that this is a subtype.  But it's
+       easier than duplicating the definition. *)
+
+    class type float_random_variable =
+      object ('s)
+        inherit [float] random_variable
+        method scale_by : float -&gt; 's
+        method add : 's -&gt; 's
+      end
+
+    (* This is the trick shown in the O'Caml manual for "friends".  We
+       define a new type gaussian_repr, which will carry the "secret value"
+       for our gaussian random variables.  We can't use the module type
+       to hide the existence of a method for getting the internal
+       representation--but we *can* prevent anyone outside this module
+       from making use of the value once they get it.  See below in the
+       module's signature. *)
+
+    type gaussian_repr =
+        { g_stdev : float;
+          g_mean : float }
+
+    (* The class is refactored slightly.  Note the use of {&lt; ... &gt;}
+       instead of "new gaussian ...".  This ensures that the new object
+       is of the same type as the original object.  If you ever want to
+       inherit from gaussian to re-use code, this means that the inheriting
+       class will work correctly, instead of returning gaussians it will
+       return new instances of itself.  Notice that we had to make a field
+       repr to hold the internal state, instead of using the constructor's
+       closure.  Without the "val repr", we can't use {&lt; ... &gt;} to copy
+       the object and change the intenral state of the new copy.
+
+       The "method value" is another part of the friends trick.  Notice
+       how we use it in add to get the repr of the other gaussian.  We
+       could instead have hidden the return types of the original "stdev"
+       and "mean" methods in your version--but I chose to change it to
+       this so that it doesn't look too odd.  Remember we can't get rid
+       of the methods, so users of the API would wonder "why can't I get
+       the stdev and mean out of the gaussian?!?" *)
+
+    class gaussian stdev mean =
+      object (_ : 's)
+        val repr = { g_stdev = stdev; g_mean = mean }
+        method value = repr
+        method instance = (*fake*) repr.g_mean
+        method scale_by a = {&lt; repr = { g_stdev = (abs_float a) *. stdev;
+                                        g_mean = a *. mean } &gt;}
+        method add (other : 's) =
+          let repr' = other#value in
+          let sigma = sqrt (repr.g_stdev ** 2.0 +. repr'.g_stdev ** 2.0) in
+          let mu = repr.g_mean +. repr'.g_mean in
+          {&lt; repr = { g_stdev = sigma; g_mean = mu } &gt;}
+      end
+
+  end : sig
+
+    (* Okay.  Signature time.  The class types are identical. *)
+
+    class type ['a] random_variable =
+      object
+        method instance : 'a
+      end
+
+    class type float_random_variable =
+      object ('s)
+        inherit [float] random_variable
+        method scale_by : float -&gt; 's
+        method add : 's -&gt; 's
+      end
+
+    (* And here's where we hide the type of the representation.  We don't
+       give a type equation after "type gaussian_repr", so the type
+       becomes opaque outside of this module. *)
+
+    type gaussian_repr
+
+    (* And now the definition of the gaussian class's type.  Here I just
+       inherit all of the methods defined in the float_random_variable
+       class type, and then add a new method "value", which returns type
+       "gaussian_repr".  The name might be even better
+       "gaussian_internal_state" or whatever, to show why the type
+       definition is hidden from outside. *)
+
+    class gaussian : float -&gt; float -&gt;
+      object
+        inherit float_random_variable
+        method value : gaussian_repr
+      end
+
+  end)
+
+And then we can proceed to use the above, which does compile cleanly.
+
+Now, something to note:
+
+Even though we inherit float_random_variable in the type for class
+gaussian, gaussian is not, and never will be, a subtype of
+float_random_variable.  The trouble is that we have a binary method
+here.  Because add has type 's -&gt; 's, we can never discard any
+internal state access methods.  Why not?  Think about what happens if
+you put a variety of float_random_variables in a list.  Now you take
+the first two items in the list and try to use #add on them.  Say the
+first is a gaussian RV and the second is a log random variable.  The
+definition of the method add can't deal with this--it will try to hand
+the log random variable's state to the internals of the gaussian RV,
+which has no idea how to deal with it.
+
+HOWEVER, if we throw away the binary methods, we can in fact put a
+collection of "float random_variable" objects in a list.  Here's some
+output from an ocaml session:
+
+# let a = new RandomVariables.gaussian 0.0 1.0;;
+val a : RandomVariables.gaussian = &lt;obj&gt;
+# let b = (a :&gt; RandomVariables.float_random_variable);;
+This expression cannot be coerced to type
+{ lots of error stuff, which boils down to "can't get rid of that method" }
+# let c = (a :&gt; float RandomVariables.random_variable);;
+val c : float RandomVariables.random_variable = &lt;obj&gt;
+
+As you can see, casting to float_random_variable didn't work, but
+casting to float random_variable worked just fine.  The system is
+preventing us from doing something unsound: using a bunch of mixed
+float_random_variables together in a way that wouldn't work (because
+we can't add them together).  But when we mix them in a way that will
+work (we'll only make instances of them), all is well.
+
+
+The kinds of things that are problemmatic in this system are far
+different from the kinds of things that are tricky in traditional OO
+systems.  But with some experience, you can see how the system is
+amazingly powerful.  I suggest reading not only the section of the
+manual on friends, but all of Chapter 3 (Objects in Caml) and Chapter
+5 (Advanced examples with classes and modules).
+
+And feel free to ask about suggestions about how to structure your
+system.  From the looks of your code, I have some ideas about where
+you might be going, and about designs that might work better in a few
+places.  If you do ask, make sure to describe your problem in terms of
+what you want to do, rather than how you want to do it.  (i.e. "I want
+to be able to add arbitrary random variables together", not "I want to
+be able to get run-time type information on my random variables so
+that I can find the code to add them together in the right way.")
+    </pre><a name="3" /><hr /><h3>a generic print (ugly hack)</h3><p>Archive: <a href="http://caml.inria.fr/archives/200410/msg00155.html">http://caml.inria.fr/archives/200410/msg00155.html</a></p><i>Yoann Padioleau announced:</i><br /><pre>
+the goal is to allow the programmer to write in his program for instance:
+
+ let _ = print_string (generic_print [[1;3];[2;9;8];[3;4]] "int list list") in
+ ...
+ let _ = print_string (generic_print [1;3;2;9;8;3;4] "int list") in
+ let v = ... (* big computation, big data structure *)
+ let _ = print_string (generic_print v "(int * float * color) assoc") in
+ ...
+
+
+and to get on stdout:
+ [[1; 3]; [2; 9; 8]; [3; 4]]
+ [1; 3; 2; 9; 8; 3; 4]
+ [(1, 2.02, Red); (2, 4.02, Yellow)];
+
+
+the type of generic_print is
+ 'a -&gt; string -&gt; string
+
+code:
+ <a href="http://www.irisa.fr/prive/padiolea/hacks/generic_print.ml">http://www.irisa.fr/prive/padiolea/hacks/generic_print.ml</a>
+
+the principle is that the toplevel of O'Caml know how to print value,
+so by "reusing" the toplevel, our program can too.
+
+
+It is slow, ugly, not robust,  but it can be helpful.
+any suggestion or critics are welcome.
+    </pre><i>Nicolas Cannasse asked and Yoann Padioleau answered:</i><br /><pre>
+&gt; I was thinking doing the same some times ago, but without relying on
+&gt; toplevel (which stucks you to bytecode).
+
+I am not stuck to bytecode.
+the main program can be compiled  to native code.
+
+
+I can also do:
+  ocamlopt unix.cmxa str.cmxa  generic_print.ml -o test_generic
+  ocamlmktop -o calc.top unix.cma str.cma  generic_print.ml
+
+
+&gt; The idea was to be able to load CMI at runtime, and extract type
+&gt; informations from it in order to correctly print and match types (this is
+&gt; already what's doing ODLL with functions). It's quite a work and I didn't
+&gt; finished it. CMI contains *exact* types informations which are not present
+&gt; at runtime, but not structured in a convenient way for printing or matching
+&gt; since they're directly dumped from the compiler type representation. But
+&gt; once done, this would include some dynamism that ocaml lacks when
+&gt; interacting with outter world (serialization for example).
+
+I've coded too in a more cleaner way a trick to achieve the same kind of
+result (a generic print) by relying on camlp4.
+I auto-generate string_of_....   function for each type (by doing an induction
+over the AST of the type definition via  camlp4).
+It was cleaner.
+But i tend to prefer this uglier version :)
+    </pre><a name="4" /><hr /><h3>ML Workshop Proposal:  request for assistance</h3><p>Archive: <a href="http://caml.inria.fr/archives/200410/msg00178.html">http://caml.inria.fr/archives/200410/msg00178.html</a></p><i>Matthias Blume asked:</i><br /><pre>
+Dear fellow ML-ers,
+
+as far as I can tell, the last ML workshop was held with ICFP'98.
+Therefore, I think it is high time for a restart of this valuable
+tradition.
+
+I am planning to submit a proposal for an ML workshop to Patricia
+Johann, the ICFP'05 Workshop Chair.  But for this I need your help!
+
+Information on the proposal process can be found on this web page:
+
+   <a href="http://www.brics.dk/~danvy/icfp05/call-for-workshops.html">http://www.brics.dk/~danvy/icfp05/call-for-workshops.html</a>
+
+As you can see, the deadline for proposals is coming up very soon
+(November 1st), so we need to act quickly.
+
+In order of importance, I would like each of you to take a few minutes
+and respond to the following questions:
+
+   1.  Would you be interested in attending a new ML workshop, to be
+       held in conjuction with ICFP'05 in Tallin, Estonia?
+
+   2.  Would you be willing to help organizing the event?  (I am
+       willing to do my part, but I could use a few experienced "old
+       hands".)
+
+   3.  Would you be willing to serve on the program committee (should
+       you be asked).
+
+   4.  Among researchers and students you know and who were not
+       reached by this communication, how many do you think would be
+       interested in attending?  (We need a reasonable estimate on the
+       total numer of attendees.)
+
+   5.  If anyone could help me out with details on publicity and
+       potentially published proceedings, I'd be very grateful.
+
+   6.  If you notice that I missed someone who should have received
+       this request but didn't, please forward it!  Thanks!
+
+Given the short time frame, please don't delay your reply!
+
+Many thanks in advance, and let's hope we all meet in Tallin (and not
+just for
+ICFP)!
+
+Best regards,
+Matthias Blume
+blume@tti-c.org
+
+------------------------
+
+Draft statement of goals, shamelessly stolen from the '98 workshop (If
+you have suggestions for changes and improvements, please speak up!):
+
+  The ML family of programming languages, whose dialects include
+  Classic ML, Standard ML, Caml, and Objective Caml, has inspired a
+  tremendous amount of language research, ranging from type inference
+  to module systems to operational semantics to implementation. In
+  large part ML typifies "HOT" (Higher-Order, Typed) language design
+  and implementation.
+
+
+Draft CfP (again, for the most part shamelessly stolen; request for
+suggestions -- see above):
+
+  We seek papers relevant to all ML-related topics including (but not
+  limited to):
+
+   * applications
+   * extensions: objects, classes, concurrency, etc.
+   * two-level language designs (Meta-ML, MetaOCaml, etc.)
+   * type systems: inference, modules, specification,
+     error reporting, etc.
+   * implementation: compilers, interpreters, partial
+     evaluators, garbage collectors, etc.
+   * environments: libraries, tools, editors, debuggers, etc.
+   * semantics
+
+  Submitted papers should describe new ideas, experimental results, or
+  informed positions regarding proposals for next-generation ML
+  languages.  In order to encourage lively discussion, submitted
+  papers may describe work in progress.
+    </pre><a name="5" /><hr /><h3>Announcing OMake 0.9.3</h3><i>Aleksey Nogin announced:</i><br /><pre>
+The OMake team is proud to announce a new release of the OMake Build
+System - OMake 0.9.3.
+
+OMake is a build system, similar to GNU make, but with many additional
+features:
+
+   o Support for large projects spanning several directories or
+     directory hierarchies.
+
+   o Comes with a default configuration file providing support for
+     OCaml, C and LaTeX projects, or a mixture thereof.
+     Often, a configuration file is as simple as a single line
+
+        OCamlProgram(prog, foo bar baz)
+
+     which states that the program "prog" is built from the files
+     foo.ml, bar.ml, and baz.ml.
+
+   o Fast, reliable, automated dependency analysis using MD5 digests.
+
+   o Portability: omake provides a uniform interface on Win32 and
+     on Unix systems including Linux and Mac OS X.
+
+   o Builtin functions that provide the most common features of programs
+     like grep, sed, and awk.  These are especially useful on Win32.
+
+   o Full native support for rules that build several things at once
+     (such as ocamlopt building .cmx and .o).
+
+   o Active filesystem monitoring, where the build automatically
+     restarts whenever you modify a source file.  This can be very
+     useful during the edit/compile cycle.
+
+   o A companion command interpreter, osh, that can be used
+     interactively.
+
+The home site for OMake is <a href="http://omake.metaprl.org/">http://omake.metaprl.org/</a>
+
+The changes in 0.9.3 include:
+
+   - OMake now supports ocamlfind in its default configuration file
+    (thanks to Bardur Arantsson for the initial patch).
+
+   - OMake should now also work with OCaml 3.07 (in addition to 3.08).
+
+   - A large number of bug fixes, including:
+      - OMake should now compile correctly under Cygwin (thanks to
+        Peter Jolly who provided the patch),
+      - "double-colon" rules (that allow specifying multiple rules for
+        the same target) should now work correctly,
+      - kqueue-based file system monitoring (Mac OS X, FreeBSD) should
+        now work correctly
+      - array definitions should now work better.
+
+   - Added a work around for the command line length limitation of
+     lib.exe on Windows
+
+   - Filesystem monitoring functionality now provides a choice whether
+
+     to continue monitoring once the project is built successfully.
+
+OMake 0.9.3 is still an alpha release.  While we have made an effort to
+ensure that it is bug-free, it is possible some functions may not behave
+as you would expect.  Please report any comments and/or bugs to the
+mailing list omake@metaprl.org and/or at <a href="http://metaprl.org/bugzilla">http://metaprl.org/bugzilla</a>
+
+OMake is distributed under the terms of the GNU General Public License.
+OMake configuration files are distributed under the terms of an MIT-like
+license. OMake sources, as well as a number of Linux and Windows
+binaries are available from the OMake home page at <a href="http://omake.metaprl.org/">http://omake.metaprl.org/</a>
+    </pre><a name="6" /><hr /><h3>Current status of wxCaml</h3><i>Cameron Zemek asked and SooHyoung Oh answered:</i><br /><pre>
+&gt; I am still looking into Ocaml, but if I start to use it I am very
+&gt; interested in using wxWidgets. I was thinking it would be good idea to
+&gt; start an open source project on sourceforge (wxcaml.sf.net).
+&gt;
+&gt; How much of wxWidgets does your binding support?
+&gt;
+&gt; Have you though of using SWIG?
+
+Thank you for your interest to wxCaml.
+
+Before making it as an open source project,
+I think more revision is necessary because it's only starting point of ocaml
+binding to wxWindows.
+
+The state of the wxCaml is that there are lots of binding to wxWindow
+functions (widgets).
+"wc *.idl" shows that it has about 5700 lines (including some commented
+lines),
+and "wc wxcaml.ml" shows it has about 9000 lines.
+It means that it has many interfaces to wxWindow functions, almost to all
+basic widgets.
+You can find which widgets has binding or not by checking the "wxcaml.ml"
+file.
+
+As you know, lablgtk team makes very good modules and classes
+for ocaml binding of another widget library.
+I think the wxCaml project should follow the same direction as lablgtk
+
+Before following wxhaskell method,
+I tested "SWIG"  but it didn't give me good impression.
+I remember it produced dull interfaces.
+
+Right now, I don't have enough time to proceed with wxCaml project,
+so I welcome anyone who wants to continue this project.
+    </pre><hr /><h3>Using folding to read the cwn in vim 6+</h3><p>Here is a quick trick to help you read this CWN if you are viewing it using vim (version 6 or greater).</p><pre>:set foldmethod=expr<br />:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'&amp;lt;1':1<br />zM</pre><p>If you know of a better way, please let me know.</p><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right">
+      <i>
+        <a href="http://alan.petitepomme.net/">Alan Schmitt</a>
+      </i>
+    </p><p align="right">
+      <script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script>
+      <script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" />
+      <script src="http://www.google-analytics.com/urchin.js" type="text/javascript" />
+      <script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script>
+    </p></body>
+</html>

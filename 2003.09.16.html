@@ -1,0 +1,499 @@
+<html><head><meta http-equiv="Content-Type" content="text/html" charset=iso-8859-1"><title>Caml Weekly News</title></head><body>
+
+<a href="2003.09.09.html">Previous week</a> &nbsp; <a href="index.html">Up</a> &nbsp; <a href="2003.09.23.html">Next week</a>
+<pre>
+Hello,
+
+Here is the latest Caml Weekly News, for the week of 09 to 16 September, 2003.
+
+1) <a href="#1">Beyond the strict value restriction</a>
+2) <a href="#2">How to avoid compiling some code (like #ifdef in C)</a>
+3) <a href="#3">suggestion for record pattern matching and construction</a>
+4) <a href="#4">When does the GC collect ?</a>
+5) <a href="#5">OCaML, GUI, rapid prototyping</a>
+6) <a href="#6">mod_caml now supports Apache 2 API</a>
+7) <a href="#7">date manipulation library</a>
+
+<a name="1"/>==============================================================================
+1) Beyond the strict value restriction
+------------------------------------------------------------------------------
+** Wolfgang Beck01 asked and Didier Remy explained:
+
+[... Example simplified...]
+
+&gt; "let tmp = ref 0 let init = `V = tmp" compiles.
+&gt; However, "let init = `V (ref 0)" does not.
+
+Yes, this may look funny... but it is all but far from a hasardous joke.
+
+
+Here is some explanation of
+
+ 1) what happened in version 3.06 and
+ 2) how this is related to a relaxed form of value restriction,
+ 3) which is actually orthogonal to the solution implemented in 3.07
+
+
+ 1) The strict value restriction.
+ --------------------------------
+
+When typing let x = e1 in e2, the value-only restriction says.
+
+        If e1 is not a value, then the type of e1 cannot be generalized.
+
+This is what 3.06 implemented.  In your example e1 is of the form `V e3
+where e3 is not a value.  Hence e1 is not a value and the type of `V (e3) is
+not generalized. However, in the expression
+
+        let v3 = e3 in let x = `V v3 in e2
+
+`V v3 is a value-form, hence its type may be generalized.
+Note that v3 itself cannot be generalized, but it happens to be monomorphic.
+Hence the type of `V v3 can be generalized in e2.
+
+
+ 2) A well-known(?) improvement of value-only restriction.
+ ---------------------------------------------------------
+
+Instead of enabling/disabling generalization for let expressions in a binary
+manner, we may only disable generalization of type variables may end in the
+type of a fresh piece of store by analyzing non-values more
+carefully. Namely,
+
+        Type variables appearing in the type of exposed non-value forms
+        cannot be generalized.
+
+For simplication take non-value forms to be aplications nodes.  Exposed
+non-value forms are non-value forms that are not under an abstraction.
+For example, in the expression
+
+        ((c1 c2) (fun x -&gt; (c3 c4))), (fun x -&gt; x))
+
+where c1, .. c4 are constants, the exposed non-value forms are the two
+application nodes:
+
+        "(c1 c2)" and and "(c1 c2) (fun x -&gt; (c3 c4))"
+
+The application node (c3 c4) is under an abstraction and thus not exposed.
+The two abstractions and the pairing nodes are value forms.
+
+For intuition, consider an experssion e1 = e1'[e11] where e1'[z11] is a
+value for some fresh variable z1.  Then, the expression let x = e1 in e2 is
+semantically equivalent to let "z1 = e11 in e1'[z1] in a2". Hence, the
+former can be typed as the latter. That is, since e1'[z] is a value, all
+variables of e1'[z] can be generalized except those that could not be
+generalized in the type of z1, i.e. those that cannot be generalized in e11.
+
+     To get the generalized rule, just simultaneously all toplevel
+     non-value parts e1k of e1 and bind them to variables zk:
+
+             let z1 = e11 in ... let zk = e'k in e1'[z1, ... zk] in a2
+
+     Then,  recursively decompose each e11, ... e1k.
+
+For instance, the full decomposition of Wolfgang's (simplified) example is:
+
+        let z11 = 0 in              (* value *)
+        let z1 = ref z11 in         (* non-value node but monomorphic *)
+        let x = `V z1 in            (* value, hence generalizable *)
+        e2
+
+In short, this decomposition could be virtually done by the typechecker in
+order to relax the value-restriction. Fortunately, the formulation above
+avoids this decomposition beforehand and can actually be implemeted at no
+extra cost.
+
+
+ 3) Jacques Garrigue "Relaxed value-restriction".
+ -----------------------------------------------
+
+OCaml 3.07 uses the "relaxed value restriction" proposed by Jacques Garrigue
+[1]. This claims that variables that occurs only positively can always be
+generalized, Hence (1) becomes:
+
+        If e1 is not a value, then type variables that occur (at least) once
+        on the contra-variant side of a type constructor cannot be
+        generalized.
+
+Here, the intuition is that although these variables can appear in the type
+of memory cells allocated during the evaluation of e1 these cells can never
+be updated outside of e1.
+
+When typechecking let x = `V e3 in e2 with this rule, the type of `V e3 can
+again be generalized in e2, since although `V v3 is not a value, the only
+variable ('a) appearing in its type ([&gt; `V1 of t] as 'a) appears only once
+at at occurrence 0.
+
+                              ----------------
+
+In summary, your example can be solved either by (2) [known for a long time,
+but not implemented in OCaml] or (3) [recent, implemented in 3.07].
+
+This note is also to remark that (2) and (3) are both independent and
+complementary.  Wolfgang's example happens to be at the intersection of (2)
+and (3), hence his successful trick in 3.06 and the successful typechecking
+in 3.07.
+
+So, maybe (2) would still be worth implementing some day...
+
+        -Didier
+
+[1] Relaxing the value restriction.  Jacques Garrigue. August 2003.
+<a href="http://wwwfun.kurims.kyoto-u.ac.jp/~garrigue/papers/">http://wwwfun.kurims.kyoto-u.ac.jp/~garrigue/papers/</a>
+
+** Jacques Garrigue added:
+
+Answering to Didier Remy, when I introduced the relaxed value
+restriction I intended first to do both improvements simultaneously,
+but I stopped short of it for several reasons.
+* the improvement you describe would require extensive changes in the
+  type checker, as all the work on polymorphism is currently delegated
+  to the handling of let.
+* the combination with the relaxed restriction makes it even trickier
+* in many cases, the relaxed restriction does already the job
+* even when this is not the case, this improvement is purely
+  syntactic, so you can still expand your definition to solve the
+  problem, as Wolfgang discovered himself
+* actually there is an exception, if a record type mixes both mutable
+  and immutable fields
+      type 'a mix = {data: 'a ; mutable count: int}
+      let r = {data = (fun x -&gt; x); count = 0}
+  There is no solution here, short of changing the type to use a
+  reference rather than a mutable field.
+  But it might also be the case that you just want to put the identity
+  there. In that case we have now polymorphic fields.
+      type mix = {data: 'a. 'a -&gt; 'a ; mutable count: int}
+      let r = {data = (fun x -&gt; x); count = 0}
+
+So, I think this is a good idea in itself, but before I try again
+introducing this improvement, I need a few compelling examples to
+justify the effort.
+
+<a name="2"/>==============================================================================
+2) How to avoid compiling some code (like #ifdef in C)
+------------------------------------------------------------------------------
+** David Mentre asked and Markus Mottl answered:
+
+&gt; In my OCaml program, I want to make the _compilation_ (and not simply
+&gt; execution) of some part of the code optional (some internal auto-tests
+&gt; for example), depending on some configuration option.
+&gt;
+&gt; In C, I would use an #ifdef for this.
+
+In OCaml you can either also use the C-preprocessor or the preprocessor
+camlp4, e.g. (using OCamlMakefile for specifying the preprocessor in
+the topmost comment):
+
+---------------------------------------------------------------------------
+(*pp camlp4o pa_macro.cmo *)
+
+open Printf
+
+DEFINE Compile_code
+
+let a () = printf "toton"
+
+let _ =
+  IFDEF Compile_code
+  THEN
+    let t = 1 in a ()
+  ELSE
+    ()
+  END
+---------------------------------------------------------------------------
+
+Or as usual with cpp:
+
+---------------------------------------------------------------------------
+(*pp cpp *)
+
+open Printf
+
+#define Compile_code
+
+let a () = printf "toton"
+
+let _ =
+  #ifdef Compile_code
+    let t = 1 in a()
+  #else
+    ()
+  #endif
+---------------------------------------------------------------------------
+
+<a name="3"/>==============================================================================
+3) suggestion for record pattern matching and construction
+------------------------------------------------------------------------------
+** Eric Cooper asked Olivier Andrieu answered:
+
+&gt; I find that I am often writing code like
+&gt;     { field1 = field1; field2 = field2; field3 = field3 }
+&gt; when matching and constructing records.  I guess it's because thinking
+&gt; up good names for the record fields is nontrivial and having similar
+&gt; but different names for the bindings just bothers me.
+&gt;
+&gt; How about allowing syntax like that used for labels:
+&gt;     { ~field1; ~field2; ~field3 }
+&gt; would expand into the above, in both pattern matching and construction
+&gt; contexts.
+
+I have a camlp4 extension that does exactly this (well, without
+the ~). Also, you can put the module path before the { instead of
+having to repeat it for each field. So :
+
+  Mod1.Mod2.{ field1; field2 }
+
+is expanded into
+
+  { Mod1.Mod2.field1 = field1 ; Mod1.Mod2.field2 = field2 }
+
+<a href="http://oandrieu.nerim.net/ocaml/index.xhtml#pa_records">http://oandrieu.nerim.net/ocaml/index.xhtml#pa_records</a>
+
+<a name="4"/>==============================================================================
+4) When does the GC collect ?
+------------------------------------------------------------------------------
+** Christophe Raffalli and Xavier Leroy answered:
+
+&gt; in the following kind code :
+&gt;
+&gt; let l = ... a function building a long list ... in
+&gt; let l' = List.map fn l in (* or fold or anything similar *)
+&gt; ... no more reference to l ...
+&gt;
+&gt; Once the beginning of l has been read to compute l' (assuming List.map
+&gt; starts from the beginning of l) is the GC able to collect the beginning
+&gt; of l ?
+
+Short answer: with ocamlc, no.  With ocamlopt, yes.
+
+Longer answer: in the bytecoded implementation, every value in the VM
+stack is a GC root.  "let x = e in e'" pushes the value of e on the
+stack just before evaluating e', and pops it at the end of e'.  So,
+the value of e remains a live GC root throughout the evaluation of e'.
+
+In the native-code implementation, not all machine stack entries are
+GC roots, but only the stack slots that hold a variable of type
+address that is live at the point where the GC is called.  ("Live"
+here is in the sense of liveness analysis of local variables.)
+In your example, "l" is not live across the call to "List.map fn l".
+
+&gt; If not how to write the code to ensure this behaviour of the GC ?
+
+As other mentioned, removing the outer "let" gives the desired GC
+behavior even in bytecode:
+
+        List.map fn l (... list builder ...)
+
+In the OCaml sources, you can find this strange-looking idiom:
+
+      let (++) x f = f x
+
+      Pparse.file ppf inputfile Parse.implementation ast_impl_magic_number
+      ++ print_if ppf Clflags.dump_parsetree Printast.implementation
+      ++ Typemod.type_implementation sourcefile prefixname modulename env
+      ++ Translmod.transl_implementation modulename
+      ++ print_if ppf Clflags.dump_rawlambda Printlambda.lambda
+      ++ Simplif.simplify_lambda
+      ++ print_if ppf Clflags.dump_lambda Printlambda.lambda
+      ++ Bytegen.compile_implementation modulename
+      ++ print_if ppf Clflags.dump_instr Printinstr.instrlist
+      ++ Emitcode.to_file oc modulename;
+
+which is a nicer way of writing
+
+      Emitcode.to_file oc modulename
+        (print_if ....
+          (Bytegen.compile_implementation ...
+             (print_if ...
+                (...
+                ))))
+
+and gives better GC behavior than the obvious:
+
+      let x1 = Pparse.file ppf inputfile Parse.implementation ast_impl_magic_number in
+      let x2 = print_if ppf Clflags.dump_parsetree Printast.implementation p x1 in
+      let x3 = Typemod.type_implementation sourcefile prefixname modulename env x2 in
+      ...
+
+<a name="5"/>==============================================================================
+5) OCaML, GUI, rapid prototyping
+------------------------------------------------------------------------------
+** Valery Khamenya asked:
+
+  I'd like to collect the state-of-art (see P.S.) info on
+  GUI-applications created in OCaml. My motivation is to summarize
+  what kind of GUI might be created by programmers who decide to stay
+  with OCaml. In other words I have the following questions:
+
+  Q1. How advanced might be the GUI in OCaml applications?
+
+  Q2. What are the GUI engines (gtk/fltk/qt/.../?) supported today for
+      OCaml?
+
+  Q3. What kind of development framework are available in spirit of  
+      Delphi/Kylix/Glade?
+
+
+  Q4. And what are the near plans concerning the issues above?
+
+
+Please, don't forget to Cc to me  :-)
+Thank you.
+
+P.S.
+
+  While trying to answer those questions above I've found that
+  links:
+    <a href="http://set.gmd.de/SET/standard/sE_e.htm">http://set.gmd.de/SET/standard/sE_e.htm</a>
+    <a href="http://www.cs.cornell.edu/Info/Projects/Ensemble/">http://www.cs.cornell.edu/Info/Projects/Ensemble/</a>
+    <a href="http://diogenes.informatik.unibw-muenchen.de:8080/kahl/HOPS/">http://diogenes.informatik.unibw-muenchen.de:8080/kahl/HOPS/</a>
+    <a href="http://www.cis.upenn.edu/~bcpierce/papers/Html/Pict.html">http://www.cis.upenn.edu/~bcpierce/papers/Html/Pict.html</a>
+    <a href="http://sequence-www.stanford.edu/~arc/pub.html">http://sequence-www.stanford.edu/~arc/pub.html</a>
+    <a href="http://www.loria.fr/equipes/protheo/SOFTWARES/SPIKE/">http://www.loria.fr/equipes/protheo/SOFTWARES/SPIKE/</a> ( &lt;-- is available
+                                                               but moved)
+  from:
+    <a href="http://caml.inria.fr/users_programs-eng.html">http://caml.inria.fr/users_programs-eng.html</a>
+  seems to be no longer available.
+
+** Richard Jones answered:
+
+We're using Gtk (lablgtk2) to write a medium-sized simulation
+application that works across Windows and Linux. We're using the
+Gtk-Wimp theme on Windows which gives Gtk a reasonable Windows look
+and feel. It's not perfect, but not bad.
+
+Gtk is a very rich and powerful widget set, and we've written custom
+widgets (graphs, flow diagrams, dialogs, etc.), all in straight OCaml.
+
+Lablgtk is (to be honest) a bit odd, but once you get used to it,
+there'll be almost nothing you can't do that you couldn't do with any
+other language or widget set. Most things work identically on Windows
+and Unix, so much so that I don't spend much time testing on each
+platform separately. There are a few annoying differences in fonts
+which I had to wrap into a little library. 
+
+We're using OCam'OLE (on Windows) to communicate with Excel -- load
+files, run macros, that sort of thing.
+
+We're using NullSoft's NSIS to generate the installer (on Windows).
+
+** Jacques Garrigue also answered:
+
+I might be biased, but
+
+&gt;   Q1. How advanced might be the GUI in OCaml applications?
+
+As advanced as you wish.
+GUI is a lot of dirty work to get ill-conceived toolkits to do what
+you really want...
+
+&gt;   Q2. What are the GUI engines (gtk/fltk/qt/.../?) supported today for
+&gt;       OCaml?
+
+GTK+ (both 1 and 2), and Tcl/Tk.
+Tcl/Tk is included in the distribution.
+
+&gt;   Q3. What kind of development framework are available in spirit of
+&gt;       Delphi/Kylix/Glade?
+
+I suppose you mean GUI-builders?
+You can use glade in combination with LablGTK, and there are also a
+few other options (all for LablGTK).
+However, you must realize that Caml programming being much
+higher-level in flavour compared to C, once you have a reasonnable   
+level of proficiency with the toolkit, you work faster by writing the
+GUI code yourself.
+You can have a look at the following link for LablGTK related  software
+  <a href="http://wwwfun.kurims.kyoto-u.ac.jp/soft/olabl/lablgtk.html">http://wwwfun.kurims.kyoto-u.ac.jp/soft/olabl/lablgtk.html</a>
+
+&gt;   Q4. And what are the near plans concerning the issues above?
+
+Hopefully LablGTK2 should become the main platform.
+My only concern is that there is no good native Gtk for MacOSX yet.
+(This just means that you have to install Apple's X11 first)
+
+<a name="6"/>==============================================================================
+6) mod_caml now supports Apache 2 API
+------------------------------------------------------------------------------
+** Richard Jones announced:
+
+Kenn has actually been using the latest CVS version of mod_caml for a
+few days now.
+
+This supports Apache 2, and hides the API differences between 1.3 and
+2.  Modules and scripts should therefore be portable across both
+platforms.
+
+It also supports cookies, which were notably missing from the previous
+release.
+
+I put a package up last night for people to try out:
+
+<a href="https://savannah.nongnu.org/files/?group=modcaml">https://savannah.nongnu.org/files/?group=modcaml</a>
+
+It's known NOT to work on Debian Apache2 however because of some
+conflict in the C part of the PCRE library.
+
+<a name="7"/>==============================================================================
+7) date manipulation library
+------------------------------------------------------------------------------
+** Alan Schmitt asked:
+
+I am writing an application that needs to manipulate dates. More
+precisely, it needs a function that, given a date and a duration (12
+days, 2 weeks, 3 months ...) returns the date at the end of the
+duration. Is there a library providing such a thing ?
+
+** Julien Signoles answered:
+
+My calendar library, available at
+<a href="http://www.lri.fr/~signoles/prog.en.html">http://www.lri.fr/~signoles/prog.en.html</a> , allows such a thing. For
+example:
+
+# open Date;;
+# let today = today ();;
+val today : Date.t = &lt;abstr&gt;
+# to_string today;;
+- : string = "2003-9-15"
+# to_string (add today (Period.month 1));;
+- : string = "2003-10-15"
+# to_string (add today (Period.day 12));;
+- : string = "2003-9-27"
+
+** Matthieu Sozeau answered as well:
+
+I'm currently writing an i18n library for OCaml (locales, timezones, dates,
+numbers etc...). It is in early stages of development but date calculations
+are at the top of my TODO list (i'm actually testing week of month, day of
+week (...) inference). Maybe you should look at it ? I'm particularly
+interseted in getting comments and advices from experienced caml developers
+about this code.
+
+freshmeat project page: <a href="http://freshmeat.net/projects/ocamli18n/">http://freshmeat.net/projects/ocamli18n/</a>
+
+==============================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'&lt;1':1
+zM
+
+If you know of a better way, please let me know.
+
+==============================================================================
+Old cwn
+------------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@inria.fr) and I'll mail it to you, or go take a look at
+the archive (<a href="http://pauillac.inria.fr/~aschmitt/cwn/">http://pauillac.inria.fr/~aschmitt/cwn/</a>) or the RSS feed of the 
+archives (<a href="http://pauillac.inria.fr/~aschmitt/cwn/cwn.rss">http://pauillac.inria.fr/~aschmitt/cwn/cwn.rss</a>). If you also wish to 
+receive it every week by mail, just tell me so.
+
+==============================================================================
+
+Alan Schmitt
+</pre></body></html>

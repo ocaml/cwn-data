@@ -1,0 +1,210 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2013.10.22</cwn_date>
+    <cwn_prev>2013.10.15</cwn_prev>
+    <cwn_next>2013.11.05</cwn_next>
+    <cwn_date_text>October 15 to 22, 2013</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>phphard</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-10/msg00136.html</cwn_url>
+      <cwn_who>Stanisław Findeisen announced</cwn_who>
+      <cwn_what>
+I would like to draw your attention to phphard project, which is a PHP
+source code static analyzer. Its aim is to strong type PHP programs and
+detect as many bugs at compile time as possible.
+
+The project is in its very early stage: most of PHP parsing is done
+(using ocamllex + ocamlyacc), some pretty printing is done, no real
+source code analysis is done. It is now hosted here:
+
+https://forge.ocamlcore.org/projects/phphard/
+https://github.com/sfindeisen/phphard (source code)
+
+I will welcome your ideas, feedback and contributions to the project.
+This is something I had been working on for some time, but have no
+resources (time+money) to finish this alone.
+
+I thinks it still makes sense to use PHP for web development as LAMP
+stack is quite efficient compared to some other stacks like Java. :)
+Plus there is lots of existing PHP code.
+
+I must confess that I have only superficially scanned through existing
+solutions to this static analysis problem. Some of the existing software
+(like HipHop VM from Facebook) seems quite complex, however I couldn't
+find anything that would be:
+
+* exactly scoped on PHP + static analysis
+* written in a functional language.
+
+Therefore I think this project has a potential and working on it can
+bring you glory. :)
+
+I believe purely functional style (non-modifiable data structures!) will
+be beneficial in this application.
+
+If you want to contribute please join the project on OCaml Forge. The
+source code is now on GitHub and it seems cool to me (but we can discuss
+that if you have arguments).
+      </cwn_what>
+      <cwn_who>Stéphane Legrand then suggested and David MENTRE added</cwn_who>
+      <cwn_what>
+&gt; Did you take a look at Pfff? : https://github.com/facebook/pfff
+
+And more exactly Scheck: https://github.com/facebook/pfff/wiki/Scheck
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>IPv6 packet parsing</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-10/msg00144.html</cwn_url>
+      <cwn_who>Johan Mazel asked and Stéphane Glondu replied</cwn_who>
+      <cwn_what>
+&gt; I am aware of several implementation for IPv4 packet parsing
+&gt; (ocaml-packet, melange, promiwag and maybe others that I missed).
+&gt; However, up to my knowledge, none of these implementations offer IPv6
+&gt; parsing functionnalities.
+&gt; I would like to know if there is anything available ?
+
+Using bitstring makes parsing binary structures such as IPv6 (and IPv4)
+packets easy:
+
+  https://github.com/glondu/netacct-crans/blob/master/netacct-crans.ml
+      </cwn_what>
+      <cwn_who>rixed also replied</cwn_who>
+      <cwn_what>
+IPv6 is on the TODO list for robinet[1], a small lib that parse
+network traffic (with the help of bitstring which was already
+suggested). It's hard to tell if this small library fits your use
+case but if it does I'd gladly add support for IPv6.
+
+[1]: https://github.com/rixed/RobiNet
+      </cwn_what>
+      <cwn_who>The following exchange occurred between Anil Madhavapeddy, rixed, and Gerd Stolpmann</cwn_who>
+      <cwn_what>
+Anil Madhavapeddy:
+&gt; rixed:
+&gt; &gt; Anil Madhavapeddy:
+&gt; &gt; &gt; One feature I'd really like to see in Bitstring is support for Bigarray,
+&gt; &gt; &gt; since that avoids a copy into the OCaml heap and lets us do quite high
+&gt; &gt; &gt; performance parsing.  If I remember right, there was a patch on the
+&gt; &gt; &gt; Bitstring issue tracker, but it wasn't parameterised (so it's either
+&gt; &gt; &gt; Bistring+string or Bitstring+bigarray, which isn't ideal).
+&gt; &gt; 
+&gt; &gt; Pardon my lack of familiarity with bigarrays, but I can't see what's the
+&gt; &gt; difference between copying packets from pcap ring buffer into a bigarray
+&gt; &gt; or into a string. Or do you mean using Bigarray.map_file on the whole
+&gt; &gt; raw ring buffer and handle it without pcap help?
+
+Without knowing details: maybe no copy is required at all? The pcap ring
+buffer could be directly wrapped as Bigarray.
+
+&gt; We have a number of use-cases that run OCaml in kernel mode, directly
+&gt; operating on packets read from a network driver that's also written in
+&gt; OCaml.  Bigarrays are used as the mechanism for passing around externally
+&gt; allocated memory (i.e. network card buffers) directly, whereas inspecting
+&gt; them with a string-based Bigarray requires an expensive data copy.
+&gt; 
+&gt; See: http://anil.recoil.org/papers/2013-asplos-mirage.pdf
+&gt; or http://www.openmirage.org
+
+For similar reasons, I also added some Bigarray functions to Ocamlnet:
+
+http://projects.camlcity.org/projects/dl/ocamlnet-3.7.3/doc/html-main/Netsys_mem.html
+
+If you look at the stub behind e.g. Unix.read, you'll see that the data
+is first read into an internal unaligned buffer, and then copied to the
+string buffer. This means usually two copies of the data: one from the
+kernel buffer to the internal buffer, and one from there to the string.
+
+If you use a Bigarray instead the internal buffer becomes superfluous:
+Bigarrays are malloc'ed memory, and cannot be moved by the GC. Hence,
+you can invoke the read() syscall directly with the Bigarray as buffer.
+If you additionally ensure that the Bigarray is page-aligned, the kernel
+can sometimes even avoid copying at all (though only some OS seem to
+implement such a strategy, as changing the page mapping or doing some
+direct I/O can be more costly than copying).
+
+Another advantage here is that you can freely choose the size of the
+buffer (Unix.read et al use fixed-size 64K for the internal buffer).
+Also you can allocate the buffer in a shared area.
+
+Ocamlnet now prefers Bigarrays as primary buffers where reasonable, and
+where a speedup (or lower CPU consumption) can be expected. E.g. The
+HTTP client first reads data into a bigarray, splits the header there
+into lines (which are then normal strings again), and gathers the data
+chunks from the HTTP body (which can be strings or Bigarrays, at the
+user's choice).
+      </cwn_what>
+      <cwn_who>rixed then said and Stéphane Glondu replied</cwn_who>
+      <cwn_what>
+&gt; Ideally, I'd like to pass const pointers to packet bytes provided by
+&gt; libpcap to user callbacks up to bitstring through OCaml [...]
+
+AFAICT, this is what is done in my earlier link:
+
+https://github.com/glondu/netacct-crans/blob/master/netacct-crans.ml
+
+rawstring in line 240 is a direct pointer to libpcap's buffer (in
+particular, it is outside the OCaml heap). Of course, it being typed as
+string is unsafe but it allows me to wrap it directly into a bitstring
+(the "dark magic" that comes later) and then bitmatch-ed.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Marshalling: automatic discard of unmashalable data via ephemerons</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-10/msg00171.html</cwn_url>
+      <cwn_who>Continuing the thread from last week, oleg said</cwn_who>
+      <cwn_what>
+&gt; The system state is made of pretty much anything, and is also user
+&gt; extensible via plugins.  Nothing prevents someone to stick in there
+&gt; values that can hardly be marshalled, like callbacks, file descriptors,
+&gt; lazy_t, and the like.  Of course it is nice to be able to store
+&gt; callbacks or lazy values in the system state, so forbidding all that is
+&gt; not nice.
+
+There is a similar problem when marshalling a captured delimited
+continuation. The continuation captures a part of stack that points to
+various closures in system libraries, which contain lots of
+unserializable stuff. In addition, reference cells (t ref) can't be
+meaningfully serialized as they are copied in the process of the
+serialization, which breaks their semantics. 
+
+The library delimcc proposes a solution. Unlike your situation, I do
+care to properly serialize `bad' value and properly restore. The
+unmarshalled delimited continuation must work properly. I cannot
+afford not to care what the unmarshalled value will look like.
+
+The solution, which involves pre-processing a value before marshalling
+and post-processing after unmarshalling, is described at
+        http://okmij.org/ftp/ML/ML.html#persistent-delim2cc
+as well in Sec 8 of
+        http://okmij.org/ftp/continuations/caml-shift-journal.pdf
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other Caml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocaml.org/&gt;.
+
+OCamlCore SARL is now officially closed.:
+  &lt;http://www.ocamlcore.com/wp/2013/10/ocamlcore-sarl-is-now-officially-closed/&gt;
+
+Trevi; Watering Down Storage Hotspots with Cool Fountain Codes:
+  &lt;http://anil.recoil.org/2013/10/18/trevi-fountain-codes-at-hotnets.html&gt;
+
+Full Time: Software Developer (Functional Programming) at Jane Street in New York, NY; London, UK; Hong Kong:
+  &lt;http://jobs.github.com/positions/0a9333c4-71da-11e0-9ac7-692793c00b45&gt;
+
+phphard: PHP source code static analyzer:
+  &lt;https://forge.ocamlcore.org/projects/phphard/&gt;
+
+Reprinting of "OCaml from the Very Beginning":
+  &lt;http://ocaml-book.com/blog/2013/10/15/reprinting-of-ocaml-from-the-very-beginning&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

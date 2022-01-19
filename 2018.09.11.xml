@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2018.09.11</cwn_date>
+    <cwn_prev>2018.09.04</cwn_prev>
+    <cwn_next>2018.09.18</cwn_next>
+    <cwn_date_text>September 04 to 11, 2018</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>callipyge 0.2 and eqaf 0.1</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-callipyge-0-2-and-eqaf-0-1/2520/1</cwn_url>
+      <cwn_who>Calascibetta Romain announced</cwn_who>
+      <cwn_what>
+I'm happy to announce the second release of
+[callipyge](https://github.com/oklm-wsh/Callipyge.git) which is an
+implementation of ~curve25519~ in OCaml and
+[eqaf](https://github.com/dinosaure/eqaf.git) which is an implementation of the
+equal function on ~string~ in a linear time - specially to avoid timing attacks.
+
+[digestif](https://github.com/mirage/digestif.git) will be updated with ~eqaf~ too.
+
+The goal of ~callipyge~ is to have a good implementation of ~curve25519~ but it
+should be replaced by a C stub extracted from the [HACL Star
+project](https://github.com/project-everest/hacl-star) (like what Firefox does).
+So, currently, we provide this implementation which is 3 times slower than the
+[reference implementation](https://github.com/agl/curve25519-donna).
+
+Then, it's a good project to introduce ~eqaf~ which provides only one function
+~equal : string -> string -> bool~ (a binding to the [OpenBSD's
+implementation](https://github.com/aperezdc/signify/blob/master/timingsafe_bcmp.c))
+and ensure to execute this function on linear time and avoid timing attacks. So
+we did some benchmarks and compare them with the current implementation of
+~String.equal~ from the standard library of OCaml. Then, we get expected
+results: in any situation ~eqaf~ took the same time to compare two ~string~
+which is not the case with ~String.equal~.
+
+So, happy hacking!
+      </cwn_what>
+      <cwn_who>He later added</cwn_who>
+      <cwn_what>
+And if you are interesting by ~eqaf~ and how we can check if the function has
+linear time, you should look [the first issue of
+~eqaf~](https://github.com/dinosaure/eqaf/issues/1). You can find a good
+explanation about expected results of benchmarks on ~eqaf~.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Be Sport is hiring (engineers, interns)</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2018-09/msg00016.html</cwn_url>
+      <cwn_who>Vincent Balat announced</cwn_who>
+      <cwn_what>
+Be Sport is looking for talented developers enjoying functional programming
+and teamwork. All profiles are welcome.
+
+They will work either on data importation/analysis or on the implementation
+of our mobile and Web apps. All the code is written in OCaml.
+
+Send me a message for more information!
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Sedlex moved to ocaml-community</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/sedlex-moved-to-ocaml-community/2532/1</cwn_url>
+      <cwn_who>Perry E. Metzger announced</cwn_who>
+      <cwn_what>
+For those of you who use sedlex, it has moved to [a new repository on ocaml-community.](https://github.com/ocaml-community/sedlex)
+
+This was done with a github transfer, so existing issues against the repository
+got moved as well, and existing users should be redirected properly. That said,
+I've done a pull request to fix the opam packages and hopefully it will be
+merged soon.
+      </cwn_what>
+      <cwn_who>gasche asked and Gabriel Radanne replied</cwn_who>
+      <cwn_what>
+#+begin_quote
+How does the regexp compilation engine compares to what is done in
+[Re](https://github.com/ocaml/ocaml-re)? Would it be possible to build a lexer
+generator on top of an independent regexp library like
+[Tyre](https://github.com/Drup/tyre) or
+[ppx_regexp](https://github.com/paurkedal/ppx_regexp)? (cc @Drup)
+#+end_quote
+
+That is a very good question, I have some plans in mind, but they require quite a bit of work. Basically, the current situation is the following:
+
+
+| Library        | Syntax    | Composition | Refill | Unicode | Automaton               | Regexs    |
+|----------------|-----------|-------------|--------|---------|-------------------------|-----------|
+| ocamlex        | Custom    | No¹         | Yes    | No      | DFA, codegen to C       | Basic     |
+| sedlex         | PPX       | No¹         | Yes    | Yes     | DFA, codegen to OCaml   | Limited   |
+| Re/Tyre        | OCaml     | Yes         | No     | No³     | Online determinization² | Extended⁴ |
+| ppx_regex/tyre | PPX+OCaml | Yes         | No     | No      | Online determinization² | Extended⁴ |
+
+¹: Some built-in mechanism for locally defining regex exists, but no true composition. \\
+²: There are some things to determinize offline, but they need refreshing \\
+³: https://github.com/ocaml/ocaml-re/pull/48 \\
+⁴: Within regularity. Lacks full blown complementation. See also [this paper](https://www.home.hs-karlsruhe.de/~suma0002/publications/cc14-flexible-lexing-via-extended-regex.pdf).
+
+My plans would not be to try to improve sedlex, but rather to push ~re~ (and the
+related libraries) to the point where it's universally better. Ppx_regexp/tyre
+provides a convenient "ocamlex" like syntax while preserving composition. The
+first step would be a refill mechanism, and support for UTF (for which @nojb
+made a prototype that would need revival).
+
+Performances are a tricky question. Ocamllex is clearly faster, since it
+generates a C-based DFA. I expect sedlex to be faster than re in small examples,
+but it would need evaluation. Online determinization is very desirable in many
+contexts.
+
+wrt. Unicode libraries: At least for sedlex, it was designed so that bunzli's
+libraries can be used before giving the stream to sedlex. Either to re-encode,
+or to normalize. I think that's a decen way of doing things.
+      </cwn_what>
+      <cwn_who>james woodyatt then said</cwn_who>
+      <cwn_what>
+First off, I'm pleased to see sedlex getting some love finally. Very grateful to the community for that.
+
+I would like to add here that my forthcoming _Orsetto_ project includes another
+[alternative](https://bitbucket.org/jhw/orsetto/src/unstable/src/ucs/ucs_regx.mli)
+to _sedlex_ that might be worth noting, although it
+[has](https://bitbucket.org/jhw/orsetto/issues/7/unicode-regular-expression-level-2-support)
+[issues](https://bitbucket.org/jhw/orsetto/issues/6/unicode-regular-expression-level-1-support)
+and it remains in the "unstable" branch while I'm slowly working on it in my
+copious spare time.
+
+I would describe it here as follows:
+
+|Library|Syntax|Composition|Unicode|Automaton|Regexs|
+|---|---|---|---|---|---|---|
+|Orsetto.UCS|OCaml|Yes|Yes|Lazy DFA|Basic¹|
+
+¹: A subset of UTS #18, RL1 (no loose matching, word or line boundaries, etc.)
+
+Also, I'm not sure what "refill" means here, so I didn't characterize it.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>An implementation of the Noise Protocol Framework</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-an-implementation-of-the-noise-protocol-framework/2539/1</cwn_url>
+      <cwn_who>Etienne Millon announced</cwn_who>
+      <cwn_what>
+I am announcing the first release of [noise](https://github.com/emillon/ocaml-noise), an implementation of the [Noise Protocol Framework](https://noiseprotocol.org/).
+
+It contains building blocks to implement a secure protocol with confidentiality
+and authentication on top of modern cryptographic primitives. This protocol
+framework is used by
+[WhatsApp](https://www.whatsapp.com/security/WhatsApp-Security-Whitepaper.pdf),
+[WireGuard](https://www.wireguard.com/), and
+[Lightning](https://github.com/lightningnetwork/lightning-rfc/blob/master/08-transport.md).
+
+This is still a very early version:
+- it contains some custom implementations of cryptographic primitives
+- the interface is unstable
+- most applications need a higher level protocol like [NoiseSocket](https://noisesocket.org/), which is comparable to TLS
+
+Next on my roadmap is implementing a WireGuard client and server that can be used in [Mirage](https://mirage.io/).
+
+If you are interested in implementing a protocol that uses Noise, please get in touch!
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Release of Bindlib 5.0</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/release-of-bindlib-5-0/2541/1</cwn_url>
+      <cwn_who>Rodolphe Lepigre announced</cwn_who>
+      <cwn_what>
+I am pleased to announce the release of Bindlib 5.0.1, which is a library for
+handling structures with bound (and free) variables (typical applications
+include the development of languages and proof systems). It has already been
+available on Opam for several weeks, and the source code of the latest version
+can be found in the [development
+repository](https://github.com/rlepigre/ocaml-bindlib).
+
+This new version provides a simpler, more concise interface. It is extensively
+documented, and includes a small tutorial. An [introductory
+paper](http://eptcs.web.cse.unsw.edu.au/paper.cgi?LFMTP2018.4) has also been
+recently presented at the LFMTP 2018 workshop.
+
+Bindlib has already been used in fairly big projects (from the most recent):
+[Lambdapi](https://github.com/rlepigre/lambdapi),
+[PML₂](https://github.com/rlepigre/pml),
+[SubML](https://rlepigre.github.io/subml/),
+[PML](https://lama.univ-savoie.fr/tracpml), and many other smaller prototypes.
+
+The implementation is very efficient (in terms of substitution), and it handles renaming to avoid capture.
+
+Feel free to give feedback!
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Ocaml Github Pull Requests</cwn_title>
+      <cwn_who>Gabriel Scherer and the editor compiled this list</cwn_who>
+      <cwn_what>
+Here is a sneak peek at some potential future features of the Ocaml
+compiler, discussed by their implementers in these Github Pull Requests.
+
+- [[https://github.com/ocaml/ocaml/pull/2024][Stop supporting obsolete platforms]]
+- [[https://github.com/ocaml/ocaml/pull/2027][{WIP} Deprecated optional arguments]]
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

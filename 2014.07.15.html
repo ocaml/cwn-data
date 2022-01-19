@@ -1,0 +1,505 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>OCaml Weekly News</title>
+  </head>
+  <body>
+    <a href="2014.07.08.html">Previous week</a> <a href="index.html">Up</a> <a href="2014.07.22.html">Next week</a><p>Hello</p><p>Here is the latest OCaml Weekly News, for the week of July 08 to 15, 2014.</p><ol><li><a href="#1">ocaml-tls (and ocaml-nocrypto / ocaml-x509 / ocaml-asn1-combinators)</a></li><li><a href="#2">proposal for finding, loading and composing ppx preprocessors</a></li><li><a href="#3">llpp v19</a></li><li><a href="#4">OCaml-Java is going alpha, to github</a></li><li><a href="#5">Core Suite 111.21.00</a></li><li><a href="#6">Other OCaml News</a></li></ol><a name="1" /><hr /><h3>ocaml-tls (and ocaml-nocrypto / ocaml-x509 / ocaml-asn1-combinators)</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2014-07/msg00052.html">https://sympa.inria.fr/sympa/arc/caml-list/2014-07/msg00052.html</a></p><i>Hannes Mehnert announced:</i><br /><pre>
+Live test server: <a href="https://tls.openmirage.org">https://tls.openmirage.org</a> :)
+
+We announce a **beta** release of `ocaml-tls`, a clean-slate
+implementation of
+[Transport Layer
+Security](<a href="https://en.wikipedia.org/wiki/Transport_Layer_Security">https://en.wikipedia.org/wiki/Transport_Layer_Security</a>) (TLS) in
+OCaml.
+
+### What is TLS?
+
+Transport Layer Security (TLS) is probably the most widely deployed
+security protocol on the Internet. It provides communication privacy
+to prevent eavesdropping, tampering, and message forgery. Furthermore,
+it optionally provides authentication of the involved endpoints. TLS
+is commonly deployed for securing web services
+([HTTPS](<a href="http://tools.ietf.org/html/rfc2818">http://tools.ietf.org/html/rfc2818</a>)), emails,
+virtual private networks, and wireless networks.
+
+TLS uses asymmetric cryptography to exchange a symmetric key, and
+optionally authenticate (using X.509) either or both endpoints. It
+provides algorithmic agility, which means that the key exchange
+method, symmetric encryption algorithm, and hash algorithm are
+negotiated.
+
+### TLS in OCaml
+
+Our implementation [ocaml-tls](<a href="https://github.com/mirleft/ocaml-tls">https://github.com/mirleft/ocaml-tls</a>)
+is already able to interoperate with
+existing TLS implementations, and supports several important TLS
+extensions
+such as server name indication ([RFC4366][], enabling virtual hosting)
+and secure renegotiation ([RFC5746][]).
+
+Our [demonstration server][^7] runs `ocaml-tls` and renders exchanged
+TLS messages in nearly real time by receiving a trace of the TLS
+session setup. If you encounter any problems, please give us
+[feedback][^14].
+
+`ocaml-tls` and all dependent libraries are available via [OPAM][^18]
+(`opam install tls`). The [source is available][^1]
+under a BSD license. We are primarily working towards completeness of
+protocol features, such as client authentication, session resumption,
+elliptic curve and GCM
+cipher suites, and have not yet optimised for performance.
+
+`ocaml-tls` depends on the following independent libraries:
+[ocaml-nocrypto][^6] implements the
+cryptographic primitives, [ocaml-asn1-combinators][^5] provides ASN.1
+parsers/unparsers, and
+[ocaml-x509][^8] implements the X509 grammar and certificate
+validation ([RFC5280][]). [ocaml-tls][^1] implements TLS (1.0, 1.1 and
+1.2; [RFC2246][],
+[RFC4346][], [RFC5246][]).
+
+We invite the community to audit and run our code, and we are
+particularly interested in discussion of our APIs.
+Please use the [mirage-devel mailing list][^9] for discussions.
+
+**Please be aware that this release is a *beta* and is missing
+external code audits.
+It is not yet intended for use in any security critical applications.**
+
+In our [issue tracker][^14] we transparently document known attacks
+against TLS and our mitigations
+([checked][^4] and [unchecked][^11]).
+We have not yet implemented mitigations against either the
+[Lucky13][^12] timing attack or traffic analysis (e.g. [length-hiding
+padding][^13]).
+
+### Trusted code base
+
+Designed to run on Mirage, the trusted code base of `ocaml-tls` is
+small. It includes the libraries already mentioned,
+[`ocaml-tls`][^1], [`ocaml-asn-combinators`][^5], [`ocaml-x509`][^8],
+and [`ocaml-nocrypto`][^6] (which uses C implementations of block
+ciphers and hash algorithms). For arbitrary precision integers needed in
+asymmetric cryptography, we rely on [`zarith`][^15], which wraps
+[`libgmp`][^16]. As underlying byte array structure we use
+[`cstruct`][^17] (which uses OCaml `Bigarray` as storage).
+
+We should also mention the OCaml runtime, the OCaml compiler, the
+operating system on which the source is compiled and the binary is
+executed, as
+well as the underlying hardware. Two effectful frontends for
+the pure TLS core are implemented, dealing
+with side-effects such as reading and writing from the network:
+[Lwt_unix](<a href="http://ocsigen.org/lwt/api/Lwt_unix">http://ocsigen.org/lwt/api/Lwt_unix</a>) and
+Mirage, so applications can run directly as a Xen unikernel.
+
+### Why a new TLS implementation?
+
+**Update:**
+Thanks to [Frama-C][frama-c] guys for [pointing][twitter-1]
+[out][twitter-2]
+that [CVE-2014-1266][] and [CVE-2014-0224][] are *not* memory safety
+issues, but
+logic errors. This article previously stated otherwise.
+
+[frama-c]: <a href="http://frama-c.com/">http://frama-c.com/</a>
+[twitter-1]: <a href="https://twitter.com/spun_off/status/486535304426188800">https://twitter.com/spun_off/status/486535304426188800</a>
+[twitter-2]: <a href="https://twitter.com/spun_off/status/486536572792090626">https://twitter.com/spun_off/status/486536572792090626</a>
+
+There are only a few TLS implementations publicly available and most
+programming languages bind to OpenSSL, an open source implementation
+written
+in C. There are valid reasons to interface with an existing TLS library,
+rather than developing one from scratch, including protocol complexity and
+compatibility with different TLS versions and implementations. But
+from our
+perspective the disadvantage of most existing libraries is that they
+are written in C, leading to:
+
+  * Memory safety issues, as recently observed by [Heartbleed][] and
+GnuTLS
+    session identifier memory corruption ([CVE-2014-3466][]) bugs;
+  * Control flow complexity (Apple's goto fail, [CVE-2014-1266][]);
+  * And difficulty in encoding state machines (OpenSSL change cipher suite
+    attack, [CVE-2014-0224][]).
+
+Our main reasons for `ocaml-tls` are that OCaml is a modern functional
+language, which allows concise and declarative descriptions of the
+complex protocol logic and provides type safety and memory safety to help
+guard against programming errors. Its functional nature is extensively
+employed in our code: the core of the protocol is written in purely
+functional style, without any side effects.
+
+Subsequent blog posts [over the coming
+days](<a href="https://github.com/mirage/mirage/issues/257">https://github.com/mirage/mirage/issues/257</a>) will examine in
+more detail
+the design and implementation of the four libraries, as well as the
+security
+trade-offs and some TLS attacks and our mitigations against them.  For now
+though, we invite you to try out our **[demonstration server][^7]**
+running our stack over HTTPS.  We're particularly interested in
+feedback on our [issue tracker](<a href="https://github.com/mirleft/ocaml-tls">https://github.com/mirleft/ocaml-tls</a>)
+about
+clients that fail to connect, and any queries from anyone reviewing
+the [source code](<a href="https://github.com/mirleft/">https://github.com/mirleft/</a>)
+of the constituent libraries.
+
+[^1]: <a href="https://github.com/mirleft/ocaml-tls">https://github.com/mirleft/ocaml-tls</a>
+[^3]: <a href="http://www.openbsd.org/papers/bsdcan14-libressl/mgp00026.html">http://www.openbsd.org/papers/bsdcan14-libressl/mgp00026.html</a>)
+[^4]:
+<a href="https://github.com/mirleft/ocaml-tls/issues?labels=security+concern&amp;page=1&amp;state=open">https://github.com/mirleft/ocaml-tls/issues?labels=security+concern&amp;page=1&amp;state=open</a>
+[^5]: <a href="https://github.com/mirleft/ocaml-asn1-combinators">https://github.com/mirleft/ocaml-asn1-combinators</a>
+[^6]: <a href="https://github.com/mirleft/ocaml-nocrypto">https://github.com/mirleft/ocaml-nocrypto</a>
+[^7]: <a href="https://tls.openmirage.org/">https://tls.openmirage.org/</a>
+[^8]: <a href="https://github.com/mirleft/ocaml-x509">https://github.com/mirleft/ocaml-x509</a>
+[^9]: <a href="http://lists.xenproject.org/archives/html/mirageos-devel/">http://lists.xenproject.org/archives/html/mirageos-devel/</a>
+[^10]: <a href="https://github.com/mirage/mirage-entropy">https://github.com/mirage/mirage-entropy</a>
+[^11]:
+<a href="https://github.com/mirleft/ocaml-tls/issues?labels=security+concern&amp;page=1&amp;state=closed">https://github.com/mirleft/ocaml-tls/issues?labels=security+concern&amp;page=1&amp;state=closed</a>
+[^12]: <a href="http://www.isg.rhul.ac.uk/tls/Lucky13.html">http://www.isg.rhul.ac.uk/tls/Lucky13.html</a>
+[^13]: <a href="http://tools.ietf.org/html/draft-pironti-tls-length-hiding-02">http://tools.ietf.org/html/draft-pironti-tls-length-hiding-02</a>
+[^14]: <a href="https://github.com/mirleft/ocaml-tls/issues">https://github.com/mirleft/ocaml-tls/issues</a>
+[^15]: <a href="https://forge.ocamlcore.org/projects/zarith">https://forge.ocamlcore.org/projects/zarith</a>
+[^16]: <a href="https://gmplib.org/">https://gmplib.org/</a>
+[^17]: <a href="https://github.com/mirage/ocaml-cstruct">https://github.com/mirage/ocaml-cstruct</a>
+[^18]: <a href="https://opam.ocaml.org/packages/tls/tls.0.1.0/">https://opam.ocaml.org/packages/tls/tls.0.1.0/</a>
+
+[attacks]: <a href="http://eprint.iacr.org/2013/049">http://eprint.iacr.org/2013/049</a>
+[Heartbleed]: <a href="https://en.wikipedia.org/wiki/Heartbleed">https://en.wikipedia.org/wiki/Heartbleed</a>
+[mostdangerous]:
+<a href="https://crypto.stanford.edu/~dabo/pubs/abstracts/ssl-client-bugs.html">https://crypto.stanford.edu/~dabo/pubs/abstracts/ssl-client-bugs.html</a>
+[frankencert]: <a href="https://www.cs.utexas.edu/~shmat/shmat_oak14.pdf">https://www.cs.utexas.edu/~shmat/shmat_oak14.pdf</a>
+[mitls]: <a href="http://www.mitls.org">http://www.mitls.org</a>
+[Fortuna]: <a href="https://www.schneier.com/fortuna.html">https://www.schneier.com/fortuna.html</a>
+[HOL]:
+<a href="http://www.infsec.ethz.ch/people/andreloc/publications/lochbihler14iw.pdf">http://www.infsec.ethz.ch/people/andreloc/publications/lochbihler14iw.pdf</a>
+[cheap]: <a href="http://people.cs.missouri.edu/~harrisonwl/drafts/CheapThreads.pdf">http://people.cs.missouri.edu/~harrisonwl/drafts/CheapThreads.pdf</a>
+[RFC4366]: <a href="https://tools.ietf.org/html/rfc4366">https://tools.ietf.org/html/rfc4366</a>
+[RFC5746]: <a href="https://tools.ietf.org/html/rfc5746">https://tools.ietf.org/html/rfc5746</a>
+[RFC5280]: <a href="https://tools.ietf.org/html/rfc5280">https://tools.ietf.org/html/rfc5280</a>
+[RFC2246]: <a href="https://tools.ietf.org/html/rfc2246">https://tools.ietf.org/html/rfc2246</a>
+[RFC4346]: <a href="https://tools.ietf.org/html/rfc4346">https://tools.ietf.org/html/rfc4346</a>
+[RFC5246]: <a href="https://tools.ietf.org/html/rfc5246">https://tools.ietf.org/html/rfc5246</a>
+[CVE-2014-1266]:
+<a href="https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2014-1266">https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2014-1266</a>
+[CVE-2014-3466]:
+<a href="https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2014-3466">https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2014-3466</a>
+[CVE-2014-0224]:
+<a href="https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2014-0224">https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2014-0224</a>
+      </pre><a name="2" /><hr /><h3>proposal for finding, loading and composing ppx preprocessors</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2014-07/msg00059.html">https://sympa.inria.fr/sympa/arc/caml-list/2014-07/msg00059.html</a></p><i>Benjamin Canou proposed:</i><br /><pre>
+To accompany the arrival of annotations in the forthcoming release, we
+propose to discuss and hopefully agree on a standard way of selecting
+the adequate preprocessor(s) for a given file. Gerd already introduced
+a mechanism in the last version of OCamlFind, that we'd like to extend
+as follows.
+
+Our idea is to indicate via a pragma inside the file, how it has to be
+processed. You can see that as a machine readable way of writing (*
+this file has to be preprocessed with blah using options blah *). For
+this, we propose that build systems use a default preprocessor
+systematically, that would interpret these pragmas and find and call
+its fellow preprocessors accordingly.
+
+The compiler already provides built-in annotations. In a way, it's
+a second predefined layer, this time for the build system.
+
+We designed and prototyped such a tool [1], which understand
+annotations of the form [@@@ syntax "package"], to preprocess the
+following code using the ppx declared in the corresponding OCamlFind
+package.
+
+The tool also defines a way to register plug-ins instead of
+executables so preprocessors can be dynlinked instead of called as
+processes.
+
+Extensions could be:
+ - delimiting a fragment of the code to process
+ - add a way to associate a given annotation identifier to
+a preprocessor, so that only the mother preprocessor would do the tree
+traversal, specific preprocessors only seeing the nodes they are
+actually interested in.
+ - other kind of pragmas for the build system ?
+
+Again, the goal is to agree now on a standard way and avoid the mess
+we had with camlp4. What do you think ?
+
+  Benjamin, Grégoire and Pierre @ OCamlPro.
+
+[1] <a href="https://github.com/hnrgrgr/ppx_loader">https://github.com/hnrgrgr/ppx_loader</a>
+      </pre><i>Alain Frisch replied:</i><br /><pre>
+This topic of how to specify which ppx processors to run, and avoiding
+multiple processes, is indeed still largely opened.
+
+I don't see what's the benefit of restricting the processors to
+subtrees.  It's easy enough for each processor to traverse extension
+nodes it doesn't support (this is the behavior of the default
+mapper). And I don't think it's a good idea to introduce a composition
+model different from the successive application of different
+processors on the entire tree. I.e. function composition, which is
+quite well understood and easy to reason about.  In particular, you
+only need to understand the behavior of each processor to predict what
+the composition will do, not exactly how each processor is implemented
+(and which state it carries across the tree, internally).
+
+With ocamlfind 1.5, requiring a package when compiling a file adds the
+required -ppx flags in addition to the -I flags.  If we want to avoid
+multiple process, one could create a meta ppx driver which dynamically
+loads and runs other drivers (specified as .cmxs files).  To be able
+to use such as meta driver from ocamlfind, ocamlfind needs to know
+about how to build each ppx processor (i.e. which libraries should be
+invoked).  Dynamic linking might not be the best solution, though: it
+is not available on all platforms, and it requires all libraries on
+which ppx processor depend to provide a corresponding .cmxs.  The
+alternative is to have ocamlfind link a specific meta driver
+statically (using its knowledge of package dependencies) for each
+actual combination of ppx to be used, relying on an internal cache to
+avoid linking the same driver repeatedly, of course.  The next step is
+to create not ppx drivers (that incorporate multiple precessors), but
+compiler drivers (to avoid completely extra process creations and
+marshaling of the AST).  If this is encapsulated in ocamlfind (or
+a similar tool), this can still be used by any build system which
+currently relies on ocamlfind.
+
+Specifying ppx requirements in the source code is a different topic.
+It might be a good direction, but then I don't see why this should be
+restricted to ppx requirements and not -I flags.  It would seem
+logical to specify package requirements, which would add both -I
+and -ppx flags (and maybe more).
+
+Actually, it would have been more important to specify package
+requirements for Camlp4 processors, since this knowledge might be
+required by tools that are not under the control of your build system,
+such as your editor/IDE (to load the corresponding syntactic
+support). Since the concrete syntax doesn't change anymore with ppx
+processors, it seems less critical to specify them in the source code
+(I'd say, not more and not less than general package requirement).
+      </pre><i>Peter Zotov also replied, and Anil Madhavapeddy said:</i><br /><pre>
+&gt; I wonder if we should just get rid of a Unix-like build pipeline entirely,
+&gt; and just make a hybrid frontend-buildsystem that would use compiler-libs
+&gt; and never execute an external OCaml process. This would make builds even
+&gt; faster and it's the logical conclusion of Alain's suggestion.
+
+I prototyped one of these a couple of years ago while trying to speed up
+the Mirage build system, but required some extensive patching of the compiler
+sources and was definitely not suitable for upstreaming.
+
+These days, much of the required functionality is exposed via the
+compiler-libs package, so it should be possible to have a go at this
+much more easily.
+
+Personally, I'd love to see the use of Sys replaced with the Irmin Git
+library database (<a href="http://github.com/mirage/irmin">http://github.com/mirage/irmin</a>).  This would allow a model
+where the ML sources are imported into a Git DAG, passed through to the 
+compiler-libs as an in-memory structure, and the intermediate results 
+recorded in the DAG, still all in-memory.
+
+When the build has completed, the Irmin DAG could be dumped to disk in
+the Git file format, permitting the entire build process to be inspected
+if necessary (or GCed if not).  All the Git bits are currently supported
+by Irmin, so this project just requires an intrepid hacker to connect
+compiler-libs, Irmin, and some coordination glue.
+      </pre><a name="3" /><hr /><h3>llpp v19</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2014-07/msg00081.html">https://sympa.inria.fr/sympa/arc/caml-list/2014-07/msg00081.html</a></p><i>av1474 announced:</i><br /><pre>
+New version of llpp (tagged v19) is no available at
+<a href="http://repo.or.cz/w/llpp.git">http://repo.or.cz/w/llpp.git</a>
+
+Blurb:
+
+llpp a graphical PDF viewer which aims to superficially resemble
+less(1)
+
+Changes:
+
+* Optional fontconfig support
+* Reorganized/improved help screen (Michael Asnes)
+* History mode
+    Somewhat breaking change, full paths are now stored not just file
+    names. This mode is entered by default when llpp is invoked without
+    a path to the document to be viewed.
+* Bugfixes
+      </pre><i>Peter Zotov then added:</i><br /><pre>
+I've submitted llpp to OPAM[1]; in addition, I rewrote the buildsystem
+you have to use ocamlbuild and system-provided  packages[2], which
+made it much simpler. Perhaps you will find it helpful.
+
+[1]: <a href="https://opam.ocaml.org">https://opam.ocaml.org</a>
+[2]: <a href="https://github.com/ocaml/opam-repository/pull/2351/files">https://github.com/ocaml/opam-repository/pull/2351/files</a>
+      </pre><a name="4" /><hr /><h3>OCaml-Java is going alpha, to github</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2014-07/msg00086.html">https://sympa.inria.fr/sympa/arc/caml-list/2014-07/msg00086.html</a></p><i>Xavier Clerc announced:</i><br /><pre>
+This post announces a new version (namely alpha1) of OCaml-Java.
+The main goal of the project is to provide a compiler targeting the
+JVM. The related objectives are to gain access to a greater number
+of libraries, and to be able to take advantage of multiple cores.
+
+This new version is partially open-sourced: the code for the compiler
+and associated tools, as well as libraries is fully available. The code
+for the runtime support library comes as a prebuilt binary, and will
+be open-sourced later, when clean enough. Installation steps for
+binary-, source-, or opam-based distributions can be found at the
+following address:
+    <a href="http://www.ocamljava.org/installation">http://www.ocamljava.org/installation</a>
+
+The new website (<a href="http://www.ocamljava.org">http://www.ocamljava.org</a>) completely replaces
+the previous one, and the project repository is now hosted on github:
+    <a href="https://github.com/xclerc/ocamljava">https://github.com/xclerc/ocamljava</a>
+
+The purpose of this alpha version is to gather feeback from the
+community. So, feel free to contact me either by private mail or through
+the github issue tracker. Some notes about the project can also be found
+at the following address:
+    <a href="http://www.ocamljava.org/notes">http://www.ocamljava.org/notes</a>
+      </pre><a name="5" /><hr /><h3>Core Suite 111.21.00</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2014-07/msg00089.html">https://sympa.inria.fr/sympa/arc/caml-list/2014-07/msg00089.html</a></p><i>Ben Millwood announced:</i><br /><pre>
+I'm happy to announce the 111.21.00 release of the Core suite.
+
+The following packages were upgraded:
+
+- async_extended
+- async_extra
+- async_ssl
+- async_unix
+- core
+- core_kernel
+- custom_printf
+- jenga
+- ocaml_plugin
+- patdiff
+- patience_diff
+
+Files and documentation for this release are available on our website
+and all packages are in opam:
+
+<a href="https://ocaml.janestreet.com/ocaml-core/111.21.00/individual">https://ocaml.janestreet.com/ocaml-core/111.21.00/individual</a>
+<a href="https://ocaml.janestreet.com/ocaml-core/111.21.00/doc">https://ocaml.janestreet.com/ocaml-core/111.21.00/doc</a>
+
+Here is the list of changes for this version:
+
+## async_extra
+
+- Added `Sexp_hum` `Log.Output.format`, which is useful for making
+logs
+more human readable.
+- Added `with compare` to `Rpc.Implementation.Description`.
+
+## async_ssl
+
+- Upgraded to use new ctypes and its new stub generation methods.
+
+## async_unix
+
+- Added `Process.wait_stdout` and `wait_stdout_lines`, which are like
+`run` and `run_lines`, but take a `Process.t`.
+
+## core
+
+- Fixed an issue where `Time.Zone.init` would not properly traverse
+the
+directory containing timezone information.
+- Added `Time.With_utc_sexp`, which has stable serialization of
+`Time.t`
+that is byte-for-byte equal across timezones.
+- Made `Uuid` stable.
+- Made `Piecewise_linear` stable.
+
+## core_kernel
+
+- Removed our custom C stub for closing channels, reverting to the one
+in the OCaml runtime.
+
+A long time ago we found that the OCaml runtime did not release the
+lock before calling `close` on the fd underlying a channel. On some
+filesystems (e.g. smb, nfs) this could cause a runtime hang. We
+filed a bug with INRIA and wrote our own `close` function which
+`In_channel` calls to this day. The bug has long been fixed, and
+our function is probably buggy, so this reverts us to the runtime's
+`close`.
+
+- Added `Float.{of,to}_int64_preserve_order`, which implement the
+order-preserving zero-preserving bijection between non-NaN floats and
+99.95% of `Int64`'s. 
+
+Used the new function to improve `one_ulp`, which is now exposed:
+
+(** The next or previous representable float. ULP stands for "unit of
+least precision",
+and is the spacing between floating point numbers. Both [one_ulp `Up
+infinity] and
+[one_ulp `Down neg_infinity] return a nan. *)
+val one_ulp : [`Up | `Down] -&gt; t -&gt; t
+
+- Changed `Map.symmetric_diff` to return a `Sequence.t`
+instead of a `list`.
+- Added `Sequence.filter_map`.
+- Improved `Stable_unit_test.Make_sexp_deserialization_test`'s error
+message so that it includes the expected sexp.
+
+## custom_printf
+
+- Fixed a bug in which custom-printf syntax was incompatible with
+labeled arguments.
+
+For example, the preprocessor used to raise an exception on this code:
+
+let f ~labeled_arg:() fmt = ksprintf (fun _ -&gt; ()) fmt in
+f !"hello" ~labeled_arg:()
+
+## jenga
+
+- Introduced jenga API v3, a small cleanup of v2 which has been
+planned
+for a while.
+
+## ocaml_plugin
+
+- Fixed a bug in `ocaml_embed_compiler` on 32-bit machines.
+
+`ocaml_embed_compiler` tries to read the full contents of the file as
+a string, but the string might be too big on 32bits:
+
+<a href="https://github.com/ocaml/opam-repository/pull/2062#issuecomment-43045491">https://github.com/ocaml/opam-repository/pull/2062#issuecomment-43045491</a>
+
+## patdiff
+
+- Added `Patdiff_core.iter_ansi`.
+
+(** Iter along the lines of the diff and the breaks between hunks.
+Offers more flexibility
+regarding what the caller wants to do with the lines *)
+val iter_ansi
+: f_hunk_break:((int*int) -&gt; (int*int) -&gt; unit)
+-&gt; f_line:(string -&gt; unit)
+-&gt; string Patience_diff.Hunk.t list
+-&gt; unit
+
+## patience_diff
+
+- Added plain differ `Plain_diff` and use it in some cases for
+improved results.
+- Move modules under `Patience_diff_lib.Std`.
+
+---
+
+We hope you find it useful!
+
+-- Ben Millwood, on behalf of the Core team.
+      </pre><a name="6" /><hr /><h3>Other OCaml News</h3><i>From the ocamlcore planet blog:</i><br /><pre>
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <a href="http://planet.ocaml.org/">http://planet.ocaml.org/</a>.
+
+OCaml-TLS: the protocol implementation and mitigations to known attacks:
+  <a href="http://openmirage.org/blog/ocaml-tls-api-internals-attacks-mitigation">http://openmirage.org/blog/ocaml-tls-api-internals-attacks-mitigation</a>
+
+OCaml-TLS: ASN.1 and notation embedding:
+  <a href="http://openmirage.org/blog/introducing-asn1">http://openmirage.org/blog/introducing-asn1</a>
+
+What's in a name?:
+  <a href="https://blogs.janestreet.com/whats-in-a-name/?utm_source=rss&amp;utm_medium=rss&amp;utm_campaign=whats-in-a-name">https://blogs.janestreet.com/whats-in-a-name/?utm_source=rss&amp;utm_medium=rss&amp;utm_campaign=whats-in-a-name</a>
+
+How to Set the Evil Bit:
+  <a href="http://www.somerandomidiot.com/blog/2014/07/09/how-to-set-the-evil-bit/">http://www.somerandomidiot.com/blog/2014/07/09/how-to-set-the-evil-bit/</a>
+      </pre><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

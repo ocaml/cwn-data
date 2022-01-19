@@ -1,0 +1,273 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+TITLE: OCaml Weekly News
+[[http://alan.petitepomme.net/cwn/2018.09.04.html][Previous Week]] [[http://alan.petitepomme.net/cwn/index.html][Up]] [[http://alan.petitepomme.net/cwn/2018.09.18.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of September 04 to 11, 2018.
+
+#+TOC: headlines 1
+
+
+-----
+
+* callipyge 0.2 and eqaf 0.1
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/ann-callipyge-0-2-and-eqaf-0-1/2520/1
+
+** Calascibetta Romain announced
+
+
+I'm happy to announce the second release of
+[[https://github.com/oklm-wsh/Callipyge.git][callipyge]] which is an
+implementation of ~curve25519~ in OCaml and
+[[https://github.com/dinosaure/eqaf.git][eqaf]] which is an implementation of the
+equal function on ~string~ in a linear time - specially to avoid timing attacks.
+
+[[https://github.com/mirage/digestif.git][digestif]] will be updated with ~eqaf~ too.
+
+The goal of ~callipyge~ is to have a good implementation of ~curve25519~ but it
+should be replaced by a C stub extracted from the [[https://github.com/project-everest/hacl-star][HACL Star
+project]] (like what Firefox does).
+So, currently, we provide this implementation which is 3 times slower than the
+[[https://github.com/agl/curve25519-donna][reference implementation]].
+
+Then, it's a good project to introduce ~eqaf~ which provides only one function
+~equal : string -> string -> bool~ (a binding to the [[https://github.com/aperezdc/signify/blob/master/timingsafe_bcmp.c][OpenBSD's
+implementation]])
+and ensure to execute this function on linear time and avoid timing attacks. So
+we did some benchmarks and compare them with the current implementation of
+~String.equal~ from the standard library of OCaml. Then, we get expected
+results: in any situation ~eqaf~ took the same time to compare two ~string~
+which is not the case with ~String.equal~.
+
+So, happy hacking!
+      
+
+** He later added
+
+
+And if you are interesting by ~eqaf~ and how we can check if the function has
+linear time, you should look [[https://github.com/dinosaure/eqaf/issues/1][the first issue of
+~eqaf~]]. You can find a good
+explanation about expected results of benchmarks on ~eqaf~.
+      
+
+
+
+-----
+
+* Be Sport is hiring (engineers, interns)
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://sympa.inria.fr/sympa/arc/caml-list/2018-09/msg00016.html
+
+** Vincent Balat announced
+
+
+Be Sport is looking for talented developers enjoying functional programming
+and teamwork. All profiles are welcome.
+
+They will work either on data importation/analysis or on the implementation
+of our mobile and Web apps. All the code is written in OCaml.
+
+Send me a message for more information!
+      
+
+
+
+-----
+
+* Sedlex moved to ocaml-community
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/sedlex-moved-to-ocaml-community/2532/1
+
+** Perry E. Metzger announced
+
+
+For those of you who use sedlex, it has moved to [[https://github.com/ocaml-community/sedlex][a new repository on ocaml-community.]]
+
+This was done with a github transfer, so existing issues against the repository
+got moved as well, and existing users should be redirected properly. That said,
+I've done a pull request to fix the opam packages and hopefully it will be
+merged soon.
+      
+
+** gasche asked and Gabriel Radanne replied
+
+
+#+begin_quote
+How does the regexp compilation engine compares to what is done in
+[[https://github.com/ocaml/ocaml-re][Re]]? Would it be possible to build a lexer
+generator on top of an independent regexp library like
+[[https://github.com/Drup/tyre][Tyre]] or
+[[https://github.com/paurkedal/ppx_regexp][ppx_regexp]]? (cc @Drup)
+#+end_quote
+
+That is a very good question, I have some plans in mind, but they require quite a bit of work. Basically, the current situation is the following:
+
+
+| Library        | Syntax    | Composition | Refill | Unicode | Automaton               | Regexs    |
+|----------------|-----------|-------------|--------|---------|-------------------------|-----------|
+| ocamlex        | Custom    | No¹         | Yes    | No      | DFA, codegen to C       | Basic     |
+| sedlex         | PPX       | No¹         | Yes    | Yes     | DFA, codegen to OCaml   | Limited   |
+| Re/Tyre        | OCaml     | Yes         | No     | No³     | Online determinization² | Extended⁴ |
+| ppx_regex/tyre | PPX+OCaml | Yes         | No     | No      | Online determinization² | Extended⁴ |
+
+¹: Some built-in mechanism for locally defining regex exists, but no true composition. \\
+²: There are some things to determinize offline, but they need refreshing \\
+³: https://github.com/ocaml/ocaml-re/pull/48 \\
+⁴: Within regularity. Lacks full blown complementation. See also [[https://www.home.hs-karlsruhe.de/~suma0002/publications/cc14-flexible-lexing-via-extended-regex.pdf][this paper]].
+
+My plans would not be to try to improve sedlex, but rather to push ~re~ (and the
+related libraries) to the point where it's universally better. Ppx_regexp/tyre
+provides a convenient "ocamlex" like syntax while preserving composition. The
+first step would be a refill mechanism, and support for UTF (for which @nojb
+made a prototype that would need revival).
+
+Performances are a tricky question. Ocamllex is clearly faster, since it
+generates a C-based DFA. I expect sedlex to be faster than re in small examples,
+but it would need evaluation. Online determinization is very desirable in many
+contexts.
+
+wrt. Unicode libraries: At least for sedlex, it was designed so that bunzli's
+libraries can be used before giving the stream to sedlex. Either to re-encode,
+or to normalize. I think that's a decen way of doing things.
+      
+
+** james woodyatt then said
+
+
+First off, I'm pleased to see sedlex getting some love finally. Very grateful to the community for that.
+
+I would like to add here that my forthcoming _Orsetto_ project includes another
+[[https://bitbucket.org/jhw/orsetto/src/unstable/src/ucs/ucs_regx.mli][alternative]]
+to _sedlex_ that might be worth noting, although it
+[[https://bitbucket.org/jhw/orsetto/issues/7/unicode-regular-expression-level-2-support][has]]
+[[https://bitbucket.org/jhw/orsetto/issues/6/unicode-regular-expression-level-1-support][issues]]
+and it remains in the "unstable" branch while I'm slowly working on it in my
+copious spare time.
+
+I would describe it here as follows:
+
+|Library|Syntax|Composition|Unicode|Automaton|Regexs|
+|---|---|---|---|---|---|---|
+|Orsetto.UCS|OCaml|Yes|Yes|Lazy DFA|Basic¹|
+
+¹: A subset of UTS #18, RL1 (no loose matching, word or line boundaries, etc.)
+
+Also, I'm not sure what "refill" means here, so I didn't characterize it.
+      
+
+
+
+-----
+
+* An implementation of the Noise Protocol Framework
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/ann-an-implementation-of-the-noise-protocol-framework/2539/1
+
+** Etienne Millon announced
+
+
+I am announcing the first release of [[https://github.com/emillon/ocaml-noise][noise]], an implementation of the [[https://noiseprotocol.org/][Noise Protocol Framework]].
+
+It contains building blocks to implement a secure protocol with confidentiality
+and authentication on top of modern cryptographic primitives. This protocol
+framework is used by
+[[https://www.whatsapp.com/security/WhatsApp-Security-Whitepaper.pdf][WhatsApp]],
+[[https://www.wireguard.com/][WireGuard]], and
+[[https://github.com/lightningnetwork/lightning-rfc/blob/master/08-transport.md][Lightning]].
+
+This is still a very early version:
+- it contains some custom implementations of cryptographic primitives
+- the interface is unstable
+- most applications need a higher level protocol like [[https://noisesocket.org/][NoiseSocket]], which is comparable to TLS
+
+Next on my roadmap is implementing a WireGuard client and server that can be used in [[https://mirage.io/][Mirage]].
+
+If you are interested in implementing a protocol that uses Noise, please get in touch!
+      
+
+
+
+-----
+
+* Release of Bindlib 5.0
+:PROPERTIES:
+:CUSTOM_ID: 5
+:END:
+Archive: https://discuss.ocaml.org/t/release-of-bindlib-5-0/2541/1
+
+** Rodolphe Lepigre announced
+
+
+I am pleased to announce the release of Bindlib 5.0.1, which is a library for
+handling structures with bound (and free) variables (typical applications
+include the development of languages and proof systems). It has already been
+available on Opam for several weeks, and the source code of the latest version
+can be found in the [[https://github.com/rlepigre/ocaml-bindlib][development
+repository]].
+
+This new version provides a simpler, more concise interface. It is extensively
+documented, and includes a small tutorial. An [[http://eptcs.web.cse.unsw.edu.au/paper.cgi?LFMTP2018.4][introductory
+paper]] has also been
+recently presented at the LFMTP 2018 workshop.
+
+Bindlib has already been used in fairly big projects (from the most recent):
+[[https://github.com/rlepigre/lambdapi][Lambdapi]],
+[[https://github.com/rlepigre/pml][PML₂]],
+[[https://rlepigre.github.io/subml/][SubML]],
+[[https://lama.univ-savoie.fr/tracpml][PML]], and many other smaller prototypes.
+
+The implementation is very efficient (in terms of substitution), and it handles renaming to avoid capture.
+
+Feel free to give feedback!
+      
+
+
+
+-----
+
+* Ocaml Github Pull Requests
+:PROPERTIES:
+:CUSTOM_ID: 6
+:END:
+** Gabriel Scherer and the editor compiled this list
+
+
+Here is a sneak peek at some potential future features of the Ocaml
+compiler, discussed by their implementers in these Github Pull Requests.
+
+- [[https://github.com/ocaml/ocaml/pull/2024][Stop supporting obsolete platforms]]
+- [[https://github.com/ocaml/ocaml/pull/2027][{WIP} Deprecated optional arguments]]
+      
+
+
+
+-----
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[http://alan.petitepomme.net/cwn/][the archive]] or the [[http://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe [[http://lists.idyll.org/listinfo/caml-news-weekly/][online]].
+-----
+#+BEGIN_authorname
+[[http://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname

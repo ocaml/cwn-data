@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+	<cwn_head>
+		<cwn_date>2008.09.16</cwn_date>
+		<cwn_prev>2008.09.09</cwn_prev>
+		<cwn_next>2008.09.23</cwn_next>
+		<cwn_date_text>September 09 to 16, 2008</cwn_date_text>
+	</cwn_head>
+	<cwn_body>
+		<cwn_entry>
+			<cwn_title>New release of Menhir</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/b59e481d78086488#</cwn_url>
+			<cwn_who>François Pottier announced</cwn_who>
+			<cwn_what>
+It is my pleasure to announce a new release of Menhir, with the following
+main improvements over previous versions:
+
+ --table       Menhir now supports producing table-based LR automata, in
+               the tradition of yacc, bison, and ocamlyacc. This makes
+		the generated parsers up to 5x smaller, and somewhat slower.
+
+ --interpret   Menhir can now be used not just as a compiler, but also as
+               an interpreter. It will read sentences off the standard
+		input channel, parse them as per your grammar, and report
+		an outcome. This should help debug grammars.
+
+These new features were implemented by Guillaume Bau, Raja Boujbel, and
+François Pottier. We would like to gratefully acknowledge the generous support
+of Jane Street Capital LLC, who funded this endeavor through an ocaml summer
+project.
+
+As usual, the new release is available either through GODI, or as source code
+at the following URL.
+
+ http://cristal.inria.fr/~fpottier/menhir/
+
+Enjoy! Comments and bug reports are welcome.
+			</cwn_what>
+			<cwn_who>Julia Lawall asked and François Pottier replied</cwn_who>
+			<cwn_what>
+&gt; I was very excited about this option, because it drops the size of the 
+&gt; generated code for my parser from 61K LOC to 28K LOC.  But unfortunately 
+&gt; it gives me:
+&gt; 
+&gt; Unbound module MenhirLib.TableInterpreter.Make
+&gt; 
+&gt; when I try to compile.
+
+Yup. I didn't write the details in the announcement; maybe I should have.
+
+When a parser is produced using --table, it is not quite stand-alone: it
+must be linked with a new library, called MenhirLib. (This is analogous
+to ocaml's Parsing module, which is part of the standard library.)
+
+If you are using ocamlfind, this is quite easy: just add "-package menhirLib"
+to your ocamlc/ocamlopt flags (for compiling and for linking), and add
+"-linkpkg" to your ocamlc/ocamlopt flags (for linking).
+
+If you do not wish to rely on ocamlfind, then things become slightly more
+complicated, since you must tell ocamlc/ocamlopt where MenhirLib is installed.
+Fortunately, Menhir itself can help you: it has three new command-line
+switches, of the form --suggest-*, which cause it to print suggested flags.
+The details are in Menhir's reference manual. The sample Makefile
+(demos/Makefile.shared) offers an illustration.
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>ocamlnet and kernel poll</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/d2c476c866f86a04#</cwn_url>
+			<cwn_who>Joel Reymont asked and Gerd Stolpmann replied</cwn_who>
+			<cwn_what>
+&gt; Suppose I want to build a server that runs on top of ocamlnet and  
+&gt; handles 10k+ connections.
+&gt; 
+&gt; ocamlnet seems to use select exclusively.
+
+There's also netplex in ocamlnet, which is a kind of fork framework. I
+don't know which protocol you want to use. For instance, you can arrange
+that netplex starts 100 processes and every process handles 100
+connections.
+
+&gt; Any suggestions on how to add kernel poll? Is this possible even?
+
+I'm in the middle of changing ocamlnet here, so we can have more
+flexibility for choosing the kind of event polling. Look at the svn
+version: https://godirepo.camlcity.org/svn/lib-ocamlnet2/trunk/code/
+
+There's a lot of new stuff in the src/netsys directory. In the future,
+all polling will be based on the pollset class type
+(src/netsys/netsys_pollset.mli). There is currently an implementation
+that uses the poll() syscall (src/netsys/netsys_pollset_posix.mli) and
+another one for Win32 (src/netsys/netsys_pollset_win32.mli - limited to
+sockets and named pipes for now).
+
+As this is a class type you can also go ahead, and implement it for
+every kernel mechanism you like, and just you your class instead of the
+classes provided by ocamlnet. I'll add some more mechanisms later (any
+help is welcome).
+
+You can turn these pollsets into event_system by using
+src/equeue/unixqueue2.mli. This is not very much tested, however, and
+there is no support for multi-threading yet in this module. Many
+ocamlnet modules allow to inject whatever event_system you like to have
+(should be all modules in the future).
+
+All this is experimental for now. I have tested it only with small
+programs, not with large production systems. But maybe it's an option
+for you to use the svn version.
+			</cwn_what>
+			<cwn_who>Markus Mottl also replied</cwn_who>
+			<cwn_what>
+The Core-library that we developed at Jane Street, and which is also
+in Godi, contains a module "Linux_ext", which has a fully-featured
+interface to epoll (besides lots of other Linux-specific goodies).
+
+There you just call "Epoll.create" to get a file descriptor on which
+to listen for I/O-events.  Then you only need to add other file
+descriptors you want to monitor with "Epoll.add", specifying flags for
+the kind of events you want to wait for.  "Epoll.modify" and
+"Epoll.del" modify event flags of and remove monitored descriptors
+respectively.  "Epoll.wait" allows you to wait for received events
+(similar to "select").
+
+Note, however, that "select" is usually more efficient for small (=
+tens) numbers of descriptors!
+			</cwn_what>
+			<cwn_who>Mattias Engdegård also replied</cwn_who>
+			<cwn_what>
+There is an ocaml wrapper for libevent: http://www.xs4all.nl/~mmzeeman/ocaml/
+
+With that many connections, you may actually benefit from multiple
+processors, which in the OCaml world usually means multiple processes.
+
+There's nothing wrong with serving myriads of connections from a
+single process, especially when using a strongly typed language, but
+parallelism can be useful. On the other hand, one process per
+connection may be inefficient as well - a hybrid N:M solution is
+probably best.
+			</cwn_what>
+		</cwn_entry>
+	</cwn_body>
+</cwn>

@@ -1,0 +1,525 @@
+			  ━━━━━━━━━━━━━━━━━━━
+			   OCAML WEEKLY NEWS
+			  ━━━━━━━━━━━━━━━━━━━
+
+
+[Previous Week] [Up] [Next Week]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of November 23 to 30,
+2021.
+
+Table of Contents
+─────────────────
+
+opam 2.1.1, opam 2.0.10, and opam-depext 1.2
+OTOML 0.9.0 — a compliant and flexible TOML parsing, manipulation, and pretty-printing library
+New release of Fix
+New release of Menhir (20211125)
+Lwt 5.5.0, Lwt_domain 0.1.0, Lwt_react.1.1.5
+OCaml's CI is gradually moving to GitHub Actions
+How to combine 3 monads: Async/Lwt, Error and State?
+Old CWN
+
+
+[Previous Week] <https://alan.petitepomme.net/cwn/2021.11.23.html>
+
+[Up] <https://alan.petitepomme.net/cwn/index.html>
+
+[Next Week] <https://alan.petitepomme.net/cwn/2021.12.07.html>
+
+
+opam 2.1.1, opam 2.0.10, and opam-depext 1.2
+════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-opam-2-1-1-opam-2-0-10-opam-depext-1-2/8872/1>
+
+
+R. Boujbel announced
+────────────────────
+
+  We are pleased to announce several minor releases: [opam 2.0.10],
+  [opam 2.1.1], and [opam-depext 1.2].
+
+  The opam releases consist of backported fixes, while `opam-depext' has
+  been adapted to be compatible with opam 2.1, to allow for workflows
+  which need to maintain compatibility with opam 2.0. With opam 2.1.1,
+  if you export `OPAMCLI=2.0' into your environment then workflows
+  expecting opam 2.0 should now behave even more equivalently.
+
+  You'll find more information in the [blog post ].
+
+
+[opam 2.0.10] <https://github.com/ocaml/opam/releases/tag/2.0.10>
+
+[opam 2.1.1] <https://github.com/ocaml/opam/releases/tag/2.1.1>
+
+[opam-depext 1.2]
+<https://github.com/ocaml-opam/opam-depext/releases/tag/1.2>
+
+[blog post ] <https://opam.ocaml.org/blog/opam-2-0-10-2-1-1-depext/>
+
+
+OTOML 0.9.0 — a compliant and flexible TOML parsing, manipulation, and pretty-printing library
+══════════════════════════════════════════════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-otoml-0-9-0-a-compliant-and-flexible-toml-parsing-manipulation-and-pretty-printing-library/8152/10>
+
+
+Daniil Baturin announced
+────────────────────────
+
+  A new 0.9.3 relase is available. Still not 1.0.0 just in case. The
+  change I'm most glad I managed to make is that the lexer is now
+  re-entrant and doesn't use any mutable state. Where can I apply for
+  the "Designed for multicore OCaml" certification sticker? ;)
+
+
+Breaking change in the functor interface
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  I found an oversight that took a breaking change to fix. It didn't
+  break any package that was already in the OPAM repository, so I'm glad
+  I noticed it before it caused anyone trouble.
+
+  My idea to make the functor take separate integer and float modules
+  turned out to be misguided: it wouldn't compose with `Otoml.get_float
+  ~strict:false' and similar functions that apply type conversions.
+
+  Logically, `Otoml.get_float ~strict:false (Otoml.integer 5)' should
+  produce `Otoml.TomlFloat 5.0'. However, it means that `get_float'
+  needs to know how to convert integers to float. If integer and float
+  types are in separate modules, that isn't possible.
+
+  So I combined both integers and floats in a single `TomlNumber'. That
+  way people who want to bring their own bignum libraries will have to
+  write more code, but numbers will behave as they are expected to in a
+  dynamically typed format.
+
+  ┌────
+  │ module BigNumber = struct
+  │   type int = Z.t
+  │   type float = Decimal.t
+  │ 
+  │   let int_of_string = Z.of_string
+  │   let int_to_string = Z.to_string
+  │   let int_of_boolean b = if b then Z.one else Z.zero
+  │   let int_to_boolean n = (n <> Z.zero)
+  │ 
+  │   (* Can't just reuse Decimal.to/of_string because their optional arguments
+  │      would cause a signature mismatch. *)
+  │   let float_of_string s = Decimal.of_string s
+  │ 
+  │   (* Decimal.to_string uses "NaN" spelling
+  │      while TOML requires all special float values to be lowercase. *)
+  │   let float_to_string x = Decimal.to_string x |> String.lowercase_ascii
+  │   let float_of_boolean b = if b then Decimal.one else Decimal.zero
+  │   let float_to_boolean x = (x <> Decimal.zero)
+  │ 
+  │   let float_of_int = Decimal.of_bigint
+  │   let int_of_float = Decimal.to_bigint
+  │ end
+  │ 
+  │ module Otoml = Otoml.Base.Make (BigNumber) (Otoml.Base.StringDate)
+  └────
+
+  The next release will likely be 1.0.0 for real.
+
+
+New release of Fix
+══════════════════
+
+  Archive: <https://discuss.ocaml.org/t/ann-new-release-of-fix/8895/1>
+
+
+François Pottier announced
+──────────────────────────
+
+  I am pleased to announce a new release of Fix, with several new
+  modules contribued by Frédéric Bour (thanks!).
+
+  In short, Fix is a toolkit that helps perform memoization and fixed
+  point computations (including data flow analyses). More generally, it
+  offers a number of basic algorithmic building blocks that can be
+  useful in many circumstances.
+
+  ┌────
+  │ opam update
+  │ opam install fix.20211125
+  └────
+
+  Documentation can be found here:
+
+  • <https://gitlab.inria.fr/fpottier/fix/-/blob/master/README.md>
+  • <http://cambium.inria.fr/~fpottier/fix/doc/fix/Fix/index.html>
+
+  Enjoy,
+
+  François Pottier
+  francois.pottier@inria.fr
+  <http://cambium.inria.fr/~fpottier/>
+
+
+2021/11/25
+╌╌╌╌╌╌╌╌╌╌
+
+  • The new module `CompactQueue' offers a minimalist mutable FIFO
+    queue. It is comparable with OCaml's `Queue' module. In comparison
+    with `Queue', it uses a more compact internal representation:
+    elements are stored contiguously in a circular array. This has a
+    positive impact on performance: both time and memory consumption are
+    reduced. This data structure is optimized for maximum
+    throughput. (Contributed by Frédéric Bour, reviewed by François
+    Pottier.)
+
+  • The new functor `DataFlow.ForCustomMaps' offers a forward data flow
+    analysis that is tuned for greater performance. (Contributed by
+    Frédéric Bour, reviewed by François Pottier.)
+
+  • The new module `Indexing' offers a safe API for manipulating indices
+    into fixed-size arrays. This API involves some dynamic checks as
+    well as static type checks, thereby (hopefully) greatly reducing the
+    risk of confusion in code that uses many arrays and many indices
+    into these arrays. (Contributed by Frédéric Bour, reviewed by
+    François Pottier.)
+
+  • In `DataFlow', allow the function `foreach_root' (which is part of
+    the signature `DATA_FLOW_GRAPH') to call `contribute x _' several
+    times at a single root `x'.
+
+
+New release of Menhir (20211125)
+════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-new-release-of-menhir-20211125/8896/1>
+
+
+François Pottier announced
+──────────────────────────
+
+  I am pleased to announce a new release of Menhir, with an exciting
+  contribution by Frédéric Bour: a groundbreaking performance
+  improvement in `menhir --list-errors'. This is made possible by an
+  entirely new reachability algorithm, which has been designed and
+  implemented by Frédéric, and which is described in our paper "Faster
+  Reachability Analysis for LR(1) Parsers". This is the link to the
+  paper:
+
+  <http://cambium.inria.fr/~fpottier/publis/bour-pottier-reachability.pdf>
+
+  To install the new release, just type
+
+  ┌────
+  │ opam update
+  │ opam install menhir.20211125
+  └────
+
+  Enjoy!
+
+  François Pottier
+  Francois.Pottier@inria.fr
+  <http://cambium.inria.fr/~fpottier/>
+
+  • The command `menhir --list-errors' has been sped up by a factor of
+    up to x100, and requires up to x1000 less memory, thanks to a new
+    LR(1) reachability algorithm, which has been designed and
+    implemented by Frédéric Bour.
+
+  • Better document the restricted way in which the `error' token must
+    be used when using `--strategy simplified'. Menhir now checks that
+    this token is used only at the end of a production, and warns if
+    this is not the case. (Better yet, our suggestion is to not use the
+    `error' token at all!)
+
+  • The `$syntaxerror' keyword is now forbidden when using `--strategy
+    simplified'. This keyword will be entirely removed in the next
+    release. Incidentally, we have just found out that it behaves
+    differently under the code back-end and under the table back-end.
+
+  • Disable OCaml warning 39 (unused rec flag) in the OCaml code
+    produced by Menhir's code back-end. This does not affect the table
+    back-end.  (Reported by Armaël Guéneau.)
+
+  • Fix a bug in `--random-*' which could cause Menhir to diverge if the
+    grammar uses the `error' token.
+
+  • Warn if a terminal symbol is named `Error'. This creates a name
+    clash in the public interface of the generated parser.
+
+  • Menhir now requires OCaml 4.03.0 (instead of 4.02.3) and Dune 2.8.0
+    (instead of 2.0.0).
+
+
+Lwt 5.5.0, Lwt_domain 0.1.0, Lwt_react.1.1.5
+════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-lwt-5-5-0-lwt-domain-0-1-0-lwt-react-1-1-5/8897/1>
+
+
+Raphaël Proust announced
+────────────────────────
+
+  It is my pleasure to announce the release of Lwt version 5.5.0,
+  Lwt_domain version 0.1.0, Lwt_react version 1.1.5, Lwt_ppx version
+  2.0.3 and Lwt_ppx_let version 5.5.0.
+
+  <https://github.com/ocsigen/lwt/releases/tag/5.5.0>
+
+  All those packages can be installed via opam as usual.
+
+
+:rotating_light:  Deprecation
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  One notable change is the deprecation of `Lwt_main.yield' and
+  `Lwt_unix.yield'. It is recommended to use `Lwt.pause' instead.
+
+
+:rocket:  Lwt_domain: an interface to multicore parallelism
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  Another notable change is the addition of the Lwt_domain package. This
+  package includes a single module `Lwt_domain' with functions to
+  execute some computations in parallel, using the features of Multicore
+  OCaml. The package requires an OCaml compiler with domains support to
+  install.
+
+  Code for this package is the work of @sudha with reviews and packaging
+  from Lwt contributors.
+
+
+Other changes
+╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  The full list of changes is available in the [CHANGES file].
+
+
+[CHANGES file] <https://github.com/ocsigen/lwt/blob/5.5.0/CHANGES>
+
+
+OCaml's CI is gradually moving to GitHub Actions
+════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-ocamls-ci-is-gradually-moving-to-github-actions/8902/1>
+
+
+Sora Morimoto announced
+───────────────────────
+
+  The OCaml team started switching to GitHub Actions last year for some
+  of the official OCaml repositories. Also, we have released some CI
+  related stuff, such as setup-ocaml, to the community. Some OCaml
+  hackers also know that CI in the OCaml community is gradually
+  switching to GitHub Actions nowadays.
+
+  However, what gradually became a problem when we started switching was
+  that the number of concurrent jobs that could run in a free account on
+  GitHub was not enough for our activeness.
+
+  One of the major pain points for compiler contributors is that the
+  wait time for CI to complete, which is unrelated to the actual build,
+  is too long. However, this has been a pain point in all services, even
+  before GitHub Actions.
+
+  The GitHub team did their best to help us make it better. As a result,
+  they offered to upgrade the OCaml organization's plan to the team plan
+  for free, which means that we can now benefit from a range of
+  features, including access to 3x more concurrent runners than before.
+
+  • About team plan:
+    <https://docs.github.com/en/actions/learn-github-actions/usage-limits-billing-and-administration>
+  • Concurrency/plan:
+    <https://docs.github.com/en/get-started/learning-about-github/githubs-products#github-team>
+
+  We would like to thank GitHub for supporting our team and Ahmed Bilal,
+  who supported this effort.
+
+
+How to combine 3 monads: Async/Lwt, Error and State?
+════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/how-to-combine-3-monads-async-lwt-error-and-state/8906/9>
+
+
+Deep in this thread, Ivan Gotovchits said
+─────────────────────────────────────────
+
+  The monads library provides the transformers for some well-known
+  monads. All these monads have a more or less standard implementation,
+  offering the same performance as any other monadic library can
+  offer. Like there is no better way of implementing the state monad
+  other than a function. We have experimented a lot with different
+  performance optimizations, such as boxing and unboxing it and inlining
+  various operators, and keep experimenting to get the maximum from the
+  current compiler. In BAP, we heavily use the monads library, first of
+  all for our [knowledge representation and reasoning engine], which is
+  the foundation for all BAP analyses. We also use it for [emulating
+  binary programs].  The rich interface is here to make our life easier
+  and more comfortable when we use monads. It definitely comes for free¹
+  as the number of functions doesn't affect the performance of the
+  underlying monad.
+
+  But… there is always a but :) Stacking monads using a transformer does
+  have a price. Even with the flambda compiler. The latter is doing an
+  excellent job of unstacking them and eliminating the overhead of
+  having a chain of monads. But our latest experiments show that a
+  custom-made monad (still with the monads library) performs better
+  under either branch of the compiler. We [have rewritten our main
+  monads] that were relying on transformers and got from 20% to 50%
+  performance improvement. But that is not to say that the monads
+  library itself is slow or that we're not using it, it is to say that
+  there are other options to transformers that might work in some cases.
+  See the linked PR if you want to learn the trick.
+
+  ¹⁾ Provided that we ignore the size of the executable, e.g., linking
+  the core_kernel library results in a quite large binary, which may
+  increase the startup time. Insignificantly, but in some use cases, it
+  might be a significant factor.
+
+
+[knowledge representation and reasoning engine]
+<https://binaryanalysisplatform.github.io/bap/api/master/bap-knowledge/Bap_knowledge/Knowledge/index.html>
+
+[emulating binary programs]
+<https://binaryanalysisplatform.github.io/bap/api/master/bap-primus/Bap_primus/Std/index.html>
+
+[have rewritten our main monads]
+<https://github.com/BinaryAnalysisPlatform/bap/pull/1361>
+
+
+Ivan Gotovchits then said
+─────────────────────────
+
+  As it was already suggested, you can use [monad transformers], to
+  compose several monads into a single monad. As a show-case, we will
+  use the [monads] library (disclaimer, I am an author of this library),
+  which you can install with
+
+  ┌────
+  │ opam install monads
+  └────
+
+  It offers most of the well-known monads in a form of a monad
+  transformer, which in terms of OCaml, is a functor that takes a monad
+  and returns a new monad that enriches it with some new behavior. For
+  example, to make a non-deterministic error monad, we can do
+  `Monad.List.Make(Monad.Result.Error)' and get a monadic structure
+  (i.e., a module that implements the [Monad.S] interface) that is both
+  a list monad and an error monad.  The small caveat is that the
+  operations of the wrapped monad, the error monad in our case, are not
+  available directly, so we have to _lift_ them, e.g.,
+  ┌────
+  │ let fail p = lift @@ Monad.Result.Error.fail p
+  └────
+  So that in the end, the full implementation of the transformed monad
+  still requires some boilerplate code,
+
+  ┌────
+  │ module ListE = struct
+  │   type 'a t = 'a list Monad.Result.Error.t
+  │   include Monad.List.Make(Monad.Result.Error)
+  │   let fail p = lift@@Monad.Result.Error.fail p
+  │   (* and so on for each operation that is specific to the wrapped monad *)
+  │ end
+  └────
+
+  Now, let's try wrapping the Lwt monad into the state. We don't want to
+  add the Error monad because Lwt is already the error monad and adding
+  an extra layer of errors monad is not what we want. First of all, we
+  need to adapt the `Lwt' monad to the `Monad.S' interface, e.g.,
+  ┌────
+  │ module LwtM = struct
+  │   type 'a t = 'a Lwt.t
+  │   include Monad.Make(struct
+  │       type 'a t = 'a Lwt.t
+  │       let return = Lwt.return
+  │       let bind = Lwt.bind
+  │       let map x ~f = Lwt.map f x
+  │       let map = `Custom map
+  │     end)
+  │ end
+  └────
+
+  If we want to keep the state type monomorphic, then we will need a
+  module for it. Suppose your state is represented as,
+  ┌────
+  │ module State = struct
+  │   type t = string Map.M(String).t
+  │ end
+  └────
+
+  Now, we can use it to build our `State(Lwt)' Russian doll,
+  ┌────
+  │ module IO = struct
+  │   include Monad.State.T1(State)(LwtM)
+  │   include Monad.State.Make(State)(LwtM)
+  │ 
+  │   (* let's lift [read] as an example *)
+  │   let read fd buf ofs len =
+  │     lift (Lwt_unix.read fd buf ofs len)
+  │ end
+  └────
+
+  The `Monad.State.T1' functor is used to create the types for the
+  generated monad. You can write them manually, of course, like as we
+  did in the List(Error) example, but the type generating modules are
+  here for the convenience¹
+
+  Now, let's get back to the problem of the lifting. It looks tedious to
+  impossible to lift every operation from Lwt.  Commonly, we try to put
+  the smaller monad inside, to minimize the work, but it doesn't work
+  with Lwt as the latter is not a transformer. So what is the solution?
+  For me, the solution is to not lift the operations at all, but
+  instead, define your IO abstraction and hide that it is using Lwt
+  underneath the hood. This will make the code that uses this new
+  abstraction more generic and less error-prone so that it can focus on
+  the business logic and the implementation details could be hidden
+  inside the monad implementation. This is what the monads are for,
+  anyway.
+
+  ¹⁾ We omit the types from the output of the `Make' functor since for a
+  long time OCaml didn't allow the repetition of types in a structure so
+  having the types in it will prevent us from composing various flavors
+  of monads using `include'. It is also a long-time convention widely
+  used in many OCaml libraries, including Core and Async. A convention
+  that we probably don't need anymore.
+
+
+[monad transformers] <https://en.wikipedia.org/wiki/Monad_transformer>
+
+[monads]
+<https://binaryanalysisplatform.github.io/bap/api/master/monads/Monads/Std/index.html>
+
+[Monad.S]
+<https://binaryanalysisplatform.github.io/bap/api/master/monads/Monads/Std/Monad/index.html>
+
+
+Old CWN
+═══════
+
+  If you happen to miss a CWN, you can [send me a message] and I'll mail
+  it to you, or go take a look at [the archive] or the [RSS feed of the
+  archives].
+
+  If you also wish to receive it every week by mail, you may subscribe
+  [online].
+
+  [Alan Schmitt]
+
+
+[send me a message] <mailto:alan.schmitt@polytechnique.org>
+
+[the archive] <https://alan.petitepomme.net/cwn/>
+
+[RSS feed of the archives] <https://alan.petitepomme.net/cwn/cwn.rss>
+
+[online] <http://lists.idyll.org/listinfo/caml-news-weekly/>
+
+[Alan Schmitt] <https://alan.petitepomme.net/>

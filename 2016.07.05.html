@@ -1,0 +1,170 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>OCaml Weekly News</title>
+  </head>
+  <body>
+    <a href="2016.06.28.html">Previous week</a> <a href="index.html">Up</a> <a href="2016.07.12.html">Next week</a><p>Hello</p><p>Here is the latest OCaml Weekly News, for the week of June 28 to July 05, 2016.</p><ol><li><a href="#1">how to encourage adoption of OCaml?</a></li><li><a href="#2">js_of_ocaml 2.8.1</a></li><li><a href="#3">Other OCaml News</a></li></ol><a name="1" /><hr /><h3>how to encourage adoption of OCaml?</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2016-06/msg00139.html">https://sympa.inria.fr/sympa/arc/caml-list/2016-06/msg00139.html</a></p><i>Deep in this thread, Jeremy Yallop said:</i><br /><pre>
+&gt; It is hard for me to judge because I came through RWO, but it appears to me
+&gt; that the lack of consensus on standard library comes up pretty quickly.
+
+I think the standard library situation is much less of a concern than
+it once was, now that it's easy to distribute small OCaml packages and
+manage dependencies.
+
+In the past distribution difficulties discouraged dependencies: for
+example, even though many people prefer the design of ocaml-re and
+ocaml-pcre to the regular expression facilities in the standard
+library, the administrative overhead of an additional dependency made
+the standard library the easier choice overall.  In that situation
+it's desirable for the standard library to be large and featureful.
+Nowadays there's much less benefit to having regular expression
+support in the standard library, since depending on ocaml-re or
+ocaml-pcre is just a matter of adding a line to an opam file and a few
+lines to the build configuration.
+
+The standard library still has a useful role to play, since it's
+easier to make libraries interoperate if they can communicate via
+common types, and several recent and proposed changes have that kind
+of role in mind.  For example, the latest release of OCaml added a
+'result' type to the standard library, which was previously defined in
+incompatible but essentially equivalent ways in several libraries:
+
+   <a href="https://github.com/ocaml/ocaml/pull/147">https://github.com/ocaml/ocaml/pull/147</a>
+
+and there's a proposal for adding iterators to various container types
+for the next release currently under discussion:
+
+   <a href="https://github.com/ocaml/ocaml/pull/635">https://github.com/ocaml/ocaml/pull/635</a>
+      </pre><i>Dean Thompson then said and Yaron Minsky replied:</i><br /><pre>
+&gt; From my understanding so far, it seems to me that mixing and matching Core
+&gt; and not-Core would be tough? Everything from result types to Lwt vs Async?
+&gt; Given the inspirational and educational power of Real World OCaml, many
+&gt; newcomers will face this issue.
+
+A few thoughts: 
+
+As Anil said, we're working on an updated RWO, which should resolve the camlp4
+issue.
+
+As for mixing and matching between libraries that do and don't depend on Core,
+there's actually little difficulty here. Core sticks to the standard interchange
+types (array, string, option, list, char, and now result) that are provided by
+the stdlib, so whether you use Core (or Core_kernel) becomes more a matter of
+personal preference, and shouldn't hinder interoperability.
+
+One remaining problem with Core is the minimal executable size, which is
+currently much bigger if you use Core. We're considering some work in three next
+few months to make this much better.
+
+Async and Lwt are a real problem. They provide very similar functionality, and
+mixing and matching between two schedulers is not so easy. I'd love to see some
+resolution here, but it's not clear what the solution would be. Perhaps once we
+resolve the executable size issues of Core, there will be more appetite for some
+kind of merger of the two libraries. In the meantime, we're highly committed to
+continuing development and support for Async.
+      </pre><i>Ivan Gotovchits then said:</i><br /><pre>
+The solution would be to use the same approach as with standard types. We need a
+common base inductive type for `Lwt.t` (aka `Ivar.t`), which will represent a
+value which is defined in some point in the future (hence a `future` is a good
+name). Another type is for capturing a concept of a variable that can have
+multiple values in the future, that is represented as `Lwt_stream.t` or `Pipe`.
+Currently in both Lwt and Async the main thread type is tightly coupled with the
+underlying implementation, especially in Async (Lwt.t can be easily decoupled). 
+      </pre><i>Yaron Minsky then said:</i><br /><pre>
+I'm not at all sure that the decoupling is possible or wise for Async.
+My intuition is that this is too complex of a problem with too much
+need for careful optimization to be able to have a simple, shared
+generic data structure for this.
+
+The solution that seems most plausible to me is to settle on one
+implementation, and port the API of one library to run on top of the
+other. There was indeed an experiment in this direction that was done
+by Jeremie Dimino:
+
+<a href="https://github.com/janestreet/lwt-async">https://github.com/janestreet/lwt-async</a>
+
+That said, until we resolve the binary size issues with Core and
+therefore Async, I doubt that this solution would be appealing to the
+full community of lwt users.
+      </pre><i>Hendrik Boom asked and Yaron Minsky replied:</i><br /><pre>
+&gt; What are the conceptual differences between Async and lwt?  Does either
+&gt; of them manage to take advantage of a shared-heap multicore system?
+
+The conceptual differences are pretty thin; there are some error
+handling differences, but they're not huge.
+
+As for the shared heap question: Async greatly improves the
+programmers ability to reason about concurrent code by providing clear
+bounds on when interleaving can happen.  In particular, a given job
+scheduled to run as part of Async can never be interrupted by another
+async job. That means interleavings can effectively only happen where
+you use a bind operator to string two closures together, and so one is
+rarely exposed to race conditions. That means that Async program
+typically don't need to think much about locking, and race conditions
+stop being your primary source of bugs.
+
+Using Async in the context of shared heap parallelism gives up these
+guarantees, and puts you back in mutex/sempahore/condition-variable
+hell.  My guess is that we'll end up taking advantage of the multicore
+GC by running multiple Async schedulers, one per domain (e.g., OS
+thread), and having carefully written primitives for sharing
+data-structures and efficiently sending immutable messages between
+these domains.  But I think just freely scheduling Async jobs across
+multiple physical threads seems like a disaster from the point of view
+of producing comprehensible, reliable code.
+      </pre><a name="2" /><hr /><h3>js_of_ocaml 2.8.1</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2016-07/msg00015.html">https://sympa.inria.fr/sympa/arc/caml-list/2016-07/msg00015.html</a></p><i>hugo announced:</i><br /><pre>
+I'm happy to announce the release of js_of_ocaml 2.8 &amp; 2.8.1.
+They are already available via OPAM.
+
+Js_of_ocaml is a compiler from OCaml bytecode to JavaScript. It makes it
+possible to run pure OCaml programs in JavaScript environment like browsers and
+Node.js.
+
+Here are some notable changes:
+
+Support for OCaml 4.03
+-----------------------------
+
+Async_kernel (and Core_kernel) support
+--------------------------------------------------
+In the findlib package js_of_ocaml.async.
+Note that it is only available with a 32bit OCaml compiler.
+
+Dynlink and separate compilation
+----------------------------------------
+One can now compile OCaml module (.cmo) and OCaml library (.cma) to JavaScirpt.
+Loading theses JavaScript files is enough to dynlink them.
+
+Improved JavaScript code generation
+----------------------------------------------
+* preserve as much as possible OCaml variable names (in pretty mode)
+* Better source map support
+* Drastically reduce memory usage when assigning short variable names
+
+The full change log is available on github
+
+Happy hacking
+      </pre><a name="3" /><hr /><h3>Other OCaml News</h3><i>From the ocamlcore planet blog:</i><br /><pre>
+Here are links from many OCaml blogs aggregated at OCaml Planet,
+<a href="http://ocaml.org/community/planet/">http://ocaml.org/community/planet/</a>.
+
+Minimising the virtual machine monitor
+ <a href="https://hannes.nqsb.io/Posts/Solo5">https://hannes.nqsb.io/Posts/Solo5</a>
+
+Behavioural types
+ <a href="http://kcsrk.info/ocaml/types/2016/06/30/behavioural-types/">http://kcsrk.info/ocaml/types/2016/06/30/behavioural-types/</a>
+
+Software Engineer (ClojureScript, F#) at Xledger (Full-time)
+ <a href="https://functionaljobs.com/jobs/8934-software-engineer-clojurescript-f-at-xledger">https://functionaljobs.com/jobs/8934-software-engineer-clojurescript-f-at-xledger</a>
+
+FP Meetup: OCaml, Facebook and Docker at Jane Street
+ <a href="https://ocaml.io/w/Blog:News/FP_Meetup:_OCaml,_Facebook_and_Docker_at_Jane_Street">https://ocaml.io/w/Blog:News/FP_Meetup:_OCaml,_Facebook_and_Docker_at_Jane_Street</a>
+      </pre><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

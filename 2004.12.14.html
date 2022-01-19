@@ -1,0 +1,392 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2004.12.07.html">Previous week</a> <a href="index.html">Up</a> <a href="2004.12.21.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of 07 to 14 December, 2004.</p><ol>
+      <li>
+        <a href="#1">Lazy application to Lazy.t</a>
+      </li>
+      <li>
+        <a href="#2">Line buffering</a>
+      </li>
+      <li>
+        <a href="#3">Type constraints</a>
+      </li>
+      <li>
+        <a href="#4">Felix 1.0.20 released</a>
+      </li>
+      <li>
+        <a href="#5">environment idiom</a>
+      </li>
+      <li>
+        <a href="#6">recursive types</a>
+      </li>
+    </ol><a name="1" /><hr /><h3>Lazy application to Lazy.t</h3><p>Archive: <a href="http://caml.inria.fr/archives/200412/msg00059.html">http://caml.inria.fr/archives/200412/msg00059.html</a></p><i>Hal Daume III asked and Karl Zilles answered:</i><br /><pre>
+&gt; suppose I have
+&gt; 
+&gt;   val x : int ref Lazy.t
+&gt; 
+&gt; and I want to 'incr' it, but want to keep it lazy.  i.e., if i start with:
+&gt; 
+&gt;   let x = Lazy.lazy_from_fun (fun () -&gt; ref 0)
+&gt; 
+&gt; then i run my lazy_incr on it, I want:
+&gt; 
+&gt;   let y = Lazy.force x
+&gt; 
+&gt; to return 1
+&gt; 
+&gt; but i only want 'incr' to be run when I Lazy.force x.  is there a way to 
+&gt; accomplish this?
+
+Not the way you have it.  Because x is itself not a reference, you can't 
+change its value by calling a function on it.
+
+If instead you had val x : int Lazy.t ref, then it would be possible:
+
+open Lazy;;
+
+let x = ref (lazy (0));;
+val x : int lazy_t ref = {contents = &lt;lazy&gt;}
+
+let lazy_incr r = let current = !r in r:=lazy ((force current) + 1);;
+val lazy_incr : int Lazy.t ref -&gt; unit = &lt;fun&gt;
+
+lazy_incr x;;
+- : unit = ()
+
+force !x;;
+- : int = 1
+    </pre><a name="2" /><hr /><h3>Line buffering</h3><p>Archive: <a href="http://caml.inria.fr/archives/200412/msg00039.html">http://caml.inria.fr/archives/200412/msg00039.html</a></p><i>Richard Jones asked and Xavier Leroy answered:</i><br /><pre>
+&gt; I noticed before that OCaml seems to implement its own I/O buffering
+&gt; system, instead of using FILE* (or sfio, I guess).  Is there a reason
+&gt; for that?
+
+Largely historical.  Early versions of Caml Light, circa 1990, had a
+GC which did not play nice with "malloc", hence many standard C
+library functions such as fopen() could not be used.  The buffering
+code that I wrote at that time managed to survive until now.  
+
+Also, bytecode-level threads (vmthreads) need to do non-blocking I/O
+on I/O channels, and I don't think this could be done reliably with FILE*.
+This said, one could also argue that bytecode-level threads are
+another survivance of the past.
+    </pre><a name="3" /><hr /><h3>Type constraints</h3><p>Archive: <a href="http://caml.inria.fr/archives/200412/msg00025.html">http://caml.inria.fr/archives/200412/msg00025.html</a></p><i>In this long thread, Jacques Garrigue said:</i><br /><pre>
+&gt; &gt; &gt; This does not answer to me why this works,
+&gt; &gt; &gt;
+&gt; &gt; &gt; #type t = { t : 'a. 'a -&gt; 'a}
+&gt; &gt; &gt;
+&gt; &gt; &gt; #let v = let module M = struct let t x = x end in {t = M.t} in (v.t 5, 
+&gt; &gt; &gt; v.t true)
+&gt; 
+&gt; I have the impression that if the above code is type checked,
+&gt; then, something like the following code could be type checked.
+&gt; What is the differences?
+&gt; 
+&gt; &gt; &gt; #let v : 'a. 'a -&gt; 'a = let module M = struct let t x = x end in  M.t 
+&gt; &gt; &gt; in (v 5, v true)
+
+These two examples use different kinds of polymorphism.
+In the first case, the data structure ensures the polymorphism,
+meaning that even if the type of the data structure is made
+non-generalizable, you can still extract a polymorphic value from it
+later.
+That's why you can pass such values to functions, and use them
+polymorphically inside (which you cannot do with normal variables.)
+
+A simple example of the difference is
+   (fun v -&gt; (v.t 5, v.t true)) {t = fun x -&gt; x}
+vs.
+   (fun v -&gt; (v 5, v true)) (fun x -&gt; x)
+
+There is currently no way to make a first-class polymorphic value in
+ocaml without using either record or object.
+(There is no theoretical limitation, just we could never come up with
+the right syntax for introduction and elimination.)
+    </pre><i>In the same long thread, Xavier Leroy said:</i><br /><pre>
+&gt; Hmmm...  Now I don't know whether it's safe or not, and I don't know
+&gt; whether someone checked its safety before excluding it from the value
+&gt; restriction code...
+
+You word it in a slightly backward way: it is always safe to claim
+that an expression is expansive and its type should not be
+generalized; it's the converse (asserting that an expression is
+non-expansive) that is potentially dangerous and requires some
+semantic evidence that it is safe.  The current treatment of "let
+module" as being always expansive just errs on the safe side, in the
+absence of this semantic evidence.
+
+&gt; &gt;So I don't understand why the same cannot apply to local modules. If 
+&gt; &gt;the let-module-in were declared "safe" for the value restriction, 
+&gt; &gt;shouldn't
+&gt; &gt;
+&gt; &gt;let module M = struct let v = ref [] end in M.v
+&gt; &gt;
+&gt; &gt;yield a non-generalized type for the same reason as for the non-local
+&gt; &gt;case (and not because of the value restriction) ?
+
+I don't follow you here.  So, OK, your expression E above
+(E = let module M = struct let v = ref [] end in M.v) has type
+alpha list ref for a fresh variable alpha.  If we were to classify E
+as non-expansive, we could do 
+
+      let x = E in E'
+
+and in E', x would have polymorphic type forall alpha, alpha list ref,
+from which it is easy to break type safety.
+
+So, your example shows that it would be unsafe to say that a "let
+module M = A in B" expression is nonexpansive if B is nonexpansive.
+One would need to inspect the module expression A to establish that it
+is nonexpansive.  This is what we do for ordinary "let" expressions:
+"let x = A in B" is nonexpansive if both A and B are nonexpansive.
+
+There are two concerns here.  The practical one is that the module
+language is quite complex and I really don't feel like implementing a
+syntactic nonexpansiveness check for module expressions.  
+
+The conceptual concern is that the type system for the module language
+is somewhat richer than that of the core language -- it has "deep"
+polymorphism, subtyping and some forms of dependent types -- so it is
+not entirely clear to me that the value restriction and the syntactic
+nonexpansiveness criterion that work for the core language would also
+work for the module language.
+    </pre><a name="4" /><hr /><h3>Felix 1.0.20 released</h3><p>Archive: <a href="http://caml.inria.fr/archives/200412/msg00121.html">http://caml.inria.fr/archives/200412/msg00121.html</a></p><i>John Skaller announced:</i><br /><pre>
+Felix version 1.0.20 is now stablised and 1.0.21 has been
+opened as the development version. Felix is an Algol like
+language with a strong functional subsystem and ML like typing.
+Available with BSD like FFAU licence from
+
+<a href="http://felix.sf.net">http://felix.sf.net</a>
+
+This version integrates Scott McPeaks Elkhound GLR parser
+
+<a href="http://www.cs.berkeley.edu/~smcpeak/elkhound/">http://www.cs.berkeley.edu/~smcpeak/elkhound/</a>
+
+directly in the language. 
+
+A complete (but trivial) working example is given below
+to indicate the what the integration looks like.
+
+----------------------------------------------
+
+include "std";
+ 
+// the input string
+data := "1+2+3$";
+ 
+// a type for tokens
+union token_t =
+  | TOK_EOF
+  | TOK_PLUS
+  | TOK_INT of int
+;
+ 
+// a token stream generator
+var i = 0;
+fun get_token():token_t =
+{
+  ch := data.[i to i+1];
+  ++i;
+  tok :=
+    match ch with
+    | "$" =&gt; TOK_EOF
+    | "+" =&gt; TOK_PLUS
+    | "1" =&gt; TOK_INT 1
+    | "2" =&gt; TOK_INT 2
+    | "3" =&gt; TOK_INT 3
+    endmatch
+  ;
+  return tok;
+}
+ 
+// a type for expression terms
+union expr_t =
+  | Integer of int
+;
+ 
+// a grammar for expressions
+nonterm expr : expr_t =
+| xx:expr TOK_PLUS y:TOK_INT =&gt;
+  match xx with
+  | Integer ?i =&gt; Integer (i+y)
+  endmatch
+ 
+| y:TOK_INT =&gt; Integer y
+;
+ 
+// a parser for our example
+var z : 1 + int =
+  parse (the get_token) with
+  | e: expr =&gt; match e with | Integer ?i =&gt; i endmatch
+  endmatch
+;
+ 
+// print the result
+match z with
+| case 1 =&gt; { print "Error"; }
+| case 2 (?i) =&gt; { print i; }
+endmatch;
+endl;
+    </pre><a name="5" /><hr /><h3>environment idiom</h3><p>Archive: <a href="http://caml.inria.fr/archives/200412/msg00085.html">http://caml.inria.fr/archives/200412/msg00085.html</a></p><i>A huge thread was started by the following message (see the archive for the rest). Jeff Henrikson said:</i><br /><pre>
+I am interested in the idiom of passing a number of parameters by some
+kind of "environment" variable.  Think of a web server with hundredes of
+functions for processing markup and other things, only 3 of which need
+to detect the browser.  It's bad maintainability to explicitly pass
+browserid through hundreds of functions which don't use it.  And of
+course, we must separate the state of the calling threads so as to not
+cheat with global variables or some such thing.
+
+There seem to be two main candidates for such an idiom in Ocaml, objects
+and polymorphic variants.  The object way, roughly:
+
+let bar env s =
+  env#pear ^ s;;
+
+let foo env s =
+  let x = env#apple in
+  let y = env#banana in
+  bar env (x^y^s);;
+
+As long as we never name the classes the compiler keeps track of which
+environment methods the foo call chain has by creating ad hoc classes:
+
+#  val bar : &lt; pear : string; .. &gt; -&gt; string -&gt; string = &lt;fun&gt;
+#  val foo :
+  &lt; apple : string; banana : string; pear : string; .. &gt; -&gt; string -&gt;
+string =
+  &lt;fun&gt;
+
+And the polymorphic variant way, roughly:
+
+
+let h = Hashtbl.create 10;;
+
+Hashtbl.add h `Banana (`Banana "b");;
+Hashtbl.add h `Apple (`Apple "a");;
+Hashtbl.add h `Pear (`Pear "p");;
+
+
+let get_apple h =
+  try match Hashtbl.find h `Apple with
+      `Apple n -&gt; n
+    | _ -&gt; failwith "no apple config key"
+  with Not_found -&gt; failwith "no apple config key";;
+
+let get_banana h =
+  try match Hashtbl.find h `Banana with
+      `Banana n -&gt; n
+    | _ -&gt; failwith "no banana config key"
+  with Not_found -&gt; failwith "no banana config key";;
+
+let get_pear h =
+  try match Hashtbl.find h `Pear with
+      `Pear n -&gt; n
+    | _ -&gt; failwith "no pear config key"
+  with Not_found -&gt; failwith "no pear config key";;
+
+
+let bar env s =
+    (get_pear env) ^ s;;
+#   val bar : ([&gt; `Pear ], [&gt; `Pear of string ]) Hashtbl.t -&gt; string -&gt;
+string =  &lt;fun&gt;
+
+let foo env s =
+  let x = get_apple env in
+  let y = get_banana env in
+  bar env (x^y^s);;
+#       val foo :
+  ([&gt; `Apple | `Banana | `Pear ],
+   [&gt; `Apple of string | `Banana of string | `Pear of string ])
+  Hashtbl.t -&gt; string -&gt; string = &lt;fun&gt;
+
+foo h "5";;
+# - : string = "pab5"
+
+
+
+Each of these idioms has its own advantage:
+
+In the object way the compiler verifies that the functions are passed
+objects which contain all their needed configuration keys.  But if I
+understand correctly, we must at some point construct an environment
+object which has _all_ the keys, even if we don't know them yet.  We can
+add by mutation, but we cannot simply leave them out and add them as we
+get to functions which need them.  This is because while we can write
+
+
+object
+  method apple = "a"
+  method banana = "b"
+end;;
+- : &lt; apple : string; banana : string &gt; = &lt;obj&gt;
+
+
+we cannot inherit anonymously:
+
+
+let add_pear env =
+  object
+    inherit env
+    method pear = "p"
+  end;;
+
+#         Characters 40-43:
+      inherit env
+              ^^^
+Unbound class
+env
+
+
+In the pv way the construction can be made incremental.  Ie, if we
+changed the hashtable to a list or immutable queue, we could add keys as
+we go.  But at least as I have it set up, the variants are not placing
+restrictions on the existence of keys in the environment, other than
+saying "we can understand at least this many keys," which is of course
+meaningless.  Is there a way to turn the typing around to say "we
+require at least these keys"?
+
+In general, what are the typing and run-time limitations around each
+way?
+    </pre><a name="6" /><hr /><h3>recursive types</h3><p>Archive: <a href="http://caml.inria.fr/archives/200412/msg00145.html">http://caml.inria.fr/archives/200412/msg00145.html</a></p><i>Keiko Nakata asked:</i><br /><pre>
+Can I have recursive types going through both of "normal" types and
+class types?
+
+I would like to define something like
+
+type exp = [`Num of obj |`Neg of obj] 
+and class type obj = 
+  object 
+    method eql : exp -&gt;  bool
+  end
+    </pre><i>Damien Pous answered:</i><br /><pre>
+You can do something this:
+
+type 'a exp_ = [`Num of 'a |`Neg of 'a] 
+
+class type obj = object 
+  method eql : obj exp_ -&gt;  bool
+end
+
+type exp = obj exp_
+    </pre><i>John Skaller added:</i><br /><pre>
+Or the converse (parameterise the class instead).
+    </pre><hr /><h3>Using folding to read the cwn in vim 6+</h3><p>Here is a quick trick to help you read this CWN if you are viewing it using vim (version 6 or greater).</p><pre>:set foldmethod=expr<br />:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'&amp;lt;1':1<br />zM</pre><p>If you know of a better way, please let me know.</p><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right">
+      <i>
+        <a href="http://alan.petitepomme.net/">Alan Schmitt</a>
+      </i>
+    </p><p align="right">
+      <script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script>
+      <script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" />
+      <script src="http://www.google-analytics.com/urchin.js" type="text/javascript" />
+      <script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script>
+    </p></body>
+</html>

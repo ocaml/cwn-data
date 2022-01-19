@@ -1,0 +1,258 @@
+<html><head><meta http-equiv="Content-Type" content="text/html" charset=iso-8859-1"><title>Caml Weekly News</title></head><body>
+
+<a href="2003.03.11.html">Previous week</a> &nbsp; <a href="index.html">Up</a> &nbsp; <a href="2003.03.25.html">Next week</a>
+<pre>
+Hello,
+
+Here is the latest Caml Weekly News, week 11 to 18 March, 2003.
+
+1) <a href="#1">Ocaml-beginners ML</a>
+2) <a href="#2">monads for dummies</a>
+3) <a href="#3">poll - need for a good introductory OCaml book</a>
+4) <a href="#4">Beta release of lablgtk2</a>
+5) <a href="#5">OCaml popularity</a>
+
+<a name="1"/>======================================================================
+1) Ocaml-beginners ML
+----------------------------------------------------------------------
+Ernesto Torresin said:
+
+Since you're talking about ocaml beginners, I can give a quick report of the
+ocaml-beginners mailing list that I've started about one year ago:
+
+Subscribers: 167
+Messages: 883 right now
+
+An interesting point is that as far as I see now the only expert contributing
+actively and continuously has been Rémi Vanicat.
+
+Translation: if *you* already know Ocaml, you can take a ride on the teaching
+side by subscribing to ocaml_beginners. Be a senior camel ;-))
+
+Cheers
+Ernesto Torresin
+PS You can see the archives here:
+<a href="http://groups.yahoo.com/group/ocaml_beginners/">http://groups.yahoo.com/group/ocaml_beginners/</a>
+(there is also a ads-free mhonarc version up to 11/10/02 at
+<a href="http://membres.lycos.fr/ipotesi/OCAML/ocaml-beginners_archive/index.html">http://membres.lycos.fr/ipotesi/OCAML/ocaml-beginners_archive/index.html</a> ).
+
+<a name="2"/>======================================================================
+2) monads for dummies
+----------------------------------------------------------------------
+James Woodyatt lectured:
+
+I'm a self-taught "programmer" with no formal education in mathematics
+or computer science, and I found the monad concept to be fairly
+difficult to learn.  It took a leap of consciousness that feels about
+the same level of difficulty as what I remember needing to get through
+my high school calculus class.
+
+I've been seeing a lot of attempts to explain the theory lately, but
+most of them remind me of the kind of thing that I found more confusing
+than helpful when I was trying to get my head around the practical
+matters.  What I really wanted is a Monads For Dummies tutorial.
+
+Here's what I remember being the crucial tip that got me over the hump:
+if you are working with immutable data structures (and there are at
+least three in the Ocaml standard library: Map, Set and List), then the
+monadic programming style can be really useful for composing
+complicated functions for manipulating the contents of those data
+structures from assemblies of simpler functions.
+
+Without the monadic programming style, you end up concocting huge
+specialized functions for passing into the higher-order standard
+library functions, e.g. fold, map, filter, etc., and achieving any kind
+of modularity requires careful design work.  The problem can quickly
+become hard enough that learning monadic programming starts to seem
+like a decent trade.
+
+Once you start using immutable data structures in complex ways (e.g.  
+doing lots of weird transformations on 'a list values), you may find   
+that writing your functions as monads will help you modularize your
+program, allowing you to encapsulate and reuse computations that would
+otherwise be duplicated in scattered fragments of code all over the  
+place.  (Alternatively, you may want to use mutable data structures
+instead, which is always a popular way out of this problem.)
+
+If you discover your immutable data structure manipulations are getting
+out of hand, and you want to reorganize your code for better
+encapsulation and reusability-- without changing them to use mutable
+data structures instead-- then I recommend learning about the
+continuation monad first.
+
+Here is the signature of a module I use for the continuation monad in
+Ocaml:
+
+  type ('x, 'a) t = ('a -&gt; 'x) -&gt; 'x
+
+  (* let ( &gt;&gt;= ) m f x = m (fun a -&gt; f a x) *)
+  val ( &gt;&gt;= ): ('x, 'a) t -&gt; ('a -&gt; ('x, 'b) t) -&gt; ('x, 'b) t
+
+  val return: 'a -&gt; ('x, 'a) t          (* let return x f = f x
+     *)
+  val lift: 'x -&gt; ('x, 'a) t            (* let lift x _ = x
+     *)
+  val cont: ('x -&gt; 'x) -&gt; ('x, unit) t  (* let cont f g = f (g ())
+     *)
+  val eval: ('x, unit) t -&gt; 'x -&gt; 'x    (* let eval m x = m (fun () -&gt;
+x)    *)
+
+By using this module, I can make new continuations (functions of type
+'x -&gt; 'x) by composing appropriate instances of the continuation monad
+type and binding them with functions that chain the results of previous
+computations into the subsequent computations.
+
+For a very simple example: if you have a bunch of continuation
+functions, e.g. f1, f2, f3 each of type 'x -&gt; 'x, then you can compose
+them in sequence like so:
+
+        let m: ('x, unit) t =
+          cont f1 &gt;&gt;= fun _ -&gt;
+          cont f2 &gt;&gt;= fun _ -&gt;
+          cont f3
+
+In fact, it might be easier to represent f1, f2 and f3 as their monads
+to begin with:
+
+        let m1: ('x, unit) t = cont f1
+        let m2: ('x, unit) t = cont f2
+        let m2: ('x, unit) t = cont f3
+
+        let m: ('x, unit) t =
+          m1 &gt;&gt;= fun _ -&gt;
+          m2 &gt;&gt;= fun _ -&gt;
+          m3
+
+This defines a new instance of the continuation monad type, but it
+isn't exactly the composed continuation function yet.  You *evaluate*
+the monad to get the continuation it represents:
+
+        let f: 'x -&gt; 'x = eval m
+
+The 'return' function is also sometimes called the 'unit' function (but
+'unit' is a reserved word in Ocaml, so I like to avoid it).  It
+constructs a monad that passes a value through the ( &gt;&gt;= ) operator to
+the function that constructs a new monad value with it.  It's good for
+use in monad functions that take input from "outside" the encapsulation
+and pass it along to other monads.
+
+The 'lift' function is a variant of the 'cont' function which ignores
+the 'x value that is input from any previous computation and produces
+the 'lifted' value as output.  It's good for use in monad functions
+that initialize (or reinitialize) the encapsulated value of the monad.
+I probably should have named it 'init' instead.
+
+If I were writing a book on using monads for dummies, I'd launch here
+into a series of useful examples showing how to use monads to simplify
+very complicated list manipulation functions.  The example above is too
+simple to show the power of monadic programming adequately.  I don't
+have the time, but it's certainly something that needs to be done.
+
+The continuation monad is only the beginning.  There are several
+fundamental types of monad, and it's possible to combine them into
+composites to support more operations, e.g. state manipulation,
+exception handling, backtracking, etc.  Once you understand how to use
+monads in a systematic design, you can take better advantage of the
+support for pure functional programming available in the Ocaml language.
+
+In lieu of my writing a long list of examples, here is a paper that I
+found immensely helpful in the learning process:
+
+        <a href="http://www.math.chalmers.se/~augustss/AFP/monads.html">http://www.math.chalmers.se/~augustss/AFP/monads.html</a>
+
+The examples are written in Haskell, but I found them pretty easy to
+translate in my head to the equivalent Ocaml.
+
+Warning: you don't have to go down this path very far before you will
+begin to chafe at the "operator overloading" problem.  You can't define
+a ( &gt;&gt;= ) operator that will be good for all monad types.  I don't know
+how to explain exactly why.  You just can't.  Some folks have proposed
+that "extensional polymorphism" would be very helpful  in helping solve
+the problem.  I buy that.
+
+Warning2: since Ocaml strictly evaluates all the arguments to a
+function before executing it (unless the argument is of type 'a
+Lazy.t), you really can't define a proper ( &gt;&gt; ) operator for your
+monads.  It won't work the same as the one in Haskell, because Ocaml
+evaluates the right operand before it's needed, and you don't buy
+anything by fixing it so that it takes a Lazy.t value instead.
+
+If what I've written isn't very helpful to you, then please tell me so
+I know not to try to explain this stuff to people.  On the other hand,
+if it *is* helpful, that would be nice to know too.
+
+<a name="3"/>======================================================================
+3) poll - need for a good introductory OCaml book
+----------------------------------------------------------------------
+This post started a long thread, that one can read here:
+<a href="http://caml.inria.fr/archives/200303/msg00128.html">http://caml.inria.fr/archives/200303/msg00128.html</a> and here:
+<a href="http://caml.inria.fr/archives/200303/msg00182.html">http://caml.inria.fr/archives/200303/msg00182.html</a>
+
+Graham Guttocks said:
+
+There seems to me clearly, a lack of a good, tutorial style,   
+introductory book about OCaml in English.  Something akin to
+``Programming Perl'' (as someone mentioned).
+
+I'm talking to a publisher at Manning (<a href="http://www.manning.com">http://www.manning.com</a>) about
+the possibility of such a book.  They are intrigued, but would like to
+see some indication that people are interested.
+
+Would you like to see such a book?  Something you could pick up in the
+technical section of your local bookshoppe.  If so, speak up, and I'll
+collect the responses to feed back to the publisher.  Thanks.
+
+<a name="4"/>======================================================================
+4) Beta release of lablgtk2
+----------------------------------------------------------------------
+Jacques Garrigue announced:
+
+We have just released LablGTK2 beta.
+
+It can be found at
+   <a href="http://wwwfun.kurims.kyoto-u.ac.jp/soft/olabl/lablgtk.html">http://wwwfun.kurims.kyoto-u.ac.jp/soft/olabl/lablgtk.html</a>
+   <a href="ftp://ftp.kurims.kyoto-u.ac.jp/pub/lang/olabl/lablgtk2-beta.tar.gz">ftp://ftp.kurims.kyoto-u.ac.jp/pub/lang/olabl/lablgtk2-beta.tar.gz</a>
+
+While not being feature-complete yet, it is now relatively stable.
+
+Along with support for the new text widget, it also provides support
+for various extensions: gtkglarea (using lablgl), glade2, gnomecanvas,
+and librsvg.
+
+Hopefully porting applications from lablgtk1 should not be too hard,
+however there are important changes in font and text handling.
+
+<a name="5"/>======================================================================
+5) OCaml popularity
+----------------------------------------------------------------------
+A huge thread was started about OCaml popularity here:
+<a href="http://caml.inria.fr/archives/200303/msg00070.html">http://caml.inria.fr/archives/200303/msg00070.html</a>
+
+Graham Guttocks said:
+
+I discovered OCaml on Doug Bagley's computer shootout page where he
+gives it a rave review over all the other languages he evaluated.
+
+After looking into it further, I'm just surprised that OCaml isn't
+more popular.  It seems to have all the rapid development features of
+a scripting language like Python, but unlike scripting languages
+offers fast native code like a compiled language.  Seemingly the best
+of both worlds.
+
+Any ideas why OCaml isn't more well known?  Is it just because the
+language is not as old as something like Python, or perhaps because
+the syntax is more difficult to learn?
+
+======================================================================
+Old cwn
+----------------------------------------------------------------------
+
+If you happen to miss a cwn, you can send me a message
+(alan.schmitt@inria.fr) and I'll mail it to you, or go take a look at
+the archive (<a href="http://pauillac.inria.fr/~aschmitt/cwn/">http://pauillac.inria.fr/~aschmitt/cwn/</a>). If you also wish
+to receive it every week by mail, just tell me so.
+
+======================================================================
+
+Alan Schmitt
+</pre></body></html>

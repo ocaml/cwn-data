@@ -1,0 +1,155 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of August 15 to 22, 2006.
+
+1) OCaml for 64 bit machines
+2) map implementation question
+3) Camomile 0.7.1
+4) question about caml_get_public_method
+
+========================================================================
+1) OCaml for 64 bit machines
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/476914d476777d41/21005a98d70ebada#21005a98d70ebada>
+------------------------------------------------------------------------
+** Shivkumar Chandrasekaran asked and Xavier Leroy answered:
+
+> I know that OCaml is supported on 64 bit AMD/Intel machines running 
+> Linux (at least). Are there any plans to support OCaml on the new 64 bit 
+> Intel Apple machines running Mac OS X? 
+
+I would expect the port to be straigthforward, but I'll need to get 
+access to such a machine to see whether the application binary 
+interface differs between Linux/AMD64 and MacOSX/AMD64.  So, the 
+answer to your question is: MacOSX/AMD64 will be supported at some 
+point, but I can't say when. 
+> PS: I believe there is no support for 64 bit PPC machines. Is that still 
+> true? 
+
+I did a MacOSX/PPC64 port a few months ago.  That will be released as 
+part of 3.10, or you can give it a try now using the CVS trunk 
+sources.
+	  
+========================================================================
+2) map implementation question
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/88d2d6b32313f8e1/75edcf97f915bb75#75edcf97f915bb75>
+------------------------------------------------------------------------
+** Brian Hurt asked and Xavier Leroy answered:
+
+> I was just looking at the map.ml implementation, and noticed that the 
+> logic for when to do a rotation was: 
+> >       if hl > hr + 2 then begin 
+> 
+> Isn't this supposed to be: 
+>     if hl >= hr + 2 then begin 
+> 
+> ?  The latter will cause more rotations, but keep the tree more 
+> balanced.  The worst-case access of the >= version is log base 3/2, 
+> while the > is log base 4/3, which means that the >= will be about 41% 
+> (log(3/2)/log(4/3) ~ 1.41).  Both are correct in that they return the 
+> right answer and are still O(log(N)) performance, it's a question of 
+> performance of looking up an element in the tree vr.s the cost of 
+> inserting an element into the tree. 
+> 
+> Was there a reason it was done this way, or is this a (minor) bug?
+
+No, it was a conscious decision to use height-balanced binary trees 
+with an height imbalance of at most 2, rather than at most 1 as in 
+standard AVL trees.  As you note, log(N) access times are still 
+guaranteed, and it's a tradeoff between lookup time vs. rebalancing time. 
+Light experimentation suggested that imbalance <= 2 is globally more 
+efficient than imbalance <= 1.  Didn't try with larger imbalance bounds. 
+This said, red-black trees would probably work faster anyway, but I'll 
+let the algorithm experts on this list comment. 
+	  
+** j h woodyatt then added:
+
+My experience trying to tweak the red-black trees in the Cf library   
+of OCaml NAE so they perform globally better than the height-balanced   
+trees in the standard library has been mixed.  Some functions perform   
+marginally better, but others are worse-- sometimes substantially   
+worse, and I don't think there's any way around it.  (It doesn't help   
+that a lot of my exercises reveal that my binary set operations need   
+improvement, but there are other places where there's simply nothing   
+to do.  I'll get around to fixing the binary set operators someday,   
+before my next release.) 
+By the way, Xavier is very correct: that "imbalance <= 2" thing is   
+utterly brilliant.  I'm pretty sure my red-black trees would smoke   
+the standard library if it weren't for that. 
+
+The result is that I recommend using my red-black trees only when you   
+are either 1) using the other facilities in the Cf library that are   
+integrated well with them, e.g. Cf_seq and such, or 2) using them in   
+a [currently hypothetical] case where you have compared the   
+performance with the standard library and it makes a valuable   
+difference to get 15% more CPU (or one less field per tree node) out   
+of your tree algorithm.
+	
+========================================================================
+3) Camomile 0.7.1
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/43c1c511426df259/8db41274a5838ea4#8db41274a5838ea4>
+------------------------------------------------------------------------
+** Yoriyuki Yamagata announced:
+
+I'm pleased to announce Camomile-0.7.1, a new version of a comprehensive 
+Unicode Library for OCaml. 
+<http://prdownloads.sourceforge.net/camomile/camomile-0.7.1.tar.bz2> 
+
+In 0.7.0, CamomileLibrary.Main module also defines Camomile module. 
+When Main module is linked, this makes Camomile module try to load 
+data files from default configurations.  This causes, for example, 
+clean installation fail.  0.7.1 moves Camomile modules to 
+CamomileLibrary.Default.Camomile to solve this problem.
+	  
+========================================================================
+4) question about caml_get_public_method
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/db88604a9d6e6ff9/b1e58123d7f1463a#b1e58123d7f1463a>
+------------------------------------------------------------------------
+** Michael Wohlwend asked and Jacques Garrigue answered:
+
+> if I want to connect a c++ method to a method of an ocaml class, I can 
+> choose between: 
+> a) in the initializer of the ocaml class use register_value to register a 
+> method (like self#some_method) and then calling an external function which 
+> caches the registered value and calls that method 
+> or 
+>
+> b) calling an external function with the ocaml object as argument and then  
+> use caml_get_public_method, cache the method-id of the callback methods and 
+> use those to make the callback. 
+>
+> Is this just a matter of taste which one to use? 
+
+The second approach is going to be slightly simpler (no need to split
+registration code between ocaml and C++, and the method ids do not
+depend on the object/class.) Note that you don't really need to cache
+the method itself, as caml_get_public_method is really fast.
+You can also generate the method ids beforehand, avoiding need for any
+cacheing. Here is a tool to do that.
+<http://camlcvs.inria.fr/cgi-bin/cvsweb/bazar-ocaml/lablGL/src/var2def.ml?rev=1.9>
+The 1st approach should work too.
+	  
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

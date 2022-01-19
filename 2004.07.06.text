@@ -1,0 +1,292 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of 29 June to 06 July, 2004.
+
+1) ocaml-fileutils v 0.3.0
+2) Startconditions in ocamllex
+3) CVS tracking and 3.08 testing
+4) Internals documentation
+5) Thread and kernel 2.6 pb still there in CVS
+6) Infix operator
+7) CDuce 0.2.0
+
+========================================================================
+1) ocaml-fileutils v 0.3.0
+------------------------------------------------------------------------
+** Sylvain Le Gall announced:
+
+I am pleased to announce a new release of ocaml-fileutils.
+
+This library implements some new function :
+- cmp : compare file
+- du : give the disk usage of some files
+- stat : abstraction of Unix.stat
+- readlink : return a path with link solved to real location
+
+This new version comes in particular with a rewritten "find" command
+which take an "exec" and "accu" parameter allowing to customize the
+operation done during the directory traversal. ( You can have the same
+behavior of the previous find command by this way :
+find test current_dir (fun lst fln -> fln :: lst) [] ). This new command
+embed a recursion prevention system, allowing not to traverse the same
+directory twice ( ie, it handles symlink like : ln -s . recurse ).
+
+Most of the command also provide a ~follow parameter which dictate the
+way ocaml-fileutils should follow symlink ( by default Skip, but can
+also be Follow, AskFollow, SkipInform... )
+
+General :
+Ocaml fileutils is aimed to be a platform independent library to perform
+operation on file like :
+- mv
+- cp
+- rm
+- mkdir
+- touch
+- which...
+
+Comes also with a module to manipulate abstract filename :
+- classification
+- make_relative : made a filename relative to another
+- make_absolute :...
+
+Link :
+<http://www.carva.org/sylvain.le-gall/ocaml-fileutils.html>
+    
+========================================================================
+2) Startconditions in ocamllex
+------------------------------------------------------------------------
+** Olivier asked and Hendrik Tews answered:
+
+> in the original lex it is possible to use startconditions.
+> Is that possible in ocamllex too?
+
+You can simulate startconditions with several entry points and a
+global variable. See my message
+<http://caml.inria.fr/archives/200309/msg00027.html> (just ask
+again if that is not clear enough).
+    
+========================================================================
+3) CVS tracking and 3.08 testing
+------------------------------------------------------------------------
+** Xavier Leroy announced:
+
+To all OCaml users who track the CVS or are willing to beta-test:
+
+We are progressing towards a release of OCaml 3.08, and at the same
+time experimenting with a two-branch development model, one branch for
+short-term bug fixes and the other for longer-term developments.
+
+If this model turns out to work well, we hope it will make it easier
+for users to benefit from bug fixes between major releases, and speed
+up the release process.
+
+Users who track the CVS sources from camlcvs.inria.fr are encouraged
+to switch to the current release branch, which is labeled "release308".
+This is the branch where we currently do bug fixes before release 3.08
+and where we'll do post-release bug fixes if needed.  It is currently
+more up-to date than the main branch, which is the development branch,
+and will remain so for a couple of months at least.  To switch your
+CVS checked-out sources to the release branch, just do
+
+          cvs update -r release308
+
+Users who are willing to beta-test the upcoming 3.08 release should
+also get the sources from the "release308" branch of the CVS:
+
+ cvs -d ":pserver:anoncvs@camlcvs.inria.fr:/caml" checkout -r release308 ocaml
+
+Now is a very good time to test and report bugs.
+
+Thanks for your cooperation.
+    
+** Skaller asked and Xavier Leroy answered:
+
+> OK, any hints on what things to look for?
+> Expected problem areas, performance changes,
+> cute new features, etc?
+
+The change log (file "ocaml/Changes" in the CVS sources) is relatively
+up-to-date.  Perhaps the biggest (internal) change is in the
+representation of objects and compilation of classes, so if you have
+object-heavy programs, that would be a good test.
+    
+========================================================================
+4) Internals documentation
+------------------------------------------------------------------------
+** Andrei Formiga asked and Olivier Andrieu answered:
+
+>    I was looking for documentation about the OCaml implementation, or
+> some discussion about the internals, especially the compiler and
+> runtime. I searched the list archives and got no results (maybe I
+> didn't do it right). So, there appears to be none.
+
+There was a project on Sourceforge about this:
+<http://www.sourceforge.net/projects/docaml>
+
+It's mostly dead but there's a couple of LaTeX files lying in the
+CVS. Could be a starting point.
+    
+** Alan Schmitt added:
+
+(Editor's note: I am Alan Schmitt, so this is a shameless plug.)
+
+It's indeed dead, but if there is someone willing to revive it, I would
+definitely participate again.
+    
+========================================================================
+5) Thread and kernel 2.6 pb still there in CVS
+------------------------------------------------------------------------
+** Christophe Raffalli asked:
+
+The latest 3.08 CVS solves the problem (for GlSurf at least).
+When I have the too Glsurf thread (on computing, one for drawing GL (I
+keep pressing a key to rotate the surface) and I launched povray from
+Glsurf for a rendering, then I get one third of cpu each which is perfect)
+
+Just a last question:
+
+Now I saw that for "non broken" sched_yield, the call is still present.
+
+Are you sure that releasing the mutex is not enough to tell the
+scheduler it may be a good time to give some cpu to another caml thread
+blocked on the same mutex ?
+
+But I am sure you tested that too and this is why the call is still
+there when possible ;-)
+    
+** Xavier Leroy answered:
+
+> Just a last question:
+> Now I saw that for "non broken" sched_yield, the call is still present.
+> Are you sure that releasing the mutex is not enough to tell the
+> scheduler it may be a good time to give some cpu to another caml thread
+> blocked on the same mutex ?
+
+In general, when there's code in the Caml implementation, it's for a
+good reason.
+
+> But I am sure you tested that too and this is why the call is still
+> there when possible ;-)
+
+Yes, I tested.  Spent more than one day setting up and refining a test
+harness, then running it on a variety of Linux and non-Linux systems.
+Had to install a Fedora Core 2 somewhere to assess the damage done in
+kernel 2.6.  In the meantime, read a bunch of condescending mailing
+list posts along the lines of "if you're using sched_yield(), you must
+be doing busy-waiting and that's wrong".  (Guess what?  I'm not doing
+busy waiting!)  The conclusions are clear: sched_yield() does improve
+fairness and has no significant costs in the situation corresponding to
+Caml threads (contention on a master lock); and the Linux 2.6
+developers managed to make sched_yield() useless for this purpose.
+
+If the above sounds mildly irritated, that's because I am.
+    
+========================================================================
+6) Infix operator
+------------------------------------------------------------------------
+** Alexsandro Soares asked and Jon Harrop answered:
+
+>    Is there any way to define infix operators in
+> OCaml?
+
+Yes. This is described in the excellent book "Developing applications with
+objective Caml" in the "Functional core of Objective CAML" chapter, on page
+25 under the heading "Declaration of infix functions". This book is freely
+available in electronic form here:
+
+<http://caml.inria.fr/oreilly-book/html/index.html>
+
+Basically, use only symbols in infix function names and define the function
+using the syntax:
+
+# let ( ++ ) c1 c2 = (fst c1)+(fst c2), (snd c1)+(snd c2);;
+val ( ++ ) : int * int -> int * int -> int * int = <fun>
+# (2, 3) ++ (3, 4);;
+- : int * int = (5, 7)
+    
+** Richard Jones then asked and Benjamin Geer answered:
+
+>Is this book really published by O'Reilly?
+
+The French version is published by O'Reilly France, but the English
+translation hasn't been published.  I recently asked the head office why
+they haven't published anything in English about functional languages,
+and they said it was because books on functional languages didn't sell
+very well.
+    
+========================================================================
+7) CDuce 0.2.0
+------------------------------------------------------------------------
+** Alain Frisch announced:
+
+I'm pleased to announce the long-awaited CDuce 0.2.0 release.
+
+CDuce is a strongly typed functional language, with first-class and
+overloaded functions, adapted to the manipulation of XML documents.
+CDuce is fast, type-safe, and conforms to basic XML standards.
+
+More information about CDuce:
+
+  <http://www.cduce.org/>
+
+Source distribution:
+
+  <http://www.cduce.org/download.html>
+
+A GODI package is available (under the name apps-cduce). This is the
+recommended way to build CDuce from sources. Packages and ports for
+other systems (Redhat, Debian, Mac OS X, FreeBSD, WinXP) will come
+later.
+
+
+W.r.t. CDuce 0.1.1, the release adds separate compilation, a
+preliminary implementation of an XML query language, and several other
+improvements. The release also includes a new type-safe OCaml-CDuce
+interface, which is described at:
+
+  <http://www.cduce.org/manual_interfacewithocaml.html>
+
+This interface allows:
+1- to use existing OCaml libraries within CDuce, and
+2- to project an OCaml signature (.cmi) to a CDuce unit in order to use
+   it in a mixed OCaml-CDuce project.
+
+It makes CDuce of special interest to OCaml users.
+
+
+Interested people are invited to join the CDuce users mailing list:
+
+  <http://www.cduce.org/mailing.html>
+
+
+Enjoy, and let us know about your experience !
+
+
+  Alain Frisch, on behalf of the CDuce team (<http://www.cduce.org/team.html>)
+    
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

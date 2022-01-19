@@ -1,0 +1,314 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of 15 to 22 November, 2005.
+
+1) OCaml-MySQL
+2) Sudoku
+3) THREADED_CODE: Why CODE32 defined on x86-64?
+4) bytecode apps without stdlib/pervasives
+5) LablTk Deuglification Tutorial
+6) new bug tracking system
+7) Objective CAML for Scientists: Chapter 1
+8) "The Whitespace Thing" for OCaml
+
+========================================================================
+1) OCaml-MySQL
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/31244>
+------------------------------------------------------------------------
+** Daniel Margolis asked and Richard Jones answered:
+
+> With some help, I've managed to get OCaml-MySQL working. But if  
+> anyone has any other recommendations of database libraries, still  
+> feel free to share them with me.
+
+ocamldbi has a MySQL interface.
+
+<http://savannah.nongnu.org/download/modcaml/>
+    
+** David Baelde then said:
+
+It may be worth pointing that ocaml-mysql is not thread-ready. I
+reported that a few months ago and nothing was done. The problem is
+that the bindings do not declare blocking sections, so when one thread
+calls a mysql function (which can take time) the other threads won't
+be scheduled.
+
+I'm glad to hear about ocamldbi. Is it well maintained ? has blocking
+sections stuff ? If so, we (savonet.sf.net) should swicth to it.
+    
+========================================================================
+2) Sudoku
+------------------------------------------------------------------------
+** The editor says:
+
+There were several threads about Sudoku, you may find them here:
+<http://thread.gmane.org/gmane.comp.lang.caml.general/31252>
+<http://thread.gmane.org/gmane.comp.lang.caml.general/31302>
+<http://thread.gmane.org/gmane.comp.lang.caml.general/31389>
+<http://thread.gmane.org/gmane.comp.lang.caml.general/31391>
+<http://thread.gmane.org/gmane.comp.lang.caml.general/31395>
+
+Next are some short extracts, with most of the discussions removed.
+    
+** Alain Frisch said:
+
+Funny. My father told me about the game last sunday and I was willing to
+write a solver too :)
+
+Here it is:
+<http://www.eleves.ens.fr/home/frisch/info/af-sudoku-brute.ml>
+<http://www.eleves.ens.fr/home/frisch/info/af-sudoku.ml>
+    
+** Diego Olivier Fernandez Pons said:
+
+There is a nice paper by Helmut Simonis "Sudoku as a constraint problem"
+with reference to the relevant paper for the algorithms.
+
+    <http://www.icparc.ic.ac.uk/~hs/>
+    
+** David Thomas said:
+
+Mostly to teach myself Ocaml and Tk, I put together a
+simple Sudoku game.  If anyone wants to play with it,
+modify it, etc, feel free.  
+
+<http://people.ucsc.edu/~dlthomas/sudoku.ml>
+
+The puzzle generation at present is entirely
+braindead, but if someone produces a nice solution,
+I'd love to see it included.
+    
+** Alain Frisch said:
+
+Follow-up to the recent discussion here: I've improved my Sudoku solver 
+and released it with some documentation
+
+<http://www.eleves.ens.fr/home/frisch/sudoku.html>
+
+It was able to deal in reasonnable time with all the 3x3, 4x4 and 5x5 
+grids I could find (often <10ms for 3x3 grids). Some difficult puzzles 
+are included in the distribution.
+    
+** Jon Harrop said:
+
+In the face of stiff competition, I have updated my Sudoku solver in OCaml 
+with a new implementation that is shorter, simpler and faster (although 
+nothing like as fast as Alain's):
+
+  <http://www.ffconsultancy.com/free/sudoku/>
+
+I have also included links to Sudoku solvers written in OCaml by Alain Frisch, 
+Pascal Brisset and David Thomas.
+    
+** Arthur Chargueraud said:
+
+Well, if you are interested, you may wish to have a look at my:
+- thirteen lines of Caml (though my lines are not so short)
+- of a rather efficient sudoku solver
+- that gives all solution for an input grid
+- and uses only modules Pervasive and Array.
+Thanks Caml !
+
+You may find it here:
+   <http://arthur.chargueraud.org/divers/sudoku/>
+
+I haven't done any advanced benchmarking, but it looks like my code isn't too slow.
+    
+** Marco Maggesi said:
+
+include Set.Make(struct type t = (int * int) * int let compare = compare end)
+
+let (@) g f x = g (f x) and id x = x and sw f x y = f y x and zip x y = (x, y)
+
+let fold9 f = let rec loop i = if i>8 then id else loop (i+1) @ f i in loop 0
+
+let fold81 f = fold9 (fold9 @ (@) f @ zip)
+
+let mark ((i,j),x as e) : t -> t =
+  add e @ fold9 (fun k -> remove ((i/3*3 + k/3, j/3*3 + k mod 3), x) @
+    remove ((i,j),k) @ remove ((i,k),x) @ remove ((k,j),x))
+
+let search =
+  let g p f s = fold (f @ sw mark s) (filter ((=) p @ fst) s) in
+  fold81 g
+
+let read () =
+  let f p = Scanf.scanf "%d " (fun x -> if x>0 then mark (p,x-1) else
+  id) in
+  fold81 f (fold81 (fold9 @ ((@) add @ zip)) empty)
+
+let print s () =
+  let pr ((i,j),x) = Printf.printf "%d%c" (x+1) (if j=8 then '\n' else ' ') in
+  iter pr s; print_newline ();;
+
+search print (read ()) ();;
+    
+========================================================================
+3) THREADED_CODE: Why CODE32 defined on x86-64?
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/31298>
+------------------------------------------------------------------------
+** Richard Jones said:
+
+Why is CODE32 defined on the x86-64 architecture?  This architecture
+has 64 bit pointers, and it seems like it's only by luck that the
+bytecode interpreter normally works.
+
+In particular, if you have the interpreter in a shared library, or (I
+assume) address-space randomization, then the jump table is located
+above the 4GB boundary, and the bytecode interpreter segfaults as soon
+as it tries to jump to the first instruction.
+
+I had to apply the following patch to allow the bytecode interpreter
+to work in a shared library:
+
+--- ocaml-3.09.0.orig/configure 2005-09-24 10:19:09.000000000 +0100
++++ ocaml-3.09.0/configure      2005-11-16 14:59:56.000000000 +0000
+@@ -291,9 +291,7 @@
+     exe=".exe"
+     ostype="Cygwin";;
+   gcc*,x86_64-*-linux*)
+-    bytecccompopts="-fno-defer-pop $gcc_warnings"
+-    # Tell gcc that we can use 32-bit code addresses for threaded code
+-    echo "#define ARCH_CODE32" >> m.h;;
++    bytecccompopts="-fno-defer-pop $gcc_warnings";;
+   gcc*)
+     bytecccompopts="-fno-defer-pop $gcc_warnings";;
+ esac
+    
+** Xavier Leroy answered:
+
+No, it's not by luck: the x86-64 ABI defines several "code models",
+one of which -- the "small code model" -- guarantees that code and
+static data is in the lower 2G of the address space, and is the
+default for gcc (and I suspect other compilers as well).
+
+I would have expected the dynamic loader to implement the small model
+like the static linker does, but from what you say it's not the case.
+    
+========================================================================
+4) bytecode apps without stdlib/pervasives
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/31281>
+------------------------------------------------------------------------
+** Jonathan Roewen asked and Damien Doligez answered:
+
+> I have a simple ML file (test.ml):
+>
+> external raise : exn -> 'a = "%raise";;
+>
+> raise End_of_file;;
+>
+> so I can check how the compiler does things (like if predefined ocaml
+> symbols are still present without stdlib present), and compile as:
+>
+> ocamlc -nostdlib -nopervasives test.ml, which generates a.out.
+>
+> when I run it, I get error: "-bash: ./a.out: cannot execute binary
+> file" (btw, generates expected behabiour without those flags)
+>
+> why can't it execute it? can we only use -nostdlib as long as we
+> provide our own pervasives module?
+
+Note that a.out is still a valid bytecode file:
+   ocamlrun ./a.out
+works.
+
+What happens is that ocamlc tries to create an executable bytecode file,
+by prepending the standard header (#!/usr/local/bin/ocamlrun) to your
+bytecode file.  But it can't find this header because you have specified
+-nostdlib, thus preventing it from looking in its library directory.
+
+It explicitely ignores the "file not found" error, I'm not sure why.
+
+What you can do is provide your own header file, named "camlheader", and
+placed in one of the directories searched by ocamlc.  If you don't give
+any -I option, this has to be the current directory:
+
+$ echo '#!/bin/echo foo' >camlheader
+$ ocamlc -nostdlib -nopervasives test.ml
+$ ./a.out
+foo ./a.out
+    
+========================================================================
+5) LablTk Deuglification Tutorial
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/31355>
+------------------------------------------------------------------------
+** Matt Gushee announced:
+
+Some time ago on this list, there was a discussion of the pros and cons
+of the Tk GUI toolkit. In the course of that discussion I claimed that
+Tk could be made significantly less ugly ... someone asked how, but I
+never answered--sorry!
+
+At any rate, here, finally, is the answer:
+
+  <http://matt.gushee.net/rg/items/4>
+    
+========================================================================
+6) new bug tracking system
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/31365>
+------------------------------------------------------------------------
+** Xavier Leroy announced:
+
+The bug tracking system for Caml now uses Mantis in replacement for
+Jitterbug, which was increasingly showing its age.  The new BTS should
+make it much easier to classify bug reports, add follow-ups and
+attachments, and be notified of actions taken by the Caml maintainers.
+
+However, bug submission can no longer be done by e-mail; please use
+the Web interface exclusively.
+
+Many thanks to Maxence Guesdon for installing Mantis and re-importing
+the old bug reports.
+    
+========================================================================
+7) Objective CAML for Scientists: Chapter 1
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/31429>
+------------------------------------------------------------------------
+** Jon Harrop announced:
+
+Chapter 1 of "Objective CAML for Scientists" is now available on-line as a web 
+page:
+
+  <http://www.ffconsultancy.com/products/ocaml_for_scientists/chapter1.html>
+    
+========================================================================
+8) "The Whitespace Thing" for OCaml
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/31433>
+------------------------------------------------------------------------
+** Mike Lin announced:
+
+Brace yourselves for "The Whitespace Thing". This is an OCaml
+preprocessor that uses your indentation to group expressions, like in
+Python and Haskell. Effectively, the preprocessor auto-parenthesizes
+expressions that are split over multiple lines, using your indentation
+as clues. This eliminates syntax clutter such as multi-line
+parenthesizations, the sequencing operators ; and ;; , and the
+keywords done, end, and begin.
+
+<http://people.csail.mit.edu/mikelin/ocaml+twt/>
+    
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

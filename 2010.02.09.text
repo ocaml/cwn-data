@@ -1,0 +1,479 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of February 02 to 09, 2010.
+
+1) Thread safe heterogenous property lists (dictionaries)
+2) Inside the mind of the inliner
+3) New releases of Ocsigen server, Eliom and O'Browser
+4) Blahcaml 2.0 and Camlhighlight 1.0
+5) OCaml-Java project: 1.4 release
+6) Other Caml News
+
+========================================================================
+1) Thread safe heterogenous property lists (dictionaries)
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/8929665ed1756e12#>
+------------------------------------------------------------------------
+** Daniel Bünzli announced:
+
+I needed an implementation of heterogenous property lists [1] ---
+hereafter dictionaries. There's some code floating around on the www
+(e.g. here [2]) but it uses a thread unsafe implementation of
+universal types. This makes it unacceptably ugly as thread safety is
+not even guaranteed among independent dictionaries, locking is needed
+per key.
+
+Below I give two implementations of immutable heterogenous
+dictionaries. Both use exceptions to implement a thread safe universal
+type. This is based on code by Andrej Bauer and refined by Stephen
+Weeks here [3]. A functor application is needed to create a function
+that create new keys for a given type but in practice that
+inconvenience is rather small (see the test code). This means you
+don't have to wait on OCaml 3.12 to get thread safe heterogenous
+dictionaries (see Alain Frish's "perfect" solution for universal types
+with first class modules there [3]).
+
+The first implementation uses association lists, it's suitable for
+small dictionaries as lookup time is linear in the number of entries.
+This implementation is completely thread-safe.
+
+The second one uses Maps for logarithmic time lookups. Operations on
+dictionaries are thread safe. However key creation is not because
+unique ids need to be generated for them. While not perfect this is
+acceptable to me as keys are likely to be created in module
+initialization code and thus will be executed by a single thread. This
+implementation can be easily modified to implement mutable
+dictionaries using Hashtbl as the underlying map for constant lookup
+time.
+
+Best,
+
+Daniel
+
+[1] <http://mlton.org/PropertyList>
+[2] <http://eigenclass.org/R2/writings/heterogeneous-containers-in-ocaml>
+[3] <http://ocaml.janestreet.com/?q=node/18>
+
+(* The signature we are interested in. *)
+
+(** Heterogenous dictionaries. *)
+module type Dict = sig
+
+ type t
+ (** The type for dictionaries. *)
+
+ type 'a key
+ (** The type for keys whose lookup value is of type ['a]. *)
+
+ val empty : t
+ (** The empty dictionary. *)
+
+ val is_empty : t -> bool
+ (** [is_empty d] is [true] iff [d] is empty. *)
+
+ val add : 'a key -> 'a -> t -> t
+ (** [add k v d] is [d] with [k] mapping to [v]. *)
+
+ val find : 'a key -> t -> 'a option
+ (** [find k d] is the value of [k] in [d], if any. *)
+
+ module Key : sig
+ (** Creating keys. *)
+
+   val bool : unit -> bool key
+   (** [bool ()] is a new key for a boolean value. *)
+
+   val int : unit -> int key
+   (** [int ()] is a new key for an integer value. *)
+
+   val float : unit -> float key
+   (** [float ()] is a new key for a float value. *)
+
+   val string : unit -> string key
+   (** [string ()] is a new key for string value. *)
+
+   module ForType (T : sig type t end) : sig
+     val create : unit -> T.t key
+     (** [create ()] is a new key for the type [T.t]. *)
+   end
+ end
+end
+
+(* Implementation. *)
+
+module type Id = sig                              (* A signature for key ids. *)
+ type t
+ val create : unit -> t
+end
+
+module Key (Id : Id) = struct         (* Given key ids, implements dict keys. *)
+ type 'a t = Id.t * ('a -> exn) * (exn -> 'a option)
+
+ module ForType (T : sig type t end) = struct
+   exception E of T.t
+   let inject v = E v
+   let project = function E v -> Some v | _ -> None
+   let create () = Id.create (), inject, project
+ end
+
+ module BoolKey = ForType (struct type t = bool end)
+ module IntKey = ForType (struct type t = int end)
+ module FloatKey = ForType (struct type t = float end)
+ module StringKey = ForType (struct type t = string end)
+
+ let bool = BoolKey.create
+ let int = IntKey.create
+ let float = FloatKey.create
+ let string = StringKey.create
+end
+
+module DList : Dict = struct    (* Dictionaries as assoc lists, thread-safe. *)
+
+ module Id = struct
+   type t = unit ref
+   let create () = ref ()
+ end
+
+ module Key = Key (Id)
+
+ type t = (Id.t * exn) list
+ type 'a key = 'a Key.t
+
+ let empty = []
+ let is_empty = function [] -> true | _ -> false
+ let add k v l =
+   let rec aux ((id, inject, _) as k) v left right = match right with
+   | [] -> (id, inject v) :: left
+   | ((id', _) as b) :: right' ->
+       if id' == id then List.rev_append left ((id, inject v) :: right') else
+       aux k v (b :: left) right'
+   in
+   aux k v [] l
+
+ let rec find ((id, _, project) as k) = function
+   | (id', exn) :: l' -> if id' == id then project exn else find k l'
+   | [] -> None
+
+end
+
+module DMap : Dict = struct (* Dicts as maps, thread-safe except for key gen. *)
+
+ module Id = struct
+   type t = int
+   let compare : int -> int -> int = compare
+   let create =                                          (* NOT thread safe. *)
+     let c = ref min_int in
+     fun () ->
+       let id = !c in
+       incr c; if id > !c then assert false (* too many ids *) else id
+ end
+
+ module Key = Key (Id)
+ module Map = Map.Make(Id)
+
+ type t = exn Map.t
+ type 'a key = 'a Key.t
+
+ let empty = Map.empty
+ let is_empty = Map.is_empty
+ let add (id, inject, _) v m = Map.add id (inject v) m
+ let find  (id, _, proj) m = try proj (Map.find id m) with Not_found -> None
+end
+
+(* Testing *)
+
+module Test (Dict : Dict) = struct
+ let b1 = Dict.Key.bool ()
+ let b2 = Dict.Key.bool ()
+ let i1 = Dict.Key.int ()
+ let i2 = Dict.Key.int ()
+ let s1 = Dict.Key.string ()
+ let s2 = Dict.Key.string ()
+
+ module IntPairKey = Dict.Key.ForType (struct type t = int * int end)
+
+ let p1 = IntPairKey.create ()
+ let p2 = IntPairKey.create ()
+
+ let d0 = Dict.empty
+ let d1 = Dict.add b1 true d0
+ let d2 = Dict.add i1 84 d1
+ let d3 = Dict.add s1 "dip" d2
+ let d4 = Dict.add p1 (4,2) d3
+ let d5 = Dict.add i1 85 d4
+
+ let () =
+   let all_dicts = [d0; d1; d2; d3; d4; d5] in
+   let assert_bind k some d = assert (Dict.find k d = some) in
+   List.iter (assert_bind b2 None) all_dicts;
+   List.iter (assert_bind i2 None) all_dicts;
+   List.iter (assert_bind s2 None) all_dicts;
+   List.iter (assert_bind p2 None) all_dicts;
+   List.iter (assert_bind b1 None) [d0];
+   List.iter (assert_bind b1 (Some true)) [d1; d2; d3; d4; d5];
+   List.iter (assert_bind i1 None) [d0; d1];
+   List.iter (assert_bind i1 (Some 84)) [d2; d3; d4];
+   assert_bind i1 (Some 85) d5;
+   List.iter (assert_bind s1 None) [d0; d1; d2];
+   List.iter (assert_bind s1 (Some "dip")) [d3; d4; d5];
+   List.iter (assert_bind p1 None) [d0; d1; d2; d3];
+   List.iter (assert_bind p1 (Some (4,2))) [d4; d5];
+end
+
+module Test_DList = Test (DList)
+module Test_DMap = Test (DMap)
+			
+** Alain Frisch	later added:
+
+> The second one uses Maps for logarithmic time lookups. Operations on
+> dictionaries are thread safe. However key creation is not because
+> unique ids need to be generated for them.
+
+FWIW, a thread-safe way to generate fresh ids is:
+
+let fresh_id () = Oo.id (object end)
+
+
+Also, the "perfect" solution you are referring to becomes in the syntax of
+OCaml's trunk:
+
+let embed () (type s) =
+ let module M = struct exception E of s end in
+ (fun x -> M.E x), (function M.E x -> Some x | _ -> None)
+			
+========================================================================
+2) Inside the mind of the inliner
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/cc79a41b5a282bf6#>
+------------------------------------------------------------------------
+** Yaron Minsky	asked and Xavier Leroy replied:
+
+> I've been doing some experiments with the OCaml inliner, and have
+> walked away from the process very confused.  It seems like inlining
+> can be prevented by very simple changes to the code of a function.
+> The main surprise for me is that adding a quite trivial allocation of
+> a list or a string literal defeats the inliner.
+> 
+> Does anyone have a better understanding of what's going on here?  I
+> feel like my intuition for this stuff is terrible.
+
+The algorithm is very simple: a function is inlinable if
+
+1- its code size (approximate) is below a certain threshold
+  (governed by the -inline option)
+2- and its body doesn't contain a function definition
+  (fun x -> ..., let rec f x = ..., etc) nor a structured constant
+  (string literal, [1;2;3], etc).
+
+The reason for 2- is that the inliner is too stupid to inline a
+function without duplicating the function definitions/structured
+constants contained within.  Such a duplication can be very wasteful
+in code and static data size.  (Cue the replies "but not if small
+enough!" in 3...2...1...now.)
+
+For your specific examples:
+
+> I checked inlining using the following command line:
+> 
+>   ocamlopt -S -inline 10000 z.ml ; egrep 'call.*camlZ__f' z.s
+> 
+> And here are the different variants of z.ml I tried.
+> 
+> (* Simple arithmetic.  f is inlined *)
+> let f x = x + x
+> let g x = f x + f x
+> 
+> (* Add in allocation of a list, not inlined *)
+> let f x = ignore [1]; x + x
+> let g x = f x + f x
+
+"[1]" is not a run-time allocation: its a structured constant, built
+at compile-time.  Hence you run into case 2 above.
+ 
+> (* allocate a string, not inlined *)
+> let f x = ignore "foo"; x + x
+> let g x = f x + f x
+
+Likewise (no allocation, but case 2).
+
+> (* reference to the empty list, inlined *)
+> let f x = ignore []; x + x
+> let g x = f x + f x
+> 
+> (* call a function that iterates over a list, inlined *)
+> let list = [1;2;3]
+> let plus x y = x + y
+> let f x = x * List.fold_left plus 0 list
+> let g x = f x + f x
+> 
+> (* Call a function that includes an infix operator in prefix form, 
+>    not inlined. *) 
+> let list = [1;2;3]
+> let f x = x * List.fold_left (+) 0 list
+> let g x = f x + f x
+
+Because (+) is really fun x y -> x + y, therefore case 2 again.
+
+> (* Allocate the list in the function, not inlined *)
+> let plus x y = x + y
+> let f x = x * List.fold_left plus 0 [1;2;3]
+> let g x = f x + f x
+> 
+> (* call a function to allocate your list, inlined *)
+> let plus x y = x + y
+> let create_list x = x :: x + 1 :: x + 2 :: []
+> let f x = x * List.fold_left plus 0 (create_list 1)
+> let g x = f x + f x
+> 
+> I've tried these experiments with ocaml 3.10.1 and 3.11.1, with similar
+> results.
+			
+========================================================================
+3) New releases of Ocsigen server, Eliom and O'Browser
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/34aabc19f2c03537#>
+------------------------------------------------------------------------
+** Vincent Balat announced:
+
+New releases are available for some of our software:
+ - Ocsigen server version 1.3.0
+ - Eliom version 1.3.0
+ - O'Browser version 1.1
+
+You can download them from <http://ocsigen.org> .
+Packages should be available soon in distributions.
+
+ * Ocsigen server is a full featured Web server written in OCaml with the Lwt
+cooperative threads library. It is easy to write your own extensions to the
+server in OCaml if you need some extra features or if you want to develop your
+own Web programming module.
+
+ * Eliom is a Web application programming framework in OCaml. It uses high
+level concepts to program complex Web applications easily. Eliom allows to
+check the validity of html pages statically, and proposes high level
+management of sessions and Web interaction. It also solves lots of security
+problems for you.
+
+ * O'Browser is a virtual machine for OCaml written in Javascript. This allows
+to run OCaml programs, compiled with the usual bytecode compiler, inside a Web
+browser, without any plugin. It implements most of OCaml's standard library
+(even Thread and Graphics!) and allows to interact with the Web page and the
+browser. You can use it without Eliom and Ocsigen server.
+
+
+With version 1.3.0, Ocsigen server and Eliom reached a good maturity level. We
+are now working on very exciting features for version 2.0, that will mainly
+concern client side programming using Eliom.
+
+All our software is open source.
+			
+========================================================================
+4) Blahcaml 2.0 and Camlhighlight 1.0
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/8caa1e3c14e3bec9#>
+------------------------------------------------------------------------
+** Dario Teixeira announced:
+
+Blahcaml and Camlhighlight are both libraries aimed at applications developed
+within the Ocsigen framework.
+
+Blahcaml offers partial bindings to the C++ library Blahtex [1].  To be
+precise, only the portions of Blahtex that convert between equations in TeX
+format into their MathML counterparts are supported.  Furthermore, Blahcaml
+indulges the paranoid by adding an extra layer of security that ensures the
+result produced by Blahtex is safe for inclusion in web pages.  This is done
+by validating the result against the official MathML2 DTD.  Version 2.0 of
+Blahcaml brings slight changes to the API, a migration to the latest version
+of Blahtex, and a new module offering direct access to the MathML2 DTD.
+
+Camlhighlight offers facilities for syntax-highlighting source-code in most
+popular languages.  The resulting highlight can be output as an XHTML.M value,
+ready for inclusion in web applications that use the Ocsigen framework.
+Presently, Camlhighlight does its work by interfacing with the C++ library
+Highlight [2].  Version 1.0 is the first public stable release.
+
+Both projects are licensed under the GPL v2.  Their homepages at the Ocaml
+Forge include downloading and building instructions, and allow you to browse
+the APIs online:
+
+<http://blahcaml.forge.ocamlcore.org/>
+<http://camlhighlight.forge.ocamlcore.org/>
+
+Best regards,
+Dario Teixeira
+
+
+Acknowledgements:
+
+ - The Ocsigen team, obviously, for all their work on Ocsigen.
+ - Gerd Stolpmann for his assistance with some of the tricky aspects of PXP.
+  (PXP being the only Ocaml XML-handling library I found that could handle
+  the entire MathML2 DTD).
+ - Gilles Van Assche and André Simon for Blahtex and Highlight, respectively.
+ - Ocamlcore for hosting the projects.
+
+References:
+
+[1] <http://gva.noekeon.org/blahtexml/>
+[2] <http://www.andre-simon.de/doku/highlight/en/highlight.html>
+			
+========================================================================
+5) OCaml-Java project: 1.4 release
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/b077fad32b5482ad#>
+------------------------------------------------------------------------
+** Xavier Clerc announced:
+
+This post announces the 1.4 release of the OCaml-Java project.
+The goal of the OCaml-Java project is to allow seamless integration of OCaml and Java.
+
+Home page: <http://ocamljava.x9c.fr>
+Download page: <http://ocamljava.x9c.fr/downloads.html>
+Toplevel applet: <http://ocamljava.x9c.fr/toplevel/toplevel.html>
+
+Main changes since 1.3:
+ - upgrade from OCaml version 3.11.1 to 3.11.2
+ - improved (and simplified) code generator, with correct stack maps
+ - various code and documentation fixes
+ - improved build scripts
+ - bug #28 (Barista): support for ocamlfind
+ - bug #46 (Barista): invalid padding size for switch instructions
+ - bug #47 (Barista): invalid handling of '@LineNumber'
+ - bug #48 (Cadmium): error in 'mod_float' primitive implementation
+ - bug #50 (Nickel): GUI version ignores parameters
+			
+========================================================================
+6) Other Caml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocamlcore.org/>.
+
+Quel effet ça fait:
+  <http://misterpingouin.blogspot.com/2010/02/quel-effet-ca-fait.html>
+
+FOSDEM 2010:
+  <http://le-gall.net/sylvain+violaine/blog/index.php?2010/02/04/54-fosdem-2010>
+
+OCaml Unix course, the threads chapter is translated:
+  <http://forge.ocamlcore.org/forum/forum.php?forum_id=531>
+
+On the awesomeness of ocaml-bitstring:
+  <http://rwmj.wordpress.com/2010/02/03/on-the-awesomeness-of-ocaml-bitstring/>
+
+ExtLib OptParse (part 2):
+  <https://mancoosi.org/~abate/extlib-optparse-part-2>
+
+Biniou:
+  <https://forge.ocamlcore.org/projects/biniou/>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

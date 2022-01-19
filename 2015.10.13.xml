@@ -1,0 +1,562 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2015.10.13</cwn_date>
+    <cwn_prev>2015.10.06</cwn_prev>
+    <cwn_next>2015.10.27</cwn_next>
+    <cwn_date_text>October 06 to 13, 2015</cwn_date_text>
+    <cwn_extra_head>As I will be offline next week, the next CWN will be on the 27th of October.</cwn_extra_head>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>OCaml projects with tests</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-10/msg00038.html</cwn_url>
+      <cwn_who>Sébastien Hinderer asked</cwn_who>
+      <cwn_what>
+Recently the topic was discussed here and several testing frameworks were
+mentionned.
+
+I am wondering whether there are well established projects that actually
+use tests (unit tests and others) and that could be used as sources of
+inspiration?
+      </cwn_what>
+      <cwn_who>Francois Berenger replied</cwn_who>
+      <cwn_what>
+In batteries there are:
+
+https://raw.githubusercontent.com/ocaml-batteries-team/batteries-included/master/src/batList.mlv
+
+Look for $T in the file for unit tests.
+Or $Q for tests a la Haskell quickcheck.
+      </cwn_what>
+      <cwn_who>Gabriel Scherer also replied</cwn_who>
+      <cwn_what>
+Batteries uses a lot of tests, and we couldn't live without them.
+
+In particularly, they make maintainer's life much easier (it's easier to make
+the decision to integrate code when, besides being nice to read, it is also
+well-tested), and that is key in a project with many small contributions, so a
+lot of integration work. It is mandatory for new functions proposed for
+inclusions to come with unit tests, which means that new code has more tests
+than old code (inherited from Extlib, with no tests). I would say that it is
+the most noticeable impact of tests: smoothing the code contribution and
+reviewing workflow.
+
+I suspect the benefits of testing may be easier to reap for library-style
+projects (adapted to unit-testing) rather than final-executable-project (with
+more complex specification and more integration testing to do). But, in any
+case, all projects have a library part.
+
+# Batteries' example: qtest/iTeml
+
+A representative of "new code" would be batSubString.ml for example:
+https://github.com/ocaml-batteries-team/batteries-included/blob/master/src/batSubstring.ml
+
+As you can see, the tests are placed inside the modules, close to the
+implementation. The tool we use for that was initially created by Ilmari
+Heikkinen (for his Prelude.ml), lived inside Batteries for a long time, and
+was extracted as a separate project by Vincent Hugo, it is now called iTeML
+and found at
+https://github.com/vincent-hugot/iTeML
+
+(It is completely independent from Batteries and everyone is encouraged to
+have a look.)
+
+The particular way it works is by extracting tests found in comments with a
+special marking (typically "(*$T", other modifiers also exist). Vincent Hugo
+wrote an excellent documentation:
+https://github.com/vincent-hugot/iTeML#introduction
+
+# Test extraction tools, and testing libraries
+
+Other projects have their own preprocessing tools to manipulate tests. I don't
+have exhaustive knowledge of what is out there, but there is Jun Furuse's
+ppx_test (on top of the oUnit library). there is pa_ounit (
+https://github.com/janestreet/pa_ounit ), and Janestreet also has pa_test and
+a PPX successor (also named ppx-test, I would guess). pa_ounit is the best
+documented of these projects, as it describes the execution model.
+
+I strongly believe that "text extraction" preprocessors and "
+{random,unit,mock,...}testing libraries" are orthogonal components that should
+be developped separately and combined together by user.
+In practice Batteries uses oUnit for unit testing, and the "quickcheck"
+library embedded inside qtest/iteml for random testing, but I've also had good
+experiences with Xavier Clerc's Kaputt on other projects (
+http://kaputt.x9c.fr/ ).
+
+In practice I would say that, in my experience, for unit testing, the
+unit-testing library doesn't actually matter that much: you need some kind of
+"test : bool -&gt; ..." function and decent text reporting capabilities (telling
+you which tests failed). Simple boolean tests already provide a lot of
+benefits to library projects, and the other bells and whistles (support for
+automatically printing values, HTML reporting and what not) may help in
+particular scenarios but there is a diminishing return much. (Random-testing
+is harder to do really well and you will be more heavily dependent on the
+library used.)
+
+# Test extraction actually matters
+
+I think that the ability to write *inline* tests, which I initially thought to
+be mere syntactic sugar, is actually really important. They help giving the
+programmer the (right) idea that the function *comes with* its test, and
+improves locality of code modification. When refactoring a function or
+whatever: you may already be annoyed by having to modify the .mli separately,
+don't have tests cost you a third file to update. Plus reading the .mli in
+isolation brings some value, tests not so much.
+
+There are two broad families of "test extraction techniques":
+[internal]: compile the module with or without tests; during test run, just
+load the compiled-with-tests module
+[external]: put the extracted tests in a separate file; the module is always
+compiled without tests, and the separate test part is compiled for test runs
+
+qtest/iTeML is currently using the external model. On paper the internal one
+is more powerful, as it allows you to test internal functions not exported
+through the interface (external tests have to respect the abstraction
+boundary), and facilitates testing functors -- I would assume that some of the
+other extraction tools use the internal model. We have discussed moving iTeML
+to the internal model in the past, but nobody has committed to doing the work
+for now, and I think the benefits for Batteries specifically wouldn't actually
+be that big -- but it may be specific to the fact that the project is *a*
+library, and thus has much more exposed than private functions.
+(The internal model also raises the not-quite-trivial issues of either
+interleaving test-registration side-effects throughout your (otherwise pure,
+right?) code, urgh, or trying to have a value-driven approach which implies
+non-trivial data-passing plumbing.)
+      </cwn_what>
+      <cwn_who>Jeremie Dimino then added</cwn_who>
+      <cwn_what>
+&gt; Other projects have their own preprocessing tools to manipulate tests. I
+&gt; don't have exhaustive knowledge of what is out there, but there is Jun
+&gt; Furuse's ppx_test (on top of the oUnit library). there is pa_ounit (
+&gt; https://github.com/janestreet/pa_ounit ), and Janestreet also has pa_test
+&gt; and a PPX successor (also named ppx-test, I would guess). pa_ounit is the
+&gt; best documented of these projects, as it describes the execution model.
+
+For the pointers:
+
+- the ppx replacement of pa_ounit is ppx_inline_test [1]. We dropped
+the "ounit" as it's not using ounit at all
+- the ppx replacement of pa_test is ppx_assert [2]. ppx_test was
+already taked and was a bit too generic anyway
+
+ [1] https://github.com/janestreet/ppx_inline_test
+ [2] https://github.com/janestreet/ppx_assert
+      </cwn_what>
+      <cwn_who>Hendrik Boom also answered the original question</cwn_who>
+      <cwn_what>
+There's the "awe" compiler for Algol W.  It's written in OCaml, and is 
+available as a Debian package, so it should be possible to get the 
+source package.  I don't know where the upstrream source is right now, 
+as I haven't been able to reach the author in years.
+      </cwn_what>
+      <cwn_who>Leonid Rozenberg also answered</cwn_who>
+      <cwn_what>
+I've just written about it here
+http://www.hammerlab.org/2015/09/30/testing-oml/
+I think my review of the testing frameworks might be a bit dated, since I made
+the decision
+pre "ppx-testing" revolution ala Jane Street. But I've used Xavier Clerc's
+Kaputt library extensively.
+
+This is the link to the library https://github.com/hammerlab/oml
+      </cwn_what>
+      <cwn_who>Thomas Gazagnaire also answered</cwn_who>
+      <cwn_what>
+If you like functors, you can also check:
+
+https://github.com/mirage/irmin/blob/master/lib_test/test_store.ml
+      </cwn_what>
+      <cwn_who>Richard Jones also answered</cwn_who>
+      <cwn_what>
+libguestfs tools have extensive tests.
+
+We have a few unit tests, using OUnit2.  An example:
+
+https://github.com/libguestfs/libguestfs/blob/master/v2v/v2v_unit_tests.ml
+
+But the vast majority of the upstream tests use automake's (terrible)
+test framework, eg:
+
+https://github.com/libguestfs/libguestfs/blob/master/v2v/Makefile.am#L239
+https://github.com/libguestfs/libguestfs/blob/master/builder/Makefile.am#L224
+https://github.com/libguestfs/libguestfs/blob/master/resize/Makefile.am#L130
+
+We also have external tests that are non-free so can't be distributed
+with the upstream sources:
+
+http://git.annexia.org/?p=virt-v2v-test-cases-nonfree.git;a=summary
+
+We also have a public CI system:
+
+https://ci.centos.org/view/libguestfs/
+
+And finally, we use some proprietary software called Polarion to track
+a massive set of tests (many run manually) that control what gets into RHEL.
+Those tests aren't published at all.
+      </cwn_what>
+      <cwn_who>Richard Jones then added</cwn_who>
+      <cwn_what>
+How could I forget the deployment system, also written in OCaml ?!
+
+When a release is made, I use 'goaljobs':
+
+  http://git.annexia.org/?p=goaljobs.git;a=summary
+
+to ensure the tarball gets built, tested, uploaded to the website and
+built in Fedora.  The goals for this are here:
+
+  http://git.annexia.org/?p=goals.git;a=blob;f=libguestfs_upstream.ml
+  http://git.annexia.org/?p=goals.git;a=blob;f=libguestfs_fedora.ml
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Broken 32 bit cross-compiler on 64bit host</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-10/msg00044.html</cwn_url>
+      <cwn_who>Stefan Hellermann said</cwn_who>
+      <cwn_what>
+(Editor note: See the archive link above for the attached files.)
+        
+currently I'm trying to add OCaml to the openwrt router distribution [1] [2].
+This would mean you could run your favorite OCaml applications on your router.
+I would like to run unison [3] on my router.
+
+So I first build native OCaml 4.02.3 on my x86_64 linux host, and then build a
+OCaml cross-compiler for the 32 bit target, e.g. mips-openwrt-linux. Building
+OCaml went fine after adding a small patch to manually set Endianness and
+Bitness in configure script, please have a look at attached patch.
+
+host OCaml configure line:
+./configure -prefix somepath -no-pthread -no-debugger -no-ocamldoc -no-graph -
+no-cfi
+cross OCaml configure line:
+./configure -prefix someotherpath -target-bindir /usr/bin -host
+x86_64-unknown-linux-gnu -target mips-openwrt-linux-musl -cc
+"mips-openwrt-linux-musl-gcc some target cflags" -as
+"mips-openwrt-linux-musl-as some target as flags" -no-pthread -no-shared-libs -
+no-debugger -no-ocamldoc -no-graph -no-cfi -big-endian
+
+Now the bug: When running OCaml applicantions (build with -custom), they crash
+on startup on the target:
+
+Fatal error: exception Failure("input_value: integer too large")
+
+This is similar to OCaml Bug #5977 [4]
+
+There is a workaround:
+Build the host OCaml as 32 bit OCaml, then build the cross compiler with this
+32 bit host OCaml. The resulting binaries work on the target.
+This is what I did for openwrt [2], but it fails on 64 bit hosts where no 32
+bit development tools are installed. It only catches the case when building on
+x86_64 hosts, it will break when building on say powerpc64 or 64 bit arm. It's
+also problematic for openwrt, as only the cross compiler but not the host
+tools are recompiled if the target arch changes, e.g. from 64 bit arm to 32
+bit mips.
+
+Now my questions:
+- Is building a 32 bit cross compiler on a 64 bit host supposed to work?
+- Is my patch to configure ok, or is there a better way to configure the
+cross-compiler?
+- Should I run some test suite on the target and post the results?
+
+[WARNING] Something went wrong while checking native division and modulus
+please report it at http://caml.inria.fr/mantis/
+Do I have to care?
+I tried defining and undefining NONSTANDARD_DIV_MOD in m.h. without any
+visible difference. Running the test-prog divmod.c on a few targets always
+returns 0.
+
+[1] https://openwrt.org/
+[2] https://patchwork.ozlabs.org/patch/518982/
+[3] https://www.cis.upenn.edu/~bcpierce/unison/
+[4] http://caml.inria.fr/mantis/view.php?id=5977
+      </cwn_what>
+      <cwn_who>Nicolas Ojeda Bar replied and Gerd Stolpmann said</cwn_who>
+      <cwn_what>
+&gt; I believe it is currently impossible to build a working cross-compiler
+&gt; between different word sizes, as the compiler does not differentiate
+&gt; between the host and the target's native integers.
+
+Correct, it's unsupported. Unfortunately, there is no check in the
+configure script whether the word sizes match (it only checks for the
+OCaml version).
+
+It's not only the value marshaller that can fail, but I've also seen
+illegal assembler code. The core of the problem is that the generic parts
+of the native-code backend use nativeint for integer calculations, and the
+code emitters for 32 bit platforms then just assume nativeint has only 32
+bits. I guess the solution would be to introduce a new integer type
+targetint into the compiler that is either int32 or int64, depending on
+what the cross-compile target is.
+      </cwn_what>
+      <cwn_who>Stefan Hellermann then said and Adrien Nader replied</cwn_who>
+      <cwn_what>
+&gt; So I think I have to build a 32 bit and a 64 bit host OCaml and select the
+&gt; right one when building a cross-compiler.
+
+I faced a similar issue with luajit recently. Except that for luajit it
+is completely hopeless. Absolutely completely hopeless.
+
+I would expect some things to have already been done for luajit in
+openwrt and would advise you to check there. I forgot to look at it
+myself.
+
+What I'm currently doing is to setup a small private toolchain based on
+a static musl for the libc, libfirm/cparser for the C compiler, pcc-libs
+for the C runtime and binutils (cparser is a single multi-target binary
+that knows how to invoke binutils properly across archs). Obviously I'm
+not entirely happy with that but in practice it doesn't need much more
+CPU time and it should just work (I haven't packaged it fully yet but I
+can't think of possible issues there).
+
+&gt; I sent a patch series which changes the way the configure script checks for
+&gt; pointer sizes and endianess. Is this okay? It should work for all native
+&gt; and cross compilation cases. Can you test and comment on them? These are
+&gt; the only patches I need against OCaml to make it usable on openwrt.
+
+I haven't checked your pull request in details but the approach
+(complemented with XL's input in particular) seemed good to me. In any
+case, I am sorry that I forgot the check about endianness or more
+probably (it's been some time already) that I thought I would be able to
+solve the incompatibility itself quite quickly. Thanks for fixing that
+and adding one. :) 
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Strange Gadt error</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-10/msg00049.html</cwn_url>
+      <cwn_who>Anders Peter Fugmann asked and Jacques Garrigue replied</cwn_who>
+      <cwn_what>
+&gt; I the following example (boiled down from a real use case):
+&gt; 
+&gt; type _ elem =
+&gt;  | Int: int elem
+&gt; 
+&gt; let rec incr: type a. a elem -&gt; a -&gt; int = function
+&gt;  | Int -&gt; fun i -&gt; add i 1
+&gt; and add n m = n + m
+&gt; 
+&gt; I get the error (Ocaml 4.02.3):
+&gt; File "example.ml", line 5, characters 24-25:
+&gt; Error: This expression has type int but an expression was expected of type
+&gt;         int
+&gt;       This instance of int is ambiguous:
+&gt;       it would escape the scope of its equation
+
+Interesting error.
+I see your confusion in seeing an error on ‘i’.
+
+It is not completely wrong as you can indeed fix it by adding a local type
+annotation changing the type of ‘i’ from ‘a’ to ‘int’.
+
+&gt; I can get rid of the error by annotating the type of i in line 5 like this:
+&gt; 
+&gt; | Int -&gt; fun (i : int) -&gt; add i 1
+&gt;                   ^^^
+
+However, the real cause is not so much ‘i', whose type is indeed known (but as
+`a’, not `int’), but rather the absence of type annotation on ‘add'.
+Changing add in the following way fixes the problem:
+
+  and add : int -&gt; int -&gt; int = fun n m -&gt; n + m
+
+&gt; Or move add above incr like this:
+&gt; 
+&gt; let rec add n m = n + m
+&gt; and incr: type a. a elem -&gt; a -&gt; int = function
+&gt;  | Int -&gt; fun i -&gt; add i 1
+
+This change of order only works by chance. If you use ocaml -principal, you still get
+a type error here with this code.
+
+&gt; Is there an explanation to why I need to give the type of i in this case? As
+&gt; 'i' _must_ be an int (from the type annotation of incr), annotating the
+&gt; function seems ambiguous.
+
+
+If you look carefully, you will see that the annotation says that ‘i’ has type
+‘a’, not ‘int’. In the local scope, those two types are equivalent, but once
+you leave if they are different. Since we do not know yet the type of add,
+making a choice between the two seems arbitrary, hence the error message.
+
+The only conclusive source on how this works is my paper with Didier Rémy:
+	Ambivalent types for principal type inference with GADTs
+	http://pauillac.inria.fr/~remy/gadts/
+
+In a nutshell, ambiguity occurs when a type obtained by unifying two
+equivalent (but different) types is leaked out of their equivalence scope.
+What happens here is a bit complicated. First the typer tries to give the type
+[a -&gt; int -&gt; int] to `add', avoiding ambivalence. However, `a’ is not
+allowed to leak out of the definition of `incr’, so it gets expanded into
+`int’. And this is that expansion which triggers the ambiguity error. (An
+interesting remark is that, since add cannot have type [a -&gt; int -&gt; int]
+anyway, there seems to be no ambiguity here. However, there is a scope between
+the definition of `incr’ and the pattern-matching on `Int’ where such
+ambiguity might exists.) By adding a local annotation on `i’, the problem is
+avoided, because then we are assuming that `add’ has type [int -&gt; int -&gt;
+int] from the beginning (the ambivalence on `i’ does not leak). Same thing
+with adding an annotation on `add’.
+
+As specific remark on what happens when you change the order
+(without -principal): Since add is typed first, and receives type [int -&gt;
+int -&gt; int], this type is handled as though it was explicitly known when
+entering the gadt scope. This is done for the type of all external
+identifiers, except for their non-generalized type variables. As a result, you
+get the same behavior as adding a type annotation on add.
+
+Thank you for this very demonstrative example.
+      </cwn_what>
+      <cwn_who>Anders Peter Fugmann then replied and Jacques Garrigue said</cwn_who>
+      <cwn_what>
+&gt; Thanks for detailed explanation. I think I understand now why the error
+&gt; occurs and more specifically how to fix it in a consistent way.
+&gt; 
+&gt; (However, changing 'add' to be
+&gt; 'add': int -&gt; int -&gt; int = fun n m-&gt; n + m
+&gt; does not seem to help in my case)
+
+Interesting.
+This appears to be a rare case where it types with -principal, but not without it.
+This is bug. I shall investigate it.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Boot the OCaml system on a bare raspberry pi</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-10/msg00068.html</cwn_url>
+      <cwn_who>Daniel Bünzli announced</cwn_who>
+      <cwn_what>
+I made a setup to boot a raspberry pi 2 directly into the OCaml system. The
+focus was to use the minimal amount of assembly and C to be able to call
+`caml_startup` and let the rest up to you — there's an example Rpi module for
+the boring bits if you are lazy. The overall boot code is very small for now
+but some more may be needed in the future to enable other hardware features;
+mmu, interrupts, multicore etc. or things I overlook — all this was done with
+a high degree of naïvety…
+
+I hope this can make it an easy and reproducible starting point for others to
+have some bare metal programming fun in their preferred system language. This
+is available here:
+
+  http://erratique.ch/software/rpi-boot-ocaml
+
+Follow the instructions in the linked README, they should lead you to build
+a kernel displaying the OCaml logo on the connected display and communicating
+boring dot poetry over the serial connection.
+
+The setup builds a bare ARMv7 OCaml cross compiler inside an opam switch by
+following the tracks of the opam-android project [1]. Now to scale and and
+make it a pleasant programming experience we "only" need multiarch support in
+opam switches and fix the package's build systems and merlin to understand
+these environments.
+
+The project also has a minimal libc with only what's needed to run the OCaml
+system on a bare machine. It will be eventually forked away and distributed as
+a separate package (n.b. it seems to currently have a few quirks with the
+snprintf implementation I stole from somewhere else).
+
+Best,
+
+Daniel
+
+P.S. Prior art: https://github.com/mrvn/ocaml-rpi
+
+[1] https://github.com/whitequark/opam-android
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Oasis: install additional files with ocamlfind</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-10/msg00069.html</cwn_url>
+      <cwn_who>Evgenii Lepikhin asked</cwn_who>
+      <cwn_what>
+I'm looking for a way to install additional files into the library's
+directory with Oasis (just like one more argument for "ocamlfind
+install"). Specifically, I need to install *.js files of my library for
+use with js_of_ocaml.
+      </cwn_what>
+      <cwn_who>ygrek suggested</cwn_who>
+      <cwn_what>
+https://forge.ocamlcore.org/tracker/index.php?func=detail&amp;aid=802&amp;group_id=54&amp;atid=294 :/
+      </cwn_what>
+      <cwn_who>Gerd Stolpmann then said</cwn_who>
+      <cwn_what>
+If you are adventurous, you can try out the new omake backend for
+oasis: 
+
+https://github.com/gerdstolpmann/oasis/tree/gs-omake
+
+See README-omake.txt in this directory. It supports an omake variable
+EXTRA_INSTALL_FILES for putting extra files into the findlib directory.
+
+I wrote the omake plugin especially because customization is much easier
+with omake. The plugin is not yet released, though, but any testing is
+welcome.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Cmdliner 0.9.8</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-10/msg00078.html</cwn_url>
+      <cwn_who>Daniel Bünzli announced</cwn_who>
+      <cwn_what>
+It's my pleasure to announce the release of cmdliner 0.9.8. The main
+highlights of this release are:
+
+* Bring back support for OCaml 3.12.0
+* Support for pre-formatted paragraphs in man pages. Thanks to Guillaume Bury 
+  for suggesting and help.
+
+* Support for environment variables and their documentation. If an argument is absent 
+  from the command line, its value can be read and parsed from an environment variable.
+
+These additions may break existing programs but they likely won't, see the
+release notes for details. There are a few other minor things, the full
+release notes are available here:
+
+https://github.com/dbuenzli/cmdliner/blob/546baa1765ec4fc3506361a61600034798cd96c6/CHANGES.md#v098-2015-10-11-cambridge-uk
+
+Cmdliner is an OCaml module for the declarative definition of command line interfaces.
+Home page: http://erratique.ch/software/cmdliner
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>detecting 32/64 bit from C</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-10/msg00089.html</cwn_url>
+      <cwn_who>Markus Weißmann asked and Adrien Nader replied</cwn_who>
+      <cwn_what>
+&gt; is there some "official" way to detect -- from C -- if OCaml was
+&gt; compiled for 32 or 64 bit?
+&gt; I'd love to have something like a #define that either says 32 or 64
+&gt; bit;
+&gt; I need to know at compile time if the OCaml system uses 31 or 63 bit
+&gt; sized integers (in the C code).
+&gt; I don't care what the underlying OS or hardware does, but just what
+&gt; OCaml is using.
+&gt; 
+&gt; Btw.: Is [Sys.word_size = 32] for 32 bit OCaml compilers on 64 bit
+&gt; machines?
+
+I believe config.h has the info you want:
+  #define ARCH_SIXTYFOUR // for instance
+
+Note how it's installed under $(libdir) and not $(includedir): its
+content is set at configure-time and depends on the architecture that
+ocaml has been configured for.
+      </cwn_what>
+      <cwn_who>Gerd Stolpmann added</cwn_who>
+      <cwn_what>
+config.h should be available in $stdlib/caml. It is included from the
+other header files.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocaml.org/&gt;.
+
+Mindy Preston: OCaml Workshop and Strange Loop Talks
+  &lt;https://www.somerandomidiot.com/blog/2015/10/07/ocaml-workshop-and-strange-loop-talks/&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

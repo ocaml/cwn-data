@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+	<cwn_head>
+		<cwn_date>2007.07.03</cwn_date>
+		<cwn_prev>2007.06.26</cwn_prev>
+		<cwn_next>2007.07.10</cwn_next>
+		<cwn_date_text>June 26 to July 03, 2007</cwn_date_text>
+	</cwn_head>
+	<cwn_body>
+		<cwn_entry>
+			<cwn_title>The Implicit Accumulator: a design pattern using optional arguments</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/5505600e34d72409/258b9c92560b3670#258b9c92560b3670</cwn_url>
+			<cwn_who>Jon Harrop said, spawning a huge thread</cwn_who>
+			<cwn_what>
+I can't find the thread where we were talking about design patterns recently 
+but I'd like to note a design pattern that works nicely in OCaml. I'll call 
+it "The Implicit Accumulator". 
+ML programmers often use nested auxiliary functions or separate functions to 
+handle base cases. For example, writing rev in terms of rev_append: 
+# let rec rev_append l1 l2 = match l1 with 
+    | [] -&gt; l2 
+    | a :: l -&gt; rev_append l (a :: l2);; 
+val rev_append : 'a list -&gt; 'a list -&gt; 'a list = &lt;fun&gt; 
+# let rev l = rev_append l [];; 
+val rev : 'a list -&gt; 'a list = &lt;fun&gt; 
+Provided performance is unimportant, you can make the accumulator implicit in 
+OCaml by specifying the default value in an optional argument instead of 
+having a separate function: 
+# let rec rev ?(back=[]) = function 
+    | [] -&gt; back 
+    | h::t -&gt; rev ~back:(h::back) t;; 
+val rev : ?back:'a list -&gt; 'a list -&gt; 'a list = &lt;fun&gt; 
+When you don't want the auxiliary (rev_append) function, I think this style 
+results in shorter and clearer code. I used it in the "search" function of my 
+Sudoku solver, for example: 
+let rec search ?(x=0) ?(y=0) f accu = match x, y with 
+    9, y -&gt; search ~x:0 ~y:(y+1) f accu (* Next row *) 
+  | 0, 9 -&gt; f accu                      (* Found a solution *) 
+  | x, y -&gt; 
+      if m.(y).[x] &lt;&gt; '0' then search ~x:(x+1) ~y f accu else 
+        fold (fun accu n -&gt; 
+                let n = Char.chr (n + 48) in 
+                if invalid x y n then accu else 
+                  (m.(y).[x] &lt;- n; 
+                   let accu = search ~x:(x+1) ~y f accu in 
+                   m.(y).[x] &lt;- '0'; 
+                   accu)) accu 1 10 
+and it crops up quite a lot in addition to all of the "conventional" uses of 
+optional arguments.
+			</cwn_what>
+			<cwn_who>Quôc Peyrot then said (there are many replies which you may read online)</cwn_who>
+			<cwn_what>
+It's funny that you speak about this, because I recently (few days   
+ago) used 
+a pattern similar to yours, but to actually improve performances. 
+I had something like that (which is quite different than my actual   
+code, but 
+the idea is the same): 
+let encrypt str = 
+   let len = String.length str in 
+   let encrypted = String.create len in 
+   (* ... *) 
+   encrypted 
+(*...*) 
+for i = 0 to 10000000 do 
+   let encrypted = encrypt str in 
+   (* do something on the result *) 
+done 
+Which is slow due to the string allocation happening each time we   
+call "encrypt" 
+So I rewrote it like that: 
+let encrypt ?encrypted str = 
+   let len = String.length str in 
+   let result = match encrypted with 
+     | None -&gt; String.create len 
+     | Some s -&gt; s 
+   in 
+   (* ... *) 
+   result 
+(* ... *) 
+let encrypted = String.create (String.length str) in 
+for i = 0 to 1000000000 do 
+   let encrypted = encrypt ~encrypted str in 
+   (* ... *) 
+done 
+Which gave me more than a 2x speedup while still being able to call a   
+simple: 
+let encrypted = encrypt str 
+during normal usage 
+I was quite happy with this solution, but maybe there is something   
+more elegant to do? 
+(I'm still in the process of learning good optimization patterns in   
+ocaml which preserve readability)
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>An OCaml toplevel IRC bot</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/c2efb7fbbbc57095/edf94fe14926b0e5#edf94fe14926b0e5</cwn_url>
+			<cwn_who>Richard Jones announced</cwn_who>
+			<cwn_what>
+Appearing from time to time on #ocaml on FreeNode. 
+http://annexia.org/tmp/xavierbot-0.1.tar.gz
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>pattern guards</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/b5fceca4e37bbed6/b0ec5324180bfeba#b0ec5324180bfeba</cwn_url>
+			<cwn_who>Jeremy Yallop announced</cwn_who>
+			<cwn_what>
+I'm pleased to announce the initial release of `patterns', an OCaml 
+extension providing general-purposes additions to pattern matching. 
+This release includes a single feature: "pattern guards"; others will 
+be made available in the near future. 
+You can download patterns from 
+    http://code.google.com/p/ocaml-patterns/ 
+Pattern guards generalize "when"-guards to allow arbitrary pattern 
+matching with binding.  After each pattern in a match you can write 
+one or more binding phrases as follows: 
+   match e with 
+     | patt1 with p1 = e1 
+             ... 
+             with pn = en 
+          -&gt; e 
+     | patt2 ... 
+The expressions e1 ... en are evaluated in turn and matched with 
+the corresponding patterns p1 ... pn until either a match fails (in 
+which case matching proceeds with patt2 etc.) or all matches 
+succeed.  Any variables bound in p1 ... pn are in scope within 
+subsequent guards and within e. 
+For example, given a function 
+    val lookup : 'a -&gt; ('a * 'b) list -&gt; 'b option 
+you might write the following 
+    let f env = function 
+     | Var x 
+          with Some v = lookup x env -&gt; ... v ... 
+instead of the less elegant and less efficient 
+    let f env = function 
+     | Var x 
+          when mem_assoc x env -&gt; ... assoc x env ... 
+Pattern guards and regular guards can be freely intermixed; for 
+example, you can write 
+   match e with 
+     | patt when c1 
+            with patt1 = e1 
+            when c2 
+            with patt2 = e2 -&gt; e 
+     | ... 
+Pattern guards were proposed (for Haskell) in 
+    Martin Erwig and Simon Peyton Jones 
+    Pattern Guards and Transformational Patterns 
+    Haskell Workshop, 2000 
+See also: http://research.microsoft.com/~simonpj/Haskell/guards.html
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>Adding another "let ... in"-like construct for fontification/indentation</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/a767d66c1721a432/19eb32a9dbb96f11#19eb32a9dbb96f11</cwn_url>
+			<cwn_who>Denis Bueno asked and Philippe Wang answered</cwn_who>
+			<cwn_what>
+&gt; In tuareg-mode, is there a simple way to add support for indentation 
+&gt; for a new syntactic construct that behaves exactly like "let ... in 
+&gt; ..."?  I'd like "def ... in ..." to behave the same way.  I'm thinking 
+&gt; of some code I can stuff in my .emacs, hopefuly, as opposed to a 
+&gt; modification of tuareg.el. 
+&gt; I'd like to be able to write: 
+&gt;    let foo a b = a + b in 
+&gt;    def hi(x) = print_int x; 0 in 
+&gt;    let bar x = x in 
+&gt;      &lt;some body where foo and hi are in scope&gt; 
+&gt; i.e. I'd like to interleave let .. in ... and def ... in ..., and have 
+&gt; them cooperate. 
+&gt; I looked around tuareg.el and found a bunch of places where "let" is 
+&gt; mentioned in a regexp, and even found `tuareg-make-find-kwop-regexp', 
+&gt; whose doc string says "Make a custom indentation regexp".  That doc 
+&gt; string seems like it's what I want, but that function has no side 
+&gt; effects, so clearly it's not the whole story. 
+&gt; What I'm eventually shooting for is a tuareg mode that "knows" about 
+&gt; Jocaml syntax, since I'm fiddling around with that for the moment. 
+&gt; There are more new pieces of syntax on Jocaml (new keywords "spawn" 
+&gt; and "reply to") which seem pretty simple to support, but I haven't 
+&gt; thought about them very much. 
+&gt; Thanks in advance. 
+
+
+Hi, 
+I sent the following text last week but, I don't know why, it got lost... 
+Well, I played a little bit with tuareg, to try to adapt it to JoCaml. 
+The keywords are well colored (well, I think they are), but the 
+indentation is not finished (well, let's say it : it's wrong). 
+You can get what I have done if ever you are interested : 
+http://philippewang.info/cs/misc/juareg-mode-1.46.2.tar.gz 
+(there is in particular a bug : a function call finds nil... why why why 
+is dynamic typing so mean with me...) 
+Well, I've spent only a few minutes on it, plus a few hours trying to 
+catch bugs, most of which I haven't caught. 
+I have no idea if someone else is working on it, I just wanted to "play" 
+with elisp... 
+But I don't have time to continue right now, that's the reason why I 
+give you the sources. 
+Cheers, 
+Philippe Wang 
+ mail[at]philippewang.info 
+PS : 
+if ever you want to compare tuareg sources with juareg sources, I 
+suggest you apply : 
+for i in * ; sed -i -e 's/juareg/tuareg/g' -e 's/jocaml/ocaml/g' $i ; done 
+on the sources first. 
+The advantage in naming it juareg instead of tuareg is that it can be 
+used without interfering with tuareg.
+			</cwn_what>
+		</cwn_entry>
+	</cwn_body>
+</cwn>

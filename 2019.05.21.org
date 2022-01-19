@@ -1,0 +1,723 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[http://alan.petitepomme.net/cwn/2019.05.14.html][Previous Week]] [[http://alan.petitepomme.net/cwn/index.html][Up]] [[http://alan.petitepomme.net/cwn/2019.05.28.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of May 14 to 21, 2019.
+
+#+TOC: headlines 1
+
+
+* override 0.1.0 (initial release)
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/ann-override-0-1-0-initial-release/3797/1
+
+** Thierry Martinez announced
+
+
+I am happy to announce the first release of override (v0.1.0)!
+
+Override is a PPX extension for overriding modules defined in other compiled interface files.
+
+The library is available through opam: ~opam install override~
+
+The project is hosted on Inria Gitlab:
+https://gitlab.inria.fr/tmartine/override
+
+See ~README.md~ for usage and examples.
+
+This library generalizes ~ppx_import~ by allowing a whole module to be imported with all its types, possibly with annotations.  In particular, importing a whole module can be convenient to apply
+~ppx_deriving~ to a large family of mutually inductive data types. Types can be systematically annotated, substituted, renamed, or removed.  The library can be seen as a mechanization of @gasche's post on Gagallium blog:
+http://gallium.inria.fr/blog/overriding-submodules/
+
+Happy hacking.
+      
+
+
+
+* Narrowing variant types alternatives
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/narrowing-variant-types-alternatives/3806/1
+
+** Alejandro Lopez asked
+
+
+Consider the following type representing types in a programming language:
+#+begin_src ocaml
+type t =
+  | Name of string
+  | Record of (string * t) list
+  | Array of (t * int)
+#+end_src
+
+Is there a way to limit the type ~t~ in ~Array of (t * int)~ to be only a ~Name~ or ~Array~? i.e. I would like the following to cause a compile error:
+#+begin_src ocaml
+let _ = Array (Record []) in
+(* ... *)
+#+end_src
+so that ~Array~ types can only be built from ~Name~ or ~Array~ constructors. Currently I find myself with a few special conditions during runtime that cannot possibly happen but that I need to check for exhaustiveness, because I don't know how to encode a more strict representation.
+
+I hope I explained myself, I'm a beginner to the language. Thanks.
+      
+
+** Ivan Gotovchits replied
+
+
+Yes, you can use GADT exactly for this purpose
+
+#+begin_src ocaml
+type scalar = Scalar
+type vector = Vector
+type _ t =
+  | Name : string -> scalar t
+  | Record : string * _ t -> vector t
+  | Array : scalar t * int -> scalar t
+#+end_src
+
+Probably, I chose the wrong names for type constraints :slight_smile:
+
+Another option would to use polymorphic variants, but this will require some restructuring of your original design. For an example, you can look into the [[https://github.com/BinaryAnalysisPlatform/bap/blob/master/lib/bap_c/bap_c_type.ml][C type system]] representation in BAP.
+      
+
+** Vladimir Keleshev also replied
+
+
+@ivg's GADT suggestion is probably the most ergonomic one, but for completeness, here are two others, an ADT one, and one using polymorphic variants (as also suggested by @ivg).
+
+#+begin_src ocaml
+module ADT = struct
+  type not_record =
+    | Name of string
+    | List of t
+    | Array of (not_record * int)
+  and t =
+    | Record of (string * t) list
+    | Not_record of not_record
+end
+
+module Polymorphic_variants = struct
+  type 'r not_record = [
+    | `Name of string
+    | `List of 'r (* any t is allowed *)
+    | `Array of 'r not_record * int
+  ]
+
+  type 'r t_open = [
+    | `Record of (string * 'r) list
+    | 'r not_record
+  ]
+
+  type t = t t_open
+
+  let _ : t = `List (`Record ["foo", `Array (`List (`Record []), 10)])
+
+  (* Does not type-check:
+  let _ : t = `List (`Record ["foo", `Array (`Record [], 10)]) *)
+end
+#+end_src
+
+The disadvantage of the ADT solution is that you need the ~Not_record~ constructor, but smart constructors could help in this case.
+
+The disadvantage of the polymorphic variant solution is that it only catches your invariant violation if the value is type-annotated.
+      
+
+** Chet Murthy then asked and Ivan Gotovchits replied
+
+
+> This is what private constructors were supposed to be for, right?
+
+Not really, they could be used as a part of a solution which is more practical than GADT.
+
+*** What's wrong with GADT?
+
+The problem with GADT is that they mix two orthogonal concepts - types and data representation (aka data types). While ADT define data representation, constraints, attached to GADT constructors, are pure types, as their only purpose is to constrain the set to which the type belongs. On one hand it is very nice, we can kill two rabbits at once, construct data and prove its correctness by construction. But this comes with a price because you have to repeat the proof every time you reconstruct your data. In other words, you can't serialize and deserialize your GADT, as the constraint itself is not serializable (because it is not data).
+
+Therefore, in real life, where you occasionally need to pass your AST around different hosts, store them in cache and files, etc, using GADT immediately becomes a nuisance. As every time when you need to read your AST from a string, you have to repeat the process of proving by construction. In other words, you need to write a typed parser, that does parsing (data processing) and typing simultaneously. This is notoriously hard and, in fact, is only possible in a small number of simple cases. E.g., it is practically¹ impossible to reconstruct an arrow type from its string representation,
+
+#+begin_src ocaml
+    type 'a app =
+      | Unit : unit app
+      | App : 'a * 'b app -> ('a -> 'b) app
+#+end_src
+
+*** Separate the concerns
+
+Therefore, a practical solution would be to separate the concerns back and use ADT for data types, and module types for types. In other words, we will hide our data representation behind an abstraction wall. And we may even use the ~private~ keyword to allow others to peek into our privates through the holes in our abstraction wall.
+
+The approach basically mimics the GADT approach, except that we move the constraints into the module type,
+
+#+begin_src ocaml
+module Types : sig =
+  type scalar
+  type vector
+  type data = private
+    | Name of string
+    | Record of (string * data) list
+    | Array of (data * int)
+
+  type 'a t = data
+  val name : string -> scalar t
+  val record : (string * _ t) list -> vector t
+  val array : scalar t -> int -> scalar t
+end = struct
+  type scalar
+  type vector
+
+  type data =
+    | Name of string
+    | Record of (string * data) list
+    | Array of (data * int)
+
+   type 'a t = data
+
+   let name x = Name x
+   let record elts = Record (elts)
+   let array elt sz = Array (elt,sz)
+end
+#+end_src
+
+Now, our invariant is protected, so that nobody outside of the module could create an incorrect tree. However, inside the module, behind the wall, we are free to do whatever we want, since the constraint is now a phantom type, the compiler will allow us to ascribe any type to any tree. Of course, it will allow us to ascribe wrong types, so it is now our responsibility to implement the type checker correctly. But now we can read our data from text and give it back the type constraint. We can even reify the type constraint into a concrete data type representation and store it with AST.
+
+In this solution we use the ~private~ keyword to expose some of our abstraction. So that a user could use a regular pattern match, however this highlights a small problem. When we turned away from GADT we lost an important feature, as beyond proving the data type is constructed correctly, GADT enables us to use this proof when we deconstruct the data.  With our plain ADT representation, which is now impossible to construct incorrectly (using the ~Types~ interface), we still have to deal with an extra case, when we do
+#+begin_src ocaml
+function Array (elt,n) -> match elt with
+  | Name s -> name s
+  | Array (elt',m) -> array elt m
+  | Record _ -> assert false
+#+end_src
+
+Since we don't have the constraints anymore, the compiler can't refute the Record branch (and indeed, an incorrect code inside of the ~Types~ module can construct such representation, so we can't blame the compiler for that.
+
+And although ~assert false~ is more or less fine here, we don't want a casual user to rely on our internal invariants (an even know about them because an invariant, that leaks the module is no longer an invariant). The reason why the invariant escaped is because we exposed our internal representation, we leaked it through the abstraction via the ~private~ keyword. Therefore, the solution is to hide it,
+
+#+begin_src ocaml
+module Types : sig =
+  type scalar
+  type vector
+  type _ t
+
+  val name : string -> scalar t
+  val record : (string * _ t) list -> vector t
+  val array : scalar t -> int -> scalar t
+
+  val case : _ t ->
+     scalar:(scalar t -> 'a)
+     vector:(vector t -> 'a) -> 'a
+
+  val match_scalar : scalar t ->
+      name:(string -> 'a) ->
+      array:(scalar t -> int -> 'a) -> 'a
+
+  val match_vector : vector t ->
+     record:((string * _ t) list -> 'a) -> 'a
+
+end = struct
+  type scalar
+  type vector
+
+  type data =
+    | Name of string
+    | Record of (string * data) list
+    | Array of (data * int)
+
+   type 'a t = data
+
+   let name x = Name x
+   let record elts = Record (elts)
+   let array elt sz = Array (elt,sz)
+
+   let case t ~scalar ~vector = match t with
+     | Record _ -> vector t
+     | Array _ | Name _ -> scalar t
+
+   let match_scalar t ~name ~array  = match t with
+    | Array (elt,sz) -> array elt sz
+    | Name s -> name s
+    | _ -> assert false
+
+  let match_vector t ~record = match t with
+    | Record elts -> record elts
+    | _ -> assert false
+end
+#+end_src
+
+We confined our invariant inside our module, and we can use ~assert false~ which could be triggered only if we bugged our code inside of the ~Types~ modules, which is now considered the trusted kernel.
+
+The users of our module now can use the whole power of constraints, and basically, use our typed AST as it was GADTs but without any pain associated with them.
+
+*** Final Solution, Tagless Final
+
+Finally, we can notice, that cases in our matches totally mimic the types of our branch constructors and this smells like a generalization opportunity. Indeed, we can abstract our abstraction into the module type
+
+#+begin_src ocaml
+(* keep constraints not abstract, and make them provably distinct in
+    case if someone would like to use GADT in their representations.  *)
+
+type scalar = private Scalar_constraint
+type vector = private Vector_constraint
+
+module type Types = sig
+  type _ t
+
+  val name : string -> scalar t
+  val record : (string * _ t) list -> vector t
+  val array : scalar t -> int -> scalar t
+end
+
+(* our old Types module is just _a_ representation, let's call
+   it an AST *)
+module Ast : sig
+  include Types
+
+  val case : 'a t ->
+    scalar : (scalar t -> 'a) ->
+    vector : (vector t -> 'a) -> 'a
+
+  module Analysis(L : Types) : sig
+    val scalar : scalar t -> scalar L.t
+    val vector : vector t -> vector L.t
+  end
+end = struct
+  type data =
+    | Name of string
+    | Record of (string * data) list
+    | Array of (data * int)
+
+  type 'a t = data
+
+  let name x = Name x
+  let record elts = Record (elts)
+  let array elt sz = Array (elt,sz)
+
+  let case x ~scalar ~vector = match x with
+    | Name _ | Array _ -> scalar x
+    | Record _ -> vector x
+
+  module Analysis(L : Types) = struct
+
+    let rec scalar = function
+      | Name s -> L.name s
+      | Array (elt,sz) -> L.array (scalar elt) sz
+      | Record _ -> assert false
+
+    let rec vector = function
+      | Name _ | Array _ -> assert false
+      | Record ((_, (Name _ | Array _)) :: _ as elts) ->
+        L.record @@
+        List.map (fun (name,fld) -> name, scalar fld) elts
+      | Record elts ->
+        L.record @@
+        List.map (fun (name,fld) -> name, vector fld) elts
+  end
+end
+#+end_src
+
+And now we can implement the analysis as simple as,
+
+#+begin_src ocaml
+module Sizeof = Ast.Analysis(struct
+    type 'a t = int
+    let name _ = 4
+    let array elt sz = elt * sz
+    let record elts = List.fold_left (fun s (_,sz) -> s + sz) 0  elts
+  end)
+
+let sizeof t = Ast.case t
+    ~scalar:Sizeof.scalar
+    ~vector:Sizeof.vector
+#+end_src
+
+This approach is called [[http://okmij.org/ftp/tagless-final/index.html][Taggles Final Style]] and is well-explored.
+
+*** A few grains of salt
+
+Although it all may look nice (or vice verse), there is a grain of salt. It doesn't work as we have a problem in our original design, we dropped the type constraint of the record constructor. In other words, our record constructor, ~(string * 'a t) -> scalar t~ is non-injective, as it projects different types into the same type. Therefore we can't reconstruct the constraint back. Therefore, probably a better type system representation would be
+
+#+begin_src ocaml
+type array = array
+type 'a tuple = Tuple
+
+type 'a t
+val array : array t -> int -> array t
+val tuple : 'a t -> 'b tuple t -> ('a -> 'b) tuple t
+val unit : unit tuple t
+#+end_src
+
+and the case analysis will look something like this
+
+#+begin_src ocaml
+val case : _ t ->
+  unit : (() -> 'a) ->
+  tuple : (('a -> 'b) tuple t -> 'a) ->
+  array : (array t -> 'a) -> 'a
+val split : ('a -> 'b) tuple t -> 'a t * 'b tuple t
+#+end_src
+
+¹: You can do this for a fixed number of constraints, e.g., ~int -> unit~, ~int -> string -> unit~, etc, not for arbitrary constraint. You would need a backtracking parser, which will try on each branch all possible cases. As a result, not only the performance will suffer, but the complexity of the parser itself.
+      
+
+
+
+* first release of lz4-chans
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/ann-first-release-of-lz4-chans/3818/1
+
+** UnixJunkie announced
+
+
+It is my pleasure to announce the first release of lz4_chans:
+
+https://github.com/UnixJunkie/lz4-chans
+
+You can use them as drop-in replacement for the channels provided
+by the stdlib:
+#+begin_src ocaml
+(** open/close binary channels, with LZ4-compression
+    happening in the background, using a separate process and a named pipes *)
+
+val open_in_bin: string -> in_channel
+val open_out_bin: string -> out_channel
+
+val close_in: in_channel -> unit
+val close_out: out_channel -> unit
+
+val with_in_file: string -> (in_channel -> 'a) -> 'a
+val with_out_file: string -> (out_channel -> 'a) -> 'a
+#+end_src
+
+It was fun to write this little system programming thing.
+
+Performance tests on my computer:
+#+begin_example
+2019-05-17 16:38:40.483 INFO : plain_fn: /tmp/lz4_chans_test_1b1d6a.bin
+2019-05-17 16:38:41.847 INFO : plain output: 7335450.09 floats/s
+2019-05-17 16:38:42.670 INFO : plain input: 12191301.78 floats/s
+2019-05-17 16:38:42.686 INFO : lz4_fn: /tmp/lz4_chans_test_8b6517.bin.lz4
+2019-05-17 16:38:45.348 INFO : lz4 output: 3757097.68 floats/s; eficiency: 0.51
+2019-05-17 16:38:46.518 INFO : lz4 input: 8557598.32 floats/s; efficiency: 0.70
+#+end_example
+      
+
+
+
+* An experimental, unofficial OCaml wiki
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/an-experimental-unofficial-ocaml-wiki/1972/21
+
+** Resurrecting this old thread, Yotam Barnoy said
+
+
+We just got a nice redesign courtesy of @fallbackusername ! If you haven't checked [[https://ocamlverse.github.io][ocamlverse]] out yet, come do so!
+      
+
+
+
+* routes: path based routing for web applications
+:PROPERTIES:
+:CUSTOM_ID: 5
+:END:
+Archive: https://discuss.ocaml.org/t/ann-routes-path-based-routing-for-web-applications/3624/5
+
+** Continuing this thread, Anurag Soni announced
+
+
+Few more updates:
+
+- This is now available on opam to make it easy to try it out (http://opam.ocaml.org/packages/routes/)
+- Internally routes are now grouped on the HTTP methods wherever possible
+- The combinators translate the route definitions into a trie (this allowed to share the prefix matching on all routes)
+- A little bit of route re-writing is done to avoid un-necessary nested skip/apply actions.
+- I added an example about how this can be used as an Opium middleware.
+
+I have given up on some features from before (removed route printing, and nested routing are now removed)
+
+Please let me know of any issues/problems you notice if you decide to try it out :slight_smile:
+      
+
+
+
+* Full schedule for Compose 2019 now available
+:PROPERTIES:
+:CUSTOM_ID: 6
+:END:
+Archive: https://discuss.ocaml.org/t/full-schedule-for-compose-2019-nyc-june-24-25-now-available/3829/1
+
+** Gbaz announced
+
+
+The practice and craft of functional programming :: Conference
+
+Compose is a conference for typed functional programmers, focused specifically on Haskell, OCaml, F#, SML, and related technologies. This year it has a host of great talks of interest to OCaml developers.
+
+*** Invited Keynotes
+
+- Donya Quick - Making Algorithmic Music
+- David Spivak - Compositional Graphical Logic
+
+*** Accepted Talks and Tutorials
+
+- Kenny Foner - Functors of the World, Unite!
+- Phillip Carter - The anatomy of the F# tools for Visual Studio
+- Sebastien Mondet - Genspio: Generating Shell Phrases In OCaml
+- Justin Le - Applicative Regular Expressions using the Free Alternative
+- Gaetano Checinski - Buckaroo SAT - Solving a partially revealed SAT
+- problem for Package Management
+- Richard Feldman - From Rails to Elm and Haskell
+- Samuel Gélineau - Stuck macros: deterministically interleaving
+- macro-expansion and typechecking
+- Vaibhav Sagar - Yes, IHaskell Can Do That!
+- Fintan Halpenny - Bowl Full of Lentils
+- Aditya Siram - A Tase Of ATS
+- Ward Wheeler, Alex Washburn, Callan McGill - Phylogenetic Software in Haskell
+- Igor Trindade Oliveira - Type Driven Secure Enclave Development using Idris
+- David Christiansen - Bidirectional Type Checking
+- Chris Smith - Teaching the intersection of mathematics and functional programming
+- Brandon Kase - Fast Accumulation on Streams
+- James Koppel - The Best Refactoring You’ve Never Heard Of
+- Allister Beharry - Using Dependent Types in an F# DSL for Linear Algebra
+- Diego Balseiro - Bridge Haskell and ReasonML in Production
+
+*** Full abstracts
+http://www.composeconference.org/2019/program
+
+*** Conference Registration
+https://www.eventbrite.com/e/new-york-compose-2019-tickets-56751182314
+      
+
+
+
+* OPAM package: ocaml-monadic
+:PROPERTIES:
+:CUSTOM_ID: 7
+:END:
+Archive: https://discuss.ocaml.org/t/opam-package-ocaml-monadic/3828/1
+
+** Zach announced
+
+
+Hello!  I was just repackaging a little library for OPAM 2 the other day when one of the repository maintainers pointed out that I should probably make mention of it on this forum (given that I never have).  The package name is "ocaml-monadic"; it provides ppx extensions for monadic syntax in a way that blends with OCaml's existing grammar.  Here's a link:
+
+https://github.com/zepalmer/ocaml-monadic
+
+I optimistically anticipate the following questions enough to provide answers:
+
+Q1. Why? \\
+A1. Because switching between monadic and non-monadic syntax shouldn't require rewriting everything.  Also because I wanted to learn PPX extensions in 2015.  :)
+
+Q2. Does the library require or use any specific library when dealing with monads? \\
+A2. No.  It just assumes the locally-scoped use of the names "bind" and, in some cases, "zero".
+
+Q3. How is this different from Jane Street's [[https://github.com/janestreet/ppx_let][ppx_let]] library? \\
+A3. There are some miscellaneous differences ("%map" in ppx_let vs. "%orzero" in ocaml-monadic), but they're largely the same idea.  Their first versions were released at roughly the same time.
+      
+
+** octachron said and Hezekiah Carty replied
+
+
+> Note that monadic and applicative notations will be directly supported by the compiler itself starting from 4.08.
+
+One upside to ocaml-monadic (and ppx_let and lwt_ppx) compared with 4.08's ~let~ operators is support for binding in ~match~​es.  While there is a [[https://github.com/ocaml/ocaml/pull/1955][PR for match operators]] in OCaml it's not clear when it will land.
+      
+
+
+
+* De-duplicating module signatures that depend on abstract data types
+:PROPERTIES:
+:CUSTOM_ID: 8
+:END:
+Archive: https://discuss.ocaml.org/t/de-duplicating-module-signatures-that-depend-on-abstract-data-types/3826/1
+
+** Matt Windsor asked
+
+
+In trying to avoid duplicating my ~module type~ signatures across ~ml~ and ~mli~ files, I've ended up using the ~_intf.ml~ pattern:
+
+#+begin_src ocaml
+(* foo_intf.ml *)
+module type Basic = sig (* ... *) end
+module type S = sig (* ... *) end
+
+(* foo.mli *)
+include module type of Foo_intf
+module Make (B : Basic) : S
+
+(* foo.ml *)
+include Foo_intf
+module Make (B : Basic) : S = struct
+  (* ... *)
+end
+#+end_src
+
+This usually works well (though I'm not sure if there is something more elegant I can do using one of the ~ppx_import~ type things).  However, suppose I now want to add a module representing an abstract data type:
+
+#+begin_src ocaml
+(* foo.mli *)
+module Config : sig
+  type t
+  (* ... functions ... *)
+end
+
+(* foo.ml *)
+module Config = struct
+  type t = (* ... *)
+end
+#+end_src
+
+If I want to then use ~Config.t~ inside the module types I declared in ~Foo_intf~, then I find that I can't easily do so without either:
+
+- moving the implementation into ~foo_intf~ and either leaving it transparent or restricting the interface I import out of it with an 'expose these in the ~mli~' signature at the end of ~foo_intf~;
+- adding the type into the ~Foo.Basic~ and/or ~Foo.S~ module types, then changing ~Make~'s types to add sharing constraints/destructive substitutions to insert ~Config.t~;
+- declaring ~Config.t~ in another file and referring to it from ~foo_intf~.
+
+All of these approaches have fairly unpleasant drawbacks (I lose abstraction, bloat my code with more Weird Module System Things(TM), or have to split up what is conceptually one module just to solve a dependency problem).  Is there anything I'm missing here?
+
+(It may very well be that the problem is using ~_intf.ml~ in the first place :smile:)
+      
+
+** Ivan Gotovchits replied
+
+
+It looks like that you have abstracted your question too much, it is really hard to guess what you are trying to do. Thefore my answer would be a little bit unstructured.
+
+There a couple of problems with your approach. It could be because you are misunderstanding some of the concepts in OCaml's module language, or that you are misusing them, and trying to apply modules in the way in which there weren't designed.
+
+First of all, I would like to advise against using the ~include module type of~ construct. It has very few legit uses, and better should be avoided as it has several drawbacks and caveats. Like, for example, given a ~module Y : module type of X = X~, we don't have type equality between ~Y.t~ and ~X.t~. Or even stronger, ~module type of X~ refers to types which are different from the types of ~X~.
+
+The same is more or less true for the ~include~ statement, you shall also use it sparingly. An abstraction that is introduced via ~include~ or, worse, ~include module type of~ is not an abstraction. Basically, if you want to refer to an abstraction, you shall refer to it directly by its name. If you want to refer to several abstractions, without having to enumerate them all, then instead of using the ~include~ statement, you shall create a new abstraction which refers all the abstractions you need directly by name, and then refer to this abstraction by name. Probably, the only legit usage of the ~include~ statement is when you're extending an existing abstraction, e.g.,
+
+#+begin_src ocaml
+module type S = sig
+    type t
+    val init : t
+    val succ : t -> t
+end
+
+module Extend(Base : S) : sig
+   include S with type t = Base.t
+   val (+) : t -> t -> t
+   val (-) : t -> t -> t
+   (* ... *)
+end
+#+end_src
+
+Another idea, that you might be missing, is that when you define a signature with an abstract type, e.g.,
+
+#+begin_src ocaml
+module type S = sig
+   type t
+   val init : t
+   val succ : t -> t
+end
+#+end_src
+
+Then every time you reference the signature ~S~, either as a type of a functor parameter or as a module type in your interface, the type ~S.t~ will be always different, e.g.,
+
+#+begin_src ocaml
+module X : S
+module Make(P : S) : S
+#+end_src
+
+In the example above, we have type ~X.t~ different from type ~Make(X).t~ as well the type ~P.t~ of the parameter of the functor ~Make~ is different and incompatible from ~X.t~ and ~Make(X).t~.
+
+If you want to make them equal, you should use manifest types, for that, e.g., to make the functor ~Make~ return a module which has type ~t~ that is the same type that was passed to it, you have to manifest this,
+
+#+begin_src ocaml
+ module Make (P : Basic) : S with type t = P.t
+#+end_src
+
+To summarize, when you define an abstract type
+
+#+begin_src ocaml
+module X : sig
+   type t
+   val init : t
+   val succ : t -> t
+end
+#+end_src
+
+You define a structure with a set ~t~ and a pair of operations ~init, succ~ defined for that set. But when you define a module type
+
+#+begin_src ocaml
+module type S = sig
+   type t
+   val init : t
+   val succ : t -> t
+end
+#+end_src
+
+You define an abstraction of an abstraction, i.e., a set of sets equipped with two operations, ~init,succ~. And therefore, every time you reference an abstraction ~S~ you're referencing different sets.
+
+Going back to your problem, you shall decide whether your ~foo~ module operates with a set of sets abstraction, i.e., it is generic and applicable to any module which implements the ~Basic~ interface. Or it is actually specific to a particular abstract type ~Config.t~ with a specific interface ~S~. If the latter, then it doesn't make any sense to use a functor. It could be also possible, that you are just missing the sharing constraints in your interface and that is what confuses you.
+
+Finally, the ~_intf.ml~ idiom should be used very differently. It is usually used, when you have several module types and a functor (or several functors) which operate on those module types, therefore in order to avoid duplication of signatures between the implementation and the signature files, we define a third file with all those module types, and then use those module types (usually with sharing constraints) by names, e.g.,
+
+#+begin_src ocaml
+(* foo_intf.ml *)
+module type Basic = sig (* ... *) end
+module type S = sig (* ... *) end
+
+(* foo.mli *)
+open Foo_intf
+module Make (Input : Basic)  : S with type t := Input.S
+
+(* foo.ml *)
+open Foo_intf
+module Make (B : Basic) : S = struct
+  (* ... *)
+end
+#+end_src
+
+On rare occasions, when it is nearly impossible to avoid this, we will do
+
+#+begin_src ocaml
+(* foo.mli *)
+include Foo_intf.S
+#+end_src
+
+You might see the code like this in Core, but you shouldn't repeat this approach in your code. Not because it is bad, but because it is very specific to Janestreet Core library history and OCaml history.
+      
+
+
+
+* Other OCaml News
+:PROPERTIES:
+:CUSTOM_ID: 9
+:END:
+** From the ocamlcore planet blog
+
+
+Here are links from many OCaml blogs aggregated at [[http://ocaml.org/community/planet/][OCaml Planet]].
+
+- [[https://coq.inria.fr/news/coq-891-is-out.html][Coq 8.9.1 is out]]
+- [[https://coq.inria.fr/news/coq-8-10beta1-is-out.html][Coq 8.10+beta1 is out]]
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[http://alan.petitepomme.net/cwn/][the archive]] or the [[http://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe [[http://lists.idyll.org/listinfo/caml-news-weekly/][online]].
+
+#+BEGIN_authorname
+[[http://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname

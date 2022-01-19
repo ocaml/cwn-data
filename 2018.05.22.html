@@ -1,0 +1,662 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>OCaml Weekly News</title>
+  </head>
+  <body>
+    <a href="2018.05.15.html">Previous week</a> <a href="index.html">Up</a> <a href="2018.05.29.html">Next week</a><p>Hello</p><p>Here is the latest OCaml Weekly News, for the week of May 15 to 22, 2018.</p><ol><li><a href="#1">Regenerate: Test generation for regular expression engines</a></li><li><a href="#2">Next OUPS meetup, May 23rd 2018</a></li><li><a href="#3">New releases: ProVerif version 2.00 and CryptoVerif version 2.00</a></li><li><a href="#4">An experimental, unofficial OCaml wiki</a></li><li><a href="#5">aws-s3.3.0.0</a></li><li><a href="#6">AST walker designs</a></li><li><a href="#7">Types as first class citizens in OCaml</a></li><li><a href="#8">OCaml Users and Developers Workshop 2018: Call for presentations</a></li><li><a href="#9">OCaml/Reason/MirageOS Internships at SAP Innovation Center Network (Postdam, Germany)</a></li><li><a href="#10">Other OCaml News</a></li></ol><a name="1" /><hr /><h3>Regenerate: Test generation for regular expression engines</h3><p>Archive: <a href="https://discuss.ocaml.org/t/regenerate-test-generation-for-regular-expression-engines/1994/2">https://discuss.ocaml.org/t/regenerate-test-generation-for-regular-expression-engines/1994/2</a></p><i>Continuing this thread, Gabriel Radanne explained:</i><br /><pre>
+The blog post mostly focused on the user's part of the story, so here is the
+developer part, mostly of interest to OCaml developers. :p
+
+# Modularity/Implementation, or how to explore performance trade-offs in OCaml
+
+The main part of the algorithm is doing some fancy interleaving and weird walks
+over streams of collections of words. Right away, there is one big question that
+you can ask: Which data structures to choose?
+
+Collections mostly used set operations such as union, intersection, difference,
+some list-like operations such as append, and some fancier things such as n-way
+merges and cartesian products. Furthermore, lazyness and persistency played a
+big role as well.
+
+## Preliminary groundwork
+
+Instead of trying to do some guesswork, I decided to specify formally all the
+functions that I needed to implement the algorithms. I ended up with [this
+signature](<a href="https://github.com/Drup/regenerate/blob/47aa0bf3d8fc26642bc0129a5b52ac8aaa142406/segments/Sigs.ml">https://github.com/Drup/regenerate/blob/47aa0bf3d8fc26642bc0129a5b52ac8aaa142406/segments/Sigs.ml</a>):
+```ocaml module type S = sig type elt type t val empty : t val is_empty : t -&gt;
+bool val return : elt -&gt; t
+
+  val append: t -&gt; t -&gt; t val union : t -&gt; t -&gt; t val inter : t -&gt; t -&gt; t val
+  diff : t -&gt; t -&gt; t val merge : t list -&gt; t
+
+  val of_list : elt list -&gt; t val to_seq : t -&gt; elt Sequence.t
+
+  val memoize : t -&gt; t end ```
+
+This has several advantages: it made the requirement for data structures very
+clear, it separated the datastructure from the algorithm and it also reflected
+the theory quite closely, as it exactly represent the operation used by the
+algebra we were working on.
+
+Note the presence of an explicit `memoize` function, which allowed me to also
+consider transient datastructures.
+
+## Functorize all the things
+
+Once we have a proper idea of the current operations we are considering, it's
+very easy to [functorize
+everything](<a href="https://github.com/Drup/regenerate/blob/47aa0bf3d8fc26642bc0129a5b52ac8aaa142406/lib/regenerate.mli#L91">https://github.com/Drup/regenerate/blob/47aa0bf3d8fc26642bc0129a5b52ac8aaa142406/lib/regenerate.mli#L91</a>):
+```ocaml
+module Make
+    (Word : Word.S)
+    (Segment : Segments.S with type elt = Word.t)
+    (Sigma : SIGMA with type t = Segment.t)
+: sig .... end
+```
+
+In this case, `Segment` is the collection of words. I also functorized the
+definition of words (so I can test with strings, list of character, ropes, utf8
+...) and the definition of the alphabet `SIGMA`.
+
+This is the part where you do :science: and implement weird algorithms.
+
+## Testing data-structures
+
+We now have a functorized implementation of our algorithm, we can easily
+implement lot's of data-structure that satisfy the signatures. I only did a few
+implementation of
+[words](<a href="https://github.com/Drup/regenerate/blob/47aa0bf3d8fc26642bc0129a5b52ac8aaa142406/lib/word.ml">https://github.com/Drup/regenerate/blob/47aa0bf3d8fc26642bc0129a5b52ac8aaa142406/lib/word.ml</a>)
+by I tested lot's of
+[collections](<a href="https://github.com/Drup/regenerate/tree/47aa0bf3d8fc26642bc0129a5b52ac8aaa142406/segments">https://github.com/Drup/regenerate/tree/47aa0bf3d8fc26642bc0129a5b52ac8aaa142406/segments</a>).
+Containers was very useful for this.
+
+## Optimizations
+
+You now need to appeal to the flambda gods by adding `[@@inline always]` on all
+you functors and pass `-O3` to the compiler. You might also want to assign the
+result of functor applications at toplevel. With all this, functors should be
+fully expanded at compile time and not prevent any optimizations. If you want to
+tweak things more, consult [this
+guide](<a href="http://caml.inria.fr/pub/docs/manual-ocaml/flambda.html">http://caml.inria.fr/pub/docs/manual-ocaml/flambda.html</a>).
+
+## Bench
+
+Now that everything is set up, you can bench! In my case, I was intested by the
+rate of words/second emitted, depending on the considered regular expression.
+The results regarding collections were quite interesting:
+
+<a href="https://discourse-cdn-sjc2.com/standard11/uploads/ocaml/original/2X/c/c3e125203cc0fe8b755663701ba5d46eacfc9a52.png">https://discourse-cdn-sjc2.com/standard11/uploads/ocaml/original/2X/c/c3e125203cc0fe8b755663701ba5d46eacfc9a52.png</a>
+
+If you want more details, look
+[here](<a href="https://hal.archives-ouvertes.fr/hal-01788827">https://hal.archives-ouvertes.fr/hal-01788827</a>).
+
+## Making the API usable
+
+You wrote all your functors and your implementation, you benchmarked it, and you
+are happy. Unfortunately, for some reason, users tend to consider functor-heavy
+APIs impossible to use (*cough* ocamlgraph *cough* irmin). There are two
+solutions to this problem: pick a specific instance that work for most people
+(for example, the most efficient one) or hide all the functors away by making
+things first class.
+
+In the case of regenerate, I decided for a sort of middle ground with [first
+class
+modules](<a href="https://github.com/Drup/regenerate/blob/47aa0bf3d8fc26642bc0129a5b52ac8aaa142406/lib/regenerate.mli#L33-L53">https://github.com/Drup/regenerate/blob/47aa0bf3d8fc26642bc0129a5b52ac8aaa142406/lib/regenerate.mli#L33-L53</a>).
+The API is still not exactly simple, but I suspect the examples should be
+enough.
+
+# Website
+
+This doesn't get said enough, but js_of_ocaml is bloody fantastic. The code for
+the website is [dead
+simple](<a href="https://github.com/Drup/regenerate/blob/47aa0bf3d8fc26642bc0129a5b52ac8aaa142406/web/regenerate_web.ml">https://github.com/Drup/regenerate/blob/47aa0bf3d8fc26642bc0129a5b52ac8aaa142406/web/regenerate_web.ml</a>)
+and has the remarquable property of being completely uninteresting. I dumped
+containers, sequence, oseq, fmt, qcheck and all my functors into it, it worked
+without any modifications to the libraries and the resulting size is just 33KB.
+End of the story. :)
+      </pre><a name="2" /><hr /><h3>Next OUPS meetup, May 23rd 2018</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2018-05/msg00026.html">https://sympa.inria.fr/sympa/arc/caml-list/2018-05/msg00026.html</a></p><i>Bruno Bernardo announced:</i><br /><pre>
+The OUPS meetup is back. The next one will take place on Wednesday,
+May 23, 7pm at IRILL on the Jussieu campus.
+As usual, we will have a few talks, followed by pizzas and drinks.
+
+The talks will be the following:
+- Thomas Gazagnaire sur Mirage OS (<a href="https://mirage.io">https://mirage.io</a>)
+- Alain Mebsout sur Liquidity (<a href="http://www.liquidity-lang.org">http://www.liquidity-lang.org</a>)
+- Steven Varoumas sur OMicroB (<a href="https://github.com/stevenvar/OMicroB">https://github.com/stevenvar/OMicroB</a>)
+
+Please do note that we are always in demand of talk *proposals* for future
+meetups.
+
+To register, or for more information, go here:
+<a href="https://www.meetup.com/ocaml-paris/events/250836568/">https://www.meetup.com/ocaml-paris/events/250836568/</a>
+*Registration is required! Access is not guaranteed after 7pm if
+you're not registered.* (It also helps us to order the right amount of
+food.)
+
+Access map:
+IRILL - Université Pierre et Marie Curie (Paris VI)
+Barre 15-16 1er étage
+4 Place Jussieu
+75005 Paris
+<a href="https://www.irill.org/pages/access.html">https://www.irill.org/pages/access.html</a>
+
+The meetup organizers.
+      </pre><a name="3" /><hr /><h3>New releases: ProVerif version 2.00 and CryptoVerif version 2.00</h3><p>Archive: <a href="https://discuss.ocaml.org/t/new-releases-proverif-version-2-00-and-cryptoverif-version-2-00/2010/1">https://discuss.ocaml.org/t/new-releases-proverif-version-2-00-and-cryptoverif-version-2-00/2010/1</a></p><i>Bruno Blanchet announced:</i><br /><pre>
+New releases of both ProVerif and CryptoVerif are available,
+numbered 2.00. They can be found at the usual places:
+
+- ProVerif is available at <a href="http://proverif.inria.fr">http://proverif.inria.fr</a>
+It is also available via opam.
+
+- CryptoVerif is available at <a href="http://cryptoverif.inria.fr">http://cryptoverif.inria.fr</a>
+
+The main novelty in these releases is that a lot of effort
+has been made so that the tools are compatible: a large subset of
+the language is accepted by both tools, which allows you
+to use the same or very similar files as input to both tools.
+More details can be found in Section 6.4 of the ProVerif manual.
+
+Common examples are found in the ProVerif distribution
+in directory examples/cryptoverif. You can run them by
+   ./proverif -lib cryptoverif.pvl examples/cryptoverif/&lt;filename&gt;.pcv
+in the main ProVerif directory. (If you install ProVerif via opam,
+the examples are in .opam/&lt;switch&gt;/doc/proverif/examples/cryptoverif
+and the cryptographic library cryptoverif.pvl is in
+.opam/&lt;switch&gt;/share/proverif/cryptoverif.pvl )
+
+These examples can also be found in the CryptoVerif distribution
+in directory examples/basic. You can run them by
+   ./cryptoverif examples/basic/&lt;filename&gt;.pcv
+in the main CryptoVerif directory.
+
+For ProVerif, the changes are extensions; they preserve
+compatibility with previous versions, except for a few
+additional keywords and other very minor changes.
+For CryptoVerif, there are major incompatible changes. A converter
+from CryptoVerif 1.28 is provided in the CryptoVerif distribution.
+Major improvements have also been made to the library of
+cryptographic primitives.
+
+Enjoy!
+-Bruno
+
+Full list of changes in ProVerif:
+
+- New keywords in the typed pi calculus front-end:
+  do, foreach, implementation, public_vars, secret
+  These keywords cannot be used as identifiers.
+- Identifiers of processes (in declarations "let P(...) = ")
+  must be distinct from other identifiers.
+- Allow the conjunction of several events or facts before the
+  arrow ==&gt; in queries.
+- Interactive simulator:
+  - Display events and public terms in order of addition.
+  - Show the recipe used to compute a term in the list of public terms,
+    when terms are added to public terms.
+  - Allow zooming in the graphical trace display.
+  - Show fresh names created by the adversary and public terms
+    computed by the adversary in the graphical trace display.
+  - When the user needs to enter a recipe, display the list of terms,
+    so that he has enough information.
+  - Button "Forward" to redo a step undone by the "Backward" button.
+- Compatibility with CryptoVerif
+  - Allow
+      a &lt;-R T; P          as a synonym of new a: T; P
+      x[:T] &lt;- M; P       as a synonym of let x[:T] = M in P
+      foreach i &lt;= N do P as a synonym of ! i &lt;= N P and of ! P
+  - Allow and ignore CryptoVerif implementation annotations
+  - Allow disequations "equation forall x1:T1, ..., xn:Tn; M1 &lt;&gt; M2."
+    and just check that they are valid.
+  - Support for event, get, insert in terms (by expansion into processes)
+  - New queries:
+      query secret x.
+      query secret x [real_or_random].
+    to test the secrecy of a bound variable or name x.
+  - Allow public variables in correspondence and secrecy queries, e.g.:
+      query event(e1) ==&gt; event(e2) public_vars x1,...,xn.
+      query secret x public_vars x1,...,xn.
+- Fixed bug that could cause the addition of a spurious edge,
+  when a replication is executed just after a box in the graphical
+  display of traces.
+- Fixed bug: trace reconstruction failed abnormally in the absence
+  of free names.
+- Display an error message instead of looping when there is a recursive
+  macro in the pi calculus front-end without types.
+
+Full list of changes in CryptoVerif:
+
+- Improved simplification of terms, in particular in the presence
+  of boolean variables.
+- Exploit the information of complex conditions of find
+  (themselves containing let, if, or find).
+- During the crypto transformation, do not transform a random variable
+  that appears in an event and that is marked [unchanged] in the
+  transformation using an oracle with priority &gt; priorityEventUnchangedRand
+  (default: 5), prefer leaving it unchanged.
+- New front-end, for improved compatibility with ProVerif.
+  The main syntax changes are as follows:
+  - "define" becomes "def"
+  - "[compos]" becomes "[data]"
+  - "[decompos]" becomes "[projection]"
+  - "equation structure(id1, ..., idn)." becomes
+    "equation builtin structure(id1, ..., idn)."
+  - "forall x1:t1, ..., xn:tn; M." becomes
+    "equation forall x1:t1, ..., xn:tn; M."
+  - "query secret1 x." becomes "query secret x [cv_onesession]."
+  - The syntax of correspondences is now the ProVerif syntax:
+    For instance, "query event e1(...) ==&gt; e2(...)."
+    becomes "query event(e1(...)) ==&gt; event(e2(...))."
+    and "query event inj:e1(...) ==&gt; inj:e2(...)."
+    becomes "query inj-event(e1(...)) ==&gt; inj-event(e2(...))."
+    If there are public variables, they must be explicitly indicated
+    in the correspondences, by adding "pub_vars x1,...,xn" at the
+    end of the query. (In previous versions, CryptoVerif
+    implicitly considered as public variables in correspondences
+    the variables on which secrecy queries were present.)
+  - Equivalences use the syntax of the oracles front-end,
+    even in the channels front-end.
+    (Oracles must always be named; oracles must conclude with
+    return(M) instead of just M; oracles are separated by
+    parallel compositions, not by commas.)
+    The names of equivalences must be between parentheses:
+    "equiv(name) ..." or "equiv(name(f)) ..."
+  - Collisions use the syntax of the oracles front-end,
+    even in the channels front-end:
+    "collision new x1:T1; ... new xn:Tn; forall y1:T1', ..., ym:Tm'; M1 &lt;=(p)=&gt; M2."
+    becomes
+    "collision new x1:T1; ... new xn:Tn; forall y1:T1', ..., ym:Tm'; return(M1) &lt;=(p)=&gt; return(M2)."
+  - Processes are parametric: if a process macro P, defined by
+    "let P = ..." uses variables defined before the usage of P,
+    then these variables must now be passed as argument to P:
+    "let P(x1:T1,...,xn:Tn) = ...", used by "P(M1,...,Mn)" in the
+    channels front-end and by "run P(M1,...,Mn)" in the oracles
+    front-end.
+  - Both front-ends allow the synonym constructs
+    "! i&lt;=N" and "forall i &lt;= N do" for replication,
+    "new x:T" and "x &lt;-R T" for random-number generation, and
+    "let x = M in N" and "x &lt;-M; N" for assignment.
+    The oracle front-end now uses "yield" instead of "end"
+    (like the channels front-end).
+- The library of cryptographic primitives has been revised:
+  - Symmetric-key primitives no longer use a key generation
+  function.
+  - Probabilistic primitives choose random coins internally
+  (using "letfun"), so the user does not have to choose them
+  explicitly.
+  - IND-CCA2 public-key encryption may leak the length of the cleartext.
+  - Added equivalences that allow to transform manually only some
+  occurrences of encryption for IND-CCA2 encryption,
+  of decryption for INT-PTXT encryption,
+  of MAC verification for MACs,
+  of signature verification for signatures.
+  - Added probabilistic MACs, deterministic signatures,
+  and renamed the macros as a consequence.
+  - Added AEAD, possibly with a nonce (e.g. AES-GCM).
+  - Added square_CDH, square_DDH, square_GDH, and
+  square_GDH_prime_order.
+  - Added macros for combinations of primitives,
+  building authenticated encryption from encrypt-then-MAC,
+  from AEAD, or from AEAD_nonce, and AEAD from encrypt-then-MAC
+  or from AEAD_nonce.
+- An automatic converter from CryptoVerif 1.28 to CryptoVerif 2.00
+  is provided. It converts the front-end changes, but not the changes
+  in the cryptographic library. As a consequence, converted
+  examples need to be run using a converted version of the old
+  cryptographic library.
+
+  Usage:
+  ./convert [-lib &lt;lib_filename&gt;] [-in channels|-in oracles] [-olib &lt;lib_output_filename&gt;] -o &lt;output_filename&gt; &lt;filename&gt;
+  This command converts the &lt;filename&gt; into &lt;output_filename&gt;.
+  (This command should be run in the main CryptoVerif directory.)
+  The setting "-in channels" or "-in oracles" chooses the front-end to
+  use. It allows the user to override the default ("channels" when
+  &lt;filename&gt; ends in .cv and "oracles" when &lt;filename&gt; ends in .ocv).
+  If "-lib &lt;lib_filename&gt;" is present, it uses &lt;lib_filename&gt; as
+  CryptoVerif 1.28 library of cryptographic primitives.  Otherwise, it
+  uses the default CryptoVerif 1.28 library of cryptographic
+  primitives.
+  If "-olib &lt;lib_output_filename&gt;" is present, it outputs the
+  converted library of primitives into &lt;lib_output_filename&gt;.
+  The suffix ".cvl" or ".ocvl" is automatically added to all library
+  filenames (depending on the front-end in use), the user should not
+  include it.
+
+  The converted examples can be run by
+  ./cryptoverif -lib converter/default-converted &lt;converted_filename&gt;
+  when they use the default CryptoVerif 1.28 library.
+  (This command should be run in the main CryptoVerif directory.)
+  Otherwise, use the converted library built by ./convert.
+- Option -oproof &lt;filename&gt; to output the proof in &lt;filename&gt;
+  instead of displaying it on the standard output.
+      </pre><a name="4" /><hr /><h3>An experimental, unofficial OCaml wiki</h3><p>Archive: <a href="https://discuss.ocaml.org/t/an-experimental-unofficial-ocaml-wiki/1972/19">https://discuss.ocaml.org/t/an-experimental-unofficial-ocaml-wiki/1972/19</a></p><i>Continuing this thread, Yotam Barnoy announced:</i><br /><pre>
+Just a note that we've migrated OCamlverse away from my github user so multiple
+people can be admin. Find us at <a href="https://ocamlverse.github.io">https://ocamlverse.github.io</a>
+      </pre><a name="5" /><hr /><h3>aws-s3.3.0.0</h3><p>Archive: <a href="https://discuss.ocaml.org/t/ann-aws-s3-3-0-0/2014/1">https://discuss.ocaml.org/t/ann-aws-s3-3-0-0/2014/1</a></p><i>Anders Fugmann announced:</i><br /><pre>
+I'm happy to announce aws-s3 3.0.0.
+
+The [aws-s3](<a href="https://github.com/andersfugmann/aws-s3">https://github.com/andersfugmann/aws-s3</a>) library provides access to
+Amazon Simple Storage Solution (S3). Operations include: get, put, delete,
+delete_multi, ls, multipart upload and s3 to s3 copying.
+
+The library includes functions to get machine role and security token
+(credentials) through AWS Identity and Access Management service (IAM).
+
+The library supports both lwt and async concurrency models through packages
+aws-s3-lwt and aws-s3-async.
+
+This release brings a more consistent API and allows for more fine grained error
+handling. The API changes backward compatibility. Below is the complete
+changelog for version 3.0.0.
+
+Changes since release 2.0.0:
+* Add parameter to specify scheme(http|https)
+* Fix IAM handling for lwt version.
+* Always use http when accessing s3.
+* Support copying s3 -&gt; s3
+* Support multipart upload
+* Support permanent/temporary redirect error code
+* Return an error indicating the redirect to successive calls
+* Switch to use Digistif
+* Remove support for gzip (Users are encouraged to set the encoding and use
+ezgzip instead)
+* Compatibility with base.v0.11.0
+
+The package is available through opam.
+      </pre><a name="6" /><hr /><h3>AST walker designs</h3><p>Archive: <a href="https://discuss.ocaml.org/t/ast-walker-designs/2015/1">https://discuss.ocaml.org/t/ast-walker-designs/2015/1</a></p><i>Perry E. Metzger asked:</i><br /><pre>
+I've noticed that several parsers associated with the OCaml universe seem to
+generate ASTs that are then walked using an object-oriented interface. Is there
+a good introduction to this paradigm of AST-walker somewhere that explains the
+principles of the walker design? Failing that, is there a really good example of
+it I can study to see what the ideas behind this sort of design are? (Sorry if
+this sounds kind of vague, I struggled to come up with a better way of phrasing
+it. Perhaps I can edit this for posterity if some good answers come in.)
+      </pre><i>Ivan Gotovchits replied:</i><br /><pre>
+We are using OOP visitors in BAP as they facilitate code reuse for complex
+recursive data types. Here is [an example][1], a [blog post][3], and the
+[implementation][4] (if needed). We even [re-implemented][2] the same concept in
+Python.
+
+
+[1]: <a href="http://binaryanalysisplatform.github.io/bap/api/master/Bap.Std.Exp.visitor-c.html">http://binaryanalysisplatform.github.io/bap/api/master/Bap.Std.Exp.visitor-c.html</a>
+[2]: <a href="https://pythonhosted.org/bap/bap.adt.Visitor-class.html">https://pythonhosted.org/bap/bap.adt.Visitor-class.html</a>
+[3]: <a href="http://binaryanalysisplatform.github.io/bil-visitor-mappers">http://binaryanalysisplatform.github.io/bil-visitor-mappers</a>
+[4]:
+<a href="https://github.com/BinaryAnalysisPlatform/bap/blob/master/lib/bap_types/bap_visitor.ml">https://github.com/BinaryAnalysisPlatform/bap/blob/master/lib/bap_types/bap_visitor.ml</a>
+      </pre><i>Armael also replied:</i><br /><pre>
+The [manual of the visitors
+library](<a href="http://gallium.inria.fr/~fpottier/visitors/manual.pdf">http://gallium.inria.fr/~fpottier/visitors/manual.pdf</a>) is also a good
+read, I think.
+      </pre><a name="7" /><hr /><h3>Types as first class citizens in OCaml</h3><p>Archive: <a href="https://discuss.ocaml.org/t/types-as-first-class-citizens-in-ocaml/2030/1">https://discuss.ocaml.org/t/types-as-first-class-citizens-in-ocaml/2030/1</a></p><i>Volodymyr Melnyk asked:</i><br /><pre>
+Is it possible to use types in OCaml as a first class citizens?
+
+For example, I want to implement relational data model in OCaml and create a
+database as a library solution. By definition relation contains header (it looks
+like it should be a record with attribute names as keys and types of attributes
+as values) and body (it looks like a set(list) of tuples or records, values of
+which must correspond to types in headers). So, for headers I need ability to
+write something like this:
+
+``
+let header = {dep_id = int; name = string; ...}
+``
+Is it possible to extend OCaml with such dynamics(?) but without huge
+performance downgrade or how do you handle such cases?
+      </pre><i>Brendan Long replied:</i><br /><pre>
+Maybe the thing you're looking for is [GADT's](<a href="https://caml.inria.fr/pub/docs/manual-ocaml-400/manual021.html#toc85">https://caml.inria.fr/pub/docs/manual-ocaml-400/manual021.html#toc85</a>)
+
+```
+(* Given:
+module Db : sig
+  type t
+  module Row : sig
+    type t
+    val get_int : t -&gt; int -&gt; int
+    val get_string : t -&gt; int -&gt; string
+  end
+
+  val query : t -&gt; string -&gt; Row.t list
+end
+*)
+
+type _ column =
+  | Dep_id of int column
+  | Name of string column
+
+let to_column_name : type a. a column -&gt; string = function
+  | Dep_id -&gt; "dep_id"
+  | Name -&gt; "name"
+
+(* `read_all db Dep_id` returns an `int list` of all values in dep_id, and
+`read_all db Name` returns a `string` list of all values in `name` *)
+let read_all db : type a. a column -&gt; a list =
+  let query = Printf.sprintf "SELECT %s FROM some_table" (to_column_name column in
+  Db.query db query
+  |&gt; List.map ~f:(fun row -&gt;
+    match column with
+    | Dep_id -&gt; Db.Row.get_int row 0
+    | Name -&gt; Db.Row.get_name row 0
+```
+
+Beyond that, maybe you'd need to look into PPX.
+      </pre><i>Ivan Gotovchits then said:</i><br /><pre>
+Yes, you can do this, and various solutions are already provided by different
+libraries, e.g., Janestreet's `Univ` module from the [Core Kernel library][2].
+Usually, it is called Universal values, but in fact, these are dynamically typed
+values, implemented with GADT+Extensible Variants+First class modules.
+
+Basically, the representation of a value is a packed existential:
+
+```ocaml
+type univ = Pack : 'a witness * 'a -&gt; univ
+```
+
+where the witness is an extensible GADT type
+
+```ocaml
+type 'a witness = ..
+```
+
+Runtime types are represented as first class modules, of the following type:
+
+```ocaml
+module type Witness = sig
+     type t
+     type _ witness += Id : t witness
+end
+
+type 'a typeid = (module Witness with type t = 'a)
+```
+
+New types are created on fly:
+
+```ocaml
+let newtype (type u) () =
+   let module Witness = struct
+          type t = u
+          type _ witness += Id : t witness
+      end in
+   (module Witness : Witness with type t = u)
+```
+
+For example,
+
+```
+type int : int typeid = newtype ()
+```
+
+Having the runtime type we can provide the pack function:
+```ocaml
+let pack (type u) (module Witness : Witness with type t = u) x =
+  Pack (Witness.Id,x)
+```
+E.g.,
+
+```
+let x : univ = pack int 42
+```
+
+and the unpack function:
+
+
+```ocaml
+let unpack (type u)
+   (module Witness : Witness with type t = u) (Pack (id,x)) : u option =
+   match id with
+   | Witness.Id -&gt; Some x
+   | _ -&gt; None
+```
+
+E.g.,
+
+```ocaml
+ unpack int x;;
+- : int option = Some 42
+```
+
+So this gives you fully working dynamic typing in OCaml. You can also provide
+dictionaries and other specialized data structures. You may also provide adhoc
+polymorphism by requiring/allowing registering implementations for types, i.e.,
+you may ask a user to provide the `t -&gt; string` function, and then provide a
+generic `show : univ -&gt; string` function.
+
+The main drawback of this solution, is serialization. The default marshal module
+won't work, as it will loose (correctly) the type witness. A possible solution
+is to use something else (e.g. UUID) for type witnessing when a global witness
+is required (e.g., [distwit][1] library).
+
+[1]: <a href="https://github.com/let-def/distwit">https://github.com/let-def/distwit</a>
+[2]: <a href="https://github.com/janestreet/core_kernel">https://github.com/janestreet/core_kernel</a>
+      </pre><i>Ivan Gotovchits said:</i><br /><pre>
+Concerning the performance. I think it is more or less obvious from the
+implementation. First of all, all data values are boxed, i.e., your integers
+will now use 3 words (header + key + value) instead of one. For data types that
+already use the boxed representation, the overhead is only one word (the key).
+
+Concerning packing and unpacking. The latter one is one comparison instruction,
+plus allocation of the option value (you can also provide function that throws
+exception, so that you can unpack without an extra allocation). And the packing
+is just an allocation of the 2-tuple.
+
+To summarize, it is fast, especially, if you are not trying to do heavy number
+crunching on numbers represented as universals.
+      </pre><i>Ivan Gotovchits also said:</i><br /><pre>
+A completely different approach, that doesn't involve GADT, but may have a
+higher performance cost is implemented in the [OGRE library][1], the trick is
+simple - you can use some common representation for your universals (e.g., a
+string, and database key, a sql statement, etc) and then your runtime data type
+representation is just the parsing (extracting) function. The library also shows
+how one can represent headers as a composition of parsers. See [the
+implementation][2] for more details.
+
+[1]: <a href="http://binaryanalysisplatform.github.io/bap/api/master/Ogre.html">http://binaryanalysisplatform.github.io/bap/api/master/Ogre.html</a>
+[2]: <a href="https://github.com/BinaryAnalysisPlatform/bap/blob/master/lib/ogre/ogre.ml">https://github.com/BinaryAnalysisPlatform/bap/blob/master/lib/ogre/ogre.ml</a>
+      </pre><a name="8" /><hr /><h3>OCaml Users and Developers Workshop 2018: Call for presentations</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2018-05/msg00030.html">https://sympa.inria.fr/sympa/arc/caml-list/2018-05/msg00030.html</a></p><i>Andrew Kennedy announced:</i><br /><pre>
+We warmly invite submissions to the OCaml Users and Developers Workshop 2018, to
+be held during the ICFP conference week on Thursday, September 27th in St.
+Louis, Missouri, USA.
+
+<a href="https://icfp18.sigplan.org/track/ocaml-2018-papers#Call-for-Contributions">https://icfp18.sigplan.org/track/ocaml-2018-papers#Call-for-Contributions</a>
+
+Scope
+-----
+
+Presentations and discussions will focus on the OCaml programming language and
+its community. We solicit talks on all aspects related to improving the use or
+development of the language and its programming environment, including, for
+example (but not limited to):
+* compiler developments, new backends, runtime and architectures
+* practical type system improvements, such as (but not limited to) GADTs,
+  first-class modules, generic programming, or dependent types
+* new library or application releases, and their design rationales
+* tools and infrastructure services, and their enhancements
+* prominent industrial or experimental uses of OCaml, or deployments in unusual
+  situations.
+
+Presentations
+-------------
+
+The OCaml Users and Developers Workshop will be an informal meeting with no
+formal proceedings. The presentation material will be available online from the
+workshop homepage. The presentations may be recorded, and made available at a
+later time. The main presentation format is a workshop talk, traditionally
+around 20 minutes in length, plus question time, but we also have a poster
+session during the workshop - this allows to present more diverse work, and
+gives time for discussion. The program committee will decide which presentations
+should be delivered as posters or talks.
+
+Submission
+----------
+
+To submit a presentation, please register a description of the talk (up to 4
+pages long) at <a href="https://ocaml18.hotcrp.com/">https://ocaml18.hotcrp.com/</a> providing a clear statement of what
+will be provided by the presentation: the problems that are addressed, the
+solutions or methods that are proposed. LaTeX-produced PDFs are a common and
+welcome submission format. For accessibility purposes, we ask PDF submitters to
+also provide the sources of their submission in a textual format, such as .tex
+sources. Reviewers may read either the submitted PDF or the text version.
+
+Important dates
+---------------
+
+Thursday 31st May (any time zone): Abstract submission deadline
+Thursday 28th June: Author notification
+Thursday 27th September 2018: OCaml Workshop
+
+ML family workshop and post-proceedings
+---------------------------------------
+The ML family workshop, held on the previous day, deals with general issues of
+the ML-style programming and type systems, focuses on more research-oriented
+work that is less specific to a language in particular (OCaml). There is an
+overlap between the two workshops, and we have occasionally transferred
+presentations from one to the other in the past. The authors who feel their
+submission fits both workshops are encouraged to mention it at submission time
+and/or contact the Program Chairs.
+
+We are planning to publish combined post-proceedings and to invite interested
+authors of selected presentations to expand their abstracts for inclusion.
+
+Program committee
+-----------------
+Andrew Kennedy, Facebook, UK (chair)
+Stephen Dolan, University of Cambridge, UK
+Clark Gaebel, Jane Street,
+Nicolás Ojeda Bär, LexiFi, France
+Jonathan Protzenko, Microsoft Research, USA
+Gabriel Scherer, INRIA, France
+Kanae Tsushima, National Institute of Informatics, Japan
+John Whitington, University of Leicester, UK
+
+Questions and contact
+---------------------
+Please send any questions to the chair: Andrew Kennedy (akenn@fb.com)
+      </pre><a name="9" /><hr /><h3>OCaml/Reason/MirageOS Internships at SAP Innovation Center Network (Postdam, Germany)</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2018-05/msg00034.html">https://sympa.inria.fr/sympa/arc/caml-list/2018-05/msg00034.html</a></p><i>Keiko Nakata announced:</i><br /><pre>
+Our team at SAP Innovation Center Network in Potsdam (Germany) is
+looking for internship students to research, evaluate and extend
+MirageOS in the context of cloud applications.
+
+Please check out the job descriptions at
+
+<a href="https://jobs.sap.com/job/Potsdam-Intern-Mirage-OS-Research-&amp;-Development-Job-BB/465260101/">https://jobs.sap.com/job/Potsdam-Intern-Mirage-OS-Research-&amp;-Development-Job-BB/465260101/</a>
+
+and
+
+<a href="https://jobs.sap.com/job/Potsdam-Working-Student-OCamlReason-Developer-Job-BB/465257901/">https://jobs.sap.com/job/Potsdam-Working-Student-OCamlReason-Developer-Job-BB/465257901/</a>
+
+For more details and questions, please contact me on keiko.nakata@sap.com
+(We may have other internship positions around static analysers,
+please contact me for further details.)
+      </pre><a name="10" /><hr /><h3>Other OCaml News</h3><i>From the ocamlcore planet blog:</i><br /><pre>
+Here are links from many OCaml blogs aggregated at OCaml Planet,
+<a href="http://ocaml.org/community/planet/">http://ocaml.org/community/planet/</a>.
+
+Dijkstra's algorithm
+ <a href="http://blog.shaynefletcher.org/2018/05/dijkstras-algorithm.html">http://blog.shaynefletcher.org/2018/05/dijkstras-algorithm.html</a>
+      </pre><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

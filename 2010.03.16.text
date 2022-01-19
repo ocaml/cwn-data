@@ -1,0 +1,590 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of March 09 to 16, 2010.
+
+1) testers wanted for experimental SSE2 back-end
+2) OCaml Meeting 2010, 3 weeks before end of subscription
+3) CCSS 1.0
+4) Shared memory parallel application: kernel threads
+5) CamlPDF 0.5
+6) OCamlspotter 1.1
+7) Other Caml News
+
+========================================================================
+1) testers wanted for experimental SSE2 back-end
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/ddb8d5d6318bef5a#>
+------------------------------------------------------------------------
+** Xavier Leroy announced:
+
+This is a call for testers concerning an experimental OCaml compiler
+back-end that uses SSE2 instructions for floating-point arithmetic.
+This code generation strategy was discussed before on this list, and I
+include below a summary in Q&A style.
+
+The new back-end is being considered for inclusion in the next major
+release (3.12), but performance testing done so far at INRIA and by
+Caml Consortium members is not conclusive.  Additional results
+from members of this list would therefore be very welcome.
+
+We're not terribly interested in small (< 50 LOC), Shootout-style
+benchmarks, since their performance is very sensitive to code and data
+placement.  However, if some of you have a sizeable (> 500 LOC) body
+of float-intensive Caml code, we'd be very interested to hear about
+the compared speed of the SSE2 back-end and the old back-end on your
+code.
+
+Switching to Q&A style:
+
+Q: Where can I get the code?
+
+A: From the SVN repository:
+
+svn checkout <http://caml.inria.fr/svn/ocaml/branches/sse2> ocaml-sse2
+
+Source-code only.  Very lightly tested under Windows, so you might be
+better off testing under Unix.
+
+Q: What is this SSE2 thingy?
+
+A: An extension of the Intel/AMD x86 instruction set that provides,
+among other things, 64-bit float arithmetic instructions operating
+over 64-bit float registers.  Before SSE2, the only way to perform
+64-bit float arithmetic on x86 was the x87 instructions, which compute
+in 80-bit precision and use a stack instead of registers.
+
+Q: Why this sudden interest in SSE2?
+
+A: SSE2 has several potential advantages over x87, including:
+
+- The register-based SSE2 model fits the OCaml back-end much better
+ than the stack-based x87 model.  In particular, "let"-bound intermediate
+ results of type "float" can be kept in SSE2 registers, while in
+ the current x87 mode they are systematically flushed to the stack.
+
+- SSE2 implements exactly 64-bit IEEE arithmetic, giving float results
+ that are consistent with those obtained on other platforms and with
+ the OCaml bytecode interpreter.  The 80-bit format of x87 produces
+ different results and can causes surprises such as "double rounding"
+ errors.  (For more explanations, see David Monniaux's excellent article,
+ <http://hal.archives-ouvertes.fr/hal-00128124/> )
+
+- Some x86 processors execute SSE2 instructions faster than their x87
+ counterparts.  This speed difference was notable on the Pentium 4
+ in particular, but is much smaller on more recent processors such as
+ Core 2.
+
+Note that x86-64 bits systems as well as Mac OS X already use SSE2 as
+their default floating-point model.
+
+SSE2 also has some potential disadvantages:
+
+- The instructions are bigger than x87 instructions, causing some
+ increase in code size and potentially some decrease in instruction
+ cache efficiency.
+
+- Computing intermediate results in 80-bit precision, like x87 does,
+ can improve the numerical stability of poorly-conditioned float
+ computations, although it doesn't make a difference for well-written
+ numerical code.
+
+Q: Is SSE2 universally available on x86 processors?
+
+A: Not universally but pretty close.  SSE2 made its debut in 2000, in
+the Pentium 4 processor.  All x86 machines built in the last 4 years
+or so support SSE2, but pre-Pentium 4 and pre-Athlon64 processors do not.
+
+Q: So if you adopt this new back-end, OCaml will stop working on my
+trusty 1995-vintage Pentium?
+
+A: No.  Under friendly pressure from our Debian friends, we agreed to
+keep the x87 back-end alive for a while in parallel with the SSE2
+back-end.  The x87 back-end is selected at configuration time if the
+processor doesn't support SSE2 or if a special flag is given to the
+configure script.
+
+Q: I observed a 20% (speedup|slowdown)!  Should I tell the world about it?
+
+A: If your benchmark spends all its time in 10 lines of OCaml, maybe
+not.  On such small codes, variations in code and data placement alone
+(without changing the instructions that are actually executed) can
+result in performance variations by 20%, so this is just experimental
+noise.  Larger programs are less sensitive to this noise, which is why
+we're much more interested in results obtained on real OCaml
+applications.  Finally, one micro-benchmark slowed down by a factor of
+2 for reasons we couldn't explain.
+
+Q: What are those inconclusive results you mentioned?
+
+A: On medium-sized numerical kernels (e.g. FFT, Gaussian process
+regression), we've observed speedups of about 8% on Core 2 processors
+and somewhat higher on recent AMD processors.  On bigger OCaml
+applications that perform floating-point computations but not
+exclusively, the performance difference was lost in the noise.
+
+Looking forward to interesting experimental results.
+	   
+** Later on, Xavier Leroy added:
+
+Right.  Sorry for not mentioning this.  The x86-64 bit code generator for
+OCaml uses SSE2 floats, like all C compilers for this platform.  The
+experimental back-end I announced is for x86-32 bit.  Some more Q&A:
+
+Q: I have OCaml installed on my x86 machine, how do I know if it's 32
+or 64 bits?
+
+A: Do:
+
+ grep ^ARCH `ocamlopt -where`/Makefile.config
+
+If it says "amd64", it's 64 bits with SSE2 floats.
+If it says "i386", it's 32 bits with x87 floats.
+If if says "ia32", it's the experimental back-end: 32 bits with SSE2 floats.
+
+Q: If I compile from sources, which code generator is chosen by
+default? 32 or 64 bits?
+
+A: OCaml's configure script chooses whatever mode the C compiler
+defaults to.  For instance, on a 32-bit Linux installation, the 32-bit
+generator is selected, and on 64-bit Linux installation, it's the
+64-bit generator.  Mac OS X is more tricky: 10.5 and earlier default
+to 32 bits, but 10.6 defaults to 64 bits...
+	   
+** Gaëtan Dubreil said:
+
+With my audio processing application of about 1300 LOC, i get a speedup of
+about 9%. I run the application on Intel Pentium M under Kubuntu.
+The application spend all the time doing computation on bigarray of float.
+For me, the gain is appreciable. In real time audio processing, a speedup of
+9% can be crucial.
+	   
+========================================================================
+2) OCaml Meeting 2010, 3 weeks before end of subscription
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/95349872532c4907#>
+------------------------------------------------------------------------
+** Sylvain Le Gall announced:
+
+For the third time, I am proud to invite all OCaml enthusiasts to join
+us at OCaml Meeting 2010 in Paris.
+
+This year event takes place in Paris on Friday 16th April 2010.
+Subscription is opened and will be closed on Friday 2nd April 2010.
+
+Presentations include:
+
+* Enforcing Type-Safe Linking using Inter-Package Relationships for
+ OCaml Debian packages
+* The Ocamlviz visualization toolkit
+* Cluster computing in Ocaml
+* Ocaml in a web startup
+* React, functional reactive programming for OCaml
+* OASIS, a Cabal like system for OCaml
+* OPA, same web, but with types and lambda
+* OC4MC, Objective Caml for MultiCore
+* Lwt, Cooperative Light-Weight Threads
+* naclgrid: the collaborative rendering farm, a JoCaml-powered
+ desktop grid
+
+The meeting is sponsored by INRIA, the Caml Consortium and OCamlCore.
+Inscription is free but the number of participants is limited.
+
+Further information and inscriptions:
+<http://wiki.cocan.org/events/europe/ocamlmeetingparis2010>
+
+The day after OCaml Meeting, Mehdi Dogguy from PPS helps me to organize
+an informal day where OCaml teams can meet to work. We will have 2
+classrooms, each can host 45 persons. There will be an internet access
+and a blackboard in each room. Inscription is free.
+
+Further information and inscriptions:
+<http://wiki.cocan.org/events/europe/ocamlhackingdayparis2010>
+
+Volunteers willing to help before/during these events can contact me
+directly. We are particularly looking for a video team. You can also
+forward this invitation to any groups that can be interested in (Haskell
+user group, CUFP mailing list...)
+
+For people who need further information, you can contact me (see
+wiki.cocan.org for contact details).
+	   
+========================================================================
+3) CCSS 1.0
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/d417348eec3c5dfe#>
+------------------------------------------------------------------------
+** Dario Teixeira announced:
+
+CCSS is a preprocessor for CSS (Cascading Style Sheets), extending the
+language with arithmetic operations and variables.  It was born out of
+frustration with the unbearable slowness and lack of support for some
+CSS3 constructs in other similar tools such as LESS [1].  Here are
+some points to be aware:
+
+ - The CSS source is actually parsed into an AST, which is then converted
+  again into a CSS textual representation for output.  You can therefore
+  use it as a pretty-printer.  On the downside, comments are stripped out.
+
+ - Because it is an actual parser, it is fairly straightforward to hack
+  your own custom transformations to the AST.  The scanner is Ulex-based,
+  whereas Menhir is required for building the parser.
+
+ - CCSS knows only of CSS syntax, and has no knowledge of actual CSS
+  properties and valid values for each.  This simplifies the program
+  and makes it future-compatible, but also means that will gleefully
+  accept nonsensical CSS properties such as the following:
+
+  h1 {foo: bar;}
+
+ - The scanner/parser does not cover some of the hairy corners of CSS.
+  It does however handle new syntactic constructs introduced with CSS3.
+
+ - The arithmetic operations are unit-aware, and will complain if you
+  try adding apples and oranges, for example.
+
+
+Examples of use and the syntax for the language extensions are described
+in the project's homepage, which also includes building instructions and
+download links [2].  Note that the source-code is released under the terms
+of the GNU GPL v2.
+
+Last, but not least, though no particular attention was given to performance,
+it does fulfill the initial goal of making execution time as close to zero
+as not to get in the way...
+
+Hope you find it useful -- feedback is welcome!
+
+Best regards,
+Dario Teixeira
+
+
+[1] <http://lesscss.org/index.html>
+[2] <http://ccss.forge.ocamlcore.org/>
+	   
+** After a discussion on units, Daniel Bünzli said and Dario Teixeira replied:
+
+> The problem is that different kind of objects naturally use different
+> kind of units. A font size or line height for example is usually
+> expressed in pts and a standard paper or photographic print size will
+> be in cms (or inches).
+
+Sure, and nothing stops you from using those different units in different
+contexts.  CCSS only constrains you if you try doing *arithmetic* with
+those units, which I posit should rarely be an issue, precisely because
+they live in different contexts.
+
+But anyway, I've implemented unit conversion, which you can find in SVN [1].
+In the next release this feature may be activated at user discretion.
+
+Units are divided into four categories, and units within the same category
+may be mixed.  The result gets the same unit as the first operand.  The
+categories are as follows:
+
+  length: mm, cm, in, pt, pc
+   angle: deg, grad, rad
+    time: ms, s
+frequency: hz, khz
+
+In the following example, the output for all properties will be "2in":
+
+h1
+ {
+ foo1: 1in + 1in;
+ foo2: 1in + 2.54cm;
+ foo3: 1in + 25.4mm;
+ foo4: 1in + 72pt;
+ foo5: 1in + 6pc;
+ }
+
+
+Best regards,
+Dario Teixeira
+
+[1] <http://forge.ocamlcore.org/scm/viewvc.php/?root=ccss>
+	   
+** Later on, Dario Teixeira added:
+
+In the meantime I've released version 1.1, which includes the requested
+unit conversion feature.  It works as I described in a previous email,
+but is not activated by default.  If you really need this feature, simply
+provide option '--convert' (short version '-c') upon command line invocation.
+
+For more information: <http://ccss.forge.ocamlcore.org/>
+	   
+========================================================================
+4) Shared memory parallel application: kernel threads
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/f58f59b700c317fb#>
+------------------------------------------------------------------------
+** Hugo Ferreira asked:
+
+I need to implement (meta) heuristic algorithms that
+uses parallelism in order to (attempt to) solve a (hard)
+machine learning problem that is inherently exponential.
+The aim is to take maximum advantage of the multi-core
+processors I have access to.
+
+To that effect I have revisited many of the lively
+discussions in threads related to concurrency, parallelism
+and shared memory in this mailing list. I however still
+have many doubts, some of which are very basic.
+
+My initial objective is to make a very simple tests that
+launches k jobs. Each of these jobs must access
+a common data set that is read-only. Each of the k threads
+in turn generates its own data. The data generated by the k
+jobs are then placed in a queue for further processing.
+
+The process continues by launching (or reusing) k/2 jobs.
+Each job consumes two elements from the queue that where
+previously generated (the common data set must still be
+available). The process repeats itself until k=1. Note
+that the queued data is not small nor can I determine
+a fixed maximum size for it.
+
+I have opted to use "kernel-level threads" that allow use
+of the (multi-core) processors but still allow "easy"
+access to shared memory".
+
+I have done a cursory look at:
+- Ocaml.Threads
+- Ocaml.Unix (LinuxThreads)
+- coThreads
+- Ocamlnet2/3 (netshm, netcamlbox)
+(An eThreads library exists in the forge but I did not examine this)
+
+My first concern is to take advantage of the multi-cores so:
+
+1. The thread library is not the answer
+  Chapter 24 - "The threads library is implemented by time-sharing on a
+  single processor. It will not take advantage of multi-processor
+  machines." [1]
+
+2. LinuxThreads seems to be what I need
+  "The main strength of this approach is that it can take full
+   advantage of multiprocessors." [2]
+
+
+Issue 1
+
+In the manual [3] I see only references to function for the creation
+and  use of processes. I see no calls that allow me to simply generate
+and assign a function (job) to a thread (such as val create : ('a -> 'b)
+ -> 'a -> t in the Thread module). The unix library where LinuxThreads
+is now integrated shows the same API. Am I missing something or
+is their no way to launch "threaded functions" from the Unix module?
+Naturally I assume that threads and processes are not the same thing.
+
+Issue 2
+
+If I cannot launch kernel-threads to allow for easy memory sharing, what
+other options do I have besides netshm? The data I must share is defined
+by a recursive variant and is not simple numerical data.
+
+I would appreciate any comments.
+
+TIA,
+Hugo F.
+
+
+[1] <http://caml.inria.fr/pub/docs/manual-ocaml/manual038.html>
+[2] <http://pauillac.inria.fr/~xleroy/linuxthreads/>
+[3] <http://caml.inria.fr/pub/docs/manual-ocaml/libref/ThreadUnix.html>
+[4] <http://caml.inria.fr/pub/docs/manual-ocaml/manual035.html>
+	   
+** Gerd Stolpmann suggested:
+
+I think you mix here several things up. LinuxThreads has nothing to do
+with ocaml. It is an implementation of kernel threads for Linux on the C
+level. It is considered as outdated as of today, and is usually replaced
+by a better implementation (NPTL) that conforms more strictly to the
+POSIX standard.
+
+Ocaml uses for its multi-threading implementation the multi-threading
+API the OS provides. This might be LinuxThreads or NPTL or something
+else. So, on the lower half of the implementation the threads are kernel
+threads, and multi-core-enabled. However, Ocaml prevents that more than
+one of the kernel threads can run inside its runtime at any time. So
+Ocaml code will always run only on one core (but you can call C code,
+and this can then take full advantage of multi-cores).
+
+This is the primary reason I am going with multi-processing in my
+projects, and why Ocamlnet focuses on it.
+
+The Netcamlbox module of Ocamlnet 3 might be interesting for you. Here
+is an example program that mass-multiplies matrices on several cores:
+
+<https://godirepo.camlcity.org/svn/lib-ocamlnet2/trunk/code/examples/camlbox/manymult.ml>
+
+Netcamlbox can move complex values to shared memory, so you are not
+restricted to bigarrays. The matrix example uses float array array as
+representation. Recursive variants should also be fine.
+
+For providing shared data to all workers, you can simply load it into
+the master process before the children processes are forked off. Another
+option is (especially when it is a lot of data, and you cannot afford to
+have n copies) to create another camlbox in the master process before
+forking, and to copy the shared data into it before forking. This avoids
+that the data is copied at fork time.
+
+One drawback of Netcamlbox is that it is unsafe, and violating the
+programming rules is punished with crashes. (But this also applies, to
+some extent, to multi-threading, only that the rules are different.)
+	   
+** Sylvain Le Gall also suggested:
+
+I think you should also have a look at ocaml/mpi for communication:
+<http://forge.ocamlcore.org/projects/ocamlmpi/>
+and ancient for accessing read-only memory:
+<http://merjis.com/developers/ancient>
+
+MPI can work on a single computer to take advantage of multi-core
+through multi-processus.
+	   
+** Philippe Wang also suggested:
+
+If your program doesn't need usage-proved stability, you may be
+interested in the "OCaml for Multicore" project which provides an
+alternative runtime library (prototype quality) which allows threads
+to compute in parallel.
+<http://www.algo-prog.info/ocmc/>
+	   
+** Richard Jones also suggested:
+
+At least look at OCaml Ancient for sharing the data.  You possibly may
+not use it, but it was designed pretty much for what you have in mind.
+The README should be informative:
+
+<http://merjis.com/developers/ancient>
+<http://merjis.com/_file/ancient-readme.txt>
+
+(You should also look at the API and source).  You didn't mention how
+large your read-only data set is, but OCaml Ancient should be able to
+handle 100s of gigabytes, assuming a 64 bit machine.  We used to use
+it with 10s of gigabyte data sets without any issues.
+
+As others have said, don't use threads to launch your jobs.  Look at
+one of the fork-based libraries.  In addition to the ones mentioned,
+take a look at PreludeML, which is internally very simple and should
+give you a good start if you decide to write your own:
+
+<http://github.com/kig/preludeml>
+
+If you want to spread the jobs over multiple machines, then OCaml MPI
+is probably the way to go.
+	   
+** Hugo Ferreira then said and Richard Jones replied:
+
+> I will be using a single 8-CPU machine for the experiments.
+> For the problem at hand shared the memory model seems to be
+> a better fit than messaging.
+
+I've not actually tried it, but I bet you can use a hybrid model --
+Use MPI as an easy way to spread the jobs over the nodes and for
+coordinating the processes, then have each process open a shared
+Ancient file (backed by NFS) for the read-only data.
+	   
+========================================================================
+5) CamlPDF 0.5
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/a2fd08554b864254#>
+------------------------------------------------------------------------
+** John Whitington announced:
+
+I'm pleased to announce the CamlPDF 0.5 release, which includes a couple of
+new modules (Pdfdate for date manipulation, Pdfannot for annotations and
+Pdfmarks for bookmarks). Almost every other module has been improved in some
+way.
+
+Download: <http://www.coherentpdf.com/ocaml-libraries.html>
+
+More importantly, I've finally found time to write a short introduction to
+CamlPDF, which lets you try some basic work within the OCaml top level:
+
+<http://www.coherentpdf.com/introduction_to_camlpdf.pdf>
+
+There have been some API modifications which are not backward compatible, but
+the changes to your source are easy to make. This should be the last release
+with such changes.
+
+There is now a CamlPDF mailing list:
+
+<http://www.freelists.org/list/camlpdf>
+	   
+========================================================================
+6) OCamlspotter 1.1
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/8e7de0721812e539#>
+------------------------------------------------------------------------
+** Jun Furuse announced:
+
+I have updated OCamlSpotter, a compiler enhancement for source code browsing,
+to version 1.1, which is aimed for OCaml 3.11.2 and some enhancements
+since its first release.
+
+OCamlSpotter is a tool which finds definition places of various names
+(identifiers, type names, modules, etc) in OCaml programs automatically for
+you. The original OCaml's -annot option provides the same sort of
+functionality but OCamlSpotter provides much more powerful browsing: it can
+find definitions hidden in the deep nested module aliases and functor
+applications.
+
+- The -annot option of ocamlc and ocamlopt is extended and creates
+  <module>.spot files (<module>.spit for .mli), which record the location
+  information of the names defined and used in the module.
+
+- A small application ocamlspot provides automatic where-about spotting of the
+  definition of the name you are interested in, using <module>.spot files
+  created by the patched compilers.
+
+- ocamlspot.el provides interactive ocaml-spotting of definition locations in
+  emacs.
+
+- Interfaces for other editors such as vi could be built easily, if you want.
+
+This release of OCamlSpotter is 1.1. Some bugs found in 1.1rc1 were fixed.
+
+Further information and download is available at:
+
+  <http://jun.furuse.info/hacks/ocamlspotter>
+	   
+========================================================================
+7) Other Caml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocamlcore.org/>.
+
+CamlPDF 0.5:
+  <http://caml.inria.fr/cgi-bin/hump.cgi?contrib=571>
+
+CamlPDF 0.5 Released:
+  <http://coherentpdf.com/blog/?p=44>
+
+GHC 6.12.1 in Debian Testing.:
+  <http://www.mega-nerd.com/erikd/Blog/CodeHacking/Debian/ghc6.12_testing.html>
+
+FP-Syd #22.:
+  <http://www.mega-nerd.com/erikd/Blog/FP-Syd/fp-syd-22.html>
+
+CCSS 1.1 released:
+  <http://forge.ocamlcore.org/forum/forum.php?forum_id=561>
+
+CCSS 1.1:
+  <http://caml.inria.fr/cgi-bin/hump.cgi?contrib=722>
+
+CCSS 1.0 released:
+  <http://forge.ocamlcore.org/forum/forum.php?forum_id=560>
+
+LLVM, OCaml and Debian:
+  <http://le-gall.net/sylvain+violaine/blog/index.php?2010/03/10/55-llvm-ocaml-and-debian>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

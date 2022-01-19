@@ -1,0 +1,315 @@
+﻿<?xml version="1.0" encoding="ISO-8859-15"?>
+<cwn>
+<cwn_head>
+  <cwn_date>2005.10.18</cwn_date>
+  <cwn_prev>2005.10.11</cwn_prev>
+  <cwn_next>2005.11.01</cwn_next>
+  <cwn_date_text>11 to 18 October, 2005</cwn_date_text>
+</cwn_head>
+<cwn_body>
+  <cwn_entry>
+    <cwn_title>EQ hash tables?</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/30758</cwn_url>
+    <cwn_who>Thomas Fischbacher asked and Xavier Leroy answered</cwn_who>
+    <cwn_what>
+&gt; Actually, this brings me to a question I wanted to ask for a long time:
+&gt; while I never used this so far, I just assumed that OCaml does provide
+&gt; hash tables where keys are compared w.r.t. "being the same" ('==' , that
+&gt; is), rather than only hash tables where keys are compared for "being
+&gt; equal" (say, '=').
+
+Easily definable using the functorial interface to hash tables:
+
+module MyEqHashTable =
+  Hashtbl.Make(struct
+      type t = my_type_for_keys
+      let equal = (==)
+      let hash = Hashtbl.hash
+    end)
+
+&gt; Of course, "EQ hash tables" have to be treated in a slightly special way
+&gt; when talking about stop&amp;copy GCing.
+
+No, not "of course".  You're thinking of using the address of a memory
+block as its hash value.  This indeed requires GC support.  But you
+can get the semantics you want (keys compared by reference) while
+still computing the hash code structurally.  This is what the code
+snippet above does.
+    </cwn_what>
+    <cwn_who>Thomas Fischbacher then asked and Xavier Leroy answered</cwn_who>
+    <cwn_what>
+&gt; Hm, okay. I agree that this does give me the same semantics.
+&gt; But doesn't this degrade expected lookup performance to an O(n) list
+&gt; lookup if I put a lot of stuff into the hash which is (=) but not (==)?
+
+Yes, of course.  It depends on your application.  For things like
+hash-consing, this approach (standard hash function + comparison finer
+than (=)) can still work well.  Alternatively, you can always put
+unique integers in the data type used as key.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>gcc problem</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/30781</cwn_url>
+    <cwn_who>Mark Benecke asked and Xavier Leroy answered</cwn_who>
+    <cwn_what>
+&gt; When I compile my program with the ocamlopt compiler in the windows OS., the
+&gt; following error message is shown:
+&gt;
+&gt; gcc: @C:\DOKUME~1\karinu\LOKALE~1\Temp\camlresp8f8d86: No such file or
+&gt; directory
+&gt; gcc: @C:\DOKUME~1\karinu\LOKALE~1\Temp\camlresp0e9864: No such file or
+&gt; directory
+&gt; Error during linking
+&gt;
+&gt; does any one has any idea?
+
+You should install the Cygwin version of the Mingw compilers,
+not the standalone MSYS/Mingw compilers.  The latter do not understand
+the @responsefile notation.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Memory usage/ garbage collection question</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/30784</cwn_url>
+    <cwn_who>Richard Jones asked and Yoann Padioleau answered</cwn_who>
+    <cwn_what>
+&gt; I'm trying to optimise a program which is using a large amount of
+&gt; memory and consequently thrashing.
+&gt; 
+&gt; The core of the program is an iteration over a list of something like
+&gt; a million elements which consumes about 1/2 gig of RAM.  The iteration
+&gt; is:
+&gt; 
+&gt;   List.iter (
+&gt;     fun row -&gt;
+&gt;       (* put row into database and forget about it *)
+&gt;   ) rows;
+&gt;   (* no further references to rows after this *)
+&gt; 
+&gt; This is the stdlib implementation of List.iter.  Should the garbage
+&gt; collector be able to collect the part of the list which has been
+&gt; iterated over, during the iteration?  At the moment it doesn't look
+&gt; like it's doing so.
+
+Because rows is still accessible after the List.iter  so it is normal that it
+is not garbage collected.
+
+I had the same kind of problem and to optimize it I choose to produce the
+elements of rows lazily (but then I had another problem with the Lazy modudle
+where elements were not garbage collected so I use my own lazy module (simple
+via closure) and it works perfectly well).
+    </cwn_what>
+    <cwn_who>Richard Jones answered and Gerd Stolpmann said</cwn_who>
+    <cwn_what>
+&gt; &gt; Because rows is still accessible after the List.iter so it is normal
+&gt; &gt; that it is not garbage collected.
+&gt; 
+&gt; I agree that rows is "accessible", but it's not actually used.  My
+&gt; understanding is that the GC would be prevented from considering the
+&gt; list for collection if the pointer to the head of the list (ie. rows)
+&gt; was stored on the heap or in a register somewhere.  Would this be the
+&gt; case here?
+&gt; 
+&gt; &gt; I had the same kind of problem and to optimize it I choose to
+&gt; &gt; produce the elements of rows lazily (but then I had another problem
+&gt; &gt; with the Lazy modudle where elements were not garbage collected so I
+&gt; &gt; use my own lazy module (simple via closure) and it works perfectly
+&gt; &gt; well).
+&gt; 
+&gt; Unfortunately this isn't really an option here.  The rows list comes
+&gt; from a huge XML doc which is parsed by PXP and passed through some
+&gt; complex post-processing; PXP doesn't support incremental processing of
+&gt; XML docs, and the post-processing would be tricky to convert too.
+
+PXP has a pull parser. You get the XML document as a lazy stream of XML
+events. I don't know your document format, but if it is something like
+
+&lt;document&gt;
+  &lt;record&gt;...&lt;/record&gt;
+  &lt;record&gt;...&lt;/record&gt;
+  ...  lots of them ...
+&lt;/document&gt;
+
+I would recommend using the pull parser, and then create XML trees for
+the individual records only (you can mix both styles).
+    </cwn_what>
+    <cwn_who>John Skaller answered the OP</cwn_who>
+    <cwn_what>
+let rows = ref [] in
+(* build up the list of rows here *)
+
+let rec doit rows = match rows with
+  | [] -&gt; ()
+  | h :: t -&gt; install_in_db h; doit t (* tail call *)
+in 
+  doit (let r = !rows in rows := []; r)
+    </cwn_what>
+    <cwn_who>Olivier Andrieu also answered the OP</cwn_who>
+    <cwn_what>
+&gt; This is the stdlib implementation of List.iter.  Should the garbage
+&gt; collector be able to collect the part of the list which has been
+&gt; iterated over, during the iteration?  At the moment it doesn't look
+&gt; like it's doing so.
+
+" Short answer: with ocamlc, no.  With ocamlopt, yes. "
+
+cf. these informatives messages by Xavier:
+http://groups.google.com/group/fa.caml/msg/f194a3240d240e71
+http://groups.google.com/group/fa.caml/msg/d36cb040d0d87ca6
+    </cwn_what>
+    <cwn_who>Seth J. Fogarty said, Richard Jones asked, and Frederic van der Plancke answered</cwn_who>
+    <cwn_what>
+&gt; &gt; No, because you have bound rows to a name. Now, I believe if rows is
+&gt; &gt; returned by a function, and is NOT bound by name in that function, it
+&gt; &gt; can be garbage collected. I.E.
+&gt; 
+&gt; Ah OK ... I'm interested though: why does binding a value to a name
+&gt; cause problems?  Surely at this level (ocamlopt generated code) there
+&gt; ought to be no difference between a named value and an unnamed one?
+
+Perhaps the problem is not the name, but the fact that when you write
+
+    List.iter f rows
+
+the compiler isn't going to go great lengths in optimizing out the reference to rows before the call to
+List.iter, since the optimisation probably isn't free and the compiler (and compiler writers) don't
+know in advance how worthwhile it would be.
+
+If the call to List.iter was a tail call the compiler would probably be forced to optimise rows out.
+
+Hence my 0.02 cents worth untested idea: you might try and use tail call optimisation to get rid of that reference.
+
+say
+   let do_work () = 
+      let rows = ... in
+      List.iter (...) rows
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>vm threads</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/30792</cwn_url>
+    <cwn_who>Ian Zimmerman asked and Jacques Garrigue answered</cwn_who>
+    <cwn_what>
+&gt; Are Ocaml's VM threads preemptive?  That is, does the virtual machine 
+&gt; actually have a timer and give a slice to each thread?  Or does a thread
+&gt; run until it's blocked?
+
+The timer signal is used, so they are preemptive.
+This is however only true for threads running ocaml code.
+There is no way to switch thread during C calls, so that all
+potentially blocking C calls should be manually converted to
+non-blocking ones (this is already done for the standard library and
+the Unix module.)
+This can also create problems when somebody else needs the timer
+signal (for instance the Graphics module.)
+
+System threads are most costly (they use system resources), but they
+simplify greatly working with C.
+    </cwn_what>
+    <cwn_who>Ian Zimmerman then asked and Jacques Garrigue answered</cwn_who>
+    <cwn_what>
+&gt; The reason I asked was: when writing a library that uses C extension
+&gt; code and a global data structure in the C code, can I just use system
+&gt; thread primitives for synchronization (that would be pthreads since
+&gt; I am only thinking about Unix type systems at least ATM) and not worry
+&gt; about VM threads?
+&gt; 
+&gt; From your post the answer seems to be yes.
+
+That's even stronger than that: if you do not plan to run some pure C
+threads concurently with ocaml, you usually don't need any
+synchronization, either for system or VM threads.
+With VM threads, you may only change thread when executing ocaml code,
+so all your C code is single-threaded.
+With system threads, you have to release the ocaml lock by calling
+enter_blocking_section before any other ocaml thread may run.
+If you don't want to be interrupted, just don't release it.
+So you don't need to bother with synchronization as long as you don't
+introduce concurrency intentionally on the C side. (But this might be
+what you intend to do...)
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>UMLMON-1.0.1 released</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/30798</cwn_url>
+    <cwn_who>Gerd Stolpmann announced</cwn_who>
+    <cwn_what>
+For your information, I just released this software written in O'Caml.
+
+Gerd
+-------------------------------------------------------------------------
+
+UMLMON is a monitor for User Mode Linux (UML) that sets up a runtime
+environment for UML and controls the execution of UML. UMLMON uses a
+quite advanced client/server architecture, is rock-stable, and even has
+a web interface.
+
+The newest version of UMLMON, 1.0.1, has just been released. It is now
+available under the terms of the GPL.
+
+UMLMON is a feature-rich monitor:
+
+- UMLMON creates and maintains a runtime environment for UML.
+  This includes a chroot jail and the automatic setup of 
+  needed resources.
+
+- UMLMON is a daemon with an RPC interface. One can control 
+  the daemon and the running UML instance by sending commands 
+  over this interface. The RPC interface works locally and 
+  over the network.
+
+- Of course, one can start and stop the UML instance over the
+  UMLMON daemon.
+
+- UMLMON can establish bidirectional connections to the virtual
+  consoles and the virtual serial lines. This means one can 
+  directly have an interactive session on the virtual machine 
+  without having to rely on networking.
+
+- UMLMON can log the output of virtual consoles. Even log 
+  rotation is supported.
+
+- UMLMON has administrative functions to create and manipulate
+  virtual disks.
+
+- UMLMON eases the setup of virtual networking.
+
+- UMLMON is a secure environment. Although the daemon runs as 
+  root, it is written in a _safe_ programming language such 
+  that it is impossible that buffer overflows or other flaws 
+  of low-level languages allow attackers to break in.
+
+- There is a command-line interface and a web interface.
+  Due to restricted resources the latter is currently only
+  available in German language. A multilingual version is
+  planned, though.
+
+I hope you see also the advantages of such a daemon. You can get rid of
+all the hackish scripts that are typically used in a UML setup, and have
+a clean and powerful solution that grows with your requirements.
+
+The UMLMON homepage is at http://www.gerd-stolpmann.de/umlmon .
+
+There are binaries for LSB-2.0 (Linux Standard Base). See
+http://www.gerd-stolpmann.de/buero/umlmon/umlmon-1.0.1-install.txt.en
+for instructions where to get them and how to install them.
+
+Source code:
+http://www.ocaml-programming.de/packages/umlmon-1.0.1.tar.gz . It is
+quite difficult to build UMLMON on a typical Linux distro because most
+prerequisite libraries are missing, or are too old. The easiest way is
+to go with GODI, http://godi.ocaml-programming.de , which includes a lot
+of scripts to automate the build of programs written in O'Caml. Just
+install the packages apps-umlmon and apps-umlmon-web.
+
+Problems, questions, etc. are answered by me, please contact me
+privately &lt;gerd@gerd-stolpmann.de&gt;.
+
+UMLMON is an Open Source product by Informatikbuero Gerd Stolpmann.
+Commercial support setting up the daemon and the whole UML system can be
+bought, especially here in Germany.
+    </cwn_what>
+  </cwn_entry>
+</cwn_body>
+</cwn>

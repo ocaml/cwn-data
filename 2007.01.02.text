@@ -1,0 +1,543 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of December 26, 2006, to January 02, 2007.
+
+Happy New Year!
+
+1) allocating memory for c-structures
+2) Scripting in ocaml
+3) Pure visitor patterns
+4) ocamlnet-2.2 released
+
+========================================================================
+1) allocating memory for c-structures
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/8945ecd47646cd86/0d7229724224cc42#0d7229724224cc42>
+------------------------------------------------------------------------
+** Michael asked and John Skaller answered:
+
+> Normaly I allocate memory for c-structures with malloc or with "new" for 
+> c++ objects. Some time ago a read about a library which places external 
+> structures in strings of the interfacing languages (it was a scheme lib 
+> I think). So instead of using malloc or new I would allocate an 
+> ocaml-string and put the c-structure there. So it will be free by the gc. 
+> That seems o.k. for me, any comments? I'm missing something? 
+
+I don't believe Ocaml guarantees the contents of a string 
+will remain in a fixed location .. it might move the storage 
+to a new address .. so pointers into the structure might 
+dangle.
+			
+** EL CHAAR Rabih also answered:
+
+The issue about having c structures allocated in ocaml heap is about: 
+1) having a floating pointer that could be displaced by the gc during its 
+cycles (if it is emedded into ocaml heap) 
+2) having it reside in the c heap, and not be impacted by caml gc cycles (this 
+can be justified if the c structure is heavy in memory, like a c array, ...): 
+this is done by creating caml values with a custom or abstract tag. 
+3) memory freeing could always be done to a custom_tag value through the 
+finalization function passed during the creation.
+			
+** Richard Jones also answered:
+
+That seems like it'll work for "opaque" C objects, but it's a bit of a 
+hack.  The immediate issues I can think are: 
+(a) Pointers in the C code which point at the object will not be 
+"counted" by the GC, and so the object may be collected while there 
+are still C pointers around.  This is easily avoided in OCaml, but 
+read chapter 18 of the manual carefully. 
+
+(b) By storing the object as a string you're telling the GC not to 
+examine the inside of the object, eg. looking for pointers inside to 
+other objects.  Fine, if you know what you're doing, but OCaml already 
+has a number of established ways to do this - eg. using Abstract or 
+Custom blocks - and these standard ways are not just standard, but 
+offer additional features too.  Alternatively you may consider a 
+non-abstract block and deliberately allow the GC to look inside.  C 
+and OCaml structures are not actually too different. 
+
+Actually, while I was writing the above, it struck me that perhaps 
+you're talking about some sort of marshalling system?  OCaml supports 
+its own marshalling format, and a rich variety of other external forms 
+of marshalling.
+			
+** Michael then replied:
+
+> (a) Pointers in the C code which point at the object will not be 
+> "counted" by the GC, and so the object may be collected while there 
+> are still C pointers around.  This is easily avoided in OCaml, but 
+> read chapter 18 of the manual carefully. 
+
+
+that's true; for linked data structures it would not work (except all 
+would be allocated this way) 
+> Actually, while I was writing the above, it struck me that perhaps 
+> you're talking about some sort of marshalling system?  OCaml supports 
+> its own marshalling format, and a rich variety of other external forms 
+> of marshalling. 
+
+ah no, I just thought that it would be another way to handle external 
+memory. 
+What I didn't realize was, that the gc moves pointers around...
+			
+========================================================================
+2) Scripting in ocaml
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/9b69f9b75315fb5a/1db058919f1ffdd6#1db058919f1ffdd6>
+------------------------------------------------------------------------
+** Continuing this huge thread, Aleksey Nogin said:
+
+Not quite scripting in OCaml, but related - the OMake build system comes 
+with its own shell interpreter - osh. The language is not OCaml, but 
+it's a functional language that was _specifically_ designed as a 
+scripting language, so I would argue that writing scripts in osh is more 
+convenient that scripting in OCaml (although, of course, for somebody 
+already familiar with OCaml, learning osh might be a bit harder that 
+learning some hypothetical scripting extension of OCaml). 
+Note that if the goal is specifically "scripts to perform various build- 
+and development-related tasks" as you've mentioned, then I would 
+definitely suggest looking at OMake and osh - there the scripting 
+language is the same as the build specification language and you can 
+inline osh scriplets directly into "make-style" build rules of OMake. 
+
+See <http://omake.metaprl.org/> for more information.
+			
+** Ian Zimmerman then asked and Aleksey Nogin answered:
+
+> Does it handle building in general, or just OCaml-based projects?  For 
+> example, can it deduce header dependencies for a C file - possibly with a 
+> plugin, like cons or scons? 
+
+
+Yes, definitely. OMake is meant to be language-agnostic. It comes with 
+standard libraries for OCaml (including support for preprocessors, for 
+ocamlfind and experimental support for the Menhir parser-generator), C, 
+C++ and LaTeX, including appropriate dependency scanning rules for there 
+languages and support for projects that have a mixture of these 
+languages. It should be fairly straightforward to add support for other 
+languages as well (for example, recently Dirk Heinrichs had written an 
+experimental Ada module). 
+To rehash from <http://omake.metaprl.org/>, OMake is designed for 
+scalability and portability and its features include: 
+
+- Support for projects spanning several directories or directory 
+hierarchies. 
+
+- Fast, reliable, automated, scriptable dependency analysis using MD5 
+digests, with full support for incremental builds. 
+
+- Fully scriptable, includes a library that providing support for 
+standard tasks in C, C++, OCaml, and LaTeX projects, or a mixture thereof. 
+
+For small projects, a configuration file may be as simple as a single line 
+
+   .DEFAULT: $(CProgram prog, foo bar baz) 
+
+which states that the program "prog" is built from the files foo.c, 
+bar.c, and baz.c. This one line will also invoke the default standard 
+library scripts for discovering implicit dependencies in C files (such 
+as dependencies on included header files). 
+
+- Full native support for rules that build several files at once. 
+
+- Portability: omake provides a uniform interface on Linux/Unix 
+(including 64-bit architectures), Win32, Cygwin, Mac OS X, and other 
+platforms that are supported by OCaml. 
+
+- Built-in functions that provide the most common features of programs 
+like grep, sed, and awk. These are especially useful on Win32. 
+
+- Active filesystem monitoring, where the build automatically restarts 
+whenever you modify a source file. This can be very useful during the 
+edit/compile cycle. 
+
+- A built-in command-interpreter osh that can be used interactively.
+			
+** Richard Jones then asked and Aleksey Nogin answered:
+
+> This is the syntax, right? 
+> <http://omake.metaprl.org/omake-shell.html#chapter:shell> 
+
+> It looks remarkably shell-like. 
+
+
+The above link only covers the "proper shell" parts of the OMake/osh 
+language (i.e. parts related to calling external commands). 
+Some features of the general language are outlined in 
+<http://omake.metaprl.org/omake-language.html#chapter:language> 
+
+> For those (like me) too lazy to 
+> download the source, can you give us an idea of how this is 
+> implemented?  Is it an alternate syntax for OCaml or an interpreter 
+> written using ocamllex, etc.? 
+
+The OMake/osh language is fairly different from OCaml. The language was 
+designed specifically to work nicely in build specifications and shell 
+scriplets,  which is a quite different set of constraints than the ones 
+OCaml is designed for. The result is a functional language with dynamic 
+typing and dynamic scoping. 
+OMake is implemented in OCaml (with a bit of C - 
+fam/gamin/kqueue/inotify bindings, Windows-specific code, etc). It can 
+be characterized as an interpreter (although before a file is executed, 
+there is a small compilation-like translation step) implemented using 
+ocamllex, ocamlyacc, etc. The parsed+translated version of each file is 
+cached to avoid the penalty of having to do it on every run.
+			
+========================================================================
+3) Pure visitor patterns
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/8cd49d1dbf21c0cc/d51b563095273546#d51b563095273546>
+------------------------------------------------------------------------
+** Jason Hickey asked and Jacques Garrigue answered:
+
+> I've been trying to write pure visitors (visitors that compute without 
+> side-effects).  The main change is that a visitor returns a value. 
+> Here is a (failed) example specification based on having only one kind 
+> of thing "foo". 
+>      class type ['a] visitor = 
+>        object ('self) 
+>          method visit_foo : foo -> 'a 
+>        end 
+
+>      and foo = 
+>        object ('self) 
+>          method accept : 'a. 'a visitor -> 'a 
+>          method examine : int 
+>        end 
+
+> This fails because the variable 'a escapes its scope in the method   
+> accept. 
+> It can be fixed by breaking apart the mutual type definition. 
+
+>      class type ['a, 'foo] visitor = 
+>        object ('self) 
+>          method visit_foo : 'foo -> 'a 
+>        end 
+
+>      class type foo = 
+>        object ('self) 
+>          method accept : 'a. ('a, foo) visitor -> 'a 
+>          method examine : int 
+>        end 
+
+> The second form works, but it is hard to use because of the number 
+> of type parameters needed for the visitor (in general). 
+
+> Here are my questions: 
+
+>     - Why does 'a escape its scope in the recursive definition? 
+
+
+Because during recursive definitions parameters of these definitions 
+are handled as monomorphic. So you cannot generalize the 'a locally. 
+>     - Is there some other style that would solve this problem? 
+
+Not really. Using private rows and recursive allow for some more 
+expressiveness (in particular you can then define pure visitors on 
+extensible on an extensible collection of classes), but they are a bit 
+tricky to use in this context, so I'm not sure this is an improvement 
+for simple cases. 
+Another trick to make this pattern more scalable is to use constraints 
+for parameters. 
+
+class type ['a, 'cases] visitor = 
+  object ('self) 
+    constraint 'cases = <foo: 'foo; bar: 'bar; ..> 
+    method visit_foo : 'foo -> 'a 
+    method visit_bar : 'bar -> 'a 
+  end 
+class type foo = 
+  object ('self) 
+    method accept : 'a. ('a, cases) visitor -> 'a 
+    method examine : int 
+  end 
+and bar = 
+  object ('self) 
+    method accept : 'a. ('a, cases) visitor -> 'a 
+    method examine : bool 
+  end 
+and cases = object method foo : foo method bar : bar end 
+
+> P.S. Here is an alternate scheme with non-polymorphic visitors, where 
+> the returned value is just a visitor.  The accept method needs to 
+> preserve the type, so this one also has the "escapes its scope" 
+> problem. 
+>      class type visitor = 
+>        object ('self) 
+>          method visit_foo : foo -> 'self 
+>        end 
+
+>      and foo = 
+>        object ('self) 
+>          method accept : 'a. (#visitor as 'a) -> 'a 
+>        end 
+>      ... 
+
+
+Same reason: #visitor has an hidden type parameter, so it cannot be 
+generalized in a mutually recursive definition.
+			
+** Jason Hickey:
+
+> > Here are my questions: 
+
+> >     - Why does 'a escape its scope in the recursive definition? 
+
+> Because during recursive definitions parameters of these definitions 
+> are handled as monomorphic. So you cannot generalize the 'a locally. 
+
+
+Ah, that makes perfect sense.  If I understand correctly, the   
+quantifiers in a mutual recursive class definition are hoisted, like   
+this: 
+The definition 
+    class type ['a] c1 = ... and ['b] c2 = ... 
+is really more like the following (pardon my notation): 
+    ['a, 'b] (class type c1 = ... and c2 = ...) 
+
+The mistake is to think of it like simple recursive type definitions,   
+like the following (rather useless) definition. 
+
+     type 'a visitor = 
+        { visit_foo : 'a -> foo -> 'a; 
+          visit_bar : 'a -> bar -> 'a 
+        } 
+     and foo = { accept : 'a. 'a -> 'a visitor -> 'a; examine : int } 
+     and bar = { accept : 'a. 'a -> 'a visitor -> 'a; examine : bool };; 
+
+I'm not complaining--the fact that you can write any of these types   
+is very cool. 
+
+> Another trick to make this pattern more scalable is to use   
+> constraints 
+> for parameters. 
+
+Very good suggestion.  This makes it _much_ easier to deal with the   
+multiplicity of types, since the constraints are linear, not   
+quadratic, in the number of cases. 
+
+Many thanks for your explanation!
+			
+========================================================================
+4) ocamlnet-2.2 released
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/7cca3674836d9f37/e001a5248ec351ae#e001a5248ec351ae>
+------------------------------------------------------------------------
+** Gerd Stolpmann announced:
+
+finally ocamlnet-2.2 is released! This version is identical to the 
+2.2rc1 version, as no bugs have been found since then. 
+
+<http://www.ocaml-programming.de/packages/ocamlnet-2.2.tar.gz> 
+
+In the rest of this (long) email, I'll explain certain aspects of this 
+version: 
+
+1. What's new in ocamlnet-2.2 
+2. Release notes 
+3. How you can help testing 
+4. Resources 
+5. Credits 
+
+Gerd 
+
+------------------------------------------------------------ 
+1. What's new in ocamlnet-2.2 
+------------------------------------------------------------ 
+
+Ocamlnet now includes equeue, netclient, and rpc 
+
+These libraries were previously distributed as separate software 
+packages. All four libraries form now together the new ocamlnet-2.2. 
+This allows much deeper integration of their functionality. 
+
+Building servers with Netplex 
+
+The framework Netplex simplifies the development of server applications 
+that require the parallel execution of requests. It focuses on 
+multi-processing servers but also allows multi-threading servers. 
+Netplex manages the start and stop of processes/threads, and dynamically 
+adapts itself to the current workload. Netplex allows it to integrate 
+several network protocols into one application, and as it also supports 
+SunRPC as protocol, one can consider it even as component architecture. 
+Furthermore, it has infrastructure to read configuration files and to 
+log messages. 
+
+Ocamlnet includes add-ons for Netplex to build SunRPC servers, web 
+servers, and web application servers (the latter over the protocols AJP, 
+FastCGI, or SCGI). 
+
+The revised API for web applications 
+
+The library netcgi2 is a revised version of the old cgi API (now also 
+called netcgi1). The changes focus on restructuring the library in order 
+to improve its modularity. It is hoped that beginners find more quickly 
+the relevant functions and methods. The API is essentially the same, but 
+the support for cookies has been enhanced. The connectors allowing a web 
+server to talk with the application have been completely redeveloped - 
+all four connectors (CGI, AJP, FastCGI, SCGI) support the same features. 
+The connector for SCGI is new. The connector for AJP has been upgraded 
+to protocol version 1.3. There are Netplex add-ons for the connectors. 
+
+The old API is still available, but its features are frozen. It is 
+recommended to port applications to netcgi2. 
+
+Improvements for SunRPC applications 
+
+It is now possible to use the SunRPC over SSL tunnels. All features are 
+available, including asynchronous messages. As a side effect of this, 
+the SunRPC implementation is now transport-independent, i.e. it is 
+sufficient to implement a few class types to run RPC over any kind of 
+transport. 
+
+Furthermore, a few details have been improved. SunRPC servers can now 
+implement several RPC programs or program versions at the same time. 
+SunRPC clients can now connect to their servers in the background. A few 
+bugs have been fixed, too. 
+
+Shared memory 
+
+As multi-processing has become quite important due to Netplex, Ocamlnet 
+supports now the inter-process communication over shared memory. The 
+implementation is brand-new and probably not very fast, but shared 
+memory makes sometimes things a lot easier for multi-processing 
+applications. 
+
+Old things remain good 
+
+Of course, this version of Ocamlnet supports the long list of features 
+it inherited from its predecessors. This includes an enhanced HTTP 
+client, a Telnet client, a (still incomplete) FTP client, a POP client, 
+and an SMTP client. The shell library is an enhanced version of 
+Sys.command. The netstring library is a large collection of string 
+routines useful in the Internet context (supports URLs, HTML, mail 
+messages, date strings, character set conversions, Base 64, and a few 
+other things). 
+
+------------------------------------------------------------ 
+2. Release notes 
+------------------------------------------------------------ 
+
+Stability 
+
+In general, the stability of this version is excellent. About 90 
+% of the code has been taken over from previous versions of ocamlnet, 
+equeue, netclient, and rpc, and this means that this code is already 
+mature. About 10 % of the code has been newly developed: 
+
+- netcgi2 is a revised version of the cgi library. Large parts 
+  are completely new. 
+
+- netplex is the new server framework. Fortunately, it could already 
+  be used in a production environment, and it has proven excellent 
+  stability there. 
+
+- netcgi2-plex combines netcgi2 and netplex. 
+
+- nethttpd has now the option to use netcgi2 as cgi provider 
+  (configure option -prefer-netcgi2). 
+
+- netshm adds shared memory support. 
+
+- equeue-ssl and rpc-ssl add SSL support to the RPC libraries. 
+
+Known Problems 
+
+There are known problems in this release which will be solved 
+in a later version: 
+
+- There is no good concept to manage signals. This is currently done 
+  ad-hoc. For now, this does not make any problems, or better, there 
+  is always the workaround that the user sets the signal handlers 
+  manually if any problems occur. 
+
+- The new cookie implementation of netcgi2 should replace the old 
+  one in netstring. Users should be prepared that Netcgi.Cookie 
+  will eventually become Nethttp.Cookie in one of the next releases. 
+
+- In netcgi2-plex, the "mount_dir" and "mount_at" options are not yet 
+  implemented. 
+
+- In netclient, aggressive caching of HTTP connections is still 
+  buggy. Do not use this option (by default, it is not enabled). 
+
+- The FTP client is still incomplete. 
+
+------------------------------------------------------------ 
+3. How you can help testing 
+------------------------------------------------------------ 
+
+It would be great if experienced developers tested the libraries, 
+especially the new and revised ones. Discussions should take place in 
+the Ocamlnet mailing list (see resources section below). 
+
+It is important to know that this version of Ocamlnet also includes the 
+libraries formerly distributed as equeue, netclient, and rpc. If you 
+upgrade an O'Caml installation, you _must_ remove old versions of these 
+libraries prio to the installation of the new Ocamlnet. 
+
+The GODI system is already updated, and you can get ocamlnet2 using 
+the standard update mechanism (for O'Caml 3.09 only). 
+
+------------------------------------------------------------ 
+4. Resources 
+------------------------------------------------------------ 
+
+On online version of the reference manual can be found here: 
+<http://ocamlnet.sourceforge.net/manual-2.2/> 
+
+The current development version is available in Subversion: 
+
+<https://gps.dynxs.de/svn/lib-ocamlnet> 
+
+Note that the ocamlnet file tree in Sourceforge refers to 
+ocamlnet-1 only. 
+
+There is a mailing list for Ocamlnet development: 
+
+<http://sourceforge.net/mail/?group_id=19774> 
+
+In case of problems, you can also contact me directly: 
+Gerd Stolpmann gerd@gerd-stolpmann.de
+
+------------------------------------------------------------ 
+5. Credits 
+------------------------------------------------------------ 
+
+A number of people and institutions helped creating this new version: 
+
+- Christophe Troestler wrote the revised CGI library 
+
+- The California State University sponsored the development 
+  of Netplex and the SSL support for SunRPC. Special thanks 
+  to Eric Stokes who convinced the University, and David 
+  Aragon for his business support. 
+
+- All companies who hired me this year and made it possible 
+  that I can make a living from O'Caml development. Without 
+  that it would have been impossible to put so much energy 
+  into this. Special thanks go to Yaron Minsky and Mika 
+  Illouz.
+			
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

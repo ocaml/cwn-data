@@ -1,0 +1,265 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of August 08 to 15, 2006.
+
+1) format polymorphism
+2) Lexing, parsing, symbolic manipulation and interpreting
+3) Streams
+4) can ocamldep order .cmo files?
+5) question about how to bind c++ classes to ocaml
+6) Camomile-0.7.0
+
+========================================================================
+1) format polymorphism
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/68d0a4862275d87e/960eb6badd61d187#960eb6badd61d187>
+------------------------------------------------------------------------
+** Christophe TROESTLER asked and Jacques Garrigue answered:
+
+> Could someone tell me why, say "%s", is of type 
+>   'a. (string -> 'b, 'a, 'b) format 
+
+> instead of 
+
+>   'a 'b. (string -> 'b, 'a, 'b) format 
+
+
+It clearly has the second type! 
+> I am asking this because if one wants to use the same format string 
+> both for reading and printing in a given function, one needs the 
+> latter type: 
+>   type 'a fmt = { fmt: 'b 'c. ('a,'b,'c) format } 
+>   fun  (s: _ fmt) -> Printf.printf s.fmt, Scanf.sscanf "string" s.fm 
+
+
+With your definition of fmt, you are requiring 'c to be independent 
+from 'a. But If you look at the type of "%s", you see that 
+'a = string -> 'c, so that {fmt="%s"} is not well-typed. 
+A solution is to define it as 
+  type 'a fmt = {fmt: 'b 'c. ('a -> 'b, 'c, 'b) format} 
+
+The drawback is that only allows formats taking one argument. 
+One could add definitions for any defined number of arguments, but I 
+don't see any generic solution.
+		
+========================================================================
+2) Lexing, parsing, symbolic manipulation and interpreting
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/bf780ce80eb44eed/afe250dc59c5e02e#afe250dc59c5e02e>
+------------------------------------------------------------------------
+** Jon Harrop announced:
+
+Following some interesting queries from a customer, I have expanded 
+the "Benefits of OCaml" pages to include a more thorough discussing of lexing 
+and parsing (both with camlp4's stream-based recusive descent parsers and 
+ocamllex+ocamlyacc), evaluation (calculator example and a complete "TinyML" 
+interpreter) and symbolic manipulation (differentiation, simplification and 
+pretty printing). 
+
+Check out "parsing" and "examples": 
+
+  <http://www.ffconsultancy.com/free/ocaml/> 
+
+I'd like to know what people think. :-)
+		
+========================================================================
+3) Streams
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/541dedf6ec56e9f4/fc544821e266278d#fc544821e266278d>
+------------------------------------------------------------------------
+** Error404 asked:
+
+I'm looking for some streams related tutorial or any other info. 
+By stream i mean something like this (I don't know exact definition): 
+
+open Lazy;; 
+type 'a stream = Nil | Cons of 'a Lazy.t * 'a stream Lazy.t;; 
+
+(* For example stream of 'integers from x' would look like this: *) 
+
+let rec intsfrom x = 
+  Cons(lazy x,lazy (intsfrom (x+1)));;
+		
+** Jonathan Roewen answered:
+
+The Stream module provides exactly this functionality. 
+With camlp4o, you can use the old parser syntax too. 
+
+#load "camlp4o.cma"; 
+
+let rec enum_from n = [< 'n; enum_from (n + 1) >];; 
+
+let first_10 = Stream.npeek 10 (enum_from 1);; 
+
+Streams are also lazily evaluated. More complex examples can be had 
+too, and there is the parser keyword to deconstruct streams as well. 
+You should be able to find more info in the camlp4 manual at the caml 
+site.
+		
+** Martin Jambon also answered:
+
+I call this a lazy list. Anyway, I use the following definition: 
+   type 'a l = Empty | Cons of 'a * 'a t 
+   and 'a t = 'a l lazy_t   (* only one lazy object per cell *) 
+
+See attachment for the full implementation. (At the archive link)
+
+You can manipulate such lists like real lists, only the syntax is less 
+comfortable. They are different from streams in the sense of the standard 
+Stream module, which are mutable.
+		
+** Chris King said:
+
+> The Stream module provides exactly this functionality. 
+
+Don't forget about Fstream 
+(<http://caml.inria.fr/pub/docs/manual-camlp4/manual008.html#toc30>); it 
+does the same thing as Stream but in a functional manner (and with a 
+similar syntax, pa_fstream.cmo).
+		
+** Jon Harrop also answered:
+
+I just posted a link to some stuff on streams in the context of parsing but 
+you can write intsfrom as: 
+# #load "camlp4o.cma";; 
+        Camlp4 Parsing version 3.09.2 
+
+# let rec intsfrom n = [< 'n; intsfrom(n+1) >];; 
+
+-- 
+Dr Jon D Harrop, Flying Frog Consultancy Ltd. 
+Objective CAML for Scientists 
+<http://www.ffconsultancy.com/products/ocaml_for_scientists>
+		
+========================================================================
+4) can ocamldep order .cmo files?
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/a5a5e625bee0bbdc/3ab33c8aa7824fff#3ab33c8aa7824fff>
+------------------------------------------------------------------------
+** Nathan Mishra Linger asked:
+
+I'm a new OCaml user and quite a fan so far (most of my functional 
+programming experience has been in Haskell up to this point). 
+I know that .cmo arguments to ocamlc must be in order of dependency. 
+I also know that ocamldep can detect such dependencies and spit them 
+out in a format that makefiles can include. 
+
+But can ocamldep spit out the dependency ordering of a list of .cmo 
+files in such a way that these can be input to ocamlc?  If not, it 
+seems like it would be a useful thing for ocamldep to be able to do 
+this.  Or do people have other solutions to this problem.
+	  
+** Till Varoquaux suggested:
+
+Try having a look at ocamldsort: 
+<http://dimitri.mutu.net/ocaml.html>
+	
+** Nathaniel Gray also suggested:
+
+You might look at the OMake build system[1].  It's a concise and 
+declarative like make, but with far superior dependency tracking and 
+support for large projects.  Support for OCaml is particularly strong, 
+since it's the primary language used for OMake itself and most of the 
+other projects in our lab.  In particular, it takes care of keeping 
+the .cmo files in proper order. 
+Cheers, 
+-n8 
+
+[1] <http://omake.metaprl.org/>
+	
+========================================================================
+5) question about how to bind c++ classes to ocaml
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/47d15899aca1c538/09a5fecb1d85dc64#09a5fecb1d85dc64>
+------------------------------------------------------------------------
+** Michael asked and Jacques Garrigue answered:
+
+> when binding an ocaml class  to a c++ class, what's the preferred 
+> way to access member variables of the c++ class? 
+> One is just to implement the get and set function in ocaml to call 
+> the native get/set functions of the c++ class. That way you allways have 
+> some calls from ocaml to c only to get a value of a c++ object. 
+> Another way would be to add similar member variables to the ocaml class 
+> and everytime the c++ side changes a member it updates the ocaml side 
+> too (through direct access). This way you have an additional binding 
+> (the c++ object knows it's ocaml object), but you can access the member 
+> variables in ocaml through normal ocaml methods. 
+
+I suppose this very much depends on how you intend to use this 
+binding, but trying to synchronize members between C++ and ocaml seems 
+a lot of work. The only advantage is faster read access, so this 
+should only be done if you have to read this member often, and the 
+cost is significant. There is also the induced cost of calling back 
+ocaml every time the member is updated. 
+Calls from ocaml to C are very cheap. If your access function doesn't 
+do any allocation (i.e. never calls the GC), you can even make it 
+faster by marking it as "noalloc". Beware many functions do 
+allocate, including copy_double or copy_string.
+	  
+** Michael Wohlwend then asked and Jacques Garrigue answered:
+
+> > Calls from ocaml to C are very cheap. If your access function doesn't 
+> > do any allocation (i.e. never calls the GC), you can even make it 
+> > faster by marking it as "noalloc". Beware many functions do 
+> > allocate, including copy_double or copy_string. 
+> thanks for pointing this out. The "noalloc"-thing isn't really 
+> described in the docu? :-) 
+
+
+I suppose this is because it is a bit tricky. You have to look at all 
+the dependencies to be sure that the function will never trigger the 
+GC, and you might easily get it wrong. 
+> Another question which came up was: you can only declare normal 
+> functions (not methods) as "external", so you have to write a c 
+> function for every c++ member function. Do you rebuild the 
+> inheritance hierachy somehow through the type system (maybe with 
+> those mysterious phantom types?) or just put an ocaml class system 
+> on top of it? 
+
+My approach in lablgtk was to first use phantom types, ie use 
+parameters in abstract types to simulate subtyping. Then there is a 
+second layer using ocaml objects, but I'm not sure you need it in 
+general. It isonly needed because GTK+ has so many classes that it is 
+difficult to track which function comes from which class. 
+In Labltk for instance, there are only phantom types, and without 
+subtyping (it uses a coercion function "coe" instead). This works well 
+if you have a hierarchy with few layers (only two in labltk)
+	
+========================================================================
+6) Camomile-0.7.0
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/3258713caf00fec9/9a4026701fad836f#9a4026701fad836f>
+------------------------------------------------------------------------
+** Yoriyuki Yamagata announced:
+
+I'm pleased to announce Camomile-0.7.0, new version of a comprehensive 
+Unicode Library for OCaml. 
+<http://prdownloads.sourceforge.net/camomile/camomile-0.7.0.tar.bz2> 
+
+This release is a major change of module structures.  Now the whole 
+library becomes a functor over "configuration" module, which specifies 
+the location of data files necessary to run Camomile.  This enables to 
+distribute binary with compiled Camomile library, which may run on 
+machines with different directory structures.  If you just want to use 
+default configuration, use CamomileLibrary.Main.Camomile module in the 
+place of Camomile module of previous versions.
+	  
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

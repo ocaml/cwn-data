@@ -1,0 +1,269 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2011.03.29.html">Previous week</a> <a href="index.html">Up</a> <a href="2011.04.12.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of March 29 to April 05, 2011.</p><p /><ol><li><a href="#1">llpp v4</a></li><li><a href="#2">walking a graph in parallel</a></li><li><a href="#3">first class modules: differences in 3.12 vs 3.13?</a></li><li><a href="#4">[JOB] post-doc position available at MSR-INRIA in France</a></li><li><a href="#5">ocsigen-bundler v0.1.0: Create self-contained Ocsigen server</a></li><li><a href="#6">OCaml Meeting 2011, 1 week before end of registration</a></li><li><a href="#7">The OCaml interactive toplevel in your Web browser</a></li><li><a href="#8">Other Caml News</a></li></ol><a name="1" /><hr /><h3>llpp v4</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2011-03/msg00271.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2011-03/msg00271.html</a></p><i>malc announced:</i><br /><pre>
+New version of llpp (tagged v4) is now released, interested parties are
+free to grab it from <a href="http://repo.or.cz/w/llpp.git">http://repo.or.cz/w/llpp.git</a>
+
+llpp is a graphical less(1) like utility for viewing documents in Adobe
+PDF format.
+
+Build instructions: <a href="http://repo.or.cz/w/llpp.git/blob/master:/BUILDING">http://repo.or.cz/w/llpp.git/blob/master:/BUILDING</a>
+Keys to press: <a href="http://repo.or.cz/w/llpp.git/blob/master:/KEYS">http://repo.or.cz/w/llpp.git/blob/master:/KEYS</a>
+      </pre><a name="2" /><hr /><h3>walking a graph in parallel</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2011-03/msg00272.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2011-03/msg00272.html</a></p><i>Alexy Khrabrov asked and Gerd Stolpmann replied:</i><br /><pre>
+&gt; I have a giant graph of Twitter data which takes several gigabytes in RAM, 
+&gt; as a Hashtbl.  I need to walk it, collecting various statistics, and 
+&gt; building equally huge data structures under each node.  Currently I do it 
+&gt; all in a single OCaml program, which uses up to 60 GB of RAM and works 
+&gt; fine.    However, out of the 8 powerful CPUs the box has, only 1 is used.
+&gt; 
+&gt; Having seen Joel's tasty bites of ZeroMQ and Thrift and Piqi, I'm thinking 
+&gt; of exploring 0MQ as a parallel MPI/Erlang-like way to walk the graph.  I'd 
+&gt; move the graph into a server, and walkers would be separate processes.   I 
+&gt; only need inter-process communication, IPC, for the box.  I could do 
+&gt; threads and inter-thread in 0MQ if OCaml would allow real parallel threads. 
+&gt;  
+&gt; 
+&gt; How would you manage 7 identical worker processes and 1 server, so that in 
+&gt; the end, the results of the workers are all reduced together?  What's the 
+&gt; best way to set up the server?  Some ideas:
+
+Ocamlnet contains a manager for worker processes called Netplex. Here is
+an example how to parallelize a matrix multiplication:
+
+<a href="http://blog.camlcity.org/blog/parallelmm.html">http://blog.camlcity.org/blog/parallelmm.html</a>
+
+Communication between processes is here done via SunRPC (well, I'm not
+for these hyped new protocols like Thrift).
+
+&gt; -- hold the graph in MongoDB, it allows for parallel queries
+&gt; -- keep the graph in an OCaml process, it allows for custom queries; but 
+&gt; will 0MQ try to fork and copy it when replying to several workers?  Copying 
+&gt; is impossible, too big
+
+If the graph is highly interconnected, you can practically only store it
+in RAM (that's what all social network sites do). For read-only access,
+I suggest you simply allocate a big block of shared memory, and move the
+graph to it. Ocamlnet contains also helpers for this:
+
+<a href="http://projects.camlcity.org/projects/dl/ocamlnet-3.2.1/doc/html-main/Netsys_mem.html">http://projects.camlcity.org/projects/dl/ocamlnet-3.2.1/doc/html-main/Netsys_mem.html</a>
+
+Look for init_value. Shared memory can be allocated using shm_open, in
+
+<a href="http://projects.camlcity.org/projects/dl/ocamlnet-3.2.1/doc/html-main/Netsys_posix.html">http://projects.camlcity.org/projects/dl/ocamlnet-3.2.1/doc/html-main/Netsys_posix.html</a>
+
+I'm also working on extending Ocamlnet with more shared memory
+functionality, but this is only partially available yet (Netmulticore
+library).
+
+&gt; Or, is it possible to use a huge chunk of shared memory, to place the 
+&gt; read-only graph there and query it somehow separately from each worker, 
+&gt; then use 0MQ for the reduce communication phase?
+
+If you need help with this, I can also offer commercial support for
+Ocamlnet. (Provided your company is not a search engine, or a social
+network, for contractual reasons.)
+      </pre><i>Richard Jones also replied:</i><br /><pre>
+As it's read-only, sounds like an ideal application for ancient:
+
+<a href="http://git.annexia.org/?p=ocaml-ancient.git;a=summary">http://git.annexia.org/?p=ocaml-ancient.git;a=summary</a>
+      </pre><a name="3" /><hr /><h3>first class modules: differences in 3.12 vs 3.13?</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2011-03/msg00275.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2011-03/msg00275.html</a></p><i>Joel Reymont asked, Dmitry Bely said, and Maxence Guesdon replied:</i><br /><pre>
+&gt; &gt; I get an error on this with 3.12 but no error with 3.13.0+dev2 
+&gt; &gt; (2010-10-22).
+&gt; &gt;
+&gt; &gt; let _ = Simple.main (module Client) (module Server) (module Config)
+&gt; &gt;
+&gt; &gt; Why? I thought 3.12 supported first-class modules.
+&gt; 
+&gt; I believe module types are a must:
+&gt; 
+&gt; let _ = Simple.main (module Client : CLIENT) (module Server : SERVER)
+&gt; (module Config : CONFIG)
+
+In revision 10738, the implicit-unpack branch was merged to the trunk. I
+think this allows
+  let _ = Simple.main (module Client) (module Server) (module Config)
+instead of
+  let _ = Simple.main (module Client : CLIENT) (module Server : SERVER)
+    (module Config : CONFIG)
+
+and that it explains the difference.
+      </pre><a name="4" /><hr /><h3>[JOB] post-doc position available at MSR-INRIA in France</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2011-03/msg00284.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2011-03/msg00284.html</a></p><i>Damien Doligez announced:</i><br /><pre>
+Research team: Tools for Proofs, MSR-INRIA Joint Centre
+=======================================================
+
+The Microsoft Research-INRIA Joint Centre is offering a 2-year
+position for a post-doctoral researcher to work on a proof development
+environment for TLA+ in the Tools for Proofs project-team (see
+<a href="http://www.msr-inria.inria.fr">http://www.msr-inria.inria.fr</a>).
+
+Research Context
+================
+
+TLA+ is a language for formal specifications and proofs designed by
+Leslie Lamport.  It is based on first-order logic, set theory,
+temporal logic, and a module system.  While the specification part of
+TLA+ has existed for several years, the proof language is more recent,
+and we are developing tools for writing and checking proofs.
+
+TLA+ proofs are interpreted by the Proof Manager (PM), which generates
+proof obligations corresponding to individual steps of the TLA+
+proof. The PM passes proof obligations to backend provers; currently
+these include the tableau prover Zenon and a generic backend for SMT
+solvers. When possible, we expect backend provers to produce a
+detailed proof that is then checked by an axiomatization of TLA+ in
+the trusted proof assistant Isabelle. In this way, we obtain high
+assurances of correctness as well as satisfactory automation.
+
+The current version of the PM handles only the "action" part of TLA+:
+first-order formulas with primed and unprimed variables; where a
+variable v is considered as unrelated to its primed version v'.  This
+allows us to translate non-temporal proof obligations to standard
+first-order logic, without the overhead associated with an encoding of
+temporal logic into first-order logic.  This part of TLA+ is already
+useful for proving safety properties.
+
+Description of the activity of the post-doc
+===========================================
+
+The post-doctoral researcher will extend the proof manager to handle
+the temporal part of TLA+.  In cooperation with the other members of
+the project, he or she will contribute to the extension of the TLA+
+proof language to temporal operators, and will design and implement a
+new translation to Isabelle of the full language. This extension poses
+interesting conceptual and practical problems. In particular, the new
+translation will have to smoothly extend the existing one in order to
+make use of the plain first-order theorems produced by the old
+translation, which will be kept for all action-level reasoning.
+
+Skills and profile of the candidate
+===================================
+
+The ideal candidate will have a solid knowledge of logic and set
+theory as well as good implementation skills related to symbolic
+theorem proving. Of particular relevance are parsing and compilation
+techniques. Our tools are mainly implemented in OCaml. Experience with
+temporal and modal logics, Isabelle, Java or Eclipse would be a plus.
+
+Location
+========
+
+The Microsoft Research-INRIA Joint Centre is located on the Campus of
+INRIA Saclay, in the South of Paris, near the Le-Guichet RER
+station. The Tools for Proofs project-team is composed of Damien
+Doligez, Leslie Lamport, and Stephan Merz.
+
+Contact
+=======
+
+Candidates should send a resume and the name and e-mail addresses of
+one or two references to Damien Doligez 
+&lt;damien.doligez AT inria.fr&gt;.
+The deadline for application is June 1, 2011.
+
+This announce is available at
+<a href="http://www.msr-inria.inria.fr/Members/doligez/post-doc-position/view">http://www.msr-inria.inria.fr/Members/doligez/post-doc-position/view</a>
+      </pre><a name="5" /><hr /><h3>ocsigen-bundler v0.1.0: Create self-contained Ocsigen server</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2011-03/msg00298.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2011-03/msg00298.html</a></p><i>Continuing an old thread, yoann padioleau said and Sylvain Le Gall replied:</i><br /><pre>
+&gt; I've created something with a similar goal here:
+&gt;  <a href="https://github.com/aryx/fork-ocsigen">https://github.com/aryx/fork-ocsigen</a>
+&gt;  <a href="https://github.com/aryx/fork-ocsigen/blob/master/pad.txt">https://github.com/aryx/fork-ocsigen/blob/master/pad.txt</a>
+&gt; 
+&gt; Basically it's a battery-included gitbug-enabled source distribution
+&gt; of ocsigen with arguably cleaner Makefiles
+&gt; and directory organization.
+
+I have a quick look at your project, but I don't think it targets
+exactly the same goal. 
+
+The point of ocsigen-bundler is to copy every .cma/.cmo/executable into
+a target directory to be able to rsync them to a remote host. 
+
+ocsigen-bundler can be seen as the deploy utilities of ocsigen server.
+This is how I use it. 
+
+It doesn't include a fork of ocsigen, nor of any libraries not used by the
+project you deploy.
+      </pre><a name="6" /><hr /><h3>OCaml Meeting 2011, 1 week before end of registration</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2011-03/msg00303.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2011-03/msg00303.html</a></p><i>Sylvain Le Gall announced:</i><br /><pre>
+== Hacking day ==
+
+There will be hacking day (week-end), the day after the meeting
+organized by Pierre Chambart at IRILL.
+
+== OCaml Meeting ==
+
+For the fourth time, I am proud to invite all OCaml enthusiasts to join us at
+OCaml Meeting 2011 in Paris.
+ 
+This year event takes place in Paris on Friday 15th April 2011. Registration 
+is
+opened now and will be closed on Friday 8th April 2011.
+
+As last year, participants are invited to give a talk on what they are doing
+with OCaml, submit a description of your talk on the wiki or contact me.
+
+__ Only 30 places left and only one week before remains __ 
+
+We are still looking for:
+* someone to handle the camrecorder
+* someone to welcome people and direct them to the cafeteria
+
+Both of these tasks will only take you a limited amount of time during the
+meeting. It will help the organization team a lot. 
+
+The meeting is sponsored by INRIA CAML Consortium and organized OCamlCore.
+
+Further information: 
+<a href="http://bit.ly/eaZi1C">http://bit.ly/eaZi1C</a>
+Registration:
+<a href="http://bit.ly/hqaDWb">http://bit.ly/hqaDWb</a>
+
+Hope to see a lot of you 
+Regards 
+Sylvain Le Gall on behalf of the OCaml Meeting organization team
+
+p.s. the registration website is made with Ocsigen and connected to the forge,
+so you need to be logged in the OCaml Forge to be able to subscribe.
+      </pre><a name="7" /><hr /><h3>The OCaml interactive toplevel in your Web browser</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2011-04/msg00010.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2011-04/msg00010.html</a></p><i>Jerome Vouillon announced:</i><br /><pre>
+You can now try the OCaml toplevel online:
+
+   <a href="http://ocsigen.org/js_of_ocaml/toplevel/">http://ocsigen.org/js_of_ocaml/toplevel/</a>
+
+Your code is executed in the Web browser, not on some remote server.
+
+
+Technically, the OCaml toplevel and the Js_of_ocaml compiler have been
+put together in a single OCaml program, which has then been compiled
+to Javascript. The source code is currently available in the darcs
+repository of the Js_of_ocaml compiler.
+
+    More information regarding the compiler:
+        <a href="http://ocsigen.org/js_of_ocaml/">http://ocsigen.org/js_of_ocaml/</a>
+
+    Get the source code:
+        darcs get <a href="http://ocsigen.org/darcs/js_of_ocaml/">http://ocsigen.org/darcs/js_of_ocaml/</a>
+
+
+Contributions (syntax highlighting, history, ...) are welcome!
+      </pre><a name="8" /><hr /><h3>Other Caml News</h3><i>From the ocamlcore planet blog:</i><br /><pre>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <a href="http://planet.ocamlcore.org/">http://planet.ocamlcore.org/</a>.
+
+OCaml Meeting 2011, hacking day:
+  <a href="https://forge.ocamlcore.org/forum/forum.php?forum_id=782">https://forge.ocamlcore.org/forum/forum.php?forum_id=782</a>
+
+OCaml Meeting 2011, 1 week before end of registration:
+  <a href="https://forge.ocamlcore.org/forum/forum.php?forum_id=781">https://forge.ocamlcore.org/forum/forum.php?forum_id=781</a>
+
+OCaml-Couch:
+  <a href="https://forge.ocamlcore.org/projects/ocaml-couch/">https://forge.ocamlcore.org/projects/ocaml-couch/</a>
+      </pre><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

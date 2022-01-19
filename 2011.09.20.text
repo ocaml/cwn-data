@@ -1,0 +1,518 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of September 13 to 20, 2011.
+
+1) Towards a really native toplevel? ocamlnat w/o as/ld
+2) a push style event combinator
+3) A small patch for ocamlc 3.12.1 to find reudundant opens
+4) Jane street's core (et al.) post-hurricane code release
+5) Lwt and exceptions
+6) OCaml installer for windows available
+7) OCMP: 0.1 release
+8) Morpion et évaluation paresseuse
+9) A limitation of "with type" declarations for first-class modules
+10) Netamqp, a client for AMQP-0-9-1
+11) Other Caml News
+
+========================================================================
+1) Towards a really native toplevel? ocamlnat w/o as/ld
+Archive: <https://sympa-roc.inria.fr/wws/arc/caml-list/2011-09/msg00092.html>
+------------------------------------------------------------------------
+** Continuing an old thread, Benedikt Meurer announced:
+
+> I'll push the i386 version once cleaned up and integrated with the approach 
+> implemented for the amd64 version now.
+
+The i386 version is also fully functional now, and our current prototype is 
+available from the ocamlnat-jit branch from my "ocaml-experimental" 
+repository at:
+
+<https://github.com/bmeurer/ocaml-experimental/tree/ocamlnat-jit>
+
+> It should be noted that there's still some room left for optimizations 
+> (i.e. use short jumps whenever possible, etc.), but the results so far are 
+> already quite promising: The new ocamlnat beats both the old ocamlnat as 
+> well as the byte code toplevel in every benchmark I've tried. I'll prepare 
+> a detailed comparison when time permits.
+
+
+I did a preliminary comparison today, results are available at:
+
+<http://ps.informatik.uni-siegen.de/~meurer/tmp/ocamlnat-benchmark-20110914.pdf>
+
+The results are given as speedup compared to the OCaml 3.12.1 byte code 
+toplevel. "OCamlNat/jit" is ours, "OCamlNat/ext" is the ocamlnat thing that 
+silently ships with OCaml 3.12.1, and "OCamlJIT2" is my previous byte code 
+JITter. Time was measured as combined user+system time for the toplevel 
+process plus all child processes.
+
+As you can see, we achieved speedups of up to 100 times faster than the byte 
+code toplevel (which is in part related to the fact that llvm-gcc is the 
+default compiler with OS X Lion, and thereby disables the register assignment 
+optimizations for the byte code interpreter).
+      
+========================================================================
+2) a push style event combinator
+Archive: <https://sympa-roc.inria.fr/wws/arc/caml-list/2011-09/msg00128.html>
+------------------------------------------------------------------------
+** Satoshi Ogasawara announced:
+
+I'd like to announce the release of PEC, a push style event combinator.
+
+  PEC : <https://github.com/osiire/Pec>
+
+This small module(about 350 LOC) provides
+
+- a composable event.
+- map, choose, never, join and several useful functions.
+- immediate reactions corresponds sending data to events.
+- no memory leaks.
+
+I think PEC is useful to write event driven systems. The signature is as 
+follows.
+
+type 'a event
+
+(** [make ()] makes a new event and sender function.*)
+val make : unit -> 'a event * ('a -> unit)
+val map : ('a -> 'b) -> 'a event -> 'b event
+
+(** [choose l] is a event which will be raised when one of specified events 
+occurred. *)
+val choose : 'a event list -> 'a event
+val never : 'a event
+(** [join ee] is a event which will be raised when a inner event occurred.
+    "Inner event" is a event comes from outer event [ee]. *)
+val join : 'a event event -> 'a event
+(** [bind e f] is [join (map f e)] *)
+val bind : 'a event -> ('a -> 'b event) -> 'b event
+val scan : ('a -> 'b -> 'a) -> 'a -> 'b event -> 'a event
+val filter : ('a -> bool) -> 'a event -> 'a event
+val filter_map : ('a -> 'b option) -> 'a event -> 'b event
+val zip : 'a event -> 'b event -> ('a * 'b) event
+val take_while : ('a -> bool) -> 'a event -> 'a event
+val take_while_in : ('a -> bool) -> 'a event -> 'a event
+val take_n : int -> 'a event -> 'a event
+val once : 'a event -> 'a event
+val drop_while : ('a -> bool) -> 'a event -> 'a event
+val drop_n : int -> 'a event -> 'a event
+val delay : int -> 'a event -> 'a event
+val pairwise : 'a event -> ('a * 'a) event
+
+(** [subscribe f e] attaches the [f] to the specified event.
+    The [f] will be called when the [e] will occurred. *)
+val subscribe : ('a -> unit) -> 'a event -> unit
+
+(** [value e] returns a reference cell which store a latest value *)
+val value : 'a -> 'a event -> 'a ref
+
+(** [run ()] runs PEC event system and returns a number of queuing size of 
+sended data. *)
+val run : unit -> int
+
+
+e.g.
+ Using PEC, you can write a drag event from mouse events like this.
+
+let (+>) f g = g f
+(* E is PEC module *)
+let dragging mouse_down mouse_up mouse_move =
+  E.bind mouse_down (fun dloc -> E.choose [
+    E.map (fun uloc -> `Drop (dloc, uloc)) mouse_up;
+    E.map (fun mloc -> `Drag (dloc, mloc)) mouse_move;
+  ]
+  +> E.take_while_in (function `Drop _ -> false | _ -> true))
+      
+** Philippe Veber asked and Satoshi Ogasawara replied:
+
+> How would you compare it with react (<http://erratique.ch/software/react>) 
+> which, AFAIU, can
+> be used for similar purposes ? At least I can see there is no notion of 
+> signal (continuous
+> function of time) in PEC (or maybe signals can be emulated somehow ?). Also 
+> could you
+> comment on the 'no memory leaks' feature ?
+
+Yes, both the react and PEC can be used for similar purpose. But there
+are some different points between the two libraries.
+
+ - PEC is "subscribe" centered. If you leave a event alone without
+subscribing, no actions will be occurred even if you send data to the
+event.  The react library's system always runs update cycle at sending
+data to events.
+
+ - Instead of signal, PEC have "value" function. "value" function
+attaches a event and returns a reference cell which contains latest
+occurrence data of the event.  I think it's enough because signal is
+only terminal point of reactive events.
+
+ - PEC's inside representation of event is not dependency graph but
+just nested variants.  Let me assume a event A depends on other event
+B. In case of using dependency graph, event B has pointer of event
+A. This caused difficulty about memory leaks because there is no good
+timing to free the event A.  PEC's event is just a nested variants. It
+means that event A has pointer of event B.  So the event A will be
+garbage-collected automatically when the reference to the event A from
+application layer disappeared. That is the reason why "no memory
+leaks".
+      
+========================================================================
+3) A small patch for ocamlc 3.12.1 to find reudundant opens
+Archive: <https://sympa-roc.inria.fr/wws/arc/caml-list/2011-09/msg00132.html>
+------------------------------------------------------------------------
+** Jun Furuse announced:
+
+I have written a patch to detect redundant opens in OCaml source code,
+which is useful to keep your opened module list minimum. Keeping the
+list smaller is good to avoid name space contamination.
+
+You can obtain the latest diff for OCaml 3.12.1 from my repo at
+<https://bitbucket.org/camlspotter/mutated_ocaml> . After cloning, get
+it by:
+
+    hg diff -r ocaml-3.12.1-11110 -r redundant_open_warning
+
+After patching, building is as usual:
+
+    make core coreboot world opt opt.opt install # Beware what you are doing!
+
+I have found nearly 150 redundant opens in OCaml source code! You
+should check your OCaml code with it, too!
+
+<http://camlspotter.blogspot.com/2011/09/redundant-open-module-warning-for-ocaml.html>
+      
+** Mehdi Dogguy then asked and Jun Furuse replied:
+
+> It looks interesting. Thanks for your contribution ! Can you open a
+> bugreport on mantis [1] and attach the patch there? so that it doesn't
+> get lost.
+> 
+> [1] <http://caml.inria.fr/mantis/>
+
+Done. <http://caml.inria.fr/mantis/view.php?id=5357>
+      
+========================================================================
+4) Jane street's core (et al.) post-hurricane code release
+Archive: <https://sympa-roc.inria.fr/wws/arc/caml-list/2011-09/msg00137.html>
+------------------------------------------------------------------------
+** Continuing this thread, Markus Mottl announced:
+
+this seems like a good occasion to announce the availability of the
+latest versions of Jane Street Core, Core Extended, and related
+libraries (type-conv, bin-prot, sexplib, fieldslib, variantslib) in
+Godi.  Your preprocessing problem should be fixed in the latest
+versions of these packages.  For manual installation you may need to
+download some of them from OCaml Forge instead, which is more
+up-to-date.  All packages should build on both Linux and Mac OS X.
+Jane Street's "patdiff" tool should also become available in Godi some
+time later today.
+      
+========================================================================
+5) Lwt and exceptions
+Archive: <https://sympa-roc.inria.fr/wws/arc/caml-list/2011-09/msg00145.html>
+------------------------------------------------------------------------
+** Deep in this thread, Dmitry Grebeniuk said and Jérémie Dimino replied:
+
+> When I began to use Lwt, I was badly surprised
+> by the fact that Lwt.t values are not real I/O actions.
+> So I had to get a new habit: if the top-level module
+> value has type Lwt.t 'a, I have to defer its
+> computation by wrapping it under "fun () -> <expr>".
+> And I have to remember which of my functions return
+> Lwt.t values, which of my abstract types really have
+> type Lwt.t 'a or contain the Lwt.t 'a values, to defer
+> their computations/sideeffects too.
+
+You are comparing Lwt with the IO monad. They are two different monads:
+IO deals with actions while Lwt deals with threads. If you write:
+
+  let m = IO.read_char IO.stdin
+
+then [m] is just the description of the action of reading a character
+from [stdin]. On the contrary, if you write:
+
+  let m = Lwt_io.read_char Lwt_io.stdin
+
+then [m] is really a thread waiting for a character from [stdin]. If you
+use "fun () -> ..." everywhere then this becomes actions but it is not
+threads anymore and you loose most of the advantages of Lwt. For example
+with Lwt you can write:
+
+  let t1 = f1 ()
+  and t2 = f2 ()
+  ...
+  and tn = fn () in 
+  Lwt.bind t1 (fun x1 -> Lwt.bind t2 (fun x2 -> ... Lwt.bind tn (fun xn -> 
+return (x1, x2, ..., xn)) ...))
+
+and this will let [t1], ..., [tn] run concurrently. With the IO monad
+this is just exactly the same as:
+
+  let x1 = f1 () in
+  let x2 = f2 () in
+  ...
+  let xn = fn () in
+  (x1, x2, ..., xn)
+
+in a non-monadic world. There is no concurrency at all.
+      
+========================================================================
+6) OCaml installer for windows available
+Archive: <https://sympa-roc.inria.fr/wws/arc/caml-list/2011-09/msg00147.html>
+------------------------------------------------------------------------
+** Jonathan Protzenko announced:
+
+I created an installer for Windows. I'd be happy if you could try it
+out, give me feedback, and tell me if it works for you. Download it
+there: <http://yquem.inria.fr/~protzenk/caml-installer.html>.
+
+What does the installer do?
+
+The installer is built using mingw/msys (*not* cygwin), 32bit
+flavor. The installer :
+- installs a full ocaml distribution, 
+- sets up the path, env variables, ld.conf, etc. 
+- downloads the right activetcl installer and launches its setup if
+the user doesn't have the right version of activetcl installed
+already,
+- unless the user opts-out, the installer will download emacs, install
+the caml-mode files, associate .ml and .mli files with emacs in the
+windows explorer, and write the right .el files so that the caml-mode
+is operational without requiring any extra configuration,
+- the installer will also add start menu entries and register
+uninstall information for the control panel "add/remove programs"
+thingy.
+
+Basically, once the installer is done, you can fire up an emacs and do
+M-x run-caml, and it works.
+
+Because I'm not bundling any as.exe, users will need extra steps to
+enjoy native compilation. The recommended procedure (also described at
+the link above) is to install mingw/msys to get a working unix-like
+environment, and export the right FLEXLINKFLAGS. Because I'm bundling
+flexlink in the installer, this is the only manual action that's
+required.
+
+Target audience
+
+My main target is students / non-geeks who just want an emacs to play
+with, and possibly a little bit extra environment to try out
+compilation. I don't intend on investing a lot of time / energy into
+this. My goal is not to provide anything like a full ocaml
+distribution (I've been told godi works on windows), more like a quick
+and easy way to get setup.
+
+I would like you to implement feature X
+
+If you have any feature requests, please submit a patch. The project
+lives on GitHub <https://github.com/protz/ocaml-installer> so please
+do send pull requests if you feel so inclined.
+      
+========================================================================
+7) OCMP: 0.1 release
+Archive: <https://sympa-roc.inria.fr/wws/arc/caml-list/2011-09/msg00151.html>
+------------------------------------------------------------------------
+** Stéphane Legrand announced:
+
+This is an annoucement for the first release of the OCMySQLProtocol
+(OCMP) project .
+OCMP is a native (no link with the MySQL C library) implementation of
+the MySQL client protocol.
+
+Requirements:
+- Bitstring.
+- Cryptokit.
+- and optional oUnit.
+
+Home page:
+<https://forge.ocamlcore.org/projects/ocmysqlprotocol/>
+
+Usage example:
+<http://forge.ocamlcore.org/scm/loggerhead/ocmysqlprotocol/main/annotate/head:/examples/client.ml>
+
+Licence:
+GPL v2 (same as MySQL open-source version).
+
+
+Suggestions, comments and bug reports are welcome.
+      
+========================================================================
+8) Morpion et évaluation paresseuse
+Archive: <https://sympa-roc.inria.fr/wws/arc/caml-list/2011-09/msg00154.html>
+------------------------------------------------------------------------
+** Jeremy Fix announced in French:
+
+En m'inspirant du papier de Hughes (1990): "Why functional programming
+matters", j'ai écrit une page sous la forme d'un sujet de TP pour
+coder l'algorithme minimax et alpha-beta pour résoudre le jeu de
+Morpion en voulant illustrer l'évaluation paresseuse et en se passant
+le plus possible des mots clefs impératifs (notemment les boucles) et
+sans utiliser les mots clefs d'évaluation paresseuse de Caml
+(Lazy.force, ..)
+
+Ca se trouve ici : <http://jeremy.fix.free.fr/spip.php?article32>
+
+La solution se trouve tout en bas de la page.
+
+Toutes les critiques sont les bienvenues.
+      
+========================================================================
+9) A limitation of "with type" declarations for first-class modules
+Archive: <https://sympa-roc.inria.fr/wws/arc/caml-list/2011-09/msg00158.html>
+------------------------------------------------------------------------
+** Yaron Minsky asked:
+
+For some reason, 1st-class modules have more restrictive "with"
+syntax, which turns out to be a practical problem.
+
+The main constraint is that with constraints do not seem to be able to
+refer to sub-modules.  Consider the following code snippet:
+
+>     module type Foo = sig type t end
+>     module type Bar = sig module Foo : Foo end
+>
+>     (* compiles *)
+>     let g (type a) (m : (module Foo with type t = a)) = ()
+>
+>     (* fails to compile with a syntax error *)
+>     let f (type a) (m : (module Bar with type Foo.t = a)) = ()
+
+Of course, ordinary modules have no such constraint.  Any thoughts as
+to what is going on here, and whether it can be fixed?  This has
+really restricted designs I've been using, forcing me to flatten out
+structures that are more naturally nested.
+      
+** Alain Frisch then replied:
+
+The important point is that package types (the ... in a type
+expression (module ...) or in an expression (module M : ...)) are not
+module types. Syntactically, they are indeed a subset of module types,
+but it is a strict subset, and they obey different rules than module
+types.
+
+Package types live at the boundary between types and module types. In
+a packing expression (module M : ...), the package type must produce a
+well-typed module type. This is why you cannot write (module M : S
+with type t = 'a), because "S with type t = 'a" is not a proper module
+type. But (module S with type t = 'a) is a correct type.
+
+Package types must also support all operations on types, including
+equality, unification, etc. For instance, unifying (module S1 with
+type t = 'a) and (module S2 with type t = 'b) is defined as checking
+than S1 and S2 are equivalent paths and unifying 'a and 'b. The fact
+that a package type can also be seen as a module type is nowhere used
+in this definition. (Of course, one must be careful when defining
+equality of package types that it does not allow to cast a module from
+one module type to an incompatible one.)
+
+There is some flexibility in both the definition of admissible package
+types and the definition of equality between package types.
+
+For instance, I don't see any problem or difficulty in your proposal
+of allowing constraints on types nested in sub-modules (but this
+should be checked carefully). Feel free to open a feature request for
+this! Similarly, one could allow "with type t :=" constraints in
+addition to "with type t =". Is there a need for that? One could also
+relax equality of package types (module S1 with ...) and (module S2
+with ...) by checking that S1 and S2 expand to structurally equivalent
+module types (with the exact same ordering between value components!).
+      
+========================================================================
+10) Netamqp, a client for AMQP-0-9-1
+Archive: <https://sympa-roc.inria.fr/wws/arc/caml-list/2011-09/msg00168.html>
+------------------------------------------------------------------------
+** Continuing the thread from last week, Gerd Stolpmann and Richard Jones discussed:
+
+> > Gerd, have you tried to interoperate with any other language?
+> 
+> Well, this was developed for Mylife in a project where the sender was
+> written in Python. (I don't have access to this code anymore, though,
+> since I left Mylife.)
+> 
+> > I tried examples/t_sender.ml along with the following Python receiver
+> > (all on the same RabbitMQ instance), but the Python code didn't appear
+> > to see any messages at all.  I'm quite probably doing something stupid.
+> 
+> What's missing here is that you need to bind the queue to an exchange.
+> Remember that t_sender only sends the message to the exchange amq.direct
+> with a routing key of test_xy_routing_key. It does not send the message
+> to test_xy directly (which is not possible). Without binding, the
+> exchange just drops unroutable messages.
+> 
+> Don't know exactly how to bind in Python, but watch out for a method
+> queue_bind.
+
+Thanks, that works.  For future reference, below is the full
+working receiver.
+
+Rich.
+
+----------------------------------------------------------------------
+#!/usr/bin/python
+
+import pika
+
+connection = pika.BlockingConnection(pika.ConnectionParameters(
+        'localhost'))
+channel = connection.channel()
+
+channel.queue_declare(queue='test_xy')
+
+channel.queue_bind(exchange='amq.direct',
+                   queue='test_xy',
+                   routing_key='test_xy_routing_key')
+
+def callback(ch, method, properties, body):
+    print " [x] Received %r" % (body,)
+
+channel.basic_consume(callback,
+                      queue='test_xy',
+                      no_ack=True)
+
+print ' [*] Waiting for messages. To exit press CTRL+C'
+channel.start_consuming()
+----------------------------------------------------------------------
+      
+========================================================================
+11) Other Caml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocamlcore.org/>.
+
+Logistic Regression in OCaml:
+  <https://forge.ocamlcore.org/forum/forum.php?forum_id=806>
+
+Higher Order Fun:
+  <http://alaska-kamtchatka.blogspot.com/2011/09/higher-order-fun.html>
+
+New logo and new Website for the Ocsigen project:
+  <http://ocsigen.org/>
+
+iOS is anti-UNIX and anti-programmer.:
+  <http://blog.dbpatterson.com/post/10244529137>
+
+PG'OCaml:
+  <https://forge.ocamlcore.org/projects/pgocaml/>
+
+Redundant open module warning for OCaml:
+  <http://camlspotter.blogspot.com/2011/09/redundant-open-module-warning-for-ocaml.html>
+
+Coming to ICFP/CUFP?  Propose a BOF!:
+  <http://ocaml.janestcapital.com/?q=node/97>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

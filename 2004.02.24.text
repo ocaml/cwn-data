@@ -1,0 +1,234 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of 17 to 24 February, 2004.
+
+1) problems with caml-list
+2) mod_caml question
+3) Embedding OCaml
+4) ocamldbi 0.9.0 and mod_caml 1.1.0
+5) Request for more String functions
+6) GtkSpell binding
+
+========================================================================
+1) problems with caml-list
+------------------------------------------------------------------------
+** Xavier Leroy explained:
+
+This is a list administration message:
+
+Due to an incorrect mail filtering rule recently triggered by a
+software update on INRIA's mail exchangers, all messages posted to
+caml-list@inria.fr the last week or so were not distributed to the
+list, and were actually lost.  (For a while, I thought everyone was
+just unusually quiet :-)
+
+I hope this problem is now fixed.  Profuse apologies for the
+inconvenience.
+    
+========================================================================
+2) mod_caml question
+------------------------------------------------------------------------
+** Ranjan Bagchi asked and Richard Jones explained:
+
+> So what's the role of the caml executable?  I read the apache handler
+> code, and it looks like from the standpoint of the mod_caml c code, it's
+> bytecode which is loaded by the caml interpreter.  But why's it
+> executable?  Are there other usages?
+
+It's simply there to workaround a problem with Dynlink.
+
+In brief when you use Dynlink, it tries to read your current
+executable to find the symbol table in the bytecode.  This way it can
+find out what symbols are already part of the environment.
+
+Of course there are all sorts of problems with doing this in a Unix
+environment: eg. you might, quite legitimately, have unlink(2)ed the
+executable, so it no longer exists.  Or you might not have read
+permission on your own executable.  Or you might not be able to find
+the path to your own executable (think chroot(2), or being passed a
+non-standard argv or PATH).  etc.
+
+The problem with mod_caml is that there's no executable at all,
+because the module is dynamically linked (using dlopen(3)) into
+Apache.  Thus we have to go through some hoops to build a fake
+executable and tell Dynlink to use this to find its symbol table.
+This is the purpose of the code in mod_caml_c:init().
+    
+========================================================================
+3) Embedding OCaml
+------------------------------------------------------------------------
+** Vlad Seryakov asked and Richard Jones answered:
+
+> Hello,
+> 
+> I am trying to embedd OCaml into Aolserver as second interpreter. 
+> Aolserver is multithreaded web server which uses Tcl
+> as scripting language. Requestes are processed concurrently by calling 
+> Tcl scripts. My intention is to add OCaml
+> to Aolserver so web pages written in Caml can be used for web programming.
+> 
+> My question is, is it safe to use OCaml in such environment where many 
+> different OCaml scripts can be executed.
+
+Have a look at this posting:
+
+<http://caml.inria.fr/archives/200308/msg00258.html>
+
+> I use Dynalink pacjage for dynamically loading object .cmo files.
+
+Dynlink is very fussy.  I had lots of problems with it.  You might
+like to look at mod_caml for ideas.
+    
+** Vlad Seryakov then said:
+
+Richard Jones wrote:
+>On Fri, Feb 20, 2004 at 12:34:12PM -0500, Vlad Seryakov wrote:
+>
+>>Thanks
+>>
+>>Actually i checked mod_caml and used many great ideas from it. I have my 
+>>module
+>>working fine and actually i do not use separate executable as mod_caml 
+>>does. i was able to put Caml bytecode
+>>runtime into shared library and give that shared library to caml_main on 
+>>startup, so Dynalink is happy as well.
+>
+>
+>Can you show me how you did this?  I'm very interested.
+>
+>Rich.
+
+Sure, sorry
+
+Module can be downloaded from <http://www.crystalballinc.com/vlad/software/>
+    
+** Clément Capel also answered:
+
+I have got another solution to possibly resolve this
+problem:
+I've developed an embedded O'Caml toplevel
+which integrates the runtime and the compiler of O'Caml.
+Actually, it's a dynamic linked library (in C) builds using
+the "ouput-obj" option; i have solved the problem of
+the symbole table thanks to a modification of the
+compiler and the runtime.
+
+you can download the patch at this url:
+<http://www.pps.jussieu.fr/~capel/eng/toplevel/toplevel.html>
+
+you will find also an O'Caml plugin for Excel and Netscape in this page.
+
+
+Just an example to show you how it works (in C):
+(you can also use the directives #use and #load)
+
+  toplevel_init(argv);
+
+  toplevel_exec("let rec ack m n =
+                 match m,n with 0,n -> n+1
+               | m,0 -> ack (m-1) 1
+               | m,n -> (ack (m-1) ack m (n-1))");
+
+  val = toplevel_exec("ack 3 2;;");
+  res = 1+Long_val(val);
+
+  printf ("1+ack(3,2)=%dn", res);
+
+
+I hope it will help you.
+    
+========================================================================
+4) ocamldbi 0.9.0 and mod_caml 1.1.0
+------------------------------------------------------------------------
+** Richard Jones announced:
+
+I'm pleased to announce that the DBI (database layer) part of mod_caml
+has now been split into a separate library, so you can try it out
+independently of mod_caml itself.  You can find both packages in the
+mod_caml CVS repository:
+
+<http://savannah.nongnu.org/cgi-bin/viewcvs/modcaml/>
+
+Or you can check them out of CVS by following the instructions on this
+page, under the heading "Anonymous CVS Access":
+
+<https://savannah.nongnu.org/cvs/?group=modcaml>
+
+(I haven't built tarballs at the moment, because it's all somewhat
+experimental)
+    
+========================================================================
+5) Request for more String functions
+------------------------------------------------------------------------
+** Dustin Sallings and Richard Jones asked (for some string functions), and Shawn Wagner announced:
+
+> > val split : string -> char -> int -> string list
+> > val split_chars : string -> char list -> int -> string list
+> > val strstr : string -> string -> int -> int
+> > val ends_with : string -> string -> bool
+> > val begins_with : string -> string -> bool
+> > val string_of_chars : char list -> string
+>
+> Yes, ends_with and begins_with - I keep copying those functions from
+> file to file.  It'd be great to have them in the std lib.
+
+<Plug> Many of these (And everything the OP asked for, though I had to add
+some of them just now) are in my extlib library
+(<http://raevnos.pennmush.org/code/extlib/>), though under different names.
+It's a collection of things that would be useful in the standard libraries
+that come with ocaml, but aren't there. I keep adding to it all the time
+(Also just added the getpgid/setpgid functions also just requested on the
+list).
+
+>
+> Along with:
+>
+
+> String.truncate  - truncate a string to a given length
+
+This one's in it too.
+
+</Plug>
+    
+========================================================================
+6) GtkSpell binding
+------------------------------------------------------------------------
+** Shawn Wagner announced:
+
+
+GtkSpell (<http://gtkspell.sf.net>) is a library for doing on-the-fly spell
+checking in gtk text widgets. I've whipped up bindings to use it with
+lablgtk2.
+
+See <http://raevnos.pennmush.org/code/lablgtkspell/> for source, docs, etc.
+
+It was interesting, because I've never looked at how lablgtk2 works under
+the hood (Just using the high-level objects), and now had to get at the
+actual C pointers of things. Happily, it turned out to be easy to figure
+out from the source. :)
+    
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

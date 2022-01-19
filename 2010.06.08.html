@@ -1,0 +1,258 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2010.06.01.html">Previous week</a> <a href="index.html">Up</a> <a href="2010.06.15.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of June 01 to 08, 2010.</p><ol><li><a href="#1">Questions concerning modules as first-class values</a></li><li><a href="#2">ICFP Programming Contest</a></li><li><a href="#3">Position available: Ocaml/Ocsigen research engineer</a></li><li><a href="#4">Release of version 0.5 of the ULTRA type error slicer for SML
+</a></li><li><a href="#5">Other Caml News</a></li></ol><a name="1" /><hr /><h3>Questions concerning modules as first-class values</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/181d6632141060a5#">http://groups.google.com/group/fa.caml/browse_thread/thread/181d6632141060a5#</a></p><i>Julien Signoles asked and Alain Frisch replied:</i><br /><pre>
+&gt; If I well understood what Alain Frisch and Xavier Leroy explained,
+&gt; modules (including both structures and functors) become first class
+&gt; value: structures may be converted to records and functors to functions;
+&gt; and conversely. But I let more informed person confirm this.
+
+Not really. What you describe is the internal compilation strategy for 
+modules (structures -&gt; records; functors -&gt; functions), which did not 
+change with the introduction of 1st class modules.
+
+What's possible in OCaml 3.12 is to turn a module (be it a structure or 
+a functor) into a "package", which is a first-class value. A package is 
+just the wrapper around a module that makes it a first-class value. In 
+particular, a package that wraps a structure (resp. a functor) is *not* 
+converted to a record (resp. a function).
+
+What you can with a package:
+- whatever you can do with a first-class value (pass it to a function, 
+store it in a data structure, etc);
+- unwrap it back into the underlying module.
+
+
+We've been using first-class modules for more than one year at LexiFi 
+and we have never found a use for packing functors into first-class 
+values, but I've no doubt people will find some. In particular, this 
+allows the program to decide at runtime (given an environment variable 
+or a command-line argument) to use some particular (functorized) 
+implementation of a data structure over another.
+      </pre><i>Eric Cooper asked and Alain Frisch replied:</i><br /><pre>
+&gt; Is it possible to marshal and unmarshal these packages? 
+
+Yes, this is possible, but:
+
+1. Extremely dangerous: there is no runtime type-checking. If you 
+marshal a module, you need to unmarshal it to the same package type, 
+exactly (no coercion allowed). 
+
+2. Rather useless: the code for functions within modules is not 
+marshaled (as for regular functions). If you marshal a module that 
+define functions, you need to unmarshal it in the same program. 
+
+&gt; That might be a nice way to implement a plug-in architecture. 
+
+Given the points above, I don't think so! 
+      </pre><i>Jacques Garrigue then said:</i><br /><pre>
+While marshalling of first-class modules is indeed not a good idea, I 
+think that dynamic loading of first-class modules might provide a nice 
+plug-in architecture. 
+For instance, you can easily build a list of such plug-ins, with an 
+uniform interface, and add elements to this list through dynamic 
+loading. They can even expose internal data, with an abstract type. 
+
+There is however a difficulty if you want to save and load data used 
+by these plugins uniformly. Namely, even if all these plugins expose 
+some data with a type "t", the "t" is actually going to be different 
+in each, and the type system will enforce it. This is good, but it 
+will be seen as different for the same plugin in a different run of 
+the same application. So you need to do some standard hacking around, 
+having unique ids for each plugin, and some magic to recover the data. 
+Otherwise this seems a nice approach, easier than using objects, since 
+objects don't let you expose internal data of different types. 
+(Well, actually you can probably do this with objects too, using a 
+polymorphic method to encoding existential types in CPS style, but 
+this is going to be costly and not very natural.) 
+      </pre><i>To which Alain Frisch replied:</i><br /><pre>
+&gt; For instance, you can easily build a list of such plug-ins, with an
+&gt; uniform interface, and add elements to this list through dynamic
+&gt; loading. They can even expose internal data, with an abstract type.
+
+Indeed!
+
+That's basically our primary use of first-class modules at LexiFi. Our 
+application maintains several sets of extensible notions (like 
+"instruments" or "models") and it can load plugins which can register 
+new such objects. Roughly speaking, each instrument is represented as a 
+first-class module of type (module S) which looks like:
+
+module type S = sig
+   type t            (* the type of parameters for the instruments *)
+   val t: t ttype    (* a dynamic representation of the type t *)
+   val name: string  (* name to identify this instrument, presented
+                        in a menu to the end-user *)
+   val run: t -&gt; contract (* build a fresh contract, which is a notion 
+independent from the instrument *)
+
+   type attrs   (* the type of attributes for this instrument *)
+   val attrs: attrs ttype (* dynamic representation of attrs *)
+   val compute: t -&gt; contract -&gt; attrs (* calculate attributes
+                                    from initial parameters and
+                                    a contract with history *)
+
+   (* ... *)
+end
+
+
+The idea is that each instrument defines a number of abstract types 
+(parameters, attributes) and operations on these types. It also exports 
+values that gives the concrete structural representation of these 
+abstract types (the 'a ttype components above) to enable generic 
+operations such as automatic generation of GUI for showing/editing 
+values of these types, or safe marshaling.  These "type" values can be 
+derived automatically from the actual type definitions (either with a 
+syntax extension, or with a compiler modification in our case).
+      </pre><a name="2" /><hr /><h3>ICFP Programming Contest</h3><i>Wouter Swierstra announced:</i><br /><pre>
+This year's ICFP Programming Contest will begin on June 18th (12:00
+Noon GMT) and will run till June 21st (12:00 Noon GMT). As in the
+previous editions, this is your chance to show that your favorite
+programming language is better than all others! The problem statement
+and further information will become available at:
+
+   <a href="http://icfpcontest.org/2010/">http://icfpcontest.org/2010/</a>
+
+Feel free to contact ifcpcont at imn dot htwk-leipzig dot de for
+further questions. Good luck!
+      </pre><a name="3" /><hr /><h3>Position available: Ocaml/Ocsigen research engineer</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/2c19843e4ddd7ab4#">http://groups.google.com/group/fa.caml/browse_thread/thread/2c19843e4ddd7ab4#</a></p><i>Vincent Balat announced:</i><br /><pre>
+The PPS laboratory [2] is hiring a Research Engineer with good
+skills in (Ca)ML programming for 1 to 2 years.
+
+Keywords: Ocsigen, Web applications, content management, OCaml
+
+Task:
+The engineer will join the Ocsigen [1] development team, as
+member of the ANR national project PWD (Programmation du Web
+Diffus).  The work will take place in the new research center on
+free/open source software (IRILL) [3] in Paris.
+
+He will participate in the development of various components of
+the Ocsigen framework:
+- implementation of higher level tools for creating Web site
+  easily (content management, Ocsimore project)
+- extensions and improvements to the Web server
+- library for writing graphical interfaces in OCaml in a browser
+- Ocsigen on mobile phones
+- Ocsigen and cloud computing
+
+About Ocsigen:
+
+Ocsigen is an open source framework to develop client server Web
+applications fully in OCaml, as a single program.
+
+About PPS:
+
+PPS is an A-ranked CNRS laboratory of the University Paris
+Diderot Paris 7.  One of its main research topics is the the
+study of programming languages and distributed systems and their
+logical foundations.  The research activity is associated with an
+important software development activity, mainly in OCaml
+(for example Menhir, Unison).  The main themes span from the
+Web (Ocsigen, CDuce, Xduce, Polipo) to parallel programming (Lwt, OcamlP3L,
+CPC), from networks (Babel) to the management of software packages
+(Debian, Edos, Mancoosi) and proof assistants  (Coq).
+
+About the IRILL:
+
+The IRILL is a new international research centre on free/open source
+software located in Paris. IRILL's objective is to become a reference
+center for the research and development of stable and reliable free
+software. By hosting development projects, IRILL will also act as an
+observatory and experimental centre for transfer using free software.
+
+
+Required skills:
+
+- Expertise in OCaml programming
+- Knowledge of Web standards
+- Engineer or PhD degree (master may be sufficient under conditions)
+
+Contacts:
+Vincent Balat and Jérôme Vouillon:
+{Vincent.Balat || Jerome.Vouillon} @pps.jussieu.fr
+
+
+[1] <a href="http://www.ocsigen.org">http://www.ocsigen.org</a>
+[2] <a href="http://www.pps.jussieu.fr">http://www.pps.jussieu.fr</a>
+[3] <a href="http://www.inria.fr/actualites/espace-presse/cp/pre201.en.html">http://www.inria.fr/actualites/espace-presse/cp/pre201.en.html</a>
+      </pre><a name="4" /><hr /><h3>Release of version 0.5 of the ULTRA type error slicer for SML
+</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/dcd9b17d49310b43#">http://groups.google.com/group/fa.caml/browse_thread/thread/dcd9b17d49310b43#</a></p><i>Vincent Rahli announced:</i><br /><pre>
+We are happy to announce the release of the version 0.5 of our type
+error slicing software for the SML programming language.
+
+Major improvements over the previous release:
+  * Handling of the SML 'open' feature.
+  * Handling of the SML datatype replication feature.
+  * Type error slices can now be displayed in a terminal window or in
+    a web browser.
+  * We supply Ubuntu and Fedora packages.
+
+Other less important improvement is:
+  * We improved our minimisation algorithm.
+
+Even more changes are documented in the ChangeLog file.
+
+The aim of our type error slicer is to provide useful type error
+reports for pieces of code written in SML:
+  * It identifies all of the program points that contribute to a type
+    error, including the spot with the actual programming error that
+    caused the type error.
+  * It highlights these program points in the original, unchanged
+    source code.
+  * It avoids showing internal details of the operation of the type
+    inference machinery.
+
+New Ubuntu (Debian based) and Fedora (Red-Hat based) packages of our
+type error slicer can be found at this URL:
+  <a href="http://www.macs.hw.ac.uk/ultra/compositional-analysis/type-error-slicing/">http://www.macs.hw.ac.uk/ultra/compositional-analysis/type-error-slicing/</a>
+
+We will also shortly release a plain archive of our type error
+slicer.
+
+At the time of the release of version 0.4, we forgot to update the web
+demo.  We have now updated our web demo from version 0.3 to version 0.5.
+
+Known limitations:
+  * We have not yet built the software for other operating systems
+    than Linux.
+  * The currently supported user interfaces are via a terminal window,
+    GNU Emacs (or our web demo).  We are currently developing a Vim
+    interface.
+  * Some type errors are not yet discovered (the user will need to
+    rely on their usual type checker in these cases).  Notable spots
+    where the implementation is incomplete are functors (you can work
+    around this by including signatures on functor applications),
+    equality types.
+  * Concerning fixity declarations, programs are parsed as though the
+    declarations were not there, which gives wrong results.
+  * We don't yet handle overloaded constants (for example 1 is always
+    of type int).
+  * The details of the SML basis library are incomplete (fortunately
+    the user can add any additional details they are using).
+  * The software does not currently scale well to very large programs
+    (we are still improving this).  It is currently suitable for small
+    programs and use in teaching.
+  * We do not report free identifiers anymore.
+  * We have some known issues ';' that can lead to incorrect
+    constraint generations and so to wrong type error messages.  We
+    are currently working on a new version of the slicer that will fix
+    this issue.
+      </pre><a name="5" /><hr /><h3>Other Caml News</h3><i>From the ocamlcore planet blog:</i><br /><pre>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <a href="http://planet.ocamlcore.org/">http://planet.ocamlcore.org/</a>.
+
+Batteries Included 1.2.0 Released:
+  <a href="http://forge.ocamlcore.org/forum/forum.php?forum_id=619">http://forge.ocamlcore.org/forum/forum.php?forum_id=619</a>
+      </pre><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

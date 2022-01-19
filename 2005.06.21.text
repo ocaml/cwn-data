@@ -1,0 +1,293 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of 14 to 21 June, 2005.
+
+As some messages are not indexed correctly on the Caml Mailing List Archive, I
+have switched the archive links to Gmane.
+
+1) Nice OCaml-list-archive
+2) ANSITerminal-0.3
+3) Quotation System in Original Syntax
+4) How to handle endianness and binary string conversion for 32 bits integers (Int32)?
+5) C++ templates to OCaml
+
+========================================================================
+1) Nice OCaml-list-archive
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/29308>
+------------------------------------------------------------------------
+** Nicolas George said:
+
+Probably most people know already, but for some who don't know yet it is
+useful to remind it: the ultimate reference for mailing lists archives is
+Gmane <http://gmane.org/>, and of course, the Caml list is there:
+<http://dir.gmane.org/gmane.comp.lang.caml.general>.
+    
+========================================================================
+2) ANSITerminal-0.3
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/29304>
+------------------------------------------------------------------------
+** Owen Gunden announced:
+
+ANSITerminal is a small module to display colors and allow cursor
+movements on ANSI compliant terminals.
+
+Homepage: <http://math.umh.ac.be/an/software.php#x4-90008>
+Godi package: godi-ansiterminal
+
+This package was formerly known as "Console".
+
+O'Caml ANSIColor[1] has been deprecated in favor of this library, as
+ANSIColor's functionality is now a subset of ANSITerminal.
+
+Special thanks to Christophe Troestler for working with me on this.
+
+1: <http://projects.phauna.org/ansicolor/>
+    
+** He then added:
+
+It should be noted that Christophe Troestler is the primary author of
+ANSITerminal--I am merely a contributor and the godi package maintainer.
+(Hump maintainer(s), please take note :).
+    
+========================================================================
+3) Quotation System in Original Syntax
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/29318>
+------------------------------------------------------------------------
+** Hendrik Tews announced:
+
+I would like to announce the first public release of a
+
+   Quotation System in Original Syntax for Ocaml Abstract Syntax Trees
+
+Eventually this package should provide an alternative to q_MLast
+for those of us that are not fluent in the revised syntax. Please
+visit <http://wwwtcs.inf.tu-dresden.de/~tews/ocamlp4> for more
+details and download links.
+
+Status:  preliminary (only core language, no modules, no classes ...)
+
+Kind:    Camlp4 extension
+
+Home:    <http://wwwtcs.inf.tu-dresden.de/~tews/ocamlp4>
+
+License: GNU LGPL version 2 (forced by Camlp4 license)
+
+Example: with the provided module qo_MLast you can write
+
+     <:expr< flag := not !flag; record.field <- 2 >>
+
+  instead of 
+
+     <:expr< do { flag.val := not flag.val; record.field := 2 >>
+    
+========================================================================
+4) How to handle endianness and binary string conversion for 32 bits integers (Int32)?
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/29313>
+------------------------------------------------------------------------
+** David Mentre asked and Nicolas George answered:
+
+>  1. convert between big and little endian 32 bits integers;
+
+Don't do that.
+
+>  2. convert between 32 bits integers and string binary representation
+>     (to store integers in Buffer and string data structures);
+
+What you mean to do is represent an integer in a bounded interval as a
+fixed-length sequence of finite-valued objects. Said that way, children
+learn how to do it in school: it's writing the number in some base. Since
+bytes in a string can take 256 values, one will obviously use base 256.
+
+The first (rightmost) "digit" will be (n mod 256).
+The second "digit" will be ((n / 256) mod 256).
+The third "digit" will be ((n / (256 * 256)) mod 256)
+The fourth (leftmost) "digit" will be ((n / (256 * 256 * 256)) mod 256).
+
+And so on, but since your numbers are less than 256*256*256*256, all
+remaining "digits" are 0. So all you have to do is store these four bytes in
+your string, in any order you may prefer.
+
+"Big endian" is when you store the fourth, the third, the second and the
+first; it is the nearest to the way we humans write numbers; and the lexical
+order is the same as the numeric order. "Small endian" is when you store the
+first, the second, the third and the fourth.
+
+But, and that is important, this does not depend on the hardware it runs on:
+it is purely arithmetic.
+
+The reverse operation is simply
+
+n = d1 + d2 * 256 + d3 * 256 * 256 + d4 * 256 * 256 * 256
+
+>  3. detect machine endianness at runtime.
+
+Don't do that. I develop: there are no guarantees that numbers are either in
+big or little endian. I have heard that some architectures exist where
+8-bits bytes in 16-bits words are in little endian, but 16-bits words in
+32-bit words are in big endian, which gives 3412 as a global order.
+
+Using the internal representation of integers can so never be reliable. On
+the contrary, compilers ensure that arithmetic in reasonable interval is the
+real Peano arithmetic, for all architectures.
+
+Using the internal representation of numbers may allow to gain some cycles
+on the packing-unpacking, but it is probably nothing in regard to anything
+that will be done with the data (disc access or network for example).
+Furthermore, if you have to worry about inverting the order of the bytes in
+the number, the gain will be even smaller.
+    
+** David Mentre replied and Nicolas George said:
+
+> Except that I'm writing a network interface that should be specified so
+> that externally written programs can read my data.
+
+My point is: you do not need to convert between big and little endian, you
+only have to convert between sequences of bytes and integers. You never need
+even to know that integers are stored as bytes in the memory of the
+computer.
+
+In fact, I expect that you could not find access to the internal
+representation of integers in OCaml, which is a good thing. Most of the
+portability bugs in C come from people who have not understood the principle
+of having access to the internal representation of objects (which is not to
+use it :-). Alas, a lot of books about C are very i86-centered and explain
+it really badly.
+    
+** Nicolas George replied the OP and David Mentre said:
+
+> Extlib IO module have some code about that,
+> See <http://ocaml-lib.sourceforge.net/doc/IO.html> 
+
+I've look at this code but, from a quick look, it seems to handle only
+OCaml int.
+
+For what is worth, here is my own weel (here under public domain
+"license"):
+
+<<timestamp.ml>>=
+open Int32
+ <at>  
+
+\section{32 bits integer to/from string conversion}
+
+Function [[be_of_int32]] converts an [[Int32]] into its big
+endian binary representation.
+
+<<timestamp.ml>>=
+let be_of_int32 n =
+  let byte_mask = of_int 0xff in
+  let char_of_int32 x = Char.chr (to_int x) in
+  let d0 = char_of_int32 (logand n byte_mask) in
+  let d1 = char_of_int32 (logand (shift_right_logical n 8) byte_mask) in
+  let d2 = char_of_int32 (logand (shift_right_logical n 16) byte_mask) in
+  let d3 = char_of_int32 (logand (shift_right_logical n 24) byte_mask) in
+  let big_endian = String.make 4 d3 in
+  big_endian.[1] <- d2;
+  big_endian.[2] <- d1;
+  big_endian.[3] <- d0;
+  big_endian
+ <at>  
+
+Function [[int32_of_be]] converts an big endian binary
+representation of a 32 bits integer into an [[Int32]].
+
+<<timestamp.ml>>=
+let int32_of_be be =
+  if String.length be <> 4 then 
+   raise (Invalid_argument "int32_from_big_endian");
+  let d3 = of_int (Char.code be.[3])
+  and d2 = of_int (Char.code be.[2]) 
+  and d1 = of_int (Char.code be.[1]) 
+  and d0 = of_int (Char.code be.[0]) in
+  (logor (shift_left d0 24) 
+     (logor (shift_left d1 16) 
+        (logor (shift_left d2 8) d3)))
+ <at>  
+
+\section{Automatic tests}
+
+<<timestamp.ml>>=
+let _ =
+  if Config.do_autotests then begin
+    Printf.printf "  timestamp autotests...";
+    assert(int32_of_be "\001\002\003\004" = of_string "0x01020304");
+    assert(be_of_int32 (of_string "0x01020304") = "\001\002\003\004");
+    assert(int32_of_be "\255\254\253\252" = of_string "0xfffefdfc");
+    assert(be_of_int32 (of_string "0xfffefdfc") = "\255\254\253\252");
+    Printf.printf "done\n"
+  end
+ <at>
+    
+========================================================================
+5) C++ templates to OCaml
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/29339>
+------------------------------------------------------------------------
+** Jonathan Roewen asked:
+
+What's the best way to imitate C++ templates in OCaml? I have some
+code that makes extensive use of templates that I want to rewrite in
+OCaml, and using record types and functions is getting messy, and a
+lot more convoluted than the C++ code.
+
+Are objects the way to go here? And if so, can someone give me a
+simple example of how this would work?
+    
+** Jacques Carette answered:
+
+<plug>
+I have been quite successful at doing C++ template-like things in MetaOCaml.
+
+In fact, using Functors and Modules judisciously, it is possible to hide all of the code-generation
+aspects and write 
+quite straightforward code that can be instantiated in many different ways.
+
+An earlier version of this work (joint with Oleg Kiselyov) is available at 
+<http://www.cas.mcmaster.ca/~carette/metamonads/> , and has been accepted at GPCE 2005.
+</plug>
+
+Thanks for asking ;-)
+    
+** Brian Hurt also answered:
+
+95-99% of the uses of templates are easily replaced with either universal 
+types (so List<T> becomes 'a list) or with templates (see Set and Map). 
+The remainder is template meta programming, for which you probably need 
+pcaml, or I'd recommend rethinking the approach (template metaprogramming 
+is, IMHO, one of things wrong with C++).
+    
+** Jonathan Roewen said and Benjamin Geer answered:
+
+> So, I'd use a module to represent each template
+> class, and polymorphic functions?
+
+The book _Developing Applications with Objective Caml_ gives a good
+comparison of modules, functors and classes, which might help you find
+the best approach for your library.  See chapters 14, 15 and 16:
+
+<http://caml.inria.fr/pub/docs/oreilly-book/html/index.html>
+    
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

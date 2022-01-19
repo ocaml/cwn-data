@@ -1,0 +1,407 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2012.06.05</cwn_date>
+    <cwn_prev>2012.05.29</cwn_prev>
+    <cwn_next>2012.06.12</cwn_next>
+    <cwn_date_text>May 29 to June 05, 2012</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+		<cwn_entry>
+      <cwn_title>Syntax extensions without Camlp4</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2012-05/msg00178.html</cwn_url>
+      <cwn_who>Alexandre Pilkiewicz asked, triggering a big thread from which some messages follow</cwn_who>
+      <cwn_what>
+I was surfing the web, and found this one year old blog post:
+http://www.lexifi.com/blog/syntax-extensions-without-camlp4 . Are they
+any news on that front? That seemed very promising!
+      </cwn_what>
+			<cwn_who>Alain Frisch later said</cwn_who>
+			<cwn_what>
+(The new) Camlp4 has been here for several years. Documentation and tests are
+still lagging behind. Nevertheless, it burns a non-negligible fraction of the
+total resource spent by maintainers on OCaml (fixing bugs, struggling with
+camlp4 to take new language features into account).
+
+In addition, there is a growing consensus that the most common uses of camlp4
+(such as code generation driven by type declaration) might be based on a much
+simpler approach, and this would actually have advantages for the end-users
+(like not changing the concrete syntax) and for developers (much less
+information to grasp in order to write such an extension).
+
+Coq is one of the few examples of a big project that relies on other aspects
+of camlp4 (e.g. its parsing framework with extensible grammars). As far as I
+know, it also still works with camlp5, which is actively maintained, and I
+don't believe the Coq guys enjoy so much maintaining support for both camlp4
+and campl5.
+
+All that considered, and this is only a personal opinion: I don't see
+compelling arguments to continue investing efforts in camlp4 itself (at least,
+for the core OCaml team) and I believe it is a good time to start considering
+a (medium-term) future of OCaml without camlp4. Of course, alternative
+solutions need to be developed and streamlined before killing camlp4 is even
+considered.
+			</cwn_what>
+			<cwn_who>Hongbo Zhang said and Alain Frisch replied</cwn_who>
+			<cwn_what>
+&gt;    I am building a framework on top of camlp4, which provides those features
+&gt; you mentioned in the post in a flexible way. It needs to be polished. So far,
+&gt; writing generic plugins is really easy. (generic printing, comparison, lift
+&gt; filter, etc , each about 20 lines).
+&gt;    The conclusion below is based on my observation and experiences. Feel free
+&gt; to correct me if I am wrong.
+&gt; 
+&gt;    1. Why camlp4 is buggy?
+&gt;    The main buggy part is its parsing technology.  So is its parsing
+&gt; technology a bad idea? No, it's really convenient for rapid ad-hoc
+&gt; prototyping, suppose you don't need write a lexer, and its parser simply works
+&gt; in the toplevel, the parser itself it really shorter even compared with
+&gt; menhir, if you refactor your parser part.
+&gt;    The main buggy part lies in camlp4of, which is not tested at all. it's easy
+&gt; to test camlp4o, camlp4rf. There's large code base written both in camlp4o and
+&gt; camlp4rf. So in my opinion, we should just *drop camlp4of*, unless it's really
+&gt; heavily tested. *camlp4rf* is a good syntax, in my experience, it just took me
+&gt; one day to get used to, and I wrote my daily caml code in revised syntax. It's
+&gt; not hard to learn. It's much easier compared with the complexity of camlp4ast
+&gt; or ocamlast. So, IMHO, we should just advise camlp4 developers to use revised
+&gt; syntax. It would be nice if Daniel would write some articles how internal
+&gt; parser mechanism works. Revised syntax just catch up with the trunk, it should
+&gt; not be exactly the same, this gives the caml develop team enough freedom to
+&gt; introducing new constructs(monad support, etc)
+
+I don't consider that the main problem with Camlp4 is that it is buggy, but
+rather that (i) it is overly complex for the benefits it delivers, and (ii) it
+is actually not such a great idea to change the concrete syntax.
+
+Some example of useless complexity:
+
+- A custom notion of AST. Why not simply use the OCaml one? (Extended with
+nodes for a new nodes, like quotations.)
+
+- The use of concrete syntax for manipulating the AST. The developer needs to
+understand not only the new AST, but also how it is reflected exactly by the
+concrete syntax quotations (and this is non trivial), and where
+anti-quotations are allowed, etc. What's wrong with normal pattern matching
+and expression building with the standard AST? It might be a little bit more
+verbose, but it's so much simpler to understand.
+
+- A different syntax (the revised one). I understand the benefits of this new
+syntax, but it seems kind of crazy to have a "low-level" tool implemented in
+(and encouraging) a syntax different from the core system.
+
+- A complicated bootstrapping cycle (partly a consequence of the fact that
+Camlp4 is itself written in a custom syntax). That's mostly for OCaml
+maintainers, but in the past, it has slowed down development in a
+non-negligible way.
+
+&gt;   2. About the proposal.
+&gt;     There are mainly 2 pieces. About the hook Parsetree.structure -&gt;
+&gt; Parsetree. structure, given that camlp4 already imports Parsetree, it's really
+&gt; trivial to add another hook after camlp4astdump2ocamlast.
+
+I've absolutely no doubt that Camlp4 can be extended to be at least as
+powerful as this "Parsetree rewriting" proposal. What's important is that this
+proposal is so simple that it can be implemented in a few dozens line of code
+in the core compiler. We should not create a dependency on a complex tool for
+problems which can be solved with something so simple.
+
+&gt;     The other piece about introducing attribute grammar, whcich is orthogonal
+&gt; to camlp4, IMHO.
+&gt;     It's still nontrivial to write a robust Parsetree.structure -&gt;
+&gt; Parsetree.structure, it would be nice if we could provide a quotation syntax
+&gt; for Parsetree.types. I would contribute if there was some funding support.
+
+I believe the opposite: it's simpler to write a robust AST-&gt;AST rewriting
+function if you work directly on the "real" AST definition, rather than a
+slighlty different one and with a custom syntax. Just for an example, consider
+a left-hand side like:
+
+| &lt;:pat&lt; $p1$ | $p2$ | $p3$ &gt;&gt; -&gt; ...
+
+Will it capture both (p1|p2)|p3 and p1|(p2|p3)? Or only one of them?  Another
+example: controlling precisely locations introduced in the AST fragments
+created with quotations is quite tricky.
+
+
+&gt;  3. Extending the syntax.
+&gt;     It is really nice to extend your syntax for ad-hoc hacking. Your nice
+&gt; software ulex, and bitstring is a good example. It could be even better to
+&gt; just introduce a new quotation for robustness.
+&gt; 
+&gt;     But I am against mutating syntax for personal taste. (try finally, monad
+&gt; syntax), those improvement should be in the trunk.
+			</cwn_what>
+			<cwn_who>Hongbo Zhang said, Paolo Donadeo replied, and Hongbo Zhang replied</cwn_who>
+			<cwn_what>
+&gt; &gt; Actually I am writing a book about the internal part of camlp4 (100~200 pages),
+&gt; &gt; but nobody seems to care about it.
+&gt; 
+&gt; I didn't know. Where is it?
+
+https://github.com/bobzhang/ocaml-book
+			</cwn_what>
+			<cwn_who>Paolo Donadeo asked and Anil Madhavapeddy replied</cwn_who>
+			<cwn_what>
+&gt; Out of curiosity, does anyone have news about Real World
+&gt; OCaml &lt;http://realworldocaml.org/&gt;,
+&gt; by Jason Hickey, Anil Madhavapeddy and Yaron Minsky, that is supposed to be
+&gt; available this Autumn? The Twitter
+&gt; channel &lt;https://twitter.com/#!/realworldocaml&gt;is threateningly silent:
+&gt; is the project still alive?
+
+That's an interesting leap of logic. It'll be available in Autumn, so you
+assume the project is dead in July? :-)
+
+Yes, we're working away on it. The book will also be freely available
+under a CC license, so don't worry: you'll have ample time to read it and
+comment on the beta before it goes into 1st edition print. We'll talk
+more about the content after the first snapshot is out after the summer.
+			</cwn_what>
+			<cwn_who>Anil Madhavapeddy later added</cwn_who>
+			<cwn_what>
+To clarify further, the book will not going into print before the end of
+the year. "Autumn" refers to when the online snapshots will be
+available for feedback and editorial review.
+			</cwn_what>
+    </cwn_entry>
+		<cwn_entry>
+      <cwn_title>Strange behavior from type inference after functor application</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2012-05/msg00237.html</cwn_url>
+      <cwn_who>rixed asked and Gabriel Scherer replied</cwn_who>
+      <cwn_what>
+&gt; Given these definitions:
+&gt;
+&gt; -- v1 --
+&gt;
+&gt; module type TYPE = sig type t end
+&gt;
+&gt; module Combi (S1 : TYPE) (S2 : TYPE) :
+&gt;    TYPE with type t = S1.t * S2.t =
+&gt; struct
+&gt;    type t = S1.t * S2.t
+&gt; end
+&gt;
+&gt; module TypeWithConf (Conf : sig val v : int end) :
+&gt;        TYPE =
+&gt; struct
+&gt;    type t = unit
+&gt; end
+&gt;
+&gt; module S = struct type t = unit end
+&gt;
+&gt; module C = Combi (S) (TypeWithConf (struct let v = 1 end))
+&gt;
+&gt; let f (x : C.t) = fst x
+&gt;
+&gt; -----
+&gt;
+&gt; Here, the compiler fails to infer that C.t is indeed the product of two 
+&gt; types
+&gt; (as stated in the Combi signature), and complains that:
+&gt;
+&gt; Error: This expression has type C.t but an expression was expected of type 
+&gt; 'a * 'b
+&gt; (pointing at the argument of fst)
+&gt;
+&gt; There is two ways to satisfies it:
+&gt;
+&gt; - either, state that the type of TypeWithConf is 'TYPE with type t = unit'
+&gt;  instead of merely 'TYPE'
+&gt;
+&gt; - or, more surprisingly, to define the Conf structure as in:
+&gt;
+&gt; -- v2 --
+&gt; (* ... *)
+&gt;
+&gt; module Conf = struct let v = 1 end
+&gt; module C = Combi (S) (TypeWithConf (Conf))
+&gt;
+&gt; (* ... *)
+&gt; -----
+&gt;
+&gt; Can someone help me find an explanation to this behavior?
+
+The problem with
+module C = Combi (S) (TypeWithConf (struct let v = 1 end))
+is that the resulting type has no "name": (struct let v = 1 end) can
+not be part of a type path.
+
+On the contrary, TypeWithConf(Conf) has a type t with name
+TypeWithConf(Conf).t, so C.t can be equal to S.t *
+TypeWithConf(Conf).t. There would be no such type as S.t *
+TypeWIthConf(struct let v = 1 end).t.
+
+The other fix, forcing TypeWithConf to return a signature with (t =
+unit), makes the "naming problem" go away: whatever functor you pass
+as a parameter (either a path such as "Conf" or a struct exrpession),
+the resulting type is equal to "unit", you don't have to try to name
+it from the way it was constructed.
+      </cwn_what>
+    </cwn_entry>
+		<cwn_entry>
+      <cwn_title>Core Suite 108.00.01 released</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2012-06/msg00010.html</cwn_url>
+      <cwn_who>Yaron Minsky announced</cwn_who>
+      <cwn_what>
+I'm pleased to announce the 108.00.01 release of the Core suite
+of libraries.  Core is an industrial strength alternative to OCaml's
+standard library.  The tarball can be found here:
+
+  https://bitbucket.org/yminsky/ocaml-core/downloads
+
+The Core suite includes a variety of useful libraries, including:
+
+- Core: the heart of the standard library.
+- Several useful syntax extensions
+ - type-conv: a library for building type-driven syntax extensions
+ - sexplib: a library for handling s-expressions, and a syntax
+   extension for auto-generating conversions between OCaml types and
+   s-expressions
+ - bin-prot: a syntax-extensions for generating
+ - pipebang
+ - variantslib
+ - comparelib
+ - fieldslib
+- Async: a monadic concurrency library.
+- Core_extended: extra components that are not as closely vetted or as
+ stable as Core.  This includes, Shell, an interface for interacting
+ with the UNIX shell, and Command, a command-line parsing library.
+
+Many of these libraries have been released separately in the past, but
+we're now releasing them as a single tarball.  There are also individual
+tarballs for the sub-packages available.
+      </cwn_what>
+    </cwn_entry>
+		<cwn_entry>
+      <cwn_title>OCaml Users and Developers (OUD)</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2012-06/msg00014.html</cwn_url>
+      <cwn_who>Didier Remy announced</cwn_who>
+      <cwn_what>
+This is a reminder that the deadline for submitting a Talk Proposal to the
+OUD workshop, our annual "OCaml meeting", is this Friday, 8th June 2012.
+
+This year, the "OCaml Users and Developers workshop (OUD)" will be colocated
+with ICFP in Copenhagen, Denmark on September 14th.
+
+Please visit our website http://oud.ocaml.org/2012/ for more information
+and submission details.
+      </cwn_what>
+    </cwn_entry>
+		<cwn_entry>
+      <cwn_title>Camlp5 6.06 compatible with OCaml 4.00.0 released</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2012-06/msg00015.html</cwn_url>
+      <cwn_who>Daniel de Rauglaudre announced</cwn_who>
+      <cwn_what>
+Camlp5 6.06, compatible with OCaml 4.00.0 has been released.
+Camlp5 is a syntactic preprocessor for OCaml.
+
+Download at:
+http://pauillac.inria.fr/~ddr/camlp5/
+      </cwn_what>
+    </cwn_entry>
+		<cwn_entry>
+      <cwn_title>New release of moca</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2012-06/msg00021.html</cwn_url>
+      <cwn_who>Pierre Weis announced</cwn_who>
+      <cwn_what>
+Relational types in Caml
+
+We are pleased to announce the 0.7.0 version of Moca (a.k.a the Trianon
+version), a general construction function generator for relational types in
+Objective Caml.
+
+In short:
+=========
+
+Moca allows the high-level definition and automatic management of complex
+invariants for data types; Moca also supports the automatic generation of
+maximally shared values, independantly or in conjunction with the declared
+invariants. In addition, a flag of the compiler triggers the generation of
+memoized construction functions.
+
+Moca's home page is http://moca.inria.fr/
+Moca's source files can be found at
+
+http://moca.inria.fr/archive/moca-0.7.0.tgz
+
+Moca is developped by Pierre Weis, Frédéric Blanqui, and Richard Bonichon
+(see the file AUTHORS in the main directory of the distribution).
+
+What's new in this release ?
+============================
+
+-- More stable code base: automatic test generation handles polymorphic types,
+support of OCaml V3.12 syntax, many rewrttings and simplifications.
+
+-- API (new user's features and facilities):
+
+* Construction functions can be memoized:
+- new option -memo.
+- new option -memo-hash-table-size &lt;int&gt; to set the size of memoization
+tables for construction functions.
+
+-- Internals: new compilation scheme for construction functions.
+* Compilation of listary generators rewritten from scratch.
+* Compilation scheme of unary and binary generators no more uses
+exceptions. A special ordering (per generator) is now generated to handle
+associative/commutative generators.
+
+-- New web site and enhenced documentation; in particular, the Ocamldoc
+generated documentation is now available on the web site.
+
+In conclusion:
+==============
+
+Anyhow, we think Moca is now mature and reliable. Do give it a try and
+don't hesitate to send your constructive remarks and contributions !
+      </cwn_what>
+    </cwn_entry>
+		<cwn_entry>
+      <cwn_title>some camlp4 documentations</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2012-06/msg00027.html</cwn_url>
+      <cwn_who>Hongbo Zhang said and Hendrik Tews replied</cwn_who>
+      <cwn_what>
+&gt; I have read camlp4 source tree for quite a long time, and compiled
+&gt; it here
+&gt; http://www.seas.upenn.edu/~hongboz/hongbo_zhang_files/temp.pdf
+&gt; It's still preliminary, and contains many errors.
+
+The current camlp4 documentation seems to be at
+http://brion.inria.fr/gallium/index.php/Camlp4
+
+It would be nice, if you could put your findings there. Or if you
+could place links to your document on the relevant pages.
+
+Long ago I compiled a list of undocumented camlp4 features (now
+at &lt;http://askra.de/software/ocamlp5/camlp5-undoc.html&gt;), some
+points there do still apply.
+      </cwn_what>
+    </cwn_entry>
+	  <cwn_entry>
+      <cwn_title>Other Caml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocamlcore.org/&gt;.
+
+The OCaml Installer for Windows:
+  &lt;http://gallium.inria.fr/~scherer/gagallium/the-ocaml-installer-for-windows/index.html&gt;
+
+OCaml, Ocsigen, Eliom, Ohm and Frameworks:
+  &lt;http://www.nicollet.net/2012/05/ocaml-ocsigen-eliom-ohm-and-frameworks/&gt;
+
+4WFTop and HDACT:
+  &lt;http://math.andrej.com/2012/05/31/4wftop-and-hdact/&gt;
+
+The pullback lemma:
+  &lt;http://math.andrej.com/2012/05/30/the-pullback-lemma/&gt;
+
+One Web App = One Language:
+  &lt;http://blog.opalang.org/2012/04/one-web-app-one-language.html&gt;
+
+Opa License Change: Not just AGPL anymore:
+  &lt;http://blog.opalang.org/2012/05/opa-license-change-not-just-agpl.html&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

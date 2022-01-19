@@ -1,0 +1,622 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+	<cwn_head>
+		<cwn_date>2007.11.20</cwn_date>
+		<cwn_prev>2007.11.13</cwn_prev>
+		<cwn_next>2007.11.27</cwn_next>
+		<cwn_date_text>November 13 to 20, 2007</cwn_date_text>
+	</cwn_head>
+	<cwn_body>
+		<cwn_entry>
+			<cwn_title>Again: Findlib-1.2.1 released</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/7b216410ed1cd2f3#1a3e6a592f700c65</cwn_url>
+			<cwn_who>Gerd Stolpmann announced</cwn_who>
+			<cwn_what>
+Sorry for that, 
+
+findlib-1.2 contained a compatibility problem in the new camlp4 META 
+file. Because of this it was not possible to parse source files with 
+camlp4 that contained stream constructs, and a number of libraries did 
+not compile. 
+
+finddlib-1.2.1 fixes the problem.
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>Eliminating existentials, finally</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/7fb6359bea374fe7#1d9c3931ec3e72ab</cwn_url>
+			<cwn_who>Peng Zang asked and Oleg answered</cwn_who>
+			<cwn_what>
+&gt; Is there a way to create lists in which the elements may be of 
+&gt; differing types but which all have some set of operations defined 
+&gt; (eg. tostr) in common?  One can then imagine mapping over such lists 
+&gt; with "generic" versions of those common operations. 
+
+First of all, if simple type classes, mentioned during the discussion, 
+are desired, they can be easily obtained 
+        http://okmij.org/ftp/ML/ML.html#typeclass 
+
+(alas, modulo the convenient inference and automatic dictionary 
+construction). That is not the topic of this message however. We would 
+like to show that in some (many?) circumstances, existentials can be 
+just eliminated. 
+
+Peng Zang continued: 
+
+&gt; Essentially we have ints, floats and bools.  All these types can be 
+&gt; shown.  It would be nice to be able to create a list of them [1; 2.0; 
+&gt; false] that you can then map a generalized show over. 
+
+So, we want abstract values with the only non-trivial operation of 
+converting them to strings. One may immediately ask: 
+why not to convert them to strings to start with? So, instead of writing 
+         [`Int 1; `Float 2.0; `Bool false] 
+we can just 
+        [string_of_int 1; string_of_float 2.0; string_of_bool false] 
+That idea looks better in Haskell: first of all, since polymorphic 
+equality is absent in Haskell, nothing breaks parametricity in 
+safe Haskell and we lose nothing in expressiveness if we treat 
+        forall a. Show a =&gt; a 
+as Strings. Also, because of the default laziness of Haskell, the 
+conversions to string are not performed unless needed. OTH, ML 
+programmers have never been scared of thunks. Thus the idea is to 
+represent an existential by a tuple of its observations, using thunks 
+to delay computations. 
+
+Here is a more complex example, of a counter, whose interface could be 
+described as follows. 
+
+module type COUNTER = sig 
+  type t 
+  val init : unit -&gt; t 
+  val observe : t -&gt; int 
+  val step : t -&gt; t 
+end;; 
+
+We see the producer, consumer/observer, and the transformer. Of course 
+we cannot use modules of the above signature for our purposes 
+since we cannot put modules into a list (cf: MoscowML and AliceML have 
+first-class modules). We do note however that the above is equivalent 
+to the following 
+
+type counter = C of (unit -&gt; int) * (unit -&gt; counter);; 
+
+Here are two different `constructors', with two different 
+representations of the internal state (a pair of int, or a float). 
+
+let counter1 = 
+  (* internal function, unavailable outside *) 
+  let rec make seed upper = 
+    C ((fun () -&gt; seed),(fun () -&gt; 
+      let seed = if seed &gt;= upper then 0 else succ seed in make seed upper)) 
+  in make 0 5;; 
+
+(* use FP seed *) 
+let counter2 = 
+  (* internal function, unavailable outside *) 
+  let observe seed = int_of_float (10.0 *. seed) in 
+  let step seed = cos seed in 
+  let rec make seed = C ((fun () -&gt; observe seed), 
+                         (fun () -&gt; make (step seed))) 
+  in make 0.0;; 
+
+We can place them into a list 
+
+let lst = [counter1; counter2];; 
+
+and iterate over: 
+
+let advance_all = List.map (function C (_,adv) -&gt; adv ());; 
+let show_all = List.iter (function C (s,_) -&gt; Printf.printf "%d\n" (s()));; 
+
+let test = let () = show_all lst in 
+           let () = show_all (advance_all (advance_all lst)) 
+           in ();; 
+
+We thus demonstrated a very old idea (whose realization in 1976 was 
+the birth of Scheme) that closures are poor-man objects 
+
+http://www.cs.cmu.edu/afs/cs/project/ai-repository/ai/lang/scheme/oop/yasos/swob.txt
+
+The title betrays my hunch that co-algebraic implementations (using 
+functions) typically require simpler types than the corresponding 
+algebraic, data-type based implementations.
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>OCaml runtime using too much memory in 64-bit Linux</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/7bbf6dc30f92aca0#5159147269d79340</cwn_url>
+			<cwn_who>Adam Chlipala said</cwn_who>
+			<cwn_what>
+I've encountered a problem where certain OCaml programs use orders of 
+magnitude more RAM when compiled/run in 64-bit Linux instead of 32-bit 
+Linux.  Some investigation led to the conclusion that the difference has 
+to do with the size of OCaml page tables.  (Here I mean the page tables 
+maintained by the OCaml runtime system, not any OS stuff.) 
+
+A program that should be using just a few megabytes of RAM ends up using 
+200+ MB to store a page table.  It seems that a C macro is defined by 
+default on 64-bit Linux to use mmap() instead of malloc().  Ironically, 
+a comment says that this was done to avoid being given blocks of memory 
+that are very far apart from each other, forcing the creation of overly 
+large page tables.  It's ironic because that is exactly the problem that 
+is showing up now with mmap().  It ends up called twice for the program 
+I'm looking at, and the two addresses it returns are far enough apart to 
+lead to creation of a 200 MB page table. 
+
+Has anyone else experienced this problem?  Would the runtime system need 
+to be changed to avoid it?
+			</cwn_what>
+			<cwn_who>After several other reports, Xavier Leroy answered</cwn_who>
+			<cwn_what>
+Concerning this issue with large page tables on 64-bit architectures, 
+I opened a problem report on the bug-tracking system to help gather 
+more information.  I'd like to ask all members of this list that 
+reported the problem to kindly visit 
+
+         http://caml.inria.fr/mantis/view.php?id=4448 
+
+and add the required information as a note.  That will help 
+pinpointing the problem. 
+
+Some more explanation on what's going on.  The Caml run-time system 
+needs to keep track of which memory areas belong to the major heap, 
+and uses a page table for this purpose, with a dense representation 
+(an array of bytes).  If the major heap areas are closely spaced, this 
+table is very small compared with the size of the heap itself. 
+However, if these areas are widely spaced in the addressing space, the 
+table can get big. 
+
+For 32-bit platforms, this isn't much of a problem since the maximum 
+size of the page table is 1 megabytes.  For 64-bit platforms, the sky 
+is the limit, however.  So far, the only 64-bit platform where this 
+has been a problem in the past is Linux with glibc, where blocks 
+allocated by malloc() can come either from sbrk() or mmap(), two areas 
+that are spaced several *exa*bytes apart.  We worked around the 
+problem by allocating all major heap areas directly with mmap(), 
+obtaining closely spaced addresses. 
+
+Apparently, this trick is no longer working on some systems, but I 
+need to understand better which ones exactly.  (I suspect some Linux 
+distros that applied address randomization patches to the stock Linux 
+kernel.)  So, please provide feedback in the BTS. 
+
+If the problem is confirmed, there are several ways to go about it. 
+One is to implement the page table with a sparse data structure, 
+e.g. a hash table.  However, the major GC and some primitives like 
+polymorphic equality perform *lots* of page table lookups, so a 
+performance hit is to be expected.  The other is to revise OCaml's 
+data representations so that the GC and polymorphic primitives no 
+longer need to know which pointers fall in the major heap.  This seems 
+possible in principle, but will take quite a bit of work and break a 
+lot of badly written C/OCaml interface code.  You've been warned :-)
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>Private types</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/c500a0bfd3705249</cwn_url>
+			<cwn_who>The editor said</cwn_who>
+			<cwn_what>
+This thread was very big and covered many discussions about some language 
+features. Here are two messages from Pierre Weis discussing in detail private 
+types.
+			</cwn_what>
+			<cwn_who>Pierre Weis said</cwn_who>
+			<cwn_what>
+In the next version of the compiler, you will have an extension to the 
+definition of types with private construction functions (aka ``private'' 
+types) that just fulfills your programming concern: in addition to usual 
+private sum and record private type definitions, you can now define a type 
+abbreviation which is private to the implementation part of a module (see 
+note 1). 
+
+Since the values of a private type are concrete, it is much easier for the 
+programmer to use the values of the type abbreviation. 
+
+Using the new private type abbreviation feature, you can write for instance: 
+
+row.ml 
+------ 
+type row = int;; 
+let make i = 
+  if i &lt; 0 then failwith "Row: cannot create a negative row" else 
+  i;; 
+let from i = i;; 
+
+row.mli 
+------- 
+type row = private int;; 
+
+val make : int -&gt; row;; 
+val from : row -&gt; int;; 
+
+This solution does not require any additional tagging or boxing, only the 
+usage of injection/projection function for the type. As for usual private 
+types, the injection function is handy to provide useful invariants (in the 
+row type example case, we get ``a row value is always a positive integer''). 
+
+In addition, the private abbreviation is publicly exposed in the interface 
+file. Hence, the compiler knows about it: it can (and effectively does) 
+optimize the programs that use values of type row in the same way as if the 
+type row were defined as a regular public abbreviation. 
+
+Last but not least, being an instance of the identity function, the from 
+projection function is somewhat generic: we can dream to suppress the burden 
+of having to write it for each private type definition, if we find a way to 
+have it automatically associated to the new private type by the compiler. 
+
+Best regards, 
+
+Note 1: this is a generalization for regular type abbreviations of the 
+polymorphic variants private type definitions that Jacques Garrigue already 
+introduced to provide polymorphic variants (and object) types with private 
+row variables.
+			</cwn_what>
+			<cwn_who>Alain Frisch asked and Pierre Weis answered</cwn_who>
+			<cwn_what>
+&gt; &gt; - a value of type row is in fact a concrete integer (it is not hidden in 
+&gt; &gt; any way),
+
+&gt; But you cannot apply integer operations to it, so it is not a normal 
+&gt; concrete integer, right?
+
+Right: a value of type row has type row ... not type int!
+
+&gt; Can you show an example where replacing all "type t = private ..." 
+&gt; definitions by "type t" changes a well-typed program into an ill-typed 
+&gt; one?   I understand that if private types create real subtypes (w.r.t. 
+&gt; :&gt;) then they are different than abstract types, but otherwise, I don't 
+&gt; see the difference for the type-checker.
+
+May be, I must recall what are private types in the first place: private
+types has been designed to implement quotient data structure.
+
+(***  Warning.
+
+Wao: after re-reading this message I realize that it is really long.
+
+You can skip it, if you already know something about mathematical quotient
+structures, private types for record and variant, relational types and the
+mocac compiler!
+
+***)
+
+What is a quotient ?
+--------------------
+
+ Here quotient has to be understood in the mathematical sense of the term:
+given a set S and an equivalence relation R, you consider the set S/R of the
+equivalence classes modulo the relation R. S/R is named the quotient
+structure of S by R. Quotient structures are fundamental in mathematics and
+there properties have been largely studied, in particular to find the
+relationship between operations defined on S and operations on S/R: which
+operations on S can be extended to operations on S/R ? Which properties of
+operations on S are still valid for there extension on S/R ? and so on.
+
+Simple examples of quotient structures can be found everywhere in maths, for
+instance consider the equivalence relation R on pairs of integer values
+defined as
+
+ z_1 equiv z_2 if and only if z_1 and z_2 are both odd or are both even
+(in Caml terms
+ z_1 equiv z_2 if and only if (z_1 mod 2) = (z_2 mod 2))
+
+The set Z/R is named Z/2Z and it inherits properties of operations on Z: it
+is an abelian group (and more).
+
+A wonderful example of such inheritance of interesting properties by
+inheritance of operations thanks to a definition by a quotient structure is
+the hierarchy of sets of numbers: starting with N (the set of natural
+numbers) we define Z (the set of relative integer numbers) as a quotient of
+NxN), then Q (the rational numbers) as a quotient of ZxZ*, R (the set of real
+numbers) as a quotient of Q^N (the sets of sequences of rational numbers), C
+(the set of complex numbers) as a quotient of R[X] (the set of polynomials
+with one unknown and real coefficients). Note here that at each step of the
+hierarchy the quotient structure is richer (has more properties and/or more
+elements) than the original structure: first we have a monoide, then a group
+and a ring, then a field, then a complete field and so on.
+
+Why quotient structures ?
+-------------------------
+
+So quotient structures are a fundamental tool to express mathematical
+structures and properties. Exactly as mathematical functions, relations and
+sets. As you may have noticed, programming languages are extremely related to
+maths (due to their purely logical bases) even if, in some cases, the zealots
+of the language at hand try to hide the mathematical fundation into a strange
+anthropomorphic discurse to describe their favorite language features.
+
+In the end, the computer programing languages try hard to incorporate
+powerful features from mathematics, because these features have been polished
+by mathematicians for centuries. As a consequence of this work, we know
+facts, properties and theorems about the mathematical features and this is an
+extremely valuable benefit.
+
+Now, what is the next frontier ? What can we steal more to mathematics for the
+benefit of our favorite programming language ?
+
+If we review the most powerful tools of mathematicians, we found that
+functions have been borrowed (hello functional programming, lambda-calculus
+and friends :)), relations have been borrowed (data bases, hash tables,
+association lists), sets have been more or less borrowed (hello setle,
+pascal, and set definition facilities from various libraries of various
+languages...). More or less, we have all those basic features.
+
+From the mathematical set construction tools, we have got in Caml:
+
+- the cartesian product of sets (the * binary type constructor, the record
+  type definitions),
+- the disjunct union of sets (the | of polymorphic variants, the sum (or
+  variant) type definitions).
+
+Unfortunately, we have no powerful way to define a quotient data
+structure. That what private type definitions have been designed to do.
+
+What do we need for a quotient data structure ?
+-----------------------------------------------
+
+In the first place, we need the ``true'' thing, the real feature that is
+indeed used in maths. Roughly speaking this means to assimilate the quotient
+set S/R to a subset of S.
+
+ In the previous definition of quotient structures, there is a careful
+distinction between the base set S and the quotient set S/R. In fact, there
+always exists a canonical injection from S to S/R, and if we choose a
+canonical representant in each equivalence class of S/R, we get another
+canonical injection from S/R to S, so that S/R can be considered as a subset
+of S (the story is a bit more complex but that's the idea). This
+injection/projection trickery is intensively used in maths; for instance, in
+the hierarchy of number sets, we say and consider that N is a subset of Z
+that itself is a subset of Q, a subset of R, a subset of C. Rigourously, we
+should say for instance, there is a subset of Z that is canonically
+isomorphic to N; in fact, we abusively assimilate N to this subset of Z;
+hence, we say that N is ``included'' in Z, when we should say ``the image of
+N by the canonical isomorphism from N to Z'' is included in Z; then, we go
+one step further in the assimilation of N to a subset of Z, by denoting the
+same, the elements of N and there image in Z; for instance, ``the neutral
+element of the multiplication in Z'' and the successor of 0 in N is denoted
+``1''; and we now can say that 1 belongs to Z. Note here that, in the first
+place, ``the neutral element of the multiplication in Z'' is an equivalence
+class (as all elements in Z are). So it is a set. More exactly, the ``neutral
+element of the multiplication in Z'' is the infinite set of pairs of natural
+numbers (n, m) such that n - m = 1 (here ``-'' is an operation in N and ``1''
+is the successor of the natural number ``0'', so that n - m = 1 is a
+shorthand for n = succ m). The assimilation between N and its isomorphic
+image allows to use 1 as the denotation of this infinite set of pairs of
+natural numbers.
+
+We understand why the mathematicians always write after having designed a
+quotient structure: ``thanks to this isomorphism, and if no confusion may
+arise, we always assimilate S to its canonical injection in S/R''.
+
+This assimilation is what private type definitions allow.
+
+How do we define a quotient data structure ?
+--------------------------------------------
+
+The mathematical problem:
+- we have a set S and an equivalence relation R on SxS,
+- we construct the quotient S/R.
+- we state afterwards:
+  ``if no confusion may arise, we always assimilate S to its canonical
+    injection in S/R''.
+
+The programming problem:
+- we have a data structure S (defined by a type s) and a relation R on SxS
+  (defined by a function r from s * s to bool).
+- we construct a data structure that represents S/R.
+- we have afterwards:
+  ``No confusion may arise, we always assimilate S to its canonical injection
+    in S/R''.
+
+The private data type solution:
+- the data structure S is defined as any Caml data structure and the
+  relation R is implemented by the canonical injection(s) from S to S/R.
+- the canonical projection from S/R to S is automatic.
+- S (defined by s) is assimilated to S/R (which is then also s!).
+
+We defined S/R as a subset of S, the set of canonical representants of
+equivalence classes of S/R.
+
+More exactly, the canonical injection from S to S/R maps each element of S to
+its equivalent class in S/R; if we assimilate each equivalence class to its
+canonical representant (an element of S), the canonical injection maps each
+element of S to the canonical representant of its equivalence class. Hence
+the canonical injection has type S -&gt; S.
+
+An example treated without private types:
+-----------------------------------------
+
+Let's take a simple example:
+
+S is the following data structure that implements a mathematical (free) structure
+generated by the constant 0, the unary symbol succ, and the binary symbol +.
+
+type peano = 
+   | Zero
+   | Succ of peano
+   | Plus of peano * peano
+
+R is the (equivalence) relation that expresses that
+- 0 is the neutral element for + (for all x in S, 0 + x = x and x + 0 = x),
+- + is associative (for all x, y, z in S³, (x + (y + z)) = ((x + y) + z)).
+
+The canonical injection is a function from peano -&gt; peano that maps each value
+in S (the type peano) to the canonical representant of its class in S/R (an
+element of S (the type peano)):
+
+let rec make = function
+  | Zero -&gt; Zero
+  | Plus (Succ n, p) -&gt; Succ (make (Plus (n, p)))
+  | Plus (Zero, p) -&gt; p
+  | Plus (p, Zero) -&gt; p
+  | Plus (Plus (x, y), z) -&gt; make (Plus (x, make (Plus (y, z))))
+  | Succ p -&gt; Succ p
+;;
+
+(This function may be wrong but you see the idea :))
+
+So, if you want to represent S/R for peano in Caml you must:
+- (1) define the type peano
+- (2) always use the make function to create a value in S/R
+- (3) not to confuse S and S/R in your head (I mean in your programs)
+
+Private data types permits (1), ensures (2), and helps for (3) concerning the
+head part and ensures (3) for programs by means of compile-time type errors.
+
+The same example with private types:
+------------------------------------
+
+To define a private data type you must define a module.
+- in the implementation, you define the carrier S and its canonical injection.
+- in the interface, you export the carrier and the injection.
+
+The type checker will ensure transparent projection from the quotient to the
+carrier and mandatory use of the canonical projection to build a value in
+S/R.
+
+interface peano.mli
+-------------------
+type peano = private
+   | Zero
+   | Succ of peano
+   | Plus of peano * peano
+;;
+
+val zero : peano;;
+val succ : peano -&gt; peano;;
+val plus : peano * peano -&gt; peano;;
+
+implementation peano.ml
+-----------------------
+type peano =
+   | Zero
+   | Succ of peano
+   | Plus of peano * peano
+;;
+
+let rec make = function
+  ...
+;;
+
+let zero = make Zero;;
+let succ p = make (Succ p);;
+let plus (n, m) = make (Plus (n, m));;
+
+(See note (1) for a discussion on the design of this example.)
+
+What is given by private types:
+-------------------------------
+
+- You cannot create a value of S/R if you do not use the canonical injection
+  # Zero;;
+  Cannot create values of the private type peano
+
+- As a consequence, values in S (i.e. S/R) are always canonical:
+  # let one = succ zero;;
+  val one : M.peano = Succ Zero
+  # let three = plus (one, succ (plus (one, zero)));;
+  val three : M.peano = Succ (Succ (Succ Zero))
+
+- Projection is automatic
+  # let rec int_of_peano = function
+      | Zero -&gt; 0
+      | Succ n -&gt; 1 + int_of_peano n
+      | Plus (n, p) -&gt; int_of_peano n + int_of_peano p
+    ;;
+  val int_of_peano : M.peano -&gt; int = &lt;fun&gt;
+  # int_of_peano three;;
+  - : int = 3
+
+What about private abbreviations ?
+----------------------------------
+
+Private abbreviation definitions are a natural extension of private data type
+definitions to abbreviation type definitions. The same notions are carried
+out mutatis-mutandis:
+
+- we have a data structure S (defined by a type s) and a relation R on SxS
+  (defined by a function r from s * s to bool).
+- we construct a data structure that represents S/R.
+- we have afterwards:
+  ``No confusion may arise, we always assimilate S to its canonical injection
+    in S/R''.
+
+In the case of abbreviations:
+
+- the data structure S/R is defined by a type s (which is an abbreviation) and
+  a relation defined by a function,
+- the canonical injection should be defined in the implementation file of the
+  private data type module,
+- we always assimilate S to its canonical injection in S/R.
+
+In pratice, as for usual private types (for which the constructive part of
+the data type is not available outside the implementation), the type abbreviation
+is not known outside the implementation (it is really private to its
+implementation). This prevents the construction of values of S/R without
+using the canonical injection.
+
+Th noticeable difference is the projection function: it cannot be fully
+implicit (otherwise, as you said Alain, the assimilation will turn to complete
+confusion: we would have S identical to S/R, hence row=int and no difference
+between a regular abbreviation definition and a private abbreviation
+definition). If not implicit, the injection function should granted to be the
+identity function (something that we would get for free, if we allow
+projection via sub-typing coercion).
+
+In short: abstract data types provide values that cannot be inspected nor
+safely manipulated without using the functions provided by the module that
+defines the abstract data type. In contrast, private data types are
+explicitely concrete and you can freely write any algorithm you need. A good
+test is printing: you can always write a function to print values of a
+private type, it is up to the implementor of an abstract type to give you the
+necessary primitives to access the components of the abstracted values.
+
+Automatic generation of the canonical injection:
+------------------------------------------------
+
+You may have realized that writing the canonical injection can be a real
+challenge.
+
+The moca compiler (see http://moca.inria.fr/) helps you to write the
+canonical injection by generating one for you, provided you can express the
+injection at hand via a set of predefined algebraic relations (and/or rewrite
+rules you specify) attached to the constructors of the private type. Private
+types with constructors having algebraic relations are named relational
+types. Moca generated canonical injections for relation types.
+
+For instance, you would write the peano example as the following peano.mlm
+file:
+
+type peano = private
+   | Zero
+   | Succ of peano
+   | Plus of peano * peano
+   begin
+     associative
+     neutral (Zero)
+     rule Plus (Succ n, p) -&gt; Succ (Plus (n, p))
+   end;;
+
+The mocac compiler will generate the interface and implementation of the
+peano module for you, including the necessary canonical injection function.
+
+Best regards,
+
+-- 
+Pierre Weis
+
+INRIA Rocquencourt, http://bat8.inria.fr/~weis/
+
+Note (1):
+- we can't just export the canonical injection since you could not build any
+  value of the type without previously defined values!
+- we provide specialized versions of the canonical injection function
+  introducing the convention that the lowercase name of a value constructor is
+  the name of its associated canonical injection.
+- we do not export the plasin true canonical injection since it would be more
+  confusing than useful.
+			</cwn_what>
+		</cwn_entry>
+	</cwn_body>
+</cwn>

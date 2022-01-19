@@ -1,0 +1,380 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2018.10.23</cwn_date>
+    <cwn_prev>2018.10.16</cwn_prev>
+    <cwn_next>2018.11.06</cwn_next>
+    <cwn_date_text>October 16 to 23, 2018</cwn_date_text>
+    <cwn_extra_head></cwn_extra_head>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>NYC OCaml Meetup</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/nyc-ocaml-meetup/2743/1</cwn_url>
+      <cwn_who>Perry E. Metzger announced</cwn_who>
+      <cwn_what>
+For those that live in New York City and aren't aware, there's an NYC OCaml meetup: https://www.meetup.com/NYC-OCaml/
+
+We had a fun informal gathering last week, there's a tech talk next week, and the announcements for Jane Street's tech talks also go (semi-indirectly) to the meetup.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Structured-concurrency libraries</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/structured-concurrency-libraries/2742/1</cwn_url>
+      <cwn_who>Alex Coventry asked</cwn_who>
+      <cwn_what>
+Are there any mature structured-concurrency libraries for OCaml, similar to [dill](http://libdill.org/) or [trio](https://trio.readthedocs.io/en/latest/)?
+      </cwn_what>
+      <cwn_who>Freyr666 replied</cwn_who>
+      <cwn_what>
+If you want concurrency with OCaml, you'd better stick to monadic concurrency, aka [lwt](https://ocsigen.org/lwt/4.1.0/manual/manual) or [async](https://opensource.janestreet.com/async/). Both are mature and battle-tested.
+      </cwn_what>
+      <cwn_who>Alex Coventry then said</cwn_who>
+      <cwn_what>
+I'm aware of lwt and async. I mean [something like this](http://libdill.org/structured-concurrency.html#what-is-structured-concurrency).
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>ocaml-git 2.0</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-ocaml-git-2-0/2740/1</cwn_url>
+      <cwn_who>Calascibetta Romain announced</cwn_who>
+      <cwn_what>
+I'm very happy to announce a new major release of ~ocaml-git~ (2.0). This release is a 2-year effort to get a revamped streaming API offering a full control over memory allocation. This new version also adds production-ready implementations of the wire protocol: ~git push~ and ~git pull~ now work very reliably using the raw Git and smart HTTP protocol (SSH support will come soon). ~git gc~ is also implemented, and all of the basic bricks are now available to create Git servers. MirageOS support is available out-of-the-box.
+
+Two years ago, we decided to rewrite ~ocaml-git~ and split it into standalone libraries. More details about these new libraries are also given below.
+
+But first, let's focus on ~ocaml-git~'s new design. The primary goal was to fix memory consumption issues that our users noticed with the previous version, and to make ~git push~ work reliably. We also took care about not breaking the API too much, to ease the transition for current users.
+
+*** Controlled allocations
+
+There is a big difference in the way ~ocaml-git~ and ~git~ are designed: ~git~ is a short-lived command-line tool which does not care that much about allocation policies, whereas we wanted to build a library that can be linked with long-lived Git client and/or server applications. We had to make some (performance) compromises to support that use-case, at the benefit of tighter allocation policies — and hence more predictable memory consumption patterns. Other Git libraries such as [libgit2](https://libgit2.org/) also have to [deal](https://libgit2.org/security/) with similar concerns.
+
+In order to keep a tight control on the allocated memory, we decided to use [decompress](https://github.com/mirage/decompress) instead of ~camlzip~. ~decompress~ allows the users to provide their own buffer instead of allocating dynamically. This allowed us to keep a better control on memory consumption. See below for more details on ~decompress~.
+
+We also used [angstrom](https://github.com/inhabitedtype/angstrom) and [encore](https://github.com/mirage/encore) to provide a streaming interface to encode and decode Git objects. The streaming API is currently hidden to the end-user, but it helped us a lot to build abstraction and, again, on managing the allocation policy of the library.
+
+*** Complete PACK file support (including GC)
+
+In order to find the right abstraction for manipulating pack files in a long-lived application, we experimented with [various](https://github.com/dinosaure/sirodepac) [prototypes](https://github.com/dinosaure/carton). We haven't found the right abstractions just yet, but we believe the PACK format could be useful to store any kind of data in the future (and not especially Git objects).
+
+We implemented ~git gc~ by following the same heuristics as [Git](https://github.com/git/git/blob/master/Documentation/technical/pack-heuristics.txt) to compress pack files and we produce something similar in size — ~decompress~ has a good ratio about compression — and we are using ~duff~, our own implementation of ~xdiff~, the binary diff algorithm used by Git (more details on ~duff~ below). We also had to re-implement the streaming algorithm to reconstruct ~idx~ files on the fly, when receiving pack file on the network.
+
+One notable feature of our compression algorithms is they work without the assumption that the underlying system implements POSIX: hence, they can work fully in-memory, in a browser using web storage or inside a MirageOS unikernel with [wodan](https://github.com/g2p/wodan).
+
+*** Production-ready push and pull
+
+We re-implemented and abstracted the [Git Smart protocol](https://github.com/git/git/blob/master/Documentation/technical/http-protocol.txt), and used that abstraction to make ~git push~ and ~git pull~ work over HTTP.  By default we provide a [cohttp](https://github.com/mirage/cohttp) implementation but users can use their own — for instance based on ~httpaf~.  As proof-of-concept, the [initial pull-request](https://github.com/mirage/ocaml-git/pull/227) was created using this new implementation; moreover, we wrote a prototype of a Git client compiled with ~js_of_ocaml~, which were able to run ~git pull~ over HTTP inside a browser!
+
+Finally, that implementation will allow MirageOS unikernels to synchronize their internal state with external Git stores (hosted for instance on GitHub) using push/pull mechanisms. We also expect to release a server-side implementation of the smart HTTP protocol, so that the state of any unikernel can be inspected via ~git pull~. Stay tuned for more updates on that topic!
+
+
+*** Standalone Dependencies
+
+Below you can find the details of the new stable releases of libraries that are used by ~ocaml-git~ 2.0.
+
+**** ~optint~ and ~checkseum~
+
+In some parts of ~ocaml-git~, we need to compute a Circular Redundancy Check value. It is 32-bit integer value. ~optint~ provides an abstraction of it but structurally uses an unboxed integer or a boxed ~int32~ value depending on target (32 bit or 64 bit architecture).
+
+~checkseum~ relies on ~optint~ and provides 3 implementations of CRC:
+- Adler32 (used by ~zlib~ format)
+- CRC32 (used by ~gzip~ format and ~git~)
+- CRC32-C (used by ~wodan~)
+
+~checkseum~ uses the _linking trick_: this means that users of the library program against an abstract API (only the ~cmi~ is provided); at link-time, users have to select which implementation to use: ~checkseum.c~ (the C implementation) or ~checkseum.ocaml~ (the OCaml implementation). The process is currently a bit cumbersome but upcoming ~dune~ release will make that process much more transparent to the users.
+
+**** ~encore~ (/_angkor_/)
+
+In ~git~, we work with Git _objects_ (_tree_, _blob_ or _commit_). These objects are encoded in a specific format. Then, the hash of these objects are computed from the encoded result to get a unique identifier. For example, the hash of your last commit is: ~sha1(encode(commit))~.
+
+A common operation in ~git~ is to decode Git objects from an encoded representation of them (especially in ~.git/objects/*~ as a _loose_ file) and restore them in another part of your Git repository (like in a PACK file or on the command-line).
+
+Hence, we need to ensure that encoding is always deterministic, and that decoding an encoded Git object is always the identity, e.g. there is an _isomorphism_ between the decoder and the encoder.
+
+#+begin_src ocaml
+let decoder &lt;.&gt; encoder : value -&gt; value = id
+let encoder &lt;.&gt; decoder : string -&gt; string = id
+#+end_src
+
+[encore](https://github.com/mirage/encore) is a library in which you can describe a format (like Git format) and from it, we can derive a streaming decoder __and__ encoder that are isomorphic by construction.
+
+**** ~duff~
+
+~duff~ is a pure implementation in OCaml of the ~xdiff~ algorithm. Git has an optimized representation of your Git repository. It's a PACK file. This format uses a binary diff algorithm called ~xdiff~ to compress binary data. ~xdiff~ takes a source A and a target B and try to find common sub-strings between A and B.
+
+This is done by a Rabin's fingerprint of the source A applied to the target B. The fingerprint can then be used to produce a lightweight representation of B in terms of sub-strings of A.
+
+~duff~ implements this algorithm (with additional Git's constraints, regarding the size of the sliding windows) in OCaml. It provides a small binary ~xduff~ that complies with the format of Git without the ~zlib~ layer.
+
+#+begin_src shell
+$ xduff diff source target &gt; target.xduff
+$ xduff patch source &lt; target.xduff &gt; target.new
+$ diff target target.new
+$ echo $?
+0
+#+end_src
+
+**** ~decompress~
+
+~decompress~ is a pure implementation in OCaml of ~zlib~ and ~rfc1951~. You can compress and decompress data flows and, obviously, Git does this compression in _loose_ files and PACK files.
+
+It provides a non-blocking interface and is easily usable in a server context. Indeed, the implementation never allocates and only relies on what the user provides (~window~, input and output buffer). Then, the distribution provides an easy example of how to use ~decompress~:
+
+#+begin_src ocaml
+val inflate: ?level:int -&gt; string -&gt; string
+val deflate: string -&gt; string
+#+end_src
+
+**** ~digestif~
+
+~digestif~ is a toolbox providing many implementations of hash algorithms such as:
+
+- MD5
+- SHA1
+- SHA224
+- SHA256
+- SHA384
+- SHA512
+- BLAKE2B
+- BLAKE2S
+- RIPEMD160
+
+Like ~checkseum~, ~digestif~ uses the linking trick too: from a shared interface, it provides 2 implementations, in C (~digestif.c~) and OCaml (~digestif.ocaml~).
+
+Regarding Git, we use the SHA1 implementation and we are ready to migrate ~ocaml-git~ to BLAKE2{B,S} as the Git core team expects - and, in the OCaml world, it is just a _functor_ application with another implementation.
+
+**** ~eqaf~
+
+Some applications require that secret values are compared in constant time. Functions like ~String.equal~ do not have this property, so we have decided to provide a small package — [eqaf](https://github.com/mirage/eqaf) — providing a _constant-time_ ~equal~ function. ~digestif~ uses it to check equality of hashes — it also exposes ~unsafe_compare~ if you don't care about timing attacks in your application.
+
+Of course, the biggest work on this package is not about the implementation of the ~equal~ function but a way to check the constant-time assumption on this function. Using this, we did a [benchmark](https://github.com/mirage/eqaf/tree/master/test) on Linux, Windows and Mac to check it.
+
+An interesting fact is that after various experiments, we replaced the initial implementation in C (extracted from OpenBSD's [timingsafe_memcmp](https://man.openbsd.org/timingsafe_bcmp.3)) with an OCaml implementation behaving in a much more predictable way on all the tested platforms.
+
+*** Conclusion
+
+The upcoming version 2.0 of Irmin is using ocaml-git to create small applications that [push and pull their state to GitHub](https://github.com/mirage/irmin/blob/master/examples/push.ml). We think that Git offers a very nice model to persist data for distributed applications and we hope that more people will use ocaml-git to experiment and manipulate application data in Git. Please [send us](https://github.com/mirage/ocaml-git) your feedback!
+      </cwn_what>
+      <cwn_who>Bozhidar Hristov asked and Perry E. Metzger replied</cwn_who>
+      <cwn_what>
+&gt; When is it usefult to use ocaml-git over standard git? Why is is it called a long lived git client?
+
+The usual git is a set of command line tools for use by humans. ~ocaml-git~ is a set of libraries for building git repository manipulating and managing software in ocaml. If you're trying to write software in ocaml that manipulates a git repo at more than a trivial level or even has intimate knowledge of git internals, this is your library of choice.
+      </cwn_what>
+      <cwn_who>Bozhidar Hristov asked and Calascibetta Romain replied</cwn_who>
+      <cwn_what>
+&gt; Thanks for the answer, do you also know of a practical use case of such a program?
+
+~ocaml-git~ was initialy developped for [~irmin~](https://github.com/mirage/irmin). The idea behind it is to provide a way to have a persistant store for an unikernel/MirageOS. By this way, we need to apply on some assumptions:
+
+- make a library to be able to link it (static link) with the rest of the OS
+- use OCaml
+
+~ocaml-git~ provides some binaries (like ~ogit-write-tree~, etc.) but it's only as little example of how to use this library. The goal is definitely not (at this stage) to provide a new CLI tool. Then, as a library, ~ocaml-git~ wants to be used in a server-context to be synchronized with differents endpoints (GitHub, MirageOS, local Git repository, etc.).
+
+Finally, a practical example could be done with ~irmin~ when you want to have an access to the store of your unikernel without any access on it (SSH for example). You just need to ~push~ to a Git repository which is synchronized with your unikernel and then, your unikernel will load what you push (safely).
+
+A good example is [Canopy](https://github.com/Engil/Canopy) with is a static blog (unikernel). When you want to add a new unikernel, instead to remake your unikernel, you tell him to be synchronized with a GitHub repository which contains your articles - a real world example is [the blog](https://hannes.nqsb.io/) of @hannesm. Of course, we have others examples (like DNS server synchronized with a ~zonefile~ available on a Git repository).
+      </cwn_what>
+      <cwn_who>Marek Kubica asked and Thomas Gazagnaire replied</cwn_who>
+      <cwn_what>
+&gt; How complete is it? Can it determine the status of a working directory, which branch is checked out, how many files are added, deleted and unknown or is it more like an implementation of the data structures used within git?
+
+&gt; In particular I have this shell prompt script which is very slow and I would like to replace it without shelling out to a number of git commands while avoiding to also implement half of git itself.
+
+We have full coverage for the on-disk and wire protocol, so reading the current branch is easy.
+
+We also have support for [working tree](https://github.com/mirage/ocaml-git/blob/master/src/git-unix/index.mli) but this is not as well tested (and documented...) than the rest of the code, so you might hit performance and usability issues. We would be happy to support that better, so please feel free to report any issues!
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Tutorial for Cohttp-lwt as API client</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/tutorial-for-cohttp-lwt-as-api-client/2746/1</cwn_url>
+      <cwn_who>Abhinav Sharma asked</cwn_who>
+      <cwn_what>
+I was trying to get started with practical ~OCaml~ via writing API clients and decided to experiment with https://deckofcardsapi.com/ as a starting point to discover the libraries.
+
+However, the only pieces of documentation I've come across for these are the following
+- https://discuss.ocaml.org/t/how-to-write-a-simple-web-client/1756
+- The ~client_lwt.ml~ example in the ~cohttp~ github repo
+
+But unfortunately, I haven't quite been able to make my way through these. So, I decided to ask for help from the ~OCaml~ community regarding the same.
+
+Could you guide me a bit here ?
+      </cwn_what>
+      <cwn_who>Marcello Seri replied</cwn_who>
+      <cwn_what>
+I hope the following will help, it's just a rough example. You can actually copy and paste it in ~utop~. You will need ~cohttp-lwt-unix~ and ~yojson~ installed. For ~yojson~ refer to [RWO](http://dev.realworldocaml.org/json.html#handling-json-data), it is fine even if you don't use ~core~.
+
+#+begin_src ocaml
+#require "cohttp-lwt-unix";;
+#require "yojson";;
+
+(* A bit overkill to open everything *)
+open Cohttp
+open Cohttp_lwt_unix
+open Lwt.Infix
+open Yojson
+;;
+
+(* Make a get call and return the body parsed as json.
+ * You could use atdgen to produce the right marshalling
+ * functions into nice records, but for such small data
+ * structures you might as well do it by hands.
+ *
+ * val json_body : string -&gt; Basic.json Lwt.t
+ *)
+let json_body uri =
+  Client.get (Uri.of_string uri)  &gt;&gt;= fun (_resp, body) -&gt;
+  (* here you could check the headers or the response status
+   * and deal with errors, see the example on cohttp repo README *)
+  body |&gt; Cohttp_lwt.Body.to_string &gt;|= Yojson.Basic.from_string
+;;
+
+(* In utop the promise is realised immediately, so if you run the
+ * function above, you'll get the result immediately *)
+json_body "http://deckofcardsapi.com/api/deck/new/shuffle/?deck_count=1"
+;;
+(*Output:
+- : Basic.json =
+`Assoc
+  [("shuffled", `Bool true); ("success", `Bool true); ("remaining", `Int 52);
+   ("deck_id", `String "2svxenasd9qj")]
+*)
+
+(* In the code you will have more likely something like the following. *)
+let shuffled_deck =
+  json_body "http://deckofcardsapi.com/api/deck/new/shuffle/?deck_count=1"
+;;
+(* val shuffled_deck : Basic.json Lwt.t *)
+
+(* To use it you just have to get use to the monadic bind, and once you
+ * are ready, call `Lwt_main.run`. e.g. the kind of useless example below *)
+
+(* val get_cards : Basic.json -&gt; int -&gt; Basic.json Lwt.t *)
+let get_cards sdeck n =
+  (* The use of Yojson is well explained in RWO *)
+  let module YBU = Yojson.Basic.Util in
+  let success = sdeck |&gt; YBU.member "success" |&gt; YBU.to_bool in
+  if not success then Lwt.fail_with "Error while shuffling" else
+    let deck_id = sdeck |&gt; YBU.member "deck_id" |&gt; YBU.to_string in
+    Printf.sprintf "http://deckofcardsapi.com/api/deck/%s/draw/?count=%d" deck_id n
+    |&gt; json_body &gt;&gt;= fun cards -&gt;
+    Lwt.return cards
+
+(* val do_something : unit -&gt; string list Lwt.t *)
+let do_something () =
+  json_body "http://deckofcardsapi.com/api/deck/new/shuffle/?deck_count=1" &gt;&gt;= fun sdeck -&gt;
+  get_cards sdeck 3 &gt;&gt;= fun jcards -&gt;
+  let module YBU = Yojson.Basic.Util in
+  let cards = jcards |&gt; YBU.member "cards" |&gt; YBU.to_list in
+  List.map (fun c -&gt; c |&gt; YBU.member "code" |&gt; YBU.to_string) cards
+  |&gt; Lwt.return
+
+(* val do_something_else : unit -&gt; unit Lwt.t *)
+let do_something_else () =
+  do_something () &gt;&gt;= fun cards -&gt;
+  List.iter (Printf.printf "%s\n") cards |&gt; Lwt.return;;
+;;
+
+Lwt_main.run (do_something_else ()); print_endline "Done!"
+;;
+
+(* Be careful with the signatures, the example above can be re-run multiple
+ * times, while the one below does nothing after the first run *)
+
+(* val do_something_1 : string list Lwt.t *)
+let do_something_1 =
+  json_body "http://deckofcardsapi.com/api/deck/new/shuffle/?deck_count=1" &gt;&gt;= fun sdeck -&gt;
+  get_cards sdeck 3 &gt;&gt;= fun jcards -&gt;
+  let module YBU = Yojson.Basic.Util in
+  let cards = jcards |&gt; YBU.member "cards" |&gt; YBU.to_list in
+  List.map (fun c -&gt; c |&gt; YBU.member "code" |&gt; YBU.to_string) cards
+  |&gt; Lwt.return
+
+(* val do_something_else_1 : unit Lwt.t *)
+let do_something_else_1 =
+  do_something_1  &gt;&gt;= fun cards -&gt;
+  List.iter (Printf.printf "%s\n") cards |&gt; Lwt.return;;
+;;
+
+Lwt_main.run do_something_else_1; print_endline "Done_1!"
+;;
+Lwt_main.run do_something_else_1; print_endline "Done_1!"
+;;
+Lwt_main.run do_something_else_1; print_endline "Done_1!"
+;;
+Lwt_main.run (do_something_else ()); print_endline "Done!"
+;;
+#+end_src
+      </cwn_what>
+      <cwn_who>Marcello Seri then added</cwn_who>
+      <cwn_what>
+I forgot to mention that you can reduce the conversions boilerplate easily with ~ppx_deriving_yojson~
+      </cwn_what>
+      <cwn_who>Marcello Seri also added</cwn_who>
+      <cwn_what>
+There is also the [example in Real world ocaml](http://dev.realworldocaml.org/concurrent-programming.html#example-searching-definitions-with-duckduckgo), althouh that uses ~cohttp-async~. It should be relatively straightforward to translate.
+
+Having a nice tutorial to add to the repo and the community documentation would be good. I am not a power user, but I can try to help. What you would loke to know?
+      </cwn_what>
+      <cwn_who>Abhinav Sharma replied</cwn_who>
+      <cwn_what>
+Thanks @mseri for the link!
+
+However, I'd really love to get started with ~lwt~ as I'm more inclined towards the ~mirageOS~ that relies on ~lwt~  .
+
+For now, what I'd like to do is to just wrap the deckofcards API in a utop session as the starting point. If possible, could you please share the snippets that could help me accomplish these tasks ?
+
+Here are the libraries I've identified so far
+
+- ~yojson~
+- ~lwt~
+- ~cohttp-lwt~
+
+Are there any good resources to learn ~lwt~ apart from the main ~ocsigen~ docs ?
+      </cwn_what>
+      <cwn_who>Etienne Millon then said</cwn_who>
+      <cwn_what>
+I recently published [zeit](https://github.com/emillon/ocaml-zeit) which is client library for a JSON REST API using  cohttp-lwt, yojson and ppx_deriving_yojson. You might be interested by [the Client module](https://github.com/emillon/ocaml-zeit/blob/cdcdd0b155d406d1b8c8947e3c620527c3c9ecf7/lib/client.ml).
+      </cwn_what>
+      <cwn_who>Martin Jambon also replied</cwn_who>
+      <cwn_what>
+Managing json APIs is what [atdgen](https://atd.readthedocs.io/en/latest/) was designed for. You write your types and ~atdgen~ derives the OCaml code to convert your data from/to json safely. It also provides ways to deal with APIs that don't fit the OCaml type system perfectly (json adapters being the most flexible but last-resort method).
+      </cwn_what>
+      <cwn_who>Martin Jambon then added</cwn_who>
+      <cwn_what>
+These are the type definitions that we used at my previous company for using the Google Calendar API: https://github.com/esperco/esper-gcal-api
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Ocaml Github Pull Requests</cwn_title>
+      <cwn_who>Gabriel Scherer and the editor compiled this list</cwn_who>
+      <cwn_what>
+Here is a sneak peek at some potential future features of the Ocaml
+compiler, discussed by their implementers in these Github Pull Requests.
+
+- [[https://github.com/ocaml/ocaml/pull/2002][Format.pp_print_custom_break, a more general break hint]]
+- [[https://github.com/ocaml/ocaml/pull/2047][A type for unification traces]]
+- [[https://github.com/ocaml/ocaml/pull/2058][Full explanation for unsafe cycles in recursive modules]]
+- [[https://github.com/ocaml/ocaml/pull/2091][Add a warning on type declarations "type t = ()"]]
+- [[https://github.com/ocaml/ocaml/pull/2096][In error messages, print the source fragment responsible for the error]]
+- [[https://github.com/ocaml/ocaml/pull/2102][Syntactic redirection of identifiers as a way to move libraries forward]]
+- [[https://github.com/ocaml/ocaml/pull/2106][Disallow .~ in extended indexing operators]]
+- [[https://github.com/ocaml/ocaml/pull/2111][Explicit stdlib design choices]]
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Here are links from many OCaml blogs aggregated at [[http://ocaml.org/community/planet/][OCaml Planet]].
+
+- [[https://tarides.com/blog/2018-10-19-ocaml-git-2-0.html][ocaml-git 2.0]]
+- [[http://www.ocamlpro.com/2018/10/17/ocamlpros-tzscan-grant-proposal-accepted-by-the-tezos-foundation-joint-press-release/][OCamlPro’s TZScan grant proposal accepted by the Tezos Foundation – joint press release]]
+- [[https://tarides.com/blog/2018-10-17-ocamlformat-0-8.html][OCamlFormat 0.8]]
+- [[https://tarides.com/blog.html#2018-09-27-ocaml-workshop-2018][OCaml Workshop 2018]]
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

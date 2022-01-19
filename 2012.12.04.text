@@ -1,0 +1,253 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of November 27 to December 04, 2012.
+
+
+
+1) phantom types and identity function
+2) Github OCaml mirror available
+3) creating a module from a #use directive in the toplevel
+4) Other Caml News
+
+========================================================================
+1) phantom types and identity function
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2012-11/msg00232.html>
+------------------------------------------------------------------------
+** Ivan Gotovchits asked and Jacques Garrigue replied:
+
+> These simple signature 
+> 
+> module type T = sig
+> type 'a t constraint 'a = [< `A | `B ]
+> val init: [`A] t
+> val f: [`A] t -> [`B] t
+> end
+> 
+> can be used to constrain the following module
+> 
+> module T : T = struct
+> type 'a t = unit constraint 'a = [< `A | `B]
+> let init = ()
+> let f x = x
+> end
+> 
+> where identity function successfully satisfies the constraint
+> 
+> [`A] t -> [`B] t
+> 
+> but in the following module 
+> 
+> module T : T = struct
+> type 'a t = {x:int} constraint 'a = [< `A | `B]
+> let init = {x=0}
+> let f x = x
+> end
+> 
+> the same identity function doesn't satisfy.
+
+In the first case, a type abbreviation is used.
+Since ('a t) expands to (unit), the parameter is completely
+ignored, so that you can replace it by anything.
+
+In the second case, you define a concrete type,
+so that the parameter is not forgotten.
+Note that you cannot even use subtyping for that:
+let f x = (x : [`A] t :> [`B] t)
+fails too.
+But there is an easy workaround, defining in two steps:
+type u = {x:int}
+type 'a t = u constraint 'a = [< `A | `B]
+      
+** Gabriel Scherer then added:
+
+I have been a bit confused by this discussion, and found the relevant
+part of the manual that may enlighten other list readers:
+
+The OCaml Language, Type and exception definitions
+<http://caml.inria.fr/pub/docs/manual-ocaml/manual016.html#toc54>
+
+"If the type has either a representation or an equation, and the
+parameter is free (i.e. not bound via a type constraint to
+a constructed type), its variance constraint is checked but
+subtyping etc. will use the inferred variance of the parameter,
+which may be better; otherwise (i.e. for abstract types or
+non-free parameters), the variance must be given explicitly, and the
+parameter is invariant if no variance was given."
+
+
+Note that this would not be needed if we had an explicit way to
+express the variance of invariant (the variable appears in both
+positive and negative positions) and irrelevant (the variable doesn't
+appear except in irrelevant positions) explicitly. We could then
+write, say:
+
+type 0'a t = {x : int} constraint 'a = [< `A | `B ]
+
+The absence of such a variance marker means that some OCaml code is
+hard to abstract through a module boundary: in presence of the
+explicit definition, the type-checker will accept to subtype between
+any instances of the type (by simple expansion), but if you abstract
+over its definition you cannot express this property anymore. Your
+workaround corresponds to statically expressing this irrelevance
+through an exported equation, but there are (arguably somewhat
+unnatural) scenarios where this isn't convenient.
+      
+** Ivan Gotovchits then asked and Gabriel Scherer replied:
+
+> And now I'm confused much more =). Please, could you explain the
+> relevance between subtyping and type restriction?
+> 
+> When I try to restrict type [t -> t'] by the some type [r -> r'] does
+> the compiler checks that [r -> r'] is a subtype of [t -> t']? And even
+> if it does, in my example 
+> [`A] t -> [`B] t
+> 
+> [[`A]] is clearly not a subtype of [[`B]] (and vice versa). So I do not
+> see how an explicit variance specification can help.
+
+I was reacting mostly to Jacques' remark that "you cannot even use
+subtyping for that".
+
+The relation between subtyping and "constraint" is as explained in the
+manual excerpt I quoted. The following is valid:
+type 'a t = {x : 'a} ;;
+let f x = (x : [ `A ] t :> [ `A | `B ] t);;
+
+but the following is not:
+type 'a t = {x : 'a} constraint 'a = [< `A | `B ];;
+let f x = (x : [ `A ] t :> [ `A | `B ] t);;
+Error: Type [ `A ] t is not a subtype of [ `A | `B ] t
+The first variant type does not allow tag(s) `B
+
+The reason for this behavior is that in the first case, t was inferred
+covariant, while the presence of a constraint disables variance
+inference (in the manual: "otherwise (ie. [...] for non-free
+parameters) the variance must be given explicitly)"). You can make the
+constrained version work with an explicit variance annotation:
+type +'a t = {x : 'a} constraint 'a = [< `A | `B ];;
+let f x = (x : [ `A ] t :> [ `A | `B ] t);;
+
+Finally, while in this example 'a occurs positively in ('a t), in your
+example 'a did not occur at all. In this case it is correct to coerce
+from (foo t) to (bar t), whatever the type expression (foo) and (bar)
+are -- they don't need to be in a subtyping relation. The following
+works:
+type 'a t = { x : int };;
+let f x = (x : [ `A ] t :> [ `B ] t);;
+
+I'm calling this form of variance "irrelevant" to highlight that the
+parameter can simply be ignored when checking for subtyping (some
+people call it "nonvariant", but it's kind of awkward if you already
+use "invariant" for the opposite notion of appearing both in positive
+and negative position).
+The OCaml type checker can use some restricted form of it (eg. the
+previous example), but you cannot abstract over it: there is no
+variance annotation to express that.
+
+Jacques' workaround replaces the definition of a new constrained type
+with a constrained type synonym, that is not checked using variance
+but direct expansion. But that works because you know what the
+definition expands to. In general there may be situation when you
+want to say "type 'a t, where 'a is not used" but not expose a
+(potentially abstract) non-parametrized type u such that "type 'a t =
+u".
+
+
+While we're at it: are you sure you need to play with phantom
+polymorphic variant types now that we have GADTs? I have used phantom
+types in the past, but my personal use cases would be profitably
+rewritten using GADTs. They tend to produce hairy error messages, but
+phantom polymorphic variants are not better in this regard.
+      
+========================================================================
+2) Github OCaml mirror available
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2012-11/msg00257.html>
+------------------------------------------------------------------------
+** Anil Madhavapeddy announced:
+
+There have been quite a few Git mirrors of the OCaml compiler tree floating 
+around for the past few years. I've grabbed the "OCaml" organisation on 
+Github, where key community projects can be hosted such as OASIS, the 
+ocaml.org website, and a mirror of the compiler itself.
+
+You can find it at:
+<http://github.com/ocaml/ocaml>
+
+The conversion scripts were based on Benedikt Meurer's very useful guide, 
+with the exception that SVN tags and branches are converted into native Git 
+tags, and an authors file exists. You can find the scripts that drive it 
+here:
+<https://github.com/ocaml/ocaml.org-scripts/tree/master/vcs-sync/svn-ocaml>
+
+For those concerned about Github being a proprietary service, I'm also 
+setting up a git.ocaml.org mirror of all the repositories hosted on Github. 
+This will be ready in a few weeks. Note that the compiler Git repository is 
+a *read-only mirror*, and that all active development occurs within the INRIA 
+SVN, and issues should continue to be reported via Mantis: 
+
+<http://caml.inria.fr/mantis>
+
+Thanks to Leo White and Christophe Troestler for helping with getting this 
+working! Please consider this experimental for a few weeks in case any 
+issues come up with the scripts that cause us to delete the repository and 
+recreate it. If anyone feels strongly about needing a Mercurial mirror, 
+please also get in touch.
+      
+========================================================================
+3) creating a module from a #use directive in the toplevel
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2012-12/msg00005.html>
+------------------------------------------------------------------------
+** Francois Berenger asked and Gabriel Scherer replied:
+
+> Is there a way to do something like this in the toplevel:
+>
+> module M = (#use "source_for_module_m.ml") ;;
+
+See this discussion on the caml-list:
+<https://sympa.inria.fr/sympa/arc/caml-list/2012-11/msg00021.html>
+and in particular this message of Gerd:
+<https://sympa.inria.fr/sympa/arc/caml-list/2012-11/msg00024.html>
+and this one by Grégoire:
+<https://sympa.inria.fr/sympa/arc/caml-list/2012-11/msg00032.html>
+
+Grégoire's #mod_use directive has been included in trunk ( following
+bug report <http://caml.inria.fr/mantis/view.php?id=5825> ), so it may
+be available by default in future versions of OCaml.
+      
+========================================================================
+4) Other Caml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocaml.org/>.
+
+Performance improvements in the universe checker of Coq:
+  <http://gallium.inria.fr/~scherer/gagallium/union-find-and-coq-universes/index.html>
+
+Fixing stack overflows using continuations:
+  <http://gallium.inria.fr/~scherer/gagallium/stack-overflow-continuations/index.html>
+
+Journée de cours Ocsigen à Paris - Développement d'applications Web en OCaml:
+  <http://ocsigen.org/>
+
+How to implement dependent type theory III:
+  <http://math.andrej.com/2012/11/29/how-to-implement-dependent-type-theory-iii/>
+
+A note about the performance of Printf and Format:
+  <http://www.lexifi.com/blog/note-about-performance-printf-and-format>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

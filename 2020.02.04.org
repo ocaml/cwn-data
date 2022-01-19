@@ -1,0 +1,225 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[http://alan.petitepomme.net/cwn/2020.01.28.html][Previous Week]] [[http://alan.petitepomme.net/cwn/index.html][Up]] [[http://alan.petitepomme.net/cwn/2020.02.11.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of January 28 to February 04, 2020.
+
+#+TOC: headlines 1
+
+
+* Multicore OCaml: January 2020 update
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/multicore-ocaml-january-2020-update/5090/1
+
+** Anil Madhavapeddy announced
+
+
+Welcome to the January 2020 news update from the Multicore OCaml team! We're going to summarise our activites monthly to highlight what we're working on throughout this year. This update has kindly been assembled by @shakthimaan and @kayceesrk.
+
+The most common question we get is how to contribute to the overall multicore effort. As I [[https://discuss.ocaml.org/t/multicore-prerequisite-patches-appearing-in-released-ocaml-compilers-now/4408][noted last year]], we are now in the process of steadily upstreaming our efforts to mainline OCaml. Therefore, the best way by far to contribute is to test for regressions or opportunities for improvements in the patches that are outstanding in the main OCaml repository.
+
+A secondary benefit would be to review the PRs in the [[https://github.com/ocaml-multicore/ocaml-multicore/pulls][multicore repository]], but those tend to be more difficult to evaluate externally as they are being spotted as a result of stress testing at the moment. A negative contribution would be to raise discussion of orthogonal features or new project management mechanisms -- this takes time and effort to reply to, and the team has a very full plate already now that the upstreaming has begun. We don't want to prevent those discussions from happening of course, but would appreciate if they were directed to the general OCaml bugtracker or another thread on this forum.
+
+We'll first go over the OCaml PRs and issues, then cover the multicore repository and our Sandmark benchmarking infrastructure. A new initiative to implement and test new parallel algorithms for Multicore OCaml is also underway.
+
+*** OCaml
+**** Ongoing
+
+- [[https://github.com/ocaml/ocaml/pull/9082][ocaml/ocaml#9082]] Eventlog tracing system
+
+  Eventlog is a proposal for a new tracing facility for OCaml runtime that provides metrics and counters, and uses the Binary Trace Format (CTF). The next step to get this merged is to incubate the tracing features in separate runtime variant, so it can be selected at application link time.
+
+- [[https://github.com/ocaml/ocaml/pull/8984][ocaml/ocaml#8984]] Towards a new closure representation
+
+  A new layout for closures has been proposed for traversal by the  garbage collector without the use of a page table. This is very much useful for Multicore OCaml and for performance improvements. The PR is awaiting review from other developers, and can then be rebased against trunk for testing and merge.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/issues/187][ocaml-multicore/ocaml-multicore#187]] Better Safe Points
+
+  A patch to regularly poll for inter-domain interrupts to provide better safe points is actively being reviewed. This is to ensure that any pending interrupts are notified by the runtime system.
+
+- Work is underway on improving the marshaling (runtime/extern.c) in upstream OCaml to avoid using GC mark bits to represent visitedness, and to use a hash table (addrmap) implementation.
+
+**** Completed
+
+The following PRs have been merged to upstream OCaml trunk:
+
+- [[https://github.com/ocaml/ocaml/pull/8713][ocaml/ocaml#8713]] Move C global variables to a dedicated structure
+
+  This PR moves the C global variables to a "domain state" table. Every domain requires its own table of domain local variables, and hence this is required for Multicore runtime.
+
+  This uncovered a number of [[https://github.com/ocaml/ocaml/issues/9205][compatability issues]] with the C header files, which were all included in the recent OCaml 4.10.0+beta2 release via the next item.
+
+- [[https://github.com/ocaml/ocaml/pull/9253][ocaml/ocaml#9253]] Move back ~caml_*~ to thematic headers
+
+  The ~caml_*~ definitions from runtime/caml/compatibility.h have been moved to provide a compatible API for OCaml versions 4.04 to 4.10. This change is also useful for Multicore domains that have their own state.
+
+*** Multicore OCaml
+
+The following PRs have been merged into the Multicore OCaml trees:
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/275][ocaml-multicore/ocaml-multicore#275]]
+  Fix lazy behaviour for Multicore
+
+  A ~caml_obj_forward_lazy()~ function is implemented to handle lazy values in Multicore Ocaml.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/269][ocaml-multicore/ocaml-multicore#269]]
+  Move from a global ~pools_to_rescan~ to a domain-local one
+
+  During stress testing, a segmentation fault occurred when a pool was  being rescanned while a domain was allocating in to it. The rescan has now been moved to the domain local, and hence this situation will not occur again.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/268][ocaml-multicore/ocaml-multicore#268]]
+  Fix for a few space leaks
+
+  The space leaks that occurred during domain spawning and termination when performing the stress tests have been fixed in this PR.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/272][ocaml-multicore/ocaml-multicore#272]]
+  Fix for DWARF CFI for non-allocating external calls
+
+  The entry to ~caml_classify_float_unboxed~ caused a corrupted backtrace, and a fix that clearly specifies the boundary between OCaml and C has been provided.
+
+- An effort to implement a synchronized minor garbage collector for Multicore OCaml is actively being researched and worked upon. Benchmarking for a work-sharing parallel stop-the-world branch against multicore trunk has been performed along with clearing technical debt, handling race conditions, and fixing segmentation faults. The C-API reversion changes have been tested and merged into the stop-the-world minor GC branch for Multicore OCaml.
+
+*** Benchmarking
+
+- The [[http://bench2.ocamllabs.io/][Sandmark]] performance benchmarking infrastructure has been improved for backfilling data, tracking branches and naming benchmarks.
+
+- Numerical parallel benchmarks have been added to the Multicore compiler.
+
+- An [[https://irmin.org][Irmin]] macro benchmark has been included in Sandmark. A test for measuring Irmin's merge capabilities with Git as its filesystem is being tested with different read and write rates.
+
+- Work is also underway to implement parallel algorithms for N-body, reverse-complement, k-nucleotide, binary-trees, fasta, fannkuch-redux, regex-redux, Game of Life, RayTracing, Barnes Hut, Count Graphs, SSSP and from the MultiMLton benchmarks to test on Multicore OCaml.
+
+*** Documentation
+
+- A chapter on Parallel Programming in Multicore OCaml is being written and an early draft will be made available to the community for their feedback. It is based on Domains, with examples to implement array sums, Pi approximation, and trapezoidal rules for definite integrals.
+
+*** Acronyms
+
+- API: Application Programming Interface
+- CTF: Common Trace Format
+- CFI: Call Frame Information
+- DWARF: Debugging With Attributed Record Formats
+- GC: Garbage Collector
+- PR: Pull Request
+- SSSP: Single Source Shortest Path
+      
+
+** Nicolas Tollenaere asked
+
+
+If I may ask a question, I am curious about the status of integration of effects into the type system. According to this page https://ocamlverse.github.io/content/future_ocaml.html#typed-algebraic-effects, original plan was to merge an untyped version of effect, before it was decided to integrate them into the system. I have seen this presentation of leo white on this matter https://www.janestreet.com/tech-talks/effective-programming/ along with this one https://www.youtube.com/watch?v=ibpUJmlEWi4 (from 2016). My understanding was that, at the time of the last presentation, there was still some theoretical issues to be solved (although the speaker did not seem too worried about finding some way around eventually). I have no idea about the current status of the project. Reading your post it seems that you are now in an integration phase (PR reviews and all) that would imply that you're done with (most) theoretical questions. But that could either mean that you are integrating an untyped  version of effects  (and the type system is let for future development) or that you have indeed settled on a design. Which one is it ? Anyway, thanks for the post and the work in general, this project seems awesome (even if I did not dive into it too much until now)
+      
+
+** Anil Madhavapeddy replied
+
+
+Good question; our current focus in getting the runtime components upstreamed (the "Domains" API) and some of the mechanisms that could be used by an effect system.  We haven't yet settled on a final design for an effect extension to OCaml, but the general preference is to skip integrating an untyped effect system if a typed version lands in the right timescales. This will happen after all the runtime pieces are upstreamed, which will allow everyone to use multicore parallelism via the lower-level Domains API.
+      
+
+
+
+* Use Case for Ephemerons?
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/use-case-for-ephemerons/2838/3
+
+** Continuing this old thread, Yawar Amin said
+
+
+[[https://github.com/yawaramin/re-web/blob/766da0c0e06652824e34416bc518ee37197a90fb/ReWeb/Topic.ml][Here's another use]] (disclaimer: this is my project).
+
+What's happening here is that I'm using an 'ephemeral cache' (i.e. a cache backed by an ephemeron hash table, [[https://github.com/yawaramin/re-web/blob/766da0c0e06652824e34416bc518ee37197a90fb/ReWeb/Cache.ml#L41][here]]) to store subscribers to a 'topic', i.e. a pub-sub bus. You get a subscription token when you subscribe to a topic, and part of that token is the cache key. The cache is 'ephemeral' so as soon as the subscription token goes out of scope, it and its corresponding subscription (concretely, the stream and its push function) are automatically deleted from the cache.
+
+Hence, there's no 'unsubscribe' or 'close topic' functionality–it's assumed that you want to unsubscribe if you let the subscription token go out of scope.
+      
+
+
+
+* ~json-data-encoding~ version 0.8 (was ~ocplib-json-typed~)
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/ann-json-data-encoding-version-0-8-was-ocplib-json-typed/5095/1
+
+** Raphaël Proust announced
+
+
+I'm happy to announce that Nomadic Labs is now in charge of the development, maintenance and release of ~json-data-encoding~ – the library previously known as ~ocplib-json-typed~. Even though we are changing to a more descriptive name, we are maintaining continuity of version numbers. As a result, this is an announce for the version ~0.8~.
+
+The library ~json-data-encoding~ lets you define encodings for a given OCaml type, and use that encoding to encode values of that type into JSON or decode JSON into values of that type. The library supports multiple JSON backends: ~Ezjsonm~, ~Yojson~, native browser representation (for ~js_of_ocaml~, via the package ~json-data-encoding-browser~) and ~BSON~ (via the package ~json-data-encoding-bson~).
+
+It is available via ~opam~ (~opam install json-data-encoding~) and hosted on https://gitlab.com/nomadic-labs/json-data-encoding/
+
+Changes from the version v0.7 include:
+- extensive tests using ~Crowbar~ (adapted from similar tests on ~data-encoding~ originally by @gasche)
+- minor documentation improvements
+- improved self documentation capabilities for unions' cases (work by @smondet)
+- improved schema equality (work by @rbardou)
+      
+
+
+
+* Developer position at Abacus Medicine, Copenhagen
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/developer-position-at-abacus-medicine-copenhagen/5119/1
+
+** mokn announced
+
+
+Abacus Medicine has an open developer position. We do parallel distribution of medicine in EU and for that we have developed a system to handle the trading. A part of this system is developed in OCaml.
+
+Unfortunately the job description is only in danish, but we do accept applications in english:
+[[https://www.jobindex.dk/jobannonce/351439/software-developer][Job description]]
+      
+
+
+
+* Camlp5 version 7.11 release (4.10 compatibility)
+:PROPERTIES:
+:CUSTOM_ID: 5
+:END:
+Archive: https://discuss.ocaml.org/t/ann-camlp5-version-7-11-release-4-10-compatibility/5121/1
+
+** Chet Murthy announced
+
+
+New release 7.11 of Camlp5. Compatible with all OCaml versions >= 4.00.0, latest OCaml version 4.10+beta2 included.
+
+Main improvement: compatible with 4.10's blank module names and generative functors.
+
+Home page, including downloading and documentation at: https://camlp5.github.io/
+
+Enjoy!
+
+N.B. I'm new to helping out with camlp5, so might have made some mistakes; any users who find problems should contact me either directly, or (better) thru issues on https://github.com/camlp5/camlp5/releases and I'll be sure to get right on it.
+
+N.B.#2: There are still lots of gaps between current Ocaml, and Camlp5's support; I'm working on fixing that, and there'll soon be a release that brings camlp5 as up-to-date as possible with Ocaml.
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[http://alan.petitepomme.net/cwn/][the archive]] or the [[http://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe [[http://lists.idyll.org/listinfo/caml-news-weekly/][online]].
+
+#+BEGIN_authorname
+[[http://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname

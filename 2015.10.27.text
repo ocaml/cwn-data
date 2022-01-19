@@ -1,0 +1,615 @@
+Hello,
+
+Here is the latest OCaml Weekly News, for the week of October 13 to 27, 2015.
+
+1) New version of llpp
+2) ocaml-dispatch
+3) releasing and publishing an OCaml program
+4) Is there any numpy / pandas like library in OCaml?
+5) "map"-ing parameterized class types
+6) dispatch 0.2.0 with js_of_ocaml support
+7) Uroboros 0.1
+8) findlib-1.5.6
+9) OCaml core on Github
+10) Other OCaml News
+
+========================================================================
+1) New version of llpp
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2015-10/msg00095.html>
+------------------------------------------------------------------------
+** moosotc announced:
+
+New version of llpp (tagged v22) is now available at
+<http://repo.or.cz/w/llpp.git>
+or
+<https://github.com/moosotc/llpp>
+
+Blurb:
+
+llpp a graphical PDF viewer which aims to superficially resemble
+less(1)
+
+Changes:
+* Bugfixes
+* Build system changes (reintroduction of shell script for hassle free
+  building and addition of Shake[1] based one for nicer development
+  experience)
+* Uses local copy of LablGL (mainly to avoid camlp[45] dependency)
+
+[1] <http://shakebuild.com/>
+      
+========================================================================
+2) ocaml-dispatch
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2015-10/msg00107.html>
+------------------------------------------------------------------------
+** Spiros Eliopoulos announced:
+
+I'm happy to announce the initial release of ocaml-dispatch:
+
+<https://github.com/inhabitedtype/ocaml-dispatch>
+
+ocaml-dispatch provides a basic mechanism for dispatching a request to a
+handler based on hierarchical path names conventionally found in URIs. It can
+be used both for dispatching requests in a server, as well as handing changes
+to hierarchical fragments in a client-side application via js_of_ocaml.
+
+The code for this package originated from the webmachine[0] project. The
+dispatch package is now a dependency of webmachine as of the 0.2.0 release.
+You can find dispatch.0.1.0 in OPAM currently, and webmachine.0.2.0 there
+shortly.
+
+There are some small projects in the issue tracker if anybody would like to
+contribute. Issues and pull requests welcomed.
+
+-Spiros E.
+
+[0]: <https://github.com/inhabitedtype/ocaml-webmachine>
+      
+========================================================================
+3) releasing and publishing an OCaml program
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2015-10/msg00110.html>
+------------------------------------------------------------------------
+** David Chemouil asked:
+
+I am looking for a self-contained, to the point, documentation or tutorial
+detailing steps, or even commands and scripts to run in order to release and
+publish an OCaml-programmed piece of software.
+
+I guess it partly depends on one's way to develop and organize his or her code
+base. Still I also guess there are common steps followed by a fair amount of
+people.
+
+As far as we are concerned for our project, we rely on OCaml code solely, plus
+Opam-installed tools (e.g. Menhir) and libraries; plus Oasis and Ocamlbuild.
+Our development is hosted on a Git repo.
+
+So common tasks we'd like to automate are quite simple: adding the commit
+number and/or a build number in the OCaml source code (e.g. to display it when
+running the program), to display a git tag corresponding perhaps to
+a human-readable version number, publishing the progam on Opam, maybe even
+publishing a compiled version as a Debian package... As far as possible we'd
+like to avoid reinventing the wheel as well as duplicating information already
+present in a file (e.g. the _oasis file contains some data).
+
+After some web searching, I was able to find real projects as examples as well
+as some partial (good) tutorials but it would be nice if there was a single
+documentation or bunch of scripts to address these rather common requirements.
+      
+** Basile Starynkevitch replied:
+
+This is not specific to Ocaml. It is a matter of build process.
+
+Assuming a Linux system, you might have some rule in your Makefile similar to
+the (untested) one below:
+
+ML_SOURCES=$(wildcard [a-z]*.ml)
+ML_INTERFACES=$(wildcard [a-z]*.mli)
+MD5SUM= md5sum
+
+_timestamp.ml:
+    date +'let my_timestamp="%c";;' > _timestamp.tmp
+
+    (echo -n 'let my_lastgitcommit ="' ; \
+       git log --format=oneline --abbrev=12 --abbrev-commit -q  \
+         | head -1 | tr -d '\n\r\f\"' ; \
+       echo '";;') >> _timestamp.tmp
+    (echo -n 'let my_checksum ="'; cat $(sort $(ML_SOURCES)) $(sort
+$(ML_INTERFACES))| $(MD5SUM) | cut -d' ' -f1 | tr -d '\n\r\f\"\\' ; echo '";')
+>> _timestamp.tmp
+    mv _timestamp.tmp _timestamp.ml
+      
+** Gabriel Scherer also replied:
+
+For reference, an ocamlbuild version would look like this:
+
+open Ocamlbuild_plugin
+
+let () = dispatch (function
+  | After_rules -&gt;
+     rule "version file"
+          ~prod:"version.ml"
+          ~doc:"generate a file with version information:
+                Version.commit is the HEAD commit at the time of building,
+                Version.tag is the name of the last git tag"
+          (fun _env _build -&gt;
+           let trim = "tr -d '\r\n'" in
+           let commit = run_and_read ("git rev-parse HEAD |" ^ trim) in
+           let tag = run_and_read ("git describe --abbrev=0 --tags |" ^ trim) in
+           let code = Printf.sprintf
+                        "let commit = %S\n\
+                         let tag = %S\n"
+                        commit tag in
+           Echo ([code], "version.ml");
+          )
+  | _ -&gt; ()
+);;
+      
+** Ashish Agarwal also replied:
+
+I have this in my OMake files:
+
+if $(test -e .git)
+GIT_COMMIT = 'Some "$(shell git rev-parse HEAD)"'
+export
+else
+GIT_COMMIT = 'None'
+export
+
+I also define VERSION manually, but ideally I should extract the version from
+my opam file.
+
+Given those, I use m4 as follows to generate an About module for most of my
+projects.
+
+m4 -D VERSION=$(VERSION) -D GIT_COMMIT=$(GIT_COMMIT) about.ml.m4 > about.ml
+
+$ cat about.ml.m4
+(** General information about this project. *)
+
+(** Version: [VERSION] *)
+let version = "VERSION"
+
+(** Git commit if known: [GIT_COMMIT] *)
+let git_commit = GIT_COMMIT
+      
+** ygrek also replied:
+
+this seems to be a common theme this days, so I am using an ocamlbuild plugin
+to handle git version extraction - <https://github.com/ygrek/mybuild>
+      
+========================================================================
+4) Is there any numpy / pandas like library in OCaml?
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2015-10/msg00114.html>
+------------------------------------------------------------------------
+** Dan Stark asked:
+
+NumPy and Pandas are quite famous in scientific computing with Python.
+
+I am just wondering whether OCaml has such a library?
+
+Does Jane Street provide any? 
+      
+** Tao Stein replied:
+
+I use OCaml GSL ... <https://opam.ocaml.org/packages/gsl/gsl.1.18.5/>
+
+And am happy with it, for access to the BLAS etc
+      
+** Markus Mottl also replied:
+
+Besides the GSL bindings there is also Lacaml, which interfaces a
+considerable part of BLAS/LAPACK and provides many additional vector
+and matrix functions: <https://github.com/mmottl/lacaml>
+      
+** Daniel Bünzli also replied:
+
+There also this library  
+
+<https://github.com/hammerlab/oml>
+
+(never used it myself) 
+      
+** Francois Berenger also replied:
+
+And also this one for statistics:
+
+<https://github.com/superbobry/pareto>
+      
+** Nils Becker also replied:
+
+there is also this:
+
+<http://akabe.github.io/slap/>
+
+which implements matrices whose dimensions are encoded in the type.
+
+fwiw, for special functions one can interface to c libraries relatively
+easily using ctypes. e.g. Rmath has a lot.
+
+hdf5 support has just arrived,
+<https://opam.ocaml.org/packages/hdf5/hdf5.0.1/>
+
+i too would absolutely love to have something like numpy and something
+like pandas in ocaml. the features i would want from ocaml-numpy are a
+nice compact array slicing syntax, something like broadcasting, indexing
+of arrays with int arrays or lists, and some magic that knows how to
+choose the appropriate BLAS routines for common matrix operations. for a
+pandas equivalent, flexible indexing would be the most important thing.
+and printing a nice readable short output on screen with minimal effort.
+      
+========================================================================
+5) "map"-ing parameterized class types
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2015-10/msg00130.html>
+------------------------------------------------------------------------
+** Spiros Eliopoulos asked:
+
+I'm trying to create a "container" class[0] that can store a value of type 'a,
+and transform that value to another value of type 'b. I'm trying to do this by
+including a "map" method in the container that applies a function to the value
+and returns a new instance of container with the transformed value. Despite
+the annotations, the types aren't working out as I expected:
+
+class ['a] container (v:'a) = object
+method map (f:'a -> 'b) : 'b container = new container (f v)
+end;;
+(* class ['a] container : 'a -> object method map : ('a -> 'a) -> 'a container
+end *)
+
+I gather I'm either doing something wrong, or it's not possible. I suppose my
+question, which one is it? and if I'm doing something wrong, some guidance
+would be appreciated. Thanks!
+
+-Spiros E.
+
+[0]: Note that this is a minimal, contrived example of my actual problem. The
+actual problem came up while writing js_of_ocaml bindings.
+      
+** Jeremy Yallop replied:
+
+It's not exactly possible, but there are workarounds.
+
+The reason the types don't work out as you expect is that structural
+types (objects, classes, polymorphic variants) in OCaml are required
+to be "regular".  A parameterised type t is regular if every
+occurrence of t within its own definition is instantiated with the
+parameters.  For example, the following type (t1) is regular:
+
+   # type ('a, 'b) t1 = [`A of ('a, 'b) t1];;
+     type ('a, 'b) t1 = [`A of ('a, 'b) t1]
+
+but this one (t2) isn't, because the order of parameters is reversed
+
+   # type ('a, 'b) t2 = [`A of ('b, 'a) t2];;
+   Characters 5-38:
+     type ('a, 'b) t2 = [`A of ('b, 'a) t2];;
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   Error: In the definition of t2, type ('b, 'a) t2 should be ('a, 'b) t2
+     type ('a, 'b) t2 = [`A of ('b, 'a) t2]
+
+and this one (t3) isn't, either, because the parameters are
+instantiated with concrete types
+
+   # type ('a, 'b) t3 = [`A of (int, string) t3];;
+   Characters 5-43:
+     type ('a, 'b) t3 = [`A of (int, string) t3];;
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   Error: In the definition of t3, type (int, string) t3 should be ('a, 'b) t3
+
+As the output shows, OCaml rejects the non-regular definitions for t2
+and t3.  Your example code also attempts to define a non-regular type,
+but since the type variable 'b is available for unification, OCaml
+doesn't need to reject the definition altogether.  Instead, 'b is
+unified with the class parameter 'a to produce a regular type which is
+acceptable to OCaml (but which doesn't do what you want).
+
+How might we side-step the regularity constraint?  One approach is to
+arrange things so that the recursion passes through a non-structural
+type, such as a variant or record.  In an imaginary extension to OCaml
+with support for groups of mutually-recursive types and classes we
+could write something like this:
+
+   class ['a] container (v:'a) = object
+     method map : 'b. ('a -> 'b) -> 'b container_aux =
+       fun f -> { container = new container (f v) }
+   end
+   and 'a container_aux = { container: 'a container }
+
+In today's OCaml we can achieve a similar effect by routing all the
+recursive references through a recursive module, albeit at a rather
+heavy syntactic cost:
+
+   module rec R:
+   sig
+     class ['a] container : 'a ->
+       object
+         method map : 'b. ('a -> 'b) -> 'b R.container_aux
+       end
+     type 'a container_aux = { container: 'a container }
+   end =
+   struct
+     class ['a] container (v:'a) = object
+       method map : 'b. ('a -> 'b) -> 'b R.container_aux =
+         fun f -> { R.container = new R.container (f v) }
+     end
+     type 'a container_aux = { container: 'a container }
+   end
+
+which at least achieves the desired effect:
+
+   # let c = new R.container 3;;
+   val c : int R.container = <obj>
+   # (c#map string_of_int).R.container;;
+   - : string R.container = <obj>
+      
+** Spiros Eliopoulos then said and Mikhail Mandrykin replied:
+
+> Thank, Jeremy, for the great explanation and possible work around.
+> Unfortunately for me, the workaround won't be possible to use for the
+> js_of_ocaml use case I have in mind. At least not without sprinkling
+> Obj.magic everywhere, which is what I'm trying to avoid.
+> 
+> Based on your workaround, I thought I might be able to create my own
+> workaround with code that looked something like this:
+> 
+>   module rec R : sig
+>     class type ['a] container1 = object
+>       method map : ('a -> 'b) -> 'b R.container2
+>     end
+>     class type ['a] container2 = object
+>       method op : 'a R.container1
+>     end
+>   end = struct
+>     ...
+>   end
+> 
+> But of course the type system complained that:
+> 
+>   Error: In the definition of R.container2, type
+>        'b R.container1
+>        should be
+>        'a R.container1
+> 
+> I thought this might be for a different than the one you mentioned, but
+> upon further reflection and a single unrolling of the types, it seems to be
+> the regular type constraint that's causing this error as well.
+
+It seems this is essentially not the workaround that was pointed out, as the 
+suggestion was:
+>> One approach is to
+>> arrange things so that the recursion passes through a *non-structural
+>> type*, such as a variant or record. 
+And an object type 'a container2 is a structural type. As far as I understand, 
+the semantics for type-checking of structural type abbreviations is the same 
+as if all those abbreviations were expanded. So introducing a new class ['a] 
+container2 doesn't help, because its corresponding object type ends up being 
+expanded while type-checking ['a] container1 anyway and leads to essentially  
+the same error. The regularity restriction seems to also arise from the same 
+expansion semantics where we would need to infinitely expand the structural 
+type abbreviation while checking itself and therefore would be unable to write 
+recursive structural types altogether, but the issue is addressed by replacing 
+the whole abbreviated type application with a type variable e.g. 'a container1 
+= 'self and using this 'self in place of all regular self-references. Thus the 
+type can remain structural (it's still possible to write it down without 
+naming it)  despite the self-references e.g. ( < get : 'a; map : 'self > as 
+'self). For irregular self-references this doesn't work (if 'a container = 
+'self then what's 'b container or how to designate it to avoid infinite 
+expansion?).
+
+Just in case an another possible work-around would be to use an abstract type 
+instead of a concrete nominal type as a proxy. This can be a little bit more 
+suitable as an abstract type can be later bound to the same structural type 
+and wrapping/unwrapping would become identity in the implementation. This is 
+more heavyweight, though, e.g:
+
+module type S = sig
+  type 'a c'
+  val new_c : 'a -> 'a c'
+end
+
+module rec F' :
+  functor (M : S) -> sig
+    class ['a] c : 'a -> object
+        method get : 'a
+        method map : 'b. ('a -> 'b) -> 'b M.c'
+      end
+  end =
+  functor (M : S) -> struct
+    class ['a] c (a : 'a) = object
+      method get = a
+      method map : 'b. (_ -> 'b) -> 'b M.c' = fun f -> M.new_c (f a)
+    end
+  end
+
+module rec F : sig
+  type 'a c'
+  class ['a] c : 'a -> object
+      method get : 'a
+      method map : 'b. ('a -> 'b) -> 'b F.c'
+    end
+  val new_c : 'a -> 'a F.c'
+  val self_cast : 'a c' -> 'a c
+end = struct
+  module F' = F'(F)
+  class ['a] c = ['a] F'.c
+  type 'a c' = 'a c
+  let new_c a = new F.c a
+  let self_cast (x : 'a c') = (x : 'a c)
+end
+
+let () =
+  let c1 = new F.c 1 in
+  Printf.eprintf "%d\n" c1#get;
+  let c2 = F.self_cast @@ c1#map (string_of_int) in
+  Printf.eprintf "%s\n" c2#get
+
+Here F.self_cast is actually an identity function an is only used to help 
+type-checking.
+      
+** Oleg also replied:
+
+The question was about creating a class of the following type
+
+>      class type ['a] container : 'a ->
+>        object
+>          method map : 'b. ('a -> 'b) -> 'b container
+>        end
+
+with a mapping method that makes a container of a different
+type. Jeremy Yallop has explained very well the class of exactly such
+type is not possible. The following is perhaps the simplest workaround
+requiring neither modules nor other higher-class artillery. It should
+have been possible even in OCaml 3.10 or earlier.
+
+The idea was inspired by some high-falutin' Math, namely, left Kan
+extension from Category Theory. I actually don't know CT but I think I
+got the gist of the left Kan extension: rather than execute an an
+operation, just collect all the needed arguments and declare the
+operation performed. The recent paper on Freer monads (Haskell
+Symposium 2015) used two instances of this new kind of laziness.
+
+Here is the whole solution
+
+    type 'a cont_proxy = P of 'a
+
+    class ['a] container (x : 'a) = object
+      method get_x = x
+      method map' : 'b. ('a -> 'b) -> 'b cont_proxy = fun f ->
+        P (f x)
+    end
+
+The class container has one argument, which is the value needed to
+construct the container. The data type cont_proxy contains all the
+information needed to construct the container, but not the container
+itself (for one, the container type is not yet defined when we
+declared P). The method map' doesn't actually construct anything; it
+merely returns the data needed for the construction.
+
+The map itself is then easy to define:
+
+    let map : ('a -> 'b) -> ('a container -> 'b container) = fun f c ->
+      match c#map' f with
+        P x -> new container x
+
+let c = new container 3
+    val c : int container = <obj>
+let _ = c#get_x
+    - : int = 3
+let c' = map string_of_int c
+    val c' : string container = <obj>
+let _ = c'#get_x
+    - : string = "3"
+      
+** Jacques Garrigue finally said:
+
+The externalizing solution has been known since the beginning of
+OCaml, but it is nice to know that it has such a cute name?
+      
+========================================================================
+6) dispatch 0.2.0 with js_of_ocaml support
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2015-10/msg00134.html>
+------------------------------------------------------------------------
+** Spiros Eliopoulos announced:
+
+I'm happy to announce the latest release of dispatch. What's notable about
+this release is that it includes out-of-the-box js_of_ocaml support.
+Specifically, it allows you to easily set up front-end applications to use the
+URI fragment to track state transitions and history. For example:
+
+let fragment_thread = 
+Dispatch_js.dispatch_on_fragment ~default:"/" [
+("/" , root_handler)
+; ("/user/:id/", user_handler)
+]
+
+... creates a thread that will monitor for URI fragment changes and dispatch
+to the appropriate handler. In addition, it will set the initial fragment to
+"/" and ensure that the handler for that path is initially called; even if the
+fragment was already set to "/" when the thread started, dispatch will still
+occur.
+
+Due to the API changes included in this release, webmachine[0]'s version has
+been bumped to 0.2.1. You can find both the new version of dispatch and
+webmachine on OPAM.
+
+Full but short release notes can be found here:
+
+<https://github.com/inhabitedtype/ocaml-dispatch/releases/tag/0.2.0>
+
+As always, issues and pull requests welcomed.
+
+-Spiros E.
+
+[0]: <https://github.com/inhabitedtype/ocaml-webmachine>
+      
+========================================================================
+7) Uroboros 0.1
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2015-10/msg00145.html>
+------------------------------------------------------------------------
+** Shuai Wang announced:
+
+I?m glad to announce the first release of Uroboros: an infrastructure for
+reassembleable disassembling and transformation.
+
+You can find the code here: <https://github.com/s3team/uroboros> 
+You can find our research paper which describes the core technique implemented
+in Uroboros here: 
+<https://www.usenix.org/system/files/conference/usenixsecurity15/sec15-paper-wang-shuai.pdf>
+
+We will provide a project home page, as well as more detailed documents in the
+near future. Issues and pull requests welcomed.
+      
+========================================================================
+8) findlib-1.5.6
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2015-10/msg00167.html>
+------------------------------------------------------------------------
+** Gerd Stolpmann announced:
+
+a new minor version has been released with a few fixes, including
+mingw64 support.
+
+As always, links for download can be found here:
+
+<http://projects.camlcity.org/projects/findlib.html>
+      
+========================================================================
+9) OCaml core on Github
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2015-10/msg00191.html>
+------------------------------------------------------------------------
+** Xavier Leroy announced:
+
+As announced at the OCaml workshop last September, the development
+sources for the core OCaml system are now hosted at Github,
+ocaml/ocaml project.  (Before, this Github repository was a read-only
+mirror of a master SVN repository hosted at Inria.)
+
+Those of you who track the OCaml development version via SVN at
+<http://caml.inria.fr/svn/ocaml/> should switch to Git at
+<https://github.com/ocaml/ocaml.git> instead.  The SVN repo remains
+available for a few more weeks, but is no longer updated.
+All other users should be unaffected by this change.
+      
+========================================================================
+10) Other OCaml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocaml.org/>.
+
+Jane Street: Quickcheck for Core
+  <https://blogs.janestreet.com/quickcheck-for-core/>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

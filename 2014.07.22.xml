@@ -1,0 +1,510 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2014.07.22</cwn_date>
+    <cwn_prev>2014.07.15</cwn_prev>
+    <cwn_next>2014.07.29</cwn_next>
+    <cwn_date_text>July 15 to 22, 2014</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>proposal for finding, loading and composing ppx preprocessors</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-07/msg00059.html</cwn_url>
+      <cwn_who>Continuing this thread from last week, Benjamin Canou replied to Alain Frisch</cwn_who>
+      <cwn_what>
+&gt; This topic of how to specify which ppx processors to run, and
+&gt; avoiding multiple processes, is indeed still largely opened.
+&gt;
+&gt; I don't see what's the benefit of restricting the processors to
+&gt; subtrees.  It's easy enough for each processor to traverse extension
+&gt; nodes it doesn't support (this is the behavior of the default
+&gt; mapper). And I don't think it's a good idea to introduce
+&gt; a composition model different from the successive application of
+&gt; different processors on the entire tree. I.e. function composition,
+&gt; which is quite well understood and easy to reason about.  In
+&gt; particular, you only need to understand the behavior of each
+&gt; processor to predict what the composition will do, not exactly how
+&gt; each processor is implemented (and which state it carries across the
+&gt; tree, internally).
+
+My belief is that there is room for a less ambitious, plug-in based
+(statically or dynamically linked) annotation mechanism, on top of
+PPX. For instance, if we consider the current use of camlp4, we can
+assume that most ppxs will probably just define some annotation on
+some specific kind of AST node in order to rewrite them and / or
+insert auxiliary code, without carrying so much state. Having a common
+mechanism for registering such common simple tasks and assigning to
+names to them could be useful, without breaking the model.
+
+In practice, an annotation would simply be declared as an OCaml module
+calling predefined specific registration functions. Such a module,
+linked with a predefined main module would produce a stand alone ppx
+binary processing only this annotation. However, it gives the
+possibility to compose annotations more finely, without changing the
+semantics. As I mentioned previously, It could limit the number of
+tree rewrites, but it could have other advantages such as detecting
+annotation name clashes.
+
+We launched this thread because we thought that such a mechanism has
+more chances to be adopted if previously discussed and understood by
+build systems, but perhaps the best solution is that we propose such
+a ppx helper and then wait and see.
+
+&gt;
+&gt; With ocamlfind 1.5, requiring a package when compiling a file adds
+&gt; the required -ppx flags in addition to the -I flags.  If we want to
+&gt; avoid multiple process, one could create a meta ppx driver which
+&gt; dynamically loads and runs other drivers (specified as .cmxs files).
+&gt; To be able to use such as meta driver from ocamlfind, ocamlfind
+&gt; needs to know about how to build each ppx processor (i.e. which
+&gt; libraries should be invoked).  Dynamic linking might not be the best
+&gt; solution, though: it is not available on all platforms, and it
+&gt; requires all libraries on which ppx processor depend to provide
+&gt; a corresponding .cmxs.  The alternative is to have ocamlfind link
+&gt; a specific meta driver statically (using its knowledge of package
+&gt; dependencies) for each actual combination of ppx to be used, relying
+&gt; on an internal cache to avoid linking the same driver repeatedly, of
+&gt; course.  The next step is to create not ppx drivers (that
+&gt; incorporate multiple precessors), but compiler drivers (to avoid
+&gt; completely extra process creations and marshaling of the AST).  If
+&gt; this is encapsulated in ocamlfind (or a similar tool), this can
+&gt; still be used by any build system which currently relies on
+&gt; ocamlfind.
+&gt;
+&gt; Specifying ppx requirements in the source code is a different topic.
+&gt; It might be a good direction, but then I don't see why this should
+&gt; be restricted to ppx requirements and not -I flags. It would seem
+&gt; logical to specify package requirements, which would add both -I
+&gt; and -ppx flags (and maybe more).
+
+I agree on this. Annotations give us the possibility to make OCaml
+files more self content and build-system independent. I though see
+a distinction between compiler directed pragmas and build-system
+directed ones.
+
+&gt; Actually, it would have been more important to specify package
+&gt; requirements for Camlp4 processors, since this knowledge might be
+&gt; required by tools that are not under the control of your build
+&gt; system, such as your editor/IDE (to load the corresponding syntactic
+&gt; support). Since the concrete syntax doesn't change anymore with ppx
+&gt; processors, it seems less critical to specify them in the source
+&gt; code (I'd say, not more and not less than general package
+&gt; requirement).
+
+Well, one of the use cases of extension nodes is to integrate external
+notations into literals such as [%json{| ... |}]. I believe IDEs could
+still use a little help to know how to format these, instead of
+showing plain OCaml strings.
+      </cwn_what>
+      <cwn_who>Alain Frisch then said</cwn_who>
+      <cwn_what>
+&gt; My belief is that there is room for a less ambitious, plug-in based
+&gt; (statically or dynamically linked) annotation mechanism, on top of PPX.
+&gt; For instance, if we consider the current use of camlp4, we can assume
+&gt; that most ppxs will probably just define some annotation on some
+&gt; specific kind of AST node in order to rewrite them and / or insert
+&gt; auxiliary code, without carrying so much state. Having a common
+&gt; mechanism for registering such common simple tasks and assigning to
+&gt; names to them could be useful, without breaking the model.
+
+The registration mechanism exists:  a ppx processor is supposed to
+call Ast_mapper.register.  By default, this runs directly the main
+program to support for ppx protocol for this single processor, but you
+can very well override the behavior of Ast_mapper.register by calling
+Ast_mapper.register_function first.
+
+You can look at https://github.com/alainfrisch/ppx_drivers for an
+experiment of creating such a driver.
+
+But this notion of registration is quite independent on how multiple
+processors interact.  I'm yet to be convinced that a composition mode
+more fine-grained that function composition is worth the extra mental
+overhead.  It would also be necessary to decide between top-down and
+bottom-up rewriting, none of them being the best pick for all
+processors.  Typically, a macro expander would want other processors
+to apply to the result of macro expansions (i.e. top-down rewriting
+style), while a type-conv-like processor might prefer a bottom-up
+rewriting (so that the macro expander can run first on type
+declarations before it takes control).
+
+Concerning the notion of state in ppx processors, I've written the
+following ppx processors:
+
+ - sedlex (a lexer generator): it needs to remember about all lexer
+definitions in the current unit to be able to generate some global
+function definitions (shared by various lexers)  (for instance, we
+don't want to generate definitions used only by code that would be
+excluded by a conditional compilation processor)
+
+ - ppx_metaquot: some extension nodes with very short names %e, %t, %p
+are recognized only in the context of an enclosing extension node such
+as %expr
+( https://github.com/alainfrisch/ppx_tools/blob/master/ppx_metaquot.ml )
+
+I expect most other ppx processors to be slightly more complex than
+purely local transformations, which makes it even more difficult to
+reason on local composition (and "purely local" term rewriting systems
+are already hard to reason about their composition).
+
+&gt; Well, one of the use cases of extension nodes is to integrate external
+&gt; notations into literals such as [%json{| ... |}]. I believe IDEs could
+&gt; still use a little help to know how to format these, instead of showing
+&gt; plain OCaml strings.
+
+Indeed, although I think this is going to be a rather rare use of
+extension points / quoted strings.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Existential row types</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-07/msg00092.html</cwn_url>
+      <cwn_who>Alain Frisch asked</cwn_who>
+      <cwn_what>
+GADTs allow to restrict existential type variables to being an
+instance of a row type, as in:
+
+class type c = ...
+
+type s =
+  | EX: ((#c as 'a) -&gt; unit) * (unit -&gt; 'a) -&gt; ex
+
+
+I'm wondering if it is possible to simulate such restricted
+existential quantification with first-class module and private row
+types.  Something like:
+
+
+module type S = sig
+  type t = private #c
+  val f: t -&gt; unit
+  val g: unit -&gt; t
+end
+
+let foo (type t_) (f : (#c as t_) -&gt; unit) (g : unit -&gt; t_) =
+  let module M = struct
+    type t = t_
+    let f = f
+    let g = g
+  end
+  in
+  (module M : S)
+
+
+This does not work, of course, because of the "... as t_".  Is there
+a local work-around?  If not, I'm wondering if if would be easy (and
+make sense) to introduce a form for introducing locally private row
+types:
+
+ let foo (type t_ = private #c) (f : t_ -&gt; unit) (g : unit -&gt; t_) = ...
+      </cwn_what>
+      <cwn_who>Leo White then replied</cwn_who>
+      <cwn_what>
+There is a work-around, but it is quite convoluted:
+
+  https://sympa.inria.fr/sympa/arc/caml-list/2012-10/msg00131.html
+
+There is also a feature request for the feature you propose:
+
+  http://caml.inria.fr/mantis/view.php?id=6137
+      </cwn_what>
+      <cwn_who>Alain Frisch then replied</cwn_who>
+      <cwn_what>
+Very clever trick. Thanks!
+
+One can actually use the GADT only to carry the constraint and pass
+the value argument(s) separately.  This means the GADT definition
+remains very simple even if we need to add many fields:
+
+
+=============================================================
+class type c = object end
+
+module type SIG =
+sig
+  type t = private #c
+  val f: t -&gt; unit
+  val g: unit -&gt; t
+end
+
+type 'a aux = Aux: (#c as 'a) aux
+
+let create f g =
+  let helper (type u) (Aux : u aux) f g =
+    (module struct
+       type t = u
+       let f = f
+       let g = g
+     end : SIG)
+  in
+  helper Aux f g
+
+(* or even: *)
+
+let create f g =
+  let module Aux = struct type 'a t = E: (#c as 'a) t end in
+  begin fun (type u) (Aux.E : u Aux.t) f g -&gt;
+    (module struct
+       type t = u
+       let f = f
+       let g = g
+     end : SIG)
+  end Aux.E f g
+=============================================================
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Immutable strings</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-07/msg00098.html</cwn_url>
+      <cwn_who>Continuing the thread from last week, Damien Doligez said</cwn_who>
+      <cwn_what>
+First note that we are not breaking backward compatibility: you can
+always use the -unsafe-string flag to compile your dusty code.
+
+
+On 2014-07-05, at 13:04, Gerd Stolpmann wrote:
+
+&gt; So my scenario is quite low-level: I/O, and C interfaces.
+
+As you said, bigarrays are the best suited for that kind of code.
+But that's not a good reason to make all strings as heavy as bigarrays.
+If you need bigarrays, by all means use bigarrays in your code, not
+String or Bytes.
+
+
+On 2014-07-05, at 13:24, Gerd Stolpmann wrote:
+
+&gt; Well, the complexity can be reduced a bit by using phantom types:
+&gt; 
+&gt; type string = [`String] stringlike
+&gt; type bytes = [`Bytes] stringlike
+&gt; 
+&gt; and then just define function-by-function what is permitted:
+
+This is almost the same as our first version, which we discarded as
+too complex and not compatible enough (as you noted, because of
+unresolved type variables). But it might make a come-back.
+
+
+On 2014-07-08, at 14:24, Gerd Stolpmann wrote:
+
+&gt; It will create confusion even with actively maintained code bases. What
+&gt; could help here is very clear communication when the change will be the
+&gt; standard behavior, and how the migration will take place. Currently, it
+&gt; feels like a big experiment - hey, let's users tentatively enable it,
+&gt; and watch out for problems.
+
+OK, we need to be clearer on the "how" (in an nutshell, the default will
+switch from -unsafe-string to -safe-string at some point in the future
+when we feel that enough of the existing code has been updated).
+As for the "when", we can't tell because that depends a lot on how fast
+the community updates its code. Hopefully no more than three years.
+Possibly as soon as 4.03.0.
+
+&gt; There could also be a section in
+&gt; the manual explaining the new behavior, and how to convert code.
+
+That's a good idea.
+
+&gt; Right, that's the good side of it. (Although the danger is quite
+&gt; theoretical, as most programmers seem to intuitively follow the rule
+&gt; "don't mutate strings you did not create". I've never seen this kind of
+&gt; bug in practice.)
+
+What about programmers who deliberately trigger the bug (aka "attackers",
+in a security setting)? It's not just about how unlikely a bug is, but
+also whether it can be exploited.
+
+&gt; For instance, there is one module in OCamlnet where a regexp is directly
+&gt; run on an I/O buffer (generally, you need to do some primitive parsing
+&gt; on I/O buffers before you can extract strings, and that's where
+&gt; stringlike would be nice to have). Without stringlike, I would have to
+&gt; replace that regexp somehow.
+
+If stringlike is polymorphic, you will need a new regexp library that
+operates on stringlike. We cannot update the current regexp library to
+use stringlike because that would introduce polymorphism and unresolved
+type variables, and that might break some of the code that used to run
+on 1.03...
+
+
+On 2014-07-14, at 19:45, Richard W.M. Jones wrote:
+
+&gt; That would imply removing incorrect functions like String.uppercase
+&gt; and String.lowercase.
+
+First, we mark them deprecated. Then we wait a very long time before we
+actually remove them from (if ever).
+      </cwn_what>
+      <cwn_who>Alain Frisch also commented</cwn_who>
+      <cwn_what>
+&gt; http://blog.camlcity.org/blog/bytes1.html
+
+Coming back to motivating example of this post.
+
+Lexing provides:
+
+val from_channel : in_channel -&gt; lexbuf
+val from_string : string -&gt; lexbuf
+val from_function : (bytes -&gt; int -&gt; int) -&gt; lexbuf
+
+In particular, from_function expects you to write to a buffer, so it's
+pretty clear that its callback must accept a "bytes", not
+a "string". There is no place for a (string -&gt; int -&gt; int) -&gt; lexbuf
+function.
+
+Concerning from_string: this function copies the string to an internal
+buffer.  This is purely implemented on the OCaml side without any
+unsafe features.  We could avoid this copy because we know that the
+generated lexers won't actually modify the buffer in that case, but it
+would be very difficult to do this without using an unsafe feature,
+even if we had some sort of generalization of bytes and string.  We
+would instead need a completely different implementation (which would
+not use "stringable" to make the "source" (string or "stream")
+explicit in the lexbuf datastructure.
+
+We could also provide an extra from_bytes function, but it can
+currently be implemented by composing Bytes.to_string and
+Lexing.from_string.  Are you concerned only by the performance
+overhead of this approach (two copies)?  If so, the same argument
+would apply to the current implementation of from_string, and we would
+need to switch to a different approach, for which it's not clear that
+"stringable" would be a big help (see above).  Before doing anything
+like that, it would be interesting to evaluate the exact overhead.  It
+could very well be negligible/acceptable for most cases compared to
+the cost of actual lexing.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Article on why they use Ocaml: "Why We Use OCaml | Esper Tech Blog"</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-07/msg00100.html</cwn_url>
+      <cwn_who>Oliver Bandel announced</cwn_who>
+      <cwn_what>
+Just found this via ycombinator:
+
+http://tech.esper.com/2014/07/15/why-we-use-ocaml/
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Lablqt 0.3 is out</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-07/msg00103.html</cwn_url>
+      <cwn_who>Dmitrii Kosarev announced</cwn_who>
+      <cwn_what>
+Lablqt will help you to create GUI applications with using QtQuick 2
+and OCaml. It includes PPX syntax extension and ocamlfind package.
+It's available in OPAM already.
+
+Tutorial: http://kakadu.github.io/lablqt/tutorial2.html .
+
+Kind regards,
+Dmitrii Kosarev a.k.a. Kakadu
+
+P.S. Many thanks to guys who helped me in improving of the tutorial.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>A proposal of a standard support for Unicode string</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-07/msg00107.html</cwn_url>
+      <cwn_who>Yoriyuki Yamagata announced</cwn_who>
+      <cwn_what>
+I write a blog post http://yoriyuki.info/en/blog/2014/07/18/unicode/
+which proposes inclusion of Unicode strings in OCaml standard
+distribution.
+
+The reason for this proposal can be summarized as follows.
+
+1   Type for human readable text is too important to left out from the
+  standard distribution, in particular from the beginner's perspective
+
+2   This enhances interpolability of Unicode processing libraries
+
+3   This suppresses the current dangerous practice that raw UTF-8
+  encoded string is used for Unicode string.
+
+I hope this stimulates the further discussion of human readable texts
+in OCaml
+      </cwn_what>
+      <cwn_who>Török Edwin then replied</cwn_who>
+      <cwn_what>
+Just my two cents:
+
+I don't think that iterating on codepoints is the fundamental
+operation for Unicode strings, there are too many pitfalls to be aware
+of (unless you are writing a low-level Unicode library such as
+normalization, regular expression matching, etc.).
+
+From a user's perspective I think you need mostly these operations:
+  * create a valid UTF-8 string (reject invalid ones)
+  * be able to put Unicode strings in standard containers
+    (i.e. comparison and hash functions)
+  * transform Unicode strings (normalize, case-fold)
+  * Unicode regular expressions (UTS#18)
+  * Unicode text segmentation (UTS#29)
+  * Unicode collation algorithms (UTS#10)
+
+The regular expressions could be used to match/replace/split the
+Unicode string just as you would use String.index/String.sub, and it
+could be used to find/access the Unicode properties of unicode
+characters.  And Unicode text segmentation can be used to define more
+useful iterators than codepoint-by-codepoint.  If performance is
+a concern specialized implementations could be provided for commonly
+used expressions.
+
+Now of course this is only my view and someone else would consider
+other Unicode features to be more important.  Also Unicode evolves,
+there could be bugs in the implementation, etc. so I don't think this
+is suitable to be baked in the compiler-provided standard library.
+
+At least such a "high-level" Unicode library should be prototyped and
+fully implemented outside the compiler (based on the already existing
+uu* libraries perhaps).  Then see what problems people face when using
+it, and then tested out in a "standard library" such as Batteries or
+Core, and only then be made part of the compiler's standard library.
+
+Given that recently there's been a tendency to split-out functionality
+from the OCaml distribution (camlp4, ocamlbuild, etc.) I don't think
+that adding such complicated and evolving Unicode algorithms to the
+standard library is the way to go.  I'd rather see the standard
+library deprecate/remove the ASCII-specific interfaces (or move them
+to a submodule).
+
+As for the compiler itself it could provide some useful functionality,
+not sure if it is required:
+  * warn when string literals are not valid UTF-8
+  * support for \u
+  * if there will be [`String|`Bytes ] stringlike there could be
+    a 'type unicode = `Unicode stringlike' and some way to make literal
+    strings be of type unicode, with the actual unicode implementation
+    left to a user library
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocaml.org/&gt;.
+
+Building an ARMy of Xen unikernels:
+  &lt;http://openmirage.org/blog/introducing-xen-minios-arm&gt;
+
+Using Irmin to add fault-tolerance to the Xenstore database:
+  &lt;http://openmirage.org/blog/introducing-irmin-in-xenstore&gt;
+
+Merge sort:
+  &lt;http://shayne-fletcher.blogspot.com/2014/07/merge-sort.html&gt;
+
+Reductions in computability theory from a constructive point of view:
+  &lt;http://math.andrej.com/2014/07/19/reductions-in-computability-theory-from-a-constructive-point-of-view/&gt;
+
+Simple top-down development in OCaml:
+  &lt;https://blogs.janestreet.com/simple-top-down-development-in-ocaml/?utm_source=rss&amp;utm_medium=rss&amp;utm_campaign=simple-top-down-development-in-ocaml&gt;
+
+Coq is hiring a specialized engineer for 2 years:
+  &lt;http://coq.inria.fr/coq-is-hiring-a-specialized-engineer-for-2-years&gt;
+
+OCamlPro Highlights: May-June 2014:
+  &lt;http://www.ocamlpro.com/blog/2014/07/16/monthly-2014-06.html&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

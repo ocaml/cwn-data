@@ -1,0 +1,126 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of April 03 to 10, 2007.
+
+1) camlp4: let binding
+
+========================================================================
+1) camlp4: let binding
+Archive: <http://groups.google.com/group/ocaml-developer/browse_frm/thread/60e0ea039394bff6>
+------------------------------------------------------------------------
+** Hugo Ferreira asked, Martin Jambon said, and Nicolas Pouillard answered:
+
+> > I would like to use a reserved word and substitute that by a function 
+> > call. For example, the following: 
+> >
+> > let  _ = HEAP in 
+> > let h1 = HEAP in 
+> >
+> > would become 
+> >
+> > let __heap = new_heap () in 
+> > let     h1 = new_heap () in 
+
+
+As always it will be a lot simpler to do that kind of thing using a 
+filter in camlp4 3.10. 
+... 
+match (* do things bottom-up *) super#expr e with 
+| <:expr@loc< let _ = HEAP in $e$ >> -> 
+     <:expr@loc< let __heap = new_heap () in $e$ >> 
+| <:expr@loc< let $p$ = HEAP in $e$ >> -> 
+     <:expr@loc< let $p$ = new_heap () in $e$ >> 
+| e -> e 
+... 
+
+> You shouldn't try to do this because the parser looks only one token ahead 
+> to make its decision. If you add a rule that starts from "let" (it has 
+> to), the token which enables the parser to select this rule is in position 
+> 3, so it comes too late. Camlp4 will not warn you about the conflict but 
+> fail during preprocessing because it will choose either the predefined 
+> "let" rule or yours without knowing if it's the right one. 
+
+In fact it's wrong camlp4 can takes more than one token of look ahead. 
+It will try to match the input with all the firsts terminals of a rule. 
+However you're right to discourage him to try that kind of thing. 
+Indeed it's highly dependent on the left factorization mechanism 
+performed by camlp4.
+		
+** Hugo Ferreira asked and Nicolas Pouillard answered:
+
+> Just a comment: my greatest difficulty with camlp4 is twofold: 
+>
+> - knowing how the AST maps to the actual Ocaml syntax. 
+
+
+You can ask to camlp4 itself! 
+Using the old one... 
+
+$ cat test.ml 
+(* here is some expression that you want to understand *) 
+fun e -> <:expr< let x= HEAP in $e$ >> 
+
+$ camlp4o q_MLast.cmo pr_o.cmo test.ml 
+let _ = 
+  fun e -> 
+    MLast.ExLet 
+      (_loc, false, [MLast.PaLid (_loc, "x"), MLast.ExUid (_loc, "HEAP")], e) 
+
+> - knowing when/where the camlp4 parser does its transformations so that 
+> I may alter these transformations (match and replace expressions). 
+
+That's not really transformations of the AST. 
+However there is some grammar tranformations: 
+When you add a rule to a grammar entry at a specific level camlp4 
+insert it in a tree to factor out the prefix or rules as much as 
+possible. 
+
+e1 = SELF; "+"; e2 = SELF -> ... 
+e1 = SELF; "*"; e2 = SELF -> ... 
+
+is in fact something like: 
+
+e1 = SELF; [ "+"; e2 = SELF -> ... | "*";  e2 = SELF -> ... ] 
+
+So if you add something make it as much as possible a prefix of existing ones. 
+
+[...] 
+
+> In effect I write Ocaml "expression" which is automatically matched and 
+> I only need write an Ocaml expression to introduce the changes I want. 
+> All this using simply using the quotation system. The rules and the AST 
+> structure itself should, in my humble opinion, be avoided. 
+
+Indeed, extension that are highly dependent on the actual grammar 
+should be avoided. 
+
+> This will also allow the underlying camlp4 system to change without unduly 
+> affecting user's code. 
+
+Exactly!
+		
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

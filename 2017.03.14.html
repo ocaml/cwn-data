@@ -1,0 +1,447 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>OCaml Weekly News</title>
+  </head>
+  <body>
+    <a href="2017.03.07.html">Previous week</a> <a href="index.html">Up</a> <a href="2017.03.21.html">Next week</a><p>Hello</p><p>Here is the latest OCaml Weekly News, for the week of March 07 to 14, 2017.</p><ol><li><a href="#1">libbin_prot, php-bin_prot, ppx_bin_prot_interop</a></li><li><a href="#2">Jbuilder 1.0+beta1</a></li><li><a href="#3">ocamlbuild 0.11.0</a></li><li><a href="#4">New release of visitors</a></li><li><a href="#5">Ocaml Github Pull Requests</a></li><li><a href="#6">Other OCaml News</a></li></ol><a name="1" /><hr /><h3>libbin_prot, php-bin_prot, ppx_bin_prot_interop</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2017-03/msg00024.html">https://sympa.inria.fr/sympa/arc/caml-list/2017-03/msg00024.html</a></p><i>Andre Nathan announced:</i><br /><pre>
+We have plans to make use of Jane Street's bin_prot-based RPC libraries
+for some future projects, but one requirement is that we must
+interoperate with clients written in other languages, namely PHP.
+
+So I've been working on these 3 projects to make this possible:
+
+* libbin_prot [1] is a C port of (most of) bin_prot, with added support
+for RPC clients. This was written to avoid having to implement bin_prot
+multiple times in other languages - one can just write bindings to the C
+library.
+
+* php-bin_prot [2] is a PHP extension binding libbin_prot. It supports
+both PHP 5 and 7.
+
+* ppx_bin_prot_interop [3] is a PPX rewriter that generates PHP code
+from OCaml type definitions. It's written in a way that it should be
+easy enough to add support for other languages, as it builds a
+sort-of-AST that just has to be converted to strings in the proper
+language syntax. It's a bit hackish but gets the job done. The
+repository includes an example with an OCaml RPC server and a PHP client.
+
+ppx_bin_prot_interop is not on OPAM yet because I'm relying on the
+latest jbuilder version that is only available on Jane Street's
+repository [4] as of now. You should still be able to use it via "opam
+pin" if you want to give it a try.
+
+[1] <a href="https://github.com/andrenth/libbin_prot">https://github.com/andrenth/libbin_prot</a>
+[2] <a href="https://github.com/andrenth/php-bin_prot">https://github.com/andrenth/php-bin_prot</a>
+[3] <a href="https://github.com/andrenth/ppx_bin_prot_interop">https://github.com/andrenth/ppx_bin_prot_interop</a>
+[4] opam repo add janestreet
+<a href="https://github.com/janestreet/opam-repository.git">https://github.com/janestreet/opam-repository.git</a>
+
+Now that OCaml can talk to PHP, world domination should not be too far.
+      </pre><i>Jeremie Dimino said and Andre Nathan replied:</i><br /><pre>
+&gt; This is really cool! Just a few days ago someone asked me if we could
+&gt; talk to a RPC server from C, so it looks like we could use libbin_prot
+&gt; right now.
+&gt; 
+&gt; BTW, I've submitted a PR for the 1.0+beta1 of jbuilder yesterday, so
+&gt; it should reach opam soon.
+
+That's great timing :)
+
+I've updated the libbin_prot README to describe the RPC functions and
+added a simple example code with an OCaml server and a C client.
+      </pre><a name="2" /><hr /><h3>Jbuilder 1.0+beta1</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2017-03/msg00029.html">https://sympa.inria.fr/sympa/arc/caml-list/2017-03/msg00029.html</a></p><i>Jeremie Dimino announced:</i><br /><pre>
+I'm pleased to annouce the 1.0+beta1 release of Jbuilder.
+
+Jbuilder is a build system targetting OCaml projects and opam. It uses
+the same model as what is used at Jane Street: users write simple
+"jbuild" files to describe their libraries and executables and
+Jbuilder takes care of the rest. You don't need to know much about
+OCaml compilation to use Jbuilder.
+
+Jbuilder comes with a manual [1] and a quick start guide [2] showing
+common patterns.
+
+Jbuilder can be installed via opam:
+
+    $ opam install jbuilder
+    $ less `opam config var doc`/jbuilder/manual.org
+
+Jbuilder is developed primarily on github [3] and contributions are
+welcome.
+
+Interesting features
+====================
+
+I think it is worth mentioning the following features of Jbuilder,
+that should make the everyday life of an OCaml hacker easier:
+
+jbuilder exec &lt;command&gt;
+-----------------------
+
+This will run &lt;command&gt; in an environment where it has access to the
+binaries, libraries, manual pages, ... previously built and that are
+to be installed. This is convenient for testing things in the toplevel
+before installing them for instance.
+
+jbuilder external-lib-deps --missing &lt;targets&gt;
+----------------------------------------------
+
+This will list all the external library dependencies required to build
+&lt;targets&gt;, so that you have to run only one "opam install" command
+instead of installing dependencies one by one until the build succeed.
+
+building against several versions of OCaml at once
+--------------------------------------------------
+
+This is useful for locally testing that a project builds against all
+supported versions of OCaml:
+
+    $ cat &gt; jbuild-workspace &lt;&lt;EOF
+    (context ((switch 4.02.3)))
+    (context ((switch 4.03.0)))
+    (context ((switch 4.04.0)))
+    (context ((switch 4.05.0+beta2)))
+    (context ((switch 4.06.0+trunk)))
+    EOF
+    $ jbuilder build @install @runtest
+
+I find it convenient to add a jbuild-workspace.dev file at the root of
+a project with the following rule in the Makefile:
+
+    all-supported-ocaml-versions:
+        jbuilder build @install @runtest --workspace jbuild-workspace.dev
+
+building multiple projects at once
+----------------------------------
+
+This is great for working on several related projects:
+
+    $ opam source base
+    [...]
+    $ opam source stdio
+    [...]
+    $ jbuild build @install
+
+This method has been successfully tested to build the ~100 Jane Street
+packages at once.
+
+Changes
+=======
+
+Here is the full set of changes since the first alpha release:
+
+- Added a manual
+
+- Support incremental compilation
+
+- Switched the CLI to cmdliner and added a =build= command
+  (#5, Rudi Grinberg)
+
+- Added a few commands:
+  + =runtest=
+  + =install=
+  + =uninstall=
+  + =installed-libraries=
+  + =exec=: execute a command in an environment similar to what you
+    would get after =jbuilder install=
+
+- Removed the =build-package= command in favor of a =--only-packages=
+  option that is common to all commands
+
+- Automatically generate =.merlin= files
+  (#2, Richard Davison)
+
+- Improve the output of jbuilder, in particular don't mangle the
+  output of commands when using =-j N= with =N &gt; 1=
+
+- Generate a log in =_build/log=
+
+- Versioned the jbuild format and added a first stable version.
+  You should now put =(jbuilder_version 1)= in a =jbuild= file at the
+  root of your project to ensure forward compatibility
+
+- Switch from =ppx_driver= to =ocaml-migrate-parsetree.driver=. In
+  order to use ppx rewriters with Jbuilder, they need to use
+  =ocaml-migrate-parsetree.driver=
+
+- Added support for aliases
+  (#7, Rudi Grinberg)
+
+- Added support for compiling against multiple opam switch
+  simultaneously by writing a =jbuild-worspace= file
+
+- Added support for OCaml 4.02.3
+
+- Added support for architectures that don't have natdynlink
+
+- Search the root according to the rules described in the manual
+  instead of always using the current directory
+
+- extended the action language to support common actions without using
+  a shell:
+  + =(with-stdout-to &lt;file&gt; &lt;DSL&gt;)=
+  + =(copy &lt;src&gt; &lt;dst&gt;)=
+  ...
+
+- Removed all implicit uses of bash or the system shell. Now one has
+  to write explicitely =(bash "...")= or =(system "...")=
+
+- Generate meaningful versions in =META= files
+
+- Strengthen the scope of a package. Jbuilder knows about package
+  =foo= only in the sub-tree starting from where =foo.opam= lives
+
+Notes
+=====
+
+Jbuilder was released in opam today, and since then I got reports that
+it often chooses the wrong "root". The rules for finding the root of
+the current workspace will have to be changed for the 1.0 release. In
+the meantime, you can force the compilation root by writing a
+jbuild-workspace containing "(context default)" where you want the
+root to be.
+
+
+[1] <a href="https://github.com/janestreet/jbuilder/blob/master/doc/manual.org">https://github.com/janestreet/jbuilder/blob/master/doc/manual.org</a>
+[2] <a href="https://github.com/janestreet/jbuilder/blob/master/doc/quick-start.org">https://github.com/janestreet/jbuilder/blob/master/doc/quick-start.org</a>
+[3] <a href="https://github.com/janestreet/jbuilder">https://github.com/janestreet/jbuilder</a>
+      </pre><i>Jeremie Dimino later added:</i><br /><pre>
+I just  released a beta2 with better rules for finding the workspace
+root [1]. In beta1, jbuilder would often choose the home directory as
+root, causing it to scan the whole home directory.
+
+Following is the full changelog:
+
+- Simplified the rules for finding the root of the workspace as the
+  old ones were often picking up the home directory. New rules are:
+  + look for a =jbuild-workspace= file in parent directories
+  + look for a =jbuild-workspace*= file in parent directories
+  + use the current directory
+
+- Fixed the expansion of =${ROOT}= in actions
+
+- Install =quick-start.org= in the documentation directory
+
+- Add a few more things in the log file to help debugging
+
+[1] <a href="https://github.com/janestreet/jbuilder/blob/master/doc/manual.org#finding-the-root">https://github.com/janestreet/jbuilder/blob/master/doc/manual.org#finding-the-root</a>
+      </pre><a name="3" /><hr /><h3>ocamlbuild 0.11.0</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2017-03/msg00032.html">https://sympa.inria.fr/sympa/arc/caml-list/2017-03/msg00032.html</a></p><i>whitequark announced:</i><br /><pre>
+I'd like to announce the 0.11.0 release of OCamlbuild.
+
+OCamlbuild is a build system with builtin rules to easily build most OCaml
+projects.
+
+0.11.0 (5 Mar 2017):
+--------------------
+
+OCamlbuild 0.11.0 introduces a change to the way `.cmxs` files are
+produced when no `.mldylib` file is absent: it will now use the exact
+same semantics as `.cmxa` and `.mllib` file -- in particular, it
+should not be necessary anymore to have identical
+`foo.{mllib,mldylib}` files, only `foo.mllib` should suffice. See the
+detailed changelog below for details.
+
+- #111: added "nostdlib" flag for corresponding ocaml{c,opt} options
+  (Thomas Wood)
+
+- #115: add `node_modules` to the list of directories ignored by default
+  (.svn/, CVS/, .bzr/, .hg/, .git/, _darcs/, node_modules/)
+  (Yunxing Dai)
+
+- #125, #160: added "-toolchain" option for corresponding ocamlfind option.
+  (whitequark)
+
+- #127, #137, #138: install ocamlbuild's man pages, missing since 4.02
+  (Adam Sampson and Gabriel Scherer)
+
+- #130: make sure that -just-plugin always stops after the plugin-build phase
+  (Gabriel Scherer, report by whitequark)
+
+* #132, #159: remove the rule ".cmx -&gt; .cmxs"
+  Previously, there was a ".cmx -&gt; .cmxa" rule that would
+  pull a module and its dependencies in a .cmxa, and a separate
+  ".cmx -&gt; .cmxs" rule that would pull only a module as a .cmxs.
+
+  The latter is a reasonable default choice, the idea being that
+  a module's dependencies may often be statically linked with the
+  program instead of being dynamically linked. But it conflicts with
+  the presence of a rule ".cmxa -&gt; .cmxs" as soon as the library has
+  the same name as one of the modules it contains.
+
+  The reason why the rule ".cmxa -&gt; .cmxs" matter is that it can be
+  composed with the rule ".mllib -&gt; .cmxa" to build .cmxs files from
+  .mllib files, without having to copy each .mllib file into
+  a separate .mldylib file.
+
+  In other terms, the previous behaviour would, by default (in absence
+  of .mldylib file who always takes priority), only link the module in
+  the .cmxs file, and people wishing otherwise would have to write
+  a list of modules in a .mldylib file. The new behavior will, by
+  default, take the .mllib file or the module dependencies (as for
+  .cmxa) to build a .cmxs file, and people wishing otherwise will have
+  to write just the module name in a .mldylib file.
+
+  It is unclear whether this change will break some projects on which
+  users relied on the previous semantics. It seems equally likely that
+  the previous semantics, when it applied, was a source of bugs
+  (the .cmxs files didn't have the expected modules) that would not be
+  discovered by people not testing dynamic linking. Such bugs have
+  been found and fixed in the following cases:
+
+  - <a href="https://github.com/dbuenzli/uucp/pull/9">https://github.com/dbuenzli/uucp/pull/9</a>
+  - <a href="https://github.com/dbuenzli/uunf/pull/4">https://github.com/dbuenzli/uunf/pull/4</a>
+  - <a href="https://github.com/dbuenzli/uuseg/pull/4">https://github.com/dbuenzli/uuseg/pull/4</a>
+
+  (Daniel Bünzli, Jérémie Dimino, Armaël Guéneau, Gabriel Scherer, whitequark)
+
+- #124, #136: do not explicitly pass -shared when building shared libraries;
+  let the compiler decide what to build.
+  (whitequark)
+
+- #143-171: migration of Mantis bugtracker issues to the github issue tracker
+  (Damien Doligez)
+
+- #172-175, #177: setting up Continuous Infrastructure (CI) testsuite checks
+  (whitequark)
+
+- #202: install license, changes and readme in opam's docdir for `odig`
+  (Gabriel Scherer, request and review by Daniel Bünzli)
+
+- "noautolink" tag for ocaml{c,opt}
+  (Gabriel Scherer)
+
+
+0.10.{0,1} (Dec 2016):
+----------------------
+
+These releases were never widely distributed, because of
+a quickly-caught regression due to the change of .cmxs compilation
+behavior (#132), fixed with the help Daniel Bünzli, Jérémie Dimino
+and, in particular, whitequark.
+      </pre><a name="4" /><hr /><h3>New release of visitors</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2017-03/msg00033.html">https://sympa.inria.fr/sympa/arc/caml-list/2017-03/msg00033.html</a></p><i>François Pottier announced:</i><br /><pre>
+It is my pleasure to announce release 20170308 of the "visitors" package,
+a syntax extension that makes it easy to generate visitor classes for
+algebraic data structures.
+
+The major additions since the previous release are as follows:
+
+- A new option [polymorphic = true] allows generating visitor methods with
+  polymorphic types. With [polymorphic = true], a type variable ['a] is
+  handled by a visitor *function* [visit_'a], which is passed as an argument
+  to every visitor method; whereas, with [polymorphic = false], a type
+  variable ['a] is handled by a virtual visitor *method* [visit_'a].
+  With [polymorphic = true], visitor classes compose better,
+  and irregular algebraic data types are supported.
+
+- A new variety of visitor, "mapreduce", computes a pair of a data structure
+  (like a "map" visitor) and a summary (like a "reduce" visitor). This can be
+  used to annotate every tree node with information about the subtree that
+  lies below it.
+
+There are also several minor new features and documentation additions.
+
+To install the package via opam, use the following commands:
+
+  opam update
+  opam install visitors
+
+The documentation is here:
+
+  <a href="http://gallium.inria.fr/~fpottier/visitors/manual.pdf">http://gallium.inria.fr/~fpottier/visitors/manual.pdf</a>
+      </pre><i>KC Sivaramakrishnan then asked and François Pottier replied:</i><br /><pre>
+&gt; Thanks for the wonderful library and the excellent documentation. I have
+&gt; a feature request. Could you provide a python-style generator for
+&gt; traversing the data structure on demand? For a binary tree:
+&gt;
+&gt;      type 'a t = Leaf | Node of 'a t * 'a * 'a t
+&gt;
+&gt; I envision a `mk_gen` function:
+&gt;
+&gt;      val mk_gen : 'a t -&gt; (unit -&gt; 'a option)
+&gt;      (** [mk_gen t] returns a generator function [f], which when invoked
+&gt;          performs 1-step of the traversal and returns [Some v], where [v]
+&gt;          is the node value. [f] returns [None] when the traversal is done. *)
+
+Thanks for this excellent question, which I had not thought about.
+
+A quick answer might be that, if you are using OCaml + effect handlers,
+it should be fairly easy for you to perform control inversion and turn
+a producer-controlled traversal (as performed by an [iter] visitor) into
+a consumer-controlled traversal.
+
+That said, I was able to come up with a solution in pure OCaml. It is somewhat
+unexpected and (I think) quite nice, so I am posting it (with comments) on the
+list (see attached file). If there is demand, most of this code could be made
+part of the VisitorsRuntime library.
+      </pre><i>Gabriel Scherer then said:</i><br /><pre>
+This use of the monoid structure is very nice. I believe that you
+could cut through the intermediate tree structure as follows. Is there
+any downside?
+
+type 'a delayed_tree = 'a cascade -&gt; 'a cascade
+
+let delayed_tree_to_cascade k = k nil
+let delayed_tree_to_iterator (dt : 'a delayed_tree) : 'a iterator =
+  cascade_to_iterator (delayed_tree_to_cascade dt)
+
+type 'a delay = 'a
+
+class ['self] delayed_tree_monoid = object (_ : 'self)
+  method zero =
+    fun k -&gt; k
+
+  method plus s1 s2 =
+    fun k -&gt; s1 (s2 k)
+
+  method visit_delay
+    : 'env 'a .
+      ('env -&gt; 'a -&gt; 'b delayed_tree) -&gt;
+      'env -&gt; 'a delay -&gt; 'b delayed_tree
+    = fun visit_ env x k -&gt;
+        (fun () -&gt; visit_ env x k ())
+end
+
+let yield _env x = fun k () -&gt; Cons (x, k)
+      </pre><i>François Pottier replied:</i><br /><pre>
+&gt; This use of the monoid structure is very nice. I believe that you
+&gt; could cut through the intermediate tree structure as follows. Is there
+&gt; any downside?
+
+You are right, Gabriel, my code is a defunctionalized version of yours,
+which is much shorter. Nice!
+
+I don't think there is any significant downside. You lose the
+ability to perform the little optimization in my method [plus].
+I don't see any other downside.
+
+I take this opportunity to add that, although my previous solution
+duplicates the definition of the type [sometree], this is actually
+not necessary.
+
+I will probably prepare a blog post with a cleaned up solution...
+      </pre><a name="5" /><hr /><h3>Ocaml Github Pull Requests</h3><i>Gabriel Scherer and the editor compiled this list:</i><br /><pre>
+Here is a sneak peek at some potential future features of the Ocaml
+compiler, discussed by their implementers in these Github Pull Requests.
+
+- Add Buffer.add_utf_{8,16be,16le}_uchar and Uchar.{bom,rep}
+  <a href="https://github.com/ocaml/ocaml/pull/1091">https://github.com/ocaml/ocaml/pull/1091</a>
+- Use OCAML_COLOR environment variable for deciding whether to use colors in output
+  <a href="https://github.com/ocaml/ocaml/pull/1098">https://github.com/ocaml/ocaml/pull/1098</a>
+      </pre><a name="6" /><hr /><h3>Other OCaml News</h3><i>From the ocamlcore planet blog:</i><br /><pre>
+Here are links from many OCaml blogs aggregated at OCaml Planet,
+<a href="http://ocaml.org/community/planet/">http://ocaml.org/community/planet/</a>.
+
+Universal type
+ <a href="http://blog.shaynefletcher.org/2017/03/universal-type.html">http://blog.shaynefletcher.org/2017/03/universal-type.html</a>
+
+Polymorphic variants : Subtyping and variance
+ <a href="http://blog.shaynefletcher.org/2017/03/polymorphic-variants-subtyping-and.html">http://blog.shaynefletcher.org/2017/03/polymorphic-variants-subtyping-and.html</a>
+      </pre><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

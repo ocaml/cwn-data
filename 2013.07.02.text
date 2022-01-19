@@ -1,0 +1,309 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of June 25 to July 02, 2013.
+
+1) Spoc: GPGPU programming with OCaml
+2) Ocaml on windows
+3) meetup Paris-OCaml (OUPS) mardi 2 juillet
+4) Mixing two GADTs
+5) Request for feedback: A problem with injectivity and GADTs
+6) Other Caml News
+
+========================================================================
+1) Spoc: GPGPU programming with OCaml
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-06/msg00156.html>
+------------------------------------------------------------------------
+** Mathias Bourgoin announced:
+
+I would like to present you a set of tools for GPGPU programming with OCaml.
+
+I developed the SPOC library that enables the detection and use of GPGPU devices
+with OCaml using Cuda and OpenCL. I also developed a camlp4 syntax extension to
+handle external Cuda or OpenCL kernels as well as a DSL to express GPGPU kernels
+from the OCaml code.
+
+<http://www.algo-prog.info/spoc>
+
+This work is a big part of my PhD thesis and was partially funded by the opengpu
+project. I'm currently in the UPMC-LIP6 laboratory where I'm supervised by
+Pr. E. Chailloux and Pr. J-L Lamotte.
+
+SPOC has been presented several times and the slides and the papers references
+are on our website if you want more information about it.  It has currently been
+tested on multiple architectures and systems, mostly 64-bit Linux and 64-bit OSX
+systems. It should work with Windows too (I tested it successfully last year
+with Windows 7...).
+
+To be able to use SPOC, you'll need a computer capable of running OCaml
+(obviously) but also compatible with either OpenCL or Cuda.  For Cuda you only
+need a current proprietary NVidia driver while for OpenCL you need to install
+the correct OpenCL implementation for your system.  SPOC should compile anyway
+as everything is dynamically linked, but you'll need Cuda/OpenCL eventually to
+run your programs.
+
+SPOC currently lacks a real tutorial, it comes with some examples and I strongly
+advise anyone interested to look into the slides and papers on the website.
+
+
+By the way, if you are interested and if you are in Paris next week, I will be
+presenting SPOC etc. during the "OCaml Users in PariS" (OUPS) Meetup next
+Tuesday (July 2) .
+
+I hope to see some of you there and to have some feedback on this work.
+
+Mathias
+
+SPOC : <http://www.algo-prog.info/spoc>
+OpenGPU : <http://opengpu.net>
+OUPS : <http://www.meetup.com/ocaml-paris/>
+      
+========================================================================
+2) Ocaml on windows
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-06/msg00169.html>
+------------------------------------------------------------------------
+** Alain Frisch continued this thread from last week:
+
+> I am looking to develop a desktop application which will be distributed
+> to customers, so for now I think I will need ocaml libs like wxwidget,
+> batteries, sql lite db library, sockets, networking etc.
+> Is anyone using omake on windows? Does it have a dependency on Cygwin
+> like ocamlbuild?
+
+LexiFi uses omake on Windows and Linux.  It does not depend on Cygwin 
+itself, if you are careful enough to not use any Cygwin tool in the 
+build rules, of course.  omake actually implements a decent scripting 
+language (with built-in versions of some useful tools).
+
+FWIW, we use a tool ( <http://www.lexifi.com/csml> ) to interact easily 
+with the .Net framework, allowing our application to access .Net 
+components.  For instance, our Windows GUI is based on .Net Windows 
+Forms and we use the .Net driver from Oracle.  (For PostgreSQL, we use 
+Markus' ocaml bindings to the native libpq library.)
+      
+========================================================================
+3) meetup Paris-OCaml (OUPS) mardi 2 juillet
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-07/msg00000.html>
+------------------------------------------------------------------------
+** Fabrice Le Fessant announced:
+
+A short message in French, to give the program of the next OCaml-Paris meetup,
+tomorrow Tuesday, July 2, at 19:30 at IRILL :
+
+La prochaine rencontre du Meetup OCaml-Paris (OUPS) aura lieu le mardi 2
+juillet, à l'IRILL, comme d'habitude, et devrait mettre l'accent sur des
+expériences de programmation en OCaml dans divers contexte.
+
+Au programme, à partir de 19h30 :
+- "Les GADT dans la pratique" (Pierre Chambart ou Gabriel Scherer)
+- "Programmation GPGPU en OCaml" (Mathias Bourgoin)
+- "Utiliser Js_of_ocaml pour enrichir une page web" (Çagdas Bozman)
+- "Expériences de contribution à Batteries" (Gabriel Scherer)
+
+Comme d'habitude, nous nous retrouverons ensuite pour discuter autour de
+boissons et de bonnes pizzas, offertes par LexiFi !
+
+Inscrivez-vous nombreux !
+
+<http://www.meetup.com/ocaml-paris/events/121412532/>
+      
+========================================================================
+4) Mixing two GADTs
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-07/msg00001.html>
+------------------------------------------------------------------------
+** David Allsopp asked:
+
+Suppose I have the following two GADTs:
+
+type _ foo = A : int foo
+           | B : string foo
+           | C : bool foo
+
+type _ bar = X : int bar
+           | Y : float bar
+           | Z : string bar
+
+In my actual use case, these two GADTs cannot be altered. Suppose I then
+define the following two functions:
+
+let g : type s . s bar -> s = function
+  X -> 42
+| Y -> 42.0
+| Z -> "42"
+
+let get1 : type s . s foo -> s = function
+  A -> int_of_string (g Z)
+| B -> string_of_float (g Y)
+| C -> (=) 1 (g X)
+
+So far, so good. Now what I'd like to try to do is alter get1 to be of the
+form:
+
+let get2 : type s . s foo -> s = fun attr ->
+  let (f, retr) =
+    match attr with
+      A -> (int_of_string, Z)
+    | B -> (string_of_float, Y)
+    | C -> ((=) 1, X)
+  in
+    f (g retr)
+
+Obviously, I need type annotations for f and retr. I'd tried:
+
+let get2 : type s . s foo -> s = fun attr ->
+  let x : type t . (t -> s) * t bar =
+    match attr with
+      A -> (int_of_string, Z)
+    | B -> (string_of_float, Y)
+    | C -> ((=) 1, X)
+  in
+    let (f, retr) = x
+    in
+      f (g retr)
+
+But I get an error with int_of_string being of type string -> int instead of
+type t -> s.
+
+(Incidentally, the notation I expected to be able to use of [(let ((f, retr)
+: type t . (t -> s) * t bar)] resulted in a syntax error although looking at
+7.13 in the manual, I think that's probably correct?)
+
+Is there a type annotation which will allow this to work? Any help (or a
+statement that this happens to be impossible!) much appreciated...
+      
+** Alain Frisch replied:
+
+What you need is an existential quantification ("there exists some t 
+such that x has type (t -> s) * t bar").  You can do this by wrapping 
+the tuple in a third GADT:
+
+type 's baz = T: ('t -> 's) * 't bar -> 's baz
+
+let get2 : type s . s foo -> s = fun attr ->
+   let x : s baz =
+     match attr with
+     | A -> T (int_of_string, Z)
+     | B -> T (string_of_float, Y)
+     | C -> T ((=) 1, X)
+   in
+   let (T (f, retr)) = x in
+   f (g retr)
+      
+========================================================================
+5) Request for feedback: A problem with injectivity and GADTs
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-07/msg00003.html>
+------------------------------------------------------------------------
+** Back in April, Jacques Garrigue asked; Alain Frisch recently replied:
+
+> The fix is simple enough: we should track injectivity, and assume that abstract
+> types are not injective by default.
+> However, this also means that the first type I defined above (using Hashtbl.t)
+> will be refused.
+>
+> How many of you are using GADTs in this way, and how dependent are you on
+> abstract types ?
+
+FWIW, it turns out that we have very recently introduced such a case 
+(and I realized it while synchronizing our version of OCaml with the trunk).
+
+We used to have a functor with this signature:
+
+module ABSTRACT_1_MATCHER (T : sig type 'a t val t: unit t ttype end) :
+     sig
+       module type S = sig
+         type s
+         type t
+         val t: t ttype
+         val eq: (s, t T.t) TypEq.t
+       end
+       val check: 'a ttype -> (module S with type s = 'a) option
+     end
+
+ttype is our type representing type structures at runtime.  The functors 
+returns a function that checks if a given runtime type represents an 
+instance of an unary abstract type constructor passed in argument to the 
+functor (the functors check that this is indeed an abstract type).   In 
+case of success, the function returns the ttype of the type constructor 
+argument.  The existential is encoded with a first-class module and the 
+type-equality is encoded in the classical way (('a, 'b) TypEq.t 
+witnesses the equality of 'a and 'b:  type (_, _) t = Eq: ('a, 'a) t).
+
+A GADT was recently introduced to replace this with a more direct 
+representation:
+
+module ABSTRACT_1_MATCHER (T : sig type 'a t val t: unit t ttype end) :
+     sig
+       type _ is_t = Is: 'a ttype -> 'a T.t is_t
+       val check: 'a ttype -> 'a is_t option
+     end
+
+The problem is that this doesn't work any more (because T.t is not 
+injective).
+
+For now, I think I'll use:
+
+
+module ABSTRACT_1_MATCHER (T : sig type 'a t val t: unit t ttype end) :
+     sig
+       type _ is_t = Is: 'b ttype * ('a, 'b T.t) TypEq.t -> 'a is_t
+       val is_t: 'a ttype -> 'a is_t option
+     end
+
+
+which is accepted and roughly equivalent (by opening the equality 
+witness, one can retrieve the static equality 'a == 'b T.t).
+      
+** Jacques Garrigue then said:
+
+Nice natural example, and nice workaround.
+
+Of course, this is not strictly equivalent.
+For instance suppose the following function:
+  let f (type a) (tt : a T.t ttype) =
+     match check tt with None -> assert false
+     | Some (Is (tta, Eq)) -> (tta : a ttype)
+The pattern matching will succeed, but tta will only have type "a ttype"
+if T.t is injective. The nice part is that this is delayed to the use site,
+where we may have more information about T.t, so this trick may still
+be useful after introducing injectivity annotations.
+
+Anyway, I suppose that this will work fine for you: check is intended
+to be called on unknown types, so the missing equality should not
+be a problem.
+      
+========================================================================
+6) Other Caml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocaml.org/>.
+
+News from May and June:
+  <http://www.ocamlpro.com/blog/2013/07/01/monthly-06.html>
+
+Coq received ACM SIGPLAN Programming Languages Software 2013 award:
+  <http://coq.inria.fr/coq-received-acm-sigplan-programming-languages-software-2013-award>
+
+Full Time: Senior Functional Programmer at Bloomberg L.P. in Lexington, NY:
+  <http://jobs.github.com/positions/78c69f44-e031-11e2-97c6-4063613e594f>
+
+Typestate in Mezzo? Starting with list iterators.:
+  <http://gallium.inria.fr/blog/typestate-in-mezzo-mutable-list-iterators>
+
+Flowing faster: lein-gnome:
+  <http://scattered-thoughts.net/blog/2013/06/25/flowing-faster-lein-gnome/>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

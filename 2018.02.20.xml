@@ -1,0 +1,291 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2018.02.20</cwn_date>
+    <cwn_prev>2018.02.13</cwn_prev>
+    <cwn_next>2018.02.27</cwn_next>
+    <cwn_date_text>February 13 to 20, 2018</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>Scala Vector-like structure in OCaml</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/scala-vector-like-structure-in-ocaml/1515/1</cwn_url>
+      <cwn_who>vladb asked</cwn_who>
+      <cwn_what>
+Hello everyone! I'm new to Ocaml and I was wondering if it has any data
+structure similar to Scala's immutable vector:
+http://www.scala-lang.org/api/2.12.0/scala/collection/immutable/Vector.html
+(idea behind it here:
+&lt;https://infoscience.epfl.ch/record/169879/files/RMTrees.pdf&gt;). It's basically a
+more powerful List, when you can append at both ends, concatenate, split, or
+change elements, all in O(logN). In Scala I was using it a lot and find it much
+more useful than Lists. I couldn't find anything similar in ocaml, but maybe I
+wasn't searching for the right keywords. External libraries would also be
+useful. Thanks!
+      </cwn_what>
+      <cwn_who>Yawar Amin replied</cwn_who>
+      <cwn_what>
+Hi, it looks like the Batteries Included library indeed has a vector
+implementation:
+http://ocaml-batteries-team.github.io/batteries-included/hdoc2/BatVect.html
+
+There is also a mutable, array-backed vector available at
+https://github.com/gsg/ocaml-vector
+      </cwn_what>
+      <cwn_who>Simon Cruanes replied</cwn_who>
+      <cwn_what>
+So I started writing something based on trees with up to 32 values and 32
+children. It should be called
+[Fun_vec](&lt;https://github.com/c-cube/ocaml-containers/blob/master/src/data/CCFun_vec.mli&gt;)
+and should provide roughly the same interface as a mutable vector (fast append
+on the right, fast lookup).
+
+
+first benchmark (comparing it to
+[RAL](&lt;https://c-cube.github.io/ocaml-containers/last/containers.data/CCRAL/index.html&gt;)
+which is based on Okasaki's "purely functional random access lists", i.e. a list
+of complete binary trees of increasing size):
+https://paste.isomorphis.me/0IK
+It's already significantly faster than RAL!
+      </cwn_what>
+      <cwn_who>IndiscriminateCoding then said</cwn_who>
+      <cwn_what>
+And there is my
+[implementation](&lt;https://github.com/IndiscriminateCoding/clarity/blob/master/lib/vector.mli&gt;)
+of RRB-trees in OCaml.
+      </cwn_what>
+      <cwn_who>UnixJunkie and Simon Cruanes replied</cwn_who>
+      <cwn_what>
+&gt; Hi Simon, how does your thing compares to the batteries' stuff?
+
+The algorithm is different from BatVec's underlying rope. I wrote a kind of
+HAMT-like structure where all nodes contain an array of up to 32 values, and up
+to 32 subnodes, and filled in increasing index order. [Benchmarks with
+BatVect](&lt;https://paste.isomorphis.me/4HU&gt;).
+
+I expect it to be quite fast in practice for batch operations by using
+_transient_ mutability to diminish the number of intermediate structures
+allocated. Right now it's only a first draft.
+
+I didn't compare to clarity (it needs 4.04 :confused: and I'm testing on 4.03 —
+also no flambda because my benchmarks trigger a bug in the compiler).
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Caqti 0.9.0 release - Compatibility layer for database clients</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/caqti-0-9-0-release-compatibility-layer-for-database-clients/1522/4</cwn_url>
+      <cwn_who>Petter A. Urkedal announced</cwn_who>
+      <cwn_what>
+I released Caqti 0.10.0 with the following changes:
+
+- Added `-linkall` flags to driver libraries to fix direct linking (thanks to
+@bobbypriambodo).
+- Added convenience functions `collect_list` and `rev_collect_list`.
+- Renamed `template` to `query` and related function, leaving deprecated
+  aliases.
+- Added `ptime_span` field type mapping to SQL intervals.
+- Be more permissive about types of data returned from MariaDB when
+  expecting numerical results.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Changes of Jbuilder's user interface</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/changes-of-jbuilders-user-interface/1576/1</cwn_url>
+      <cwn_who>Jérémie Dimino announced</cwn_who>
+      <cwn_what>
+The next release of Jbuilder will change a few things in the way Jbuilder runs
+and reports information to the user, so I thought it was important to
+communicate about it before the release.
+
+Report all errors
+-----------------
+
+The first change is that Jbuilder now continues and reports all errors instead
+of stopping as soon as an error is encountered. The old behavior wasn't
+deterministic; several consecutive run of Jbuilder without changing the code
+might have reported different errors. This was especially annoying when running
+a big testsuite.
+
+For instance, consider the following project:
+
+```bash
+$ cat jbuild
+(library ((name foo)))
+$ cat x.ml
+let x = 1 + "e"
+$ cat y.ml
+let y = List.hd "foo"
+```
+
+Both `x.ml` and `y.ml` contain a typing error. Jbuilder until version 1.0+beta17
+would report either:
+
+- the error in `x.ml`
+- the error in `y.ml`
+- both
+
+depending on the selected number of jobs and other things such as the position
+of the moon.
+
+With Jbuilder starting from 1.0+beta18, both errors will always be reported.
+Note that the order in which they will be reported is still non-deterministic
+except with `-j1`.
+
+Display modes
+-------------
+
+Until now, Jbuilder only supported two display modes:
+
+- the default one, where Jbuilder would print one line per command being run
+- the verbose one, selected with `--verbose`, where Jbuilder would print the
+full command lines with lots of colors
+
+There was a request to support a more quiet mode and reporting all errors made
+it even more relevant. This is because errors ended up being drown in a sea of
+commands being run.
+
+So we added two new display modes to Jbuilder:
+
+- a quiet mode, where Jbuilder only reports errors
+- one where Jbuilder displays a status line showing:
+  + the number of goals reached
+  + the total number of goals to reach to build the requested targets
+  + the number of jobs currrently running in parallel
+
+The latter one is the new default. It is possible to change the display mode
+with the new `--display` command line option:
+
+- use `--display short` for the old default
+- use `--display verbose` for the verbose mode
+- use `--display quiet` for the quiet mode
+- use `--display progress` for the new default
+
+Configuration file
+------------------
+
+Since things such as the display mode are often a global user setting, we added
+support for a configuration file.
+
+The configuration is `~/.config/dune/config` on Unix systems and `Local
+Settings/dune/config` in the user directory on Windows systems.
+
+You can put the two following settings in the configuration file:
+
+```scheme
+;; same as --display MODE
+(display MODE)
+
+;; Same as -jN
+(jobs N)
+```
+
+You can get more information with `jbuilder help config`.
+
+Other news
+----------
+
+We have settled on what the new files and project layout will be for Dune, you
+can look at [this ticket](&lt;https://github.com/ocaml/dune/issues/461&gt;) for more
+details. As a result we should be able to start working on the migration from
+Jbuilder to Dune relatively soon.
+
+We also have a much better idea of how plugins will work, so we should be able
+to start working on adding support for plugins as soon as the migration to Dune
+is complete. The main concern being to provide a clean, easy to use, well
+documented and future proof enough build API for users to write plugins.
+
+The main topics we are working on at the moment are good support for inline and
+expectation tests, as well as doing the necessary changes in Jbuilder to support
+tools such as `ppx_import` or features such as `menhir --infer`.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Release 4.06.1</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2018-02/msg00068.html</cwn_url>
+      <cwn_who>Damien Doligez announced</cwn_who>
+      <cwn_what>
+We have the pleasure of celebrating the anniversary of the founding
+of the Red Cross by announcing the release of OCaml version 4.06.1.
+This is mainly a bug-fix release, see the list of changes below.
+
+It is available as an OPAM switch and as a source download from:
+https://github.com/ocaml/ocaml/releases
+
+Happy hacking,
+
+-- Damien Doligez for the OCaml team.
+
+
+OCaml 4.06.1 (16 Feb 2018):
+---------------------------
+
+### Bug fixes
+
+- MPR#7661, GPR#1459: fix faulty compilation of patterns
+  using extensible variants constructors
+  (Luc Maranget, review by Thomas Refis and Gabriel Scherer, report
+  by Abdelraouf Ouadjaout and Thibault Suzanne)
+
+- MPR#7702, GPR#1553: refresh raise counts when inlining a function
+  (Vincent Laviron, Xavier Clerc, report by Cheng Sun)
+
+- MPR#7704, GPR#1559: Soundness issue with private rows and pattern-matching
+  (Jacques Garrigue, report by Jeremy Yallop, review by Thomas Refis)
+
+- MPR#7705, GPR#1558: add missing bounds check in Bigarray.Genarray.nth_dim.
+  (Nicolás Ojeda Bär, report by Jeremy Yallop, review by Gabriel Scherer)
+
+- MPR#7713, GPR#1587: Make pattern matching warnings more robust
+  to ill-typed columns; this is a backport of GPR#1550 from 4.07+dev
+  (Thomas Refis, review by Gabriel Scherer, report by Andreas Hauptmann)
+
+- GPR#1470: Don't commute negation with float comparison
+  (Leo White, review by Xavier Leroy)
+
+- GPR#1538: Make pattern matching compilation more robust to ill-typed columns
+  (Gabriel Scherer and Thomas Refis, review by Luc Maranget)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Examples of using Base Map</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/examples-of-using-base-map/1197/27</cwn_url>
+      <cwn_who>trefis announced</cwn_who>
+      <cwn_what>
+Note that the docs for v0.10 are now up, and that core_kernel's doc for Map
+includes some examples:
+https://ocaml.janestreet.com/ocaml-core/latest/doc/core_kernel/Core_kernel/Map/
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Logarion - static website generation</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/logarion-static-website-generation/1297/4</cwn_url>
+      <cwn_who>Orbifx announced</cwn_who>
+      <cwn_what>
+For anyone watching this, it looks like I will be skipping `0.3` and going
+straight for `0.4` after some testing.
+
+Website is now at &lt;https://logarion.orbitalfox.eu&gt; and Git at
+&lt;https://cgit.orbitalfox.eu/logarion&gt;. Join the mailing list for more news and
+discussions, &lt;https://lists.orbitalfox.eu/listinfo/logarion&gt;.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Here are links from many OCaml blogs aggregated at OCaml Planet,
+&lt;http://ocaml.org/community/planet/&gt;.
+
+frama-clang 0.0.5, fixing compatibility issue with
+   Debian/Ubuntu, is out. Download ithere.
+ &lt;http://frama-c.com/index.html&gt;
+
+Coq 8.7.2 is out
+ &lt;https://coq.inria.fr/news/143.html&gt;
+
+Release of a first version of TzScan.io, a Tezos block explorer
+ &lt;http://www.ocamlpro.com/2018/02/14/release-of-a-first-version-of-tzscan-io-a-tezos-block-explorer/&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

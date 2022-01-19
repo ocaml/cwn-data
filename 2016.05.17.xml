@@ -1,0 +1,362 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2016.05.17</cwn_date>
+    <cwn_prev>2016.05.10</cwn_prev>
+    <cwn_next>2016.05.24</cwn_next>
+    <cwn_date_text>May 10 to 17, 2016</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>Simple library to manipulate automata?</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2016-05/msg00058.html</cwn_url>
+      <cwn_who>David Mentré asked</cwn_who>
+      <cwn_what>
+I would like to manipulate some basic automata in OCaml: creation, execution,
+minimization, display, etc.
+
+Before re-inventing the wheel, do you know a library doing that?
+
+From my own searches, I only found "automatx"
+(&lt;http://pauillac.inria.fr/~quercia/&gt;) which seems to suit my needs but (1) has
+a French API and (2) has no license information.
+      </cwn_what>
+      <cwn_who>Török Edwin replied</cwn_who>
+      <cwn_what>
+There is safa/symkat on opam [1]. It has various automata minimization
+algorithms, NFA -&gt; DFA, print to .dot format.
+Although it is meant for equivalence checking, so it may not be 'simple' to use
+for actually executing the automata, and beware that the syntax for its parser
+is not the usual regex [2].
+(of course you can construct the automata with the API instead of parsing from a
+string to avoid this).
+
+See below for some code that I wrote a while ago to visualize a DFA using
+safa/symkat:
+
+[1] http://perso.ens-lyon.fr/damien.pous/symbolickat/
+[2] http://perso.ens-lyon.fr/damien.pous/symbolickat/symkat.docdir/Parse.html
+
+(*
+ * $ ocamlfind ocamlopt printnfa.ml -package safa,symkat -o printnfa -linkpkg -rectypes
+ * $ ./printnfa &gt;test.dot
+ * NFA states: 7
+ * DFA states: 5
+ * $ dot -Tsvg test.dot -o test.svg
+ * $ firefox ./test.svg
+ *)
+let trace_dfa a states =
+  let trace = Automata.SDFA.trace Format.pp_print_char Format.pp_print_char
+      (Bdd.print_formula 0) in
+  Trace.clear ();
+  trace a states;
+  print_endline (Trace.render false "\"")
+
+let print_nfa x =
+  let a,f = Automata.SNFA.reindex (Antimirov.nfa()) in
+  let states = f (Antimirov.split x) in
+  let number_of_states, _ = Automata.SNFA.size a states in
+  Printf.eprintf "NFA states: %d\n%!" number_of_states;
+  let a = Determinisation.optimised a in
+  let number_of_states, _ = Automata.SDFA.size a [states] in
+  trace_dfa a states; 
+  Printf.eprintf "DFA states: %d\n%!" number_of_states
+
+let print_dfa x =
+  let a = Brzozowski.dfa () in
+  let number_of_states, _ = Automata.SDFA.size a [x] in
+  Printf.eprintf "DFA states: %d\n" number_of_states
+
+let () =
+  let e = Parse.expr "x*x*x*x*x*(x+y)z" in
+  let x,_,_ = Hypotheses.eliminate [] e e in
+  print_nfa x;
+      </cwn_what>
+      <cwn_who>Spiros Eliopoulos also replied</cwn_who>
+      <cwn_what>
+Two libraries come to mind. I and others on the Frenetic[0] team have used both
+at various points in time to implemented automata-related algorithms. The first
+is a project called DPRLE. You can find its home page and my GitHub clone of the
+SVN repository below:
+
+http://www.cs.virginia.edu/~ph4u/dprle/
+https://github.com/seliopou/dprle
+
+The second is a library that I wrote called TDK. It implements a generalization
+of BDDs, allowing for variables to have a lattice structure and terminal nodes
+to have something like a semi-ring structure. You can find the GitHub repository
+here:
+
+https://github.com/frenetic-lang/ocaml-tdk
+
+Last I checked, TDK is on OPAM, while DPRLE is not. Hope this helps!
+
+-Spiros E.
+
+[0]: http://frenetic-lang.org
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>IDE like PyCharm - Results</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2016-05/msg00063.html</cwn_url>
+      <cwn_who>Continuing the thread from last week, Benjamin Greenman said</cwn_who>
+      <cwn_what>
+You might like Sublime Text &lt;https://www.sublimetext.com/&gt; with
+whitequark's &lt;https://github.com/whitequark/sublime-better-ocaml&gt;
+extensions.
+      </cwn_what>
+      <cwn_who>Leonardo Laguna Ruiz also replied</cwn_who>
+      <cwn_what>
+If you are willing to try one more alternative, I use Sublime Text 3 plus the
+plugin of merlin.
+
+https://www.sublimetext.com/3
+https://github.com/cynddl/sublime-text-merlin
+
+I use this project "template" in every project I start.
+
+https://github.com/modlfo/ocaml-sublimetext-template
+
+Merlin through sublime text works quite well. The only problem I have had is
+with projects of tens of thousands lines of code, the autocomplete gets slow. In
+such cases I turn it off.
+
+Sublime text is an excellent editor. Looks a lot like Atom but Sublime text is
+much faster and responsive.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Ocaml and Windows' notion of Unicode file names</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2016-05/msg00126.html</cwn_url>
+      <cwn_who>Andreas Rossberg asked</cwn_who>
+      <cwn_what>
+Does anybody have advice for dealing with unicode file names under Windows? In
+particular, my problem is that the following invariant
+
+  let files = Array.to_list (Sys.readdir “.”) in
+  assert (List.for_all Sys.file_exists files)
+
+does not hold under Windows, because some of the file names returned by readdir
+are not valid.
+
+The Unix emulation module has the same issue.
+
+This is only partially Ocaml’s fault — I see that it implements Sys.readdir and
+Unix.readdir using Windows’ ASCII _findfirst and _findnext functions, which
+apparently just replace large code points with ‘?’. And I’m not sure how
+realistic it would be for Ocaml to switch to Windows' wchar APIs and, say,
+UTF8-encode/decode file names on its side.
+
+But anyway, I’m wondering who else has run into this, and has an idea how to
+cope. Because I came up blank.
+      </cwn_what>
+      <cwn_who>Adrien Nader replied</cwn_who>
+      <cwn_what>
+There was a thread about this back in february:
+  "Looking for a windows ocaml UTF-16 encoded filename aware library".
+      </cwn_what>
+      <cwn_who>Matthieu Dubuget then added</cwn_who>
+      <cwn_what>
+the thread pointed by Adrien lists different solutions. One of them is to write
+a lightweight unicode-aware library. A cleaner solution is also currently
+proposed as a pull request against OCaml standard library
+(&lt;https://github.com/ocaml/ocaml/pull/153&gt;).
+
+I tried the "small library" solution, which worked pretty well, but in my
+use-case, it appeared to be extremely slow. I did not yet test a mixed solution,
+that would switch to unicode versions of the calls, only when the non-unicode
+one are failing. Nor did I tried yet the pull request #153.
+
+Note that on windows, there are two different problems to address when dealing
+with paths. The more obvious one is their encoding. But you may also experience
+problems depending on their length. In this case, the solution is to use
+unicode-aware calls, and to specify an extended-length path, using the "\\?\"
+prefix. For example, "\\?\D:\very long path". I also have to check if this is
+slower.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Batteries 2.5.0, compatible with OCaml 4.03</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2016-05/msg00082.html</cwn_url>
+      <cwn_who>Gabriel Scherer announced</cwn_who>
+      <cwn_what>
+## Batteries
+
+Batteries Included is a community-maintained standard library
+extension, with a focus on stability and compatibility. Bug reports,
+pull requests and other contributions are warmly welcome, see the
+project page at
+  https://github.com/ocaml-batteries-team/batteries-included/
+
+The library's API documentation at:
+  http://ocaml-batteries-team.github.io/batteries-included/hdoc2/
+
+Batteries 2.5.0 is a minor release, coming shortly after 2.4.0
+released in December 2015. The main change in 2.5.0 is that it is
+compatible with the newly released OCaml 4.03.
+
+Note that, as usual for Batteries release, Batteries 2.5.0 is
+compatible with older OCaml releases as well, and provides back-ported
+versions of most standard library functions made available in 4.03
+only. For example, BatString.uppercase_ascii is usable under all OCaml
+versions.
+
+If the documentation of a Batteries function says
+  @since 2.5.0
+then it is available under all supported OCaml versions (3.12.1 and
+up). If it says
+  @since 2.5.0 and OCaml 4.03.0
+then it is only available under OCaml 4.03.0.
+
+Many thanks to the contributors for this release, Cedric Cellier,
+Pieter Goetschalckx KC Sivaramakrishnan, Gabriel Scherer, and Thibault
+Suzanne.
+
+## Detailed Changelog
+
+- BatTuple: add Tuple{N}.make : 'a1 -&gt; ... -&gt; 'an -&gt; 'a1 * ... * 'an
+  #657
+  (Thibault Suzanne)
+- BatBig_int: fix sequence operators (--), (---) to avoid polymorphic comparison
+  #674, #675, #676
+  (Pieter Goetschalckx and Cedric Cellier)
+- Extend all Batteries module to cover OCaml 4.03 features
+  #670
+  (Gabriel Scherer, KC Sivaramakrishnan)
+
+## Future plans
+
+OCaml 4.03 introduced a type `('a, 'b) result` contributed by Yaron
+Minsky, meant to serve as common denominator between the various
+libraries relying on some kind of sum/either type.
+
+    type ('a,'b) result = Ok of 'a | Error of 'b
+
+Batteries has long had its own `result` type, which unfortunately uses
+a different name for the second constructor:
+
+    type ('a, 'b) result = Ok  of 'a | Bad of 'b
+
+Unfortunately, this means that the two types are incompatible (see
+PR#7102 for a feature request on renaming variant
+constructors). Batteries 2.5.0 is compatible with previous Batteries
+versions, and keeps using Batteries' result type.
+
+Of course, the right long-term move for Batteries is to drop its own
+result type and use the standard result type instead. But this means
+a breaking change for our users as well. We plan to make a major
+release 3.0 in the following months, that integrates this breaking
+changes and some other incompatible interface changes that were
+proposed over the 2.x lifetime.
+
+Happy hacking!
+      </cwn_what>
+      <cwn_who>Christoph Höger asked, Matej Kosik added, and Gabriel Scherer replied</cwn_who>
+      <cwn_what>
+&gt;&gt; Unfortunately, I am unable to use some modules:
+&gt;&gt;
+&gt;&gt; consider the following simple test:
+&gt;&gt;
+&gt;&gt; % cat foo.ml
+&gt;&gt; let () = Printf.printf "%s\n" Batteries.Sys.os_type
+&gt;&gt; % ocamlbuild -pkg batteries foo.native
+&gt;&gt; ...
+&gt;&gt; File "_none_", line 1:
+&gt;&gt; Error: No implementations provided for the following modules:
+&gt;&gt;          BatConcreteQueue_402 referenced from
+&gt;&gt; [..]/opam/4.02.3/lib/batteries/batteries.cmxa(BatQueue)
+&gt;&gt;          BatOpaqueInnerSys referenced from
+&gt;&gt; [..]/opam/4.02.3/lib/batteries/batteries.cmxa(BatSys)
+&gt;&gt; Command exited with code 2.
+&gt;&gt;
+&gt;&gt; This is opam 1.2.2, OCaml 4.02.3 and batteries 2.5.0
+&gt;&gt;
+&gt;&gt; Did I break something or is this an actual bug?
+
+&gt; In my context, after switching to 4.02.3, I noticed the same problem.
+
+There is indeed a packaging problem with 2.5.0 -- I did two quick
+bugfix releases in succession, and 2.5.2 should land in opam any time
+now. Apologies for the hiccup.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>BuckleScript (A js backend for ocaml)</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2016-05/msg00083.html</cwn_url>
+      <cwn_who>Hongbo Zhang announced</cwn_who>
+      <cwn_what>
+Dear OCaml developers:
+We are glad to announce BuckleScript[1], a backend for the OCaml compiler which
+emits JavaScript. The project's goal is to bridge the OCaml and JavaScript
+ecosystems in a seamless way. As examples of that vision, using BuckleScript,
+OCaml users can use Chrome Dev Tools to debug OCaml code, while Javascript users
+can use OCaml libraries as plain npm[2] packages. 
+The project is inspired by js_of_ocaml[3], and the differences are documented
+here[4]. While it is not production-ready yet, we've reached a point in the
+development where we feel comfortable encouraging you to try it and 
+share your feedback with us. 
+
+[1]: https://github.com/bloomberg/bucklescript/ 
+[2]: https://www.npmjs.com/
+[3]: http://ocsigen.org/js_of_ocaml/
+[4]: https://bloomberg.github.io/bucklescript/Differences-from-js_of_ocaml.html 
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Next OUPS meetup, 7th of June 2016</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2016-05/msg00119.html</cwn_url>
+      <cwn_who>Louis Roché announced</cwn_who>
+      <cwn_what>
+The next OUPS meetup will take place on the 7th of June 7pm. The location is not
+defined yet.
+We will have a few talks, followed by pizzas.
+
+The talks will be the following:
+
+- Danny Willems: Bindings OCaml à Cordova grâce à js_of_ocaml et gen_js_api 
+- Frédéric Bour: sturgeon — A toolkit for communicating with Emacs from OCaml
+
+Note that we are always in demand of talk *proposals* for future
+meetups.
+
+To register, or for more information, go here:
+http://www.meetup.com/fr-FR/ocaml-paris/events/231068590/
+*Registration is required!*
+
+Slides from previous sessions are available online:
+http://www.meetup.com/fr-FR/ocaml-paris/files/
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Ocaml Github Pull Requests</cwn_title>
+      <cwn_who>Gabriel Scherer compiled this list</cwn_who>
+      <cwn_what>
+Here is a sneak peek at some potential future features of the Ocaml
+compiler, discussed by their implementers in these Github Pull Requests.
+
+Make OCaml native debugging awesome
+https://github.com/ocaml/ocaml/pull/574
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Here are links from many OCaml blogs aggregated at OCaml Planet,
+&lt;http://ocaml.org/community/planet/&gt;.
+
+OCaml 4.03.0 released
+ &lt;http://caml.inria.fr/pub/distrib/ocaml-4.03/&gt;
+
+Tail call optimisation in (g)awk
+ &lt;http://blog.0branch.com/posts/2016-05-13-awk-tco.html&gt;
+
+Batteries 2.5.0 released, compatible with OCaml 4.03
+ &lt;http://forge.ocamlcore.org/forum/forum.php?forum_id=932&gt;
+
+Configuration DSL step-by-step
+ &lt;https://hannes.nqsb.io/Posts/Functoria&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

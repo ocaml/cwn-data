@@ -1,0 +1,919 @@
+			  ━━━━━━━━━━━━━━━━━━━
+			   OCAML WEEKLY NEWS
+			  ━━━━━━━━━━━━━━━━━━━
+
+
+[Previous Week] [Up] [Next Week]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of September 28 to
+October 05, 2021.
+
+Table of Contents
+─────────────────
+
+What's a usage pattern for existential type variables?
+Multicore OCaml: September 2021, effect handlers will be in OCaml 5.0!
+Développeur-euse oCaml - CDI Geneanet - Paris
+OCaml 4.13.1, a small and early regression fix version
+Set up OCaml 2.0.0-beta5
+Liquidsoap 2.0.0
+OCaml code snippets proposed as CC-BY-SA 4.0 candidates
+Old CWN
+
+
+[Previous Week] <https://alan.petitepomme.net/cwn/2021.09.28.html>
+
+[Up] <https://alan.petitepomme.net/cwn/index.html>
+
+[Next Week] <https://alan.petitepomme.net/cwn/2021.10.12.html>
+
+
+What's a usage pattern for existential type variables?
+══════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/whats-a-usage-pattern-for-existential-type-variables/8538/1>
+
+
+hyphenrf asked
+──────────────
+
+  Online, (Scala/Java) and Haskell-specific tutorials on existential
+  types seem to be dominant. Because I wouldn't get stuck too much on
+  notation, I went with Haskell tutorials, and they all seem to imply
+  that *existentials that are unconstrained are useless*.
+
+  The usual example for existentials is information (but not trait)
+  hiding, in which for example you can have a definition like so (with
+  some syntax parallels for those unfamiliar with haskell):
+  ┌────
+  │ {-
+  │ ocaml: ~type gadt = Constr : typexpr~
+  │ haskell: ~data Gadt where Constr :: typexpr~
+  │ -}
+  │ 
+  │ data Hidden where
+  │   Hide :: Show a => a -> Hidden
+  │ 
+  │ {-
+  │ ocaml: iter (fun (Hide x) -> ...) [Hide 1; Hide ...]
+  │ -}
+  │ 
+  │ main :: IO ()
+  │ main =
+  │   mapM_ (\(Hide x) -> print x) [Hide 1, Hide "a", Hide 4.2]
+  └────
+
+  The problem with such implication is that I can't find a usage for an
+  existential introduced by an OCaml GADT because I don't know how I'd
+  express the `Show a => a' constraint.
+  ┌────
+  │ type hidden = Hide : 'a -> hidden
+  └────
+  Would simply completely cloak `'a', and any attempt at interacting
+  with it would produce a type scope escaping error.
+
+  That considered, since `Show a => a' is best emulated now with passing
+  a first-class module, that was the vector I was walking in with my
+  existentials experiments, but I have a feeling there's better, more
+  valid, usage of those type variables that isn't reliant on
+  constraining.
+
+  So my question is, have you ever come across a pattern where an
+  existential type variable is the solution?
+
+
+octachron replied
+─────────────────
+
+  Your showable example can be written as:
+  ┌────
+  │ type showable = Show: 'a * ('a -> string) -> showable
+  └────
+  And there is fact many similar way to constraint existential types,
+  either using type constructors: if you have an `'a. 'a t', you may
+  still be able to write useful functions, or coupling various producers
+  or consumers of the existential types.
+
+  The `showable' example is a little artificial here but that are many
+  examples where existential types are useful for:
+  • representing internal types.
+  • hiding some type information at an abstraction barrier.
+
+  I can offer one examples that combines the two to implement a zipper
+  through mutually recursive trees.  Starting from a simplified data
+  structure
+  ┌────
+  │ type a_tree =
+  │   | Leaf of int
+  │   | Node_A of b_tree * b_tree
+  │ and b_tree =
+  │   | Leaf of float
+  │   | Node_B of a_tree * a_tree
+  └────
+  Then zipper over a binary tree would be simply:
+  ┌────
+  │ type dir = Left | Right
+  │ type zipper = { value: tree; path: (dir * tree) list }
+  └────
+  but here our problem is that we have alternatively `a_tree' and
+  `b_tree'. We can use existential types to keep a similar
+  representation as the simpler zipper described above. The first step
+  is to describe a step in the data structure as
+  ┌────
+  │ type ('a,'b) step =
+  │   | A: dir * b_tree -> (b_tree,a_tree) step
+  │   | B: dir * a_tree -> (a_tree,b_tree) step
+  └────
+  Then we can connect the step using an existential types to describe
+  that if we have a path from nodes of type `top' to a node of type
+  `bottom', we don't necessarily know the intermediary types
+  ┌────
+  │ type ('bottom,'top) path =
+  │   | []: ('top,'top) path
+  │   | (::):
+  │   ('bottom , 'previous_bottom) step * ('previous_bottom,'top) path ->
+  │     ('bottom,'top) path
+  └────
+
+  Then a zipper is simply:
+  ┌────
+  │ type ('bottom,'top) zipper = { value: 'bottom; path:('bottom,'top) path }
+  └────
+  However, sometime we don't care if we don't know where we are in the
+  tree, thus we may need to erase the `bottom' information from the
+  zipper:
+
+  ┌────
+  │ type 'top any_zipper = Any: ('bottom, 'top) zipper -> 'top any_zipper
+  └────
+  and we can still use this `any_zipper' type to write an `up' function
+  for instance:
+  ┌────
+  │ let up (type top) (Any z: top any_zipper) =
+  │   match z.path with
+  │   | [] -> Any z
+  │   | A (Left,r) :: rest ->
+  │     Any { path=rest; value = Node_A(z.value,r) }
+  │   | B (Left,r) :: rest ->
+  │     Any { path=rest; value = Node_B(z.value,r) }
+  │   | A (Right,l) :: rest ->
+  │     Any { path=rest; value = Node_A(l, z.value) }
+  │   | B (Right,l) :: rest ->
+  │     Any { path=rest; value = Node_B(l, z.value) }
+  └────
+
+
+octachron later added
+─────────────────────
+
+  Any time you have useful functions of type `'a. 'a t -> ..', you can
+  quantify existentially that type parameter and still retain some
+  functionality. For instance, I can compute a length for an `any_list':
+  ┌────
+  │ type any_list = Any_list : 'a list -> any_list
+  │ let len (Any_list l) = List.length l
+  └────
+  then there is also the possibility to use type witnesses to recover
+  the quantified type at a later date:
+  ┌────
+  │  type 'a num_ty =
+  │ | Int: int num
+  │ | Float: float num
+  │ type num = Num: 'a num_ty * 'a -> num
+  │ type num_array = Narray: 'a num_ty * 'a array -> num_array
+  │ let sum (Narray (witness, array)) = match witness with
+  │ | Int -> Num(Int, Array.fold_left (+) 0 array)
+  │ | Float -> Num(Float, Array.fold_left (+.) 0. array)
+  └────
+
+
+Josh Berdine also replied
+─────────────────────────
+
+  @octachron's examples are very good. For variety, here is a small
+  example of a slightly different flavor that we use in ocamlformat to
+  wrap Cmdliner: (from [here])
+  ┌────
+  │ include Cmdliner
+  │ 
+  │ (** existential package of a Term and a setter for a ref to receive the
+  │     parsed value *)
+  │ type arg = Arg : 'a Term.t * ('a -> unit) -> arg
+  │ 
+  │ (** convert a list of arg packages to a term for the tuple of all the arg
+  │     terms, and apply it to a function that sets all the receiver refs *)
+  │ let tuple args =
+  │   let pair (Arg (trm_x, set_x)) (Arg (trm_y, set_y)) =
+  │     let trm_xy = Term.(const (fun a b -> (a, b)) $ trm_x $ trm_y) in
+  │     let set_xy (a, b) = set_x a ; set_y b in
+  │     Arg (trm_xy, set_xy)
+  │   in
+  │   let init = Arg (Term.const (), fun () -> ()) in
+  │   let (Arg (trm, set)) = Base.List.fold_right ~f:pair args ~init in
+  │   Term.app (Term.const set) trm
+  │ 
+  │ let args : arg list ref = ref []
+  │ 
+  │ let mk ~default arg =
+  │   let var = ref default in
+  │   let set x = var := x in
+  │   args := Arg (arg, set) :: !args ;
+  │   var
+  │ 
+  │ let parse info validate =
+  │   Term.eval (Term.(ret (const validate $ tuple !args)), info)
+  └────
+  The idea here is similar to an "any list", where an existential around
+  a pair of an `'a Cmdliner.Term.t' representing a command-line argument
+  yielding an `'a' value, and a function of type `'a -> unit' to set a
+  ref to the parsed value.  Then a list of such packages can be built
+  using `mk' and then converted with `tuple' to a single `Cmdliner.Term'
+  for the list as a tuple.
+
+  I don't think this example needs anything more from the type system,
+  but is an almost minimal example of packaging a value with the
+  interesting operations over it into an existentially-typed value.
+
+
+[here]
+<https://github.com/ocaml-ppx/ocamlformat/blob/main/vendor/ocamlformat-stdlib/cmdliner_ext.ml>
+
+
+Malcolm also replied
+────────────────────
+
+  I have made my own futures library and one of the features is futures
+  are connected to each other creating a dependency tree.  This is done
+  so that you can do `Future.abort fut' and it will abort that future
+  and everything connected to it.  I accomplish this by each future
+  storing a list of those futures that depend on it.  But those futures
+  do not necessarily have the same type.  So I hide the type in an
+  existential so I can still perform actions on the future that do not
+  depend on the type.
+
+  Note, I stole this from @dbuenzli 's futures library which I used to
+  start mine.
+
+  Here is the code from my library:
+
+  ┌────
+  │ (* The concrete type of a future.  Future's are mutable, but once they are
+  │    determined they become immutable.  A future has a state which starts as
+  │    undetermined, can become determined or an alias.  An alias is a future that
+  │    needs to exist because some unknown computation will eventually become its
+  │    value, and once that computation is found out, we set the future to an
+  │    alias to that future. *)
+  │ type 'a u = { mutable state : 'a state }
+  │ 
+  │ and 'a state =
+  │   [ 'a Abb_intf.Future.Set.t
+  │   | `Undet of 'a undet
+  │   | `Alias of 'a u
+  │   ]
+  │ 
+  │ (* An undetermined has an optional function, which is some work to be
+  │    executed, watchers are executed when this undetermined future becomes
+  │    determined, deps are futures that are not required to be executed before
+  │    this future is determined but in some meaningful way connected to it, the
+  │    abort function is what to do if this future is aborted, and finally num_ops
+  │    is how many operations have been performed on this future.  The definition
+  │    of an "operation" is kind of vague but basically it corresponds to mutating
+  │    this undetermined future in some way. *)
+  │ and 'a undet = {
+  │   mutable f : (State.t -> State.t) option;
+  │   mutable watchers : 'a Watcher.t list;
+  │   mutable deps : dep list;
+  │   abort : abort;
+  │   mutable num_ops : int;
+  │ }
+  │ 
+  │ (* A dependency can be any future and it will not have the same type as this
+  │    future, so we have to hide the actual type in an existential so we can
+  │    reference any future as a dependency. *)
+  │ and dep = Dep : 'a u -> dep
+  └────
+
+
+Multicore OCaml: September 2021, effect handlers will be in OCaml 5.0!
+══════════════════════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/multicore-ocaml-september-2021-effect-handlers-will-be-in-ocaml-5-0/8554/1>
+
+
+Anil Madhavapeddy announced
+───────────────────────────
+
+  Welcome to the September 2021 [Multicore OCaml] monthly report!  This
+  month's update along with the [previous updates] have been compiled by
+  me, @ctk21, @kayceesrk and @shakthimaan. The team has been working
+  over the past few months to finish the [last few features] necessary
+  to reach feature parity with stock OCaml. We also worked closely with
+  the core OCaml team to develop the timeline for upstreaming Multicore
+  OCaml to stock OCaml, and have now agreed that:
+
+  **OCaml 5.0 will support shared-memory parallelism through domains
+  _and_ direct-style concurrency through effect handlers (without
+  syntactic support)**.
+
+  • The [Domain mechanism] permits OCaml programmers to speed up OCaml
+    code by taking advantage of parallel processing via multiple cores
+    available on modern processors.
+  • Effect handlers allow OCaml programmers to write [high-performance
+    concurrent programs in direct-style], without the use of monadic
+    concurrency as is the case today with the Lwt and Async
+    libraries. Effect handlers also serve as a useful abstraction to
+    build other non-local control-flow abstractions such as
+    [generators], [lightweight threads], etc. OCaml will be one of [the
+    first industrial-strength languages to support effect handlers].
+
+  The new code will have to go through the usual rigorous review process
+  of contributions to upstream OCaml, but we expect to advance the
+  review process over the next few months.
+
+
+[Multicore OCaml] <https://github.com/ocaml-multicore/ocaml-multicore>
+
+[previous updates] <https://discuss.ocaml.org/tag/multicore-monthly>
+
+[last few features]
+<https://github.com/ocaml-multicore/ocaml-multicore/projects/4>
+
+[Domain mechanism]
+<https://github.com/ocaml-multicore/parallel-programming-in-multicore-ocaml>
+
+[high-performance concurrent programs in direct-style]
+<https://github.com/ocaml-multicore/eio>
+
+[generators]
+<https://github.com/ocaml-multicore/effects-examples/blob/master/generator.ml>
+
+[lightweight threads]
+<https://github.com/ocaml-multicore/effects-examples/blob/master/sched.ml>
+
+[the first industrial-strength languages to support effect handlers]
+<https://arxiv.org/abs/2104.00250>
+
+Recap: what are effect handlers?
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  Below is an excerpt from ["Retrofitting Effect Handlers onto OCaml"]:
+
+        Effect handlers provide a modular foundation for
+        user-defined effects. The key idea is to separate the
+        definition of the effectful operations from their
+        interpretations, which are given by handlers of the
+        effects. For example:
+
+        ┌────
+        │ effect In_line : in_channel -> string
+        └────
+
+        declares an effect `In_line', which is parameterised with
+        an input channel of type `in_channel', which when
+        performed returns a `string' value. A computation can
+        perform the `In_line' effect without knowing how the
+        `In_line' effect is implemented. This computation may be
+        enclosed by different handlers that handle `In_line'
+        differently. For example, `In_line' may be implemented by
+        performing a blocking read on the input channel or
+        performing the read asynchronously by offloading it to an
+        event loop such as libuv, without changing the
+        computation.
+
+        Thanks to the separation of effectful operations from
+        their implementation, effect handlers enable new
+        approaches to modular programming. Effect handlers are a
+        generalisation of exception handlers, where, in addition
+        to the effect being handled, the handler is provided with
+        the delimited continuation of the perform site. This
+        continuation may be used to resume the suspended
+        computation later. This enables non-local control-flow
+        mechanisms such as resumable exceptions, lightweight
+        threads, coroutines, generators and asynchronous I/O to be
+        composably expressed.
+
+  The implementation of effect handlers in OCaml are /single-shot/ –
+  that is, a continuation can be resumed only once, and must be
+  explicitly discontinued if not used. This restriction makes for easier
+  reasoning about control flow in the presence of mutable data
+  structures, and also allows for a high performance implementation.
+
+  You can read more about effect handlers in OCaml in the [full paper].
+
+
+["Retrofitting Effect Handlers onto OCaml"]
+<https://arxiv.org/pdf/2104.00250.pdf>
+
+[full paper] <https://arxiv.org/pdf/2104.00250.pdf>
+
+
+Why is there no syntactic support for effect handlers in OCaml 5.0?
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  Effect handlers currently in Multicore OCaml do not ensure [/effect
+  safety/]. That is, the compiler will not ensure that all the effects
+  performed by the program are handled. Instead, unhandled effects lead
+  to exceptions at runtime. Since we plan to extend OCaml with support
+  for an [effect system] in the future, OCaml 5.0 will not feature the
+  syntactic support for programming with effect handlers. Instead, we
+  expose the same features through functions from the standard library,
+  reserving the syntax decisions for when the effect system lands. The
+  function based effect handlers is just as expressive as the current
+  syntaxful version in Multicore OCaml. As an example, the syntax-free
+  version of:
+
+  ┌────
+  │ effect E : string
+  │ 
+  │ let comp () =
+  │   print_string "0 ";
+  │   print_string (perform E);
+  │   print_string "3 "
+  │ 
+  │ let main () =
+  │   try
+  │     comp ()
+  │   with effect E k ->
+  │     print_string "1 ";
+  │     continue k "2 ";
+  │     print_string “4 "
+  └────
+
+  will be:
+
+  ┌────
+  │ type _ eff += E : string eff
+  │ 
+  │ let comp () =
+  │   print_string "0 ";
+  │   print_string (perform E);
+  │   print_string "3 "
+  │ 
+  │ let main () =
+  │   try_with comp ()
+  │   { effc = fun e ->
+  │       match e with
+  │       | E -> Some (fun k ->
+  │ 	  print_string "1 ";
+  │ 	  continue k "2 ";
+  │ 	  print_string “4 “)
+  │       | e -> None }
+  └────
+
+  One can imagine writing a ppx extension that enable programmers to
+  write code that is close to the earlier version.
+
+
+[/effect safety/] <https://arxiv.org/abs/2104.00250>
+
+[effect system]
+<https://github.com/ocaml/subsystem-meetings/tree/main/effect_system/2021-09-30>
+
+
+Which opam switch should I use today?
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  The `4.12+domains' opam switch has _all_ the features that will go
+  into OCaml 5.0, including the effect-handlers-as-functions. The exact
+  module under which the functions go will likely change by 5.0, but the
+  basic form should remain the same.
+
+  The `4.12+domains+effects' opam switch will be preserved, but the
+  syntax will not be upstreamed. This switch is mainly useful to try out
+  the examples of OCaml effect handlers in the academic literature.
+
+  To learn more about programming using this effect system, see the
+  [eio] library and [this recent talk]. In the next few weeks, the `eio'
+  library will be ported to `4.12+domains' to use the function based
+  effect handlers so that it is ready for OCaml 5.0.
+
+
+[eio] <https://github.com/ocaml-multicore/eio>
+
+[this recent talk]
+<https://watch.ocaml.org/videos/watch/74ece0a8-380f-4e2a-bef5-c6bb9092be89>
+
+
+Onto the September 21 update
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  A number of enhancements have been merged to improve the thread safety
+  of the stdlib, improve the test suite coverage, along with the usual
+  bug fixes. The documentation for the ecosystem projects has been
+  updated for readabilty, grammar and consistency. The sandmark-nightly
+  web service is currently being Dockerized to be deployed for
+  visualising and analysing benchmark results. The Sandmark 2.0-beta
+  branch is also released with the 2.0 features, and is available for
+  testing and feedback.
+
+  We would like to acknowledge the following people for their
+  contribution:
+  • @lingmar (Linnea Ingmar) for reporting a segmentation fault in
+    4.12.0+domains at `caml_shared_try_alloc'.
+  • @dhil (Daniel Hillerström) provided a patch to remove
+    `drop_continuation' in the compiler sources.
+  • @nilsbecker (Nils Becker) reported a crash with 14 cores when using
+    Task.pool management.
+  • @cjen1 (Chris Jensen) observed and used ulimit to fix a
+    `Unix.ENOMEM' error when trying out the Eio README example.
+  • @anuragsoni (Anurag Soni) has contributed an async HTTP benchmark
+    for `retro-httpaf-bench'.
+
+  As always, the Multicore OCaml updates are listed first, which are
+  then followed by the updates from the ecosystem tools and
+  libraries. The Sandmark-nightly work-in-progress and the Sandmark
+  benchmarking tasks are finally listed for your reference.
+
+  /Editor’s note: the detailed changelog is omitted, please follow the
+  archive link above to read it./
+
+
+Sid asked and Anil Madhavapeddy replied
+───────────────────────────────────────
+
+        What is the upcoming OCaml debugging story? Firing up the
+        native executable and debugging using gdb/rr is going to
+        be difficult because all you will see is low level stuff.
+
+  We've gone to some effort to preserve DWARF unwinding correctly in
+  multicore OCaml (see [the effects paper] for more details). You may
+  also want to check the [debugging tips and tricks] in the OCaml
+  multicore wiki which has info on how to use gdb and rr. You do get
+  your functions back as mangled names, but it's pretty easy to visually
+  map those back to their original OCaml function names by inspection.
+
+
+[the effects paper]
+<https://anil.recoil.org/papers/2021-pldi-retroeff.pdf>
+
+[debugging tips and tricks]
+<https://github.com/ocaml-multicore/ocaml-multicore/wiki/Debugging-the-OCaml-Multicore-runtime>
+
+
+Développeur-euse oCaml - CDI Geneanet - Paris
+═════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/developpeur-euse-ocaml-cdi-geneanet-paris/8557/1>
+
+
+Yves RENOUE announced
+─────────────────────
+
+  Avec plus de 4 millions de membres et 7 milliards d'individus
+  référencés, Geneanet est leader sur le marché de la généalogie. Dans
+  le cadre de notre croissance, nous recherchons un(e) développeur(euse)
+  OCaml afin de renforcer nos équipes de développement.
+
+  DESCRIPTION DU POSTE
+
+  Vous intégrerez une équipe SCRUM et prendrez part au développement du
+  logiciel OpenSource [GeneWeb], qui est au coeur de l’architecture des
+  outils de saisie et de présentation des généalogies sur Geneanet.
+
+  Vous pourrez participer à de nombreux projets d’évolution sur les
+  arbres généalogiques (saisie, calculs de parenté, exports, recherche
+  d’informations), apporter vos idées et votre créativité lors de
+  semaines de labs et prendre en charge des sujets plus large
+  d’évolution de la plateforme technique.
+
+  PROFIL REQUIS
+
+  • Vous promouvez et partagez les valeurs de l'Open Source.
+  • Vous avez une réelle expérience sur l’utilisation du langage OCaml.
+  • Une connaissance des technologies du web (PHP, Mysql, HTML, CSS,
+    Javascript) est requise.
+  • Vous avez le souci de la maintenabilité du code et du service rendu
+    à l’utilisateur final.
+  • Vous aimez travailler en équipe.
+  • Vous êtes éventuellement intéressé(e) par la généalogie, l’Histoire
+    ou les jeux de société à la pause de midi…
+
+  Si vous vous reconnaissez dans ce qui précède, envoyez nous votre CV à
+  recrutement-tech@geneanet.org ! Poste basé à Paris, possibilité de
+  télétravail 3j/semaine.
+
+
+[GeneWeb] <https://github.com/geneweb/geneweb>
+
+
+OCaml 4.13.1, a small and early regression fix version
+══════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ocaml-4-13-1-a-small-and-early-regression-fix-version/8558/1>
+
+
+octachron announced
+───────────────────
+
+  We have discovered a regression within OCaml 4.13.0 that make the
+  compiler crash on classes named `row'
+  ┌────
+  │ module M = struct
+  │    class row = object end
+  │ end
+  └────
+  due to a collision between two families of internal identifiers.
+
+  To restore your freedom to name classes however you want, we have
+  released OCaml 4.13.1 as an early bug-fix release.
+
+  This new version is available as a set of OPAM switches with
+  ┌────
+  │ opam update
+  │ opam switch create 4.13.1
+  └────
+  and as a source download here:
+
+  [https://caml.inria.fr/pub/distrib/ocaml-4.13]
+
+
+[https://caml.inria.fr/pub/distrib/ocaml-4.13]
+<https://caml.inria.fr/pub/distrib/ocaml-4.13>
+
+Regression fix
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  • [10661], [10662]: fix a bug with classes named "row" (Gabriel
+    Scherer, report and review by Nicolás Ojeda Bär)
+
+
+[10661] <https://github.com/ocaml/ocaml/issues/10661>
+
+[10662] <https://github.com/ocaml/ocaml/issues/10662>
+
+
+Set up OCaml 2.0.0-beta5
+════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-set-up-ocaml-2-0-0-beta5/8566/1>
+
+
+Sora Morimoto announced
+───────────────────────
+
+Changed
+╌╌╌╌╌╌╌
+
+  • Reduce GitHub API calls to avoid issues that can easily hit
+    rate-limiting.
+
+
+Fixed
+╌╌╌╌╌
+
+  • If no user-input version is found in the opam-repository, explicitly
+    raise an error instead of implicitly breaking the workflow.
+  • Retrieve the base compiler version from opam-repository to use the
+    live released compiler version.
+
+  <https://github.com/ocaml/setup-ocaml/releases/tag/v2.0.0-beta5>
+
+
+Liquidsoap 2.0.0
+════════════════
+
+  Archive: <https://discuss.ocaml.org/t/ann-liquidsoap-2-0-0/8571/1>
+
+
+Romain Beauxis announced
+────────────────────────
+
+  It with great excitement and some ~2 years of anticipation that we
+  have now the pleasure to announce the release of [Liquidsoap 2.0.0]!
+
+  <https://user-images.githubusercontent.com/871060/135865244-4c858167-ecf6-498e-9f25-f6aac3861a2f.gif>
+
+  The release is currently being deployed to opam and should be
+  available through their main repository shortly. If you need to
+  install it right away you can do:
+  ┌────
+  │ git clone https://github.com/savonet/liquidsoap.git
+  │ cd liquidsoap && git checkout v2.0.0
+  │ opam install -y .
+  └────
+
+  The release also includes binary packages for a bunch of
+  platforms/OSes.
+
+
+[Liquidsoap 2.0.0]
+<https://github.com/savonet/liquidsoap/releases/tag/v2.0.0>
+
+🤔  What is liquidsoap?
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  Liquidsoap is a statically-typed, type-inferred, functional scripting
+  language equipped with specialized operators to build audio and video
+  stream automation.
+
+  The liquidsoap language offers all the flexibility and expressivity of
+  a fully featured programming language to help build your media
+  streams.
+
+  Using liquidsoap, one can very quickly stand up a media streaming
+  platform that can rotate files from playlists, accept live DJ input,
+  mux audio and video, encode (or not!) and send the resulting data to
+  youtube, icecast, HLS and more..
+
+
+:white_check_mark: Why liquidsoap?
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  While there are many tools that offer competing features, the real
+  difference with liquidsoap is its scripting language.
+
+  Setting up tools using configuration files is often easier and more
+  straight forward, however, when it comes to the finer details, such as
+  inserting jingles between shows, defining crossfades between tracks
+  and more, potentially, each project has its own set of expectations,
+  and this is where liquidsoap becomes really useful!
+
+
+:zap:️ What's new in Liquidsoap 2.0.0?                              :zap:
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  Liquidsoap 2.0.0 brings major improvements in two areas:
+
+
+:film_projector: Video support via ffmpeg
+┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+
+  While video has been supported for a while, audio remained the primary
+  target of the software. This is all changed now! In keeping with the
+  tradition of focusing on what we do well and delegating to others what
+  they have expertise on, we implemented a tight integration of the
+  remarkably awesome ffmpeg API.
+
+  This has brought to liquidsoap all the exciting features of ffmpeg,
+  including support for multiple input and output formats, filters and
+  also support for end-to-end encoded content, which allows liquidsoap,
+  when possible, to stream content without having to re-encode it, a
+  long requested user feature.
+
+  Our aim with the ffmpeg integration is to become a scripting language
+  built on top of ffmpeg in such ways that, if something is possible
+  with the ffmpeg command-line, it should be possible with liquidsoap.
+
+  Meanwhile, the scripting language also provides functionalities based
+  on ffmpeg that are either hard or impossible to implement using the
+  command-line executable, such as [fully typed, composable ffmpeg
+  filter operators] and [shared encoding]
+
+
+[fully typed, composable ffmpeg filter operators]
+<https://www.liquidsoap.info/doc-2.0.0/ffmpeg_filters.html>
+
+[shared encoding] <https://www.liquidsoap.info/doc-2.0.0/cookbook.html>
+
+
+:gear: Expanded language features
+┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+
+  With this release, the liquidsoap language is expanded, introducing
+  multiple features much needed for the comfort of the programmer such
+  as:
+  • Module and records, allow to attach method to variables
+  • Exception handling
+  • Support for structured data, tuples and etc.
+
+  Along with these changes, we have released [The Liquidsoap Book],
+  which we hope will help users of all skill level to work with the
+  liquidsoap language and streaming projects.
+
+  But we are not stopping here! We have even more exciting features in
+  store for the liquidsoap language, some of them already committed to
+  the main development branch.
+
+
+[The Liquidsoap Book] <https://www.liquidsoap.info/doc-dev/book.html>
+
+
+:children_crossing: Roadmap and versioning
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  Our roadmap consists of:
+
+
+:construction: Bugfix releases
+┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+
+  While we are satisfied with the current `2.0.0' release and believe it
+  is safe to use for production-ready work, software projects are never
+  free of bugs so we will keep improving on the current stable branch.
+
+  Stable releases are numbered using the patch part of their version,
+  i.e. `2.0.x'. However, when it comes to liquidsoap, it is important to
+  keep in mind that some of our operators have complex behavior and
+  interactions with each other. While we do our best to maintain
+  backward compatibility between bugfix versions, we always recommend to
+  test them in a staging area before pushing them to production.
+
+  Our workflow for reporting bugs is via github's [issues tracker]. This
+  is our preferred way to keep track of issues, discuss them and mark
+  them as fixed. If you have questions related to setting up your
+  script, installing liquidsoap and etc, you can also start a
+  [discussion]. In some cases, issues get transfer to discussions as we
+  see fit and, also, discussions can in fact lead to reporting an
+  associated issues.
+
+  We do encourage all reports as we find a lot of value in our users
+  feedback. We try to respond to all of them diligently but we also
+  appreciated your patience.
+
+
+[issues tracker] <https://github.com/savonet/liquidsoap/issues>
+
+[discussion] <https://github.com/savonet/liquidsoap/discussions>
+
+
+:bulb: Future major release
+┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+
+  While we were busy stabilizing the current stable branch, we couldn't
+  resist working on new features! So far, it looks like the next major
+  release will focus on expanding the language's capabilities with
+  features such as:
+  • Support for variable in encoders
+  • Generalized extraction patterns
+  • First-class module system
+  • Vastly improved support for json parsing and rendering
+  • Type-system flexibility improvements
+
+  A vision that we have is to bring the liquidsoap language to the same
+  flexibility and type-safety as languages such as TypesScript but with
+  inferred types so you never have to write them (99% of the time..)!
+  :slightly_smiling_face:
+
+
+🚀 Need help?
+╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  If you need help with your liquidsoap project, you can join our online
+  chat room, which is currently hosted on [slack]. We also provide
+  professional support. Holler at us if you are in such need we'd love
+  to see how we can help as well!
+
+
+[slack] <http://slack.liquidsoap.info/>
+
+
+OCaml code snippets proposed as CC-BY-SA 4.0 candidates
+═══════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ocaml-code-snippets-proposed-as-cc-by-sa-4-0-candidates/8572/1>
+
+
+Damien Guichard announced
+─────────────────────────
+
+  The idea is quite simple. There are many people lurking here that wish
+  to write an OCaml book or tutorial or blogpost, however :
+  • either they miss the most illustrative ocaml code snippet
+  • or they know what the best code is but there is a (potential)
+    Statement of Rights violation
+
+  I want to help these people, starting with @dmbaturin and [OCaml From
+  the Ground Up].  I will publish here my own code as [CC-BY-SA 4.0].
+  Also i will link to resources that are known to be CC-BY-SA
+  4.0-compatible.  And i invite you to post your own code as CC-BY-SA
+  4.0 so that it can be inspiring and used in educational material.
+
+  /Editor’s note: this message was followed by many code
+  snippets. Please follow the archive link above to read them./
+
+
+[OCaml From the Ground Up] <https://ocamlbook.org/>
+
+[CC-BY-SA 4.0] <https://creativecommons.org/licenses/by-sa/4.0/>
+
+
+Old CWN
+═══════
+
+  If you happen to miss a CWN, you can [send me a message] and I'll mail
+  it to you, or go take a look at [the archive] or the [RSS feed of the
+  archives].
+
+  If you also wish to receive it every week by mail, you may subscribe
+  [online].
+
+  [Alan Schmitt]
+
+
+[send me a message] <mailto:alan.schmitt@polytechnique.org>
+
+[the archive] <https://alan.petitepomme.net/cwn/>
+
+[RSS feed of the archives] <https://alan.petitepomme.net/cwn/cwn.rss>
+
+[online] <http://lists.idyll.org/listinfo/caml-news-weekly/>
+
+[Alan Schmitt] <https://alan.petitepomme.net/>

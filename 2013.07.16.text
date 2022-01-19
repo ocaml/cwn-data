@@ -1,0 +1,412 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of July 09 to 16, 2013.
+
+1) OCaml-Top release 1.0.0
+2) GADTs and associative container
+3) Engineering position at Vector Fabrics
+4) OCaml 2013 (24/09, Boston): Preliminary program is available
+5) enhancements for "perf" on OCaml code
+6) Other Caml News
+
+========================================================================
+1) OCaml-Top release 1.0.0
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-07/msg00064.html>
+------------------------------------------------------------------------
+** Louis Gesbert announced:
+
+OCamlPro is proud to announce the release of OCaml-Top 1.0.0
+
+OCaml-Top is an interactive editor targeted at education, with a simple and
+convenient interface:
+an edition panel, with syntax coloration and automatic indentation, tightly
+coupled with an ocaml toplevel to easily evaluate the code as you go.
+
+It is available from OPAM and as a binary installer for Windows.
+
+OCaml-Top is released under the terms of the GNU GPL v3.
+
+Home page: <http://typerex.org/ocaml-top.html>
+Source on Github: <https://github.com/OCamlPro/ocaml-top>
+
+We hope you appreciate it, and it gives a better experience to students and
+first-time users, especially on Windows.
+      
+========================================================================
+2) GADTs and associative container
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-07/msg00065.html>
+------------------------------------------------------------------------
+** Goswin von Brederlow asked, Lukasz Stafiniak remarked, and Leo White said:
+
+> > I'm wondering if one can have an ascociative container, like a Hashtbl.t
+> > with dependent types (GADTs as the key, value depending on the key).
+> > Something like this:
+> >
+> > module H = struct
+> >  type ('a, 'b) t = ('a, 'b) Hashtbl.t
+> >  let create : type a b . int -> (a b, a) t =
+> >         fun x -> Hashtbl.create x
+> >  let add : type a b . (a b, a) t -> a b -> a -> unit =
+> >        fun h k v -> Hashtbl.add h k v
+> >  let find : type a b . (a b, a) t -> a b -> a =
+> >        fun h k -> Hashtbl.find h k
+> > end
+> >
+> > BUT:
+> >
+> >   let create : type a b . int -> (a b, a) t =
+> >                   ^^^
+> > Error: Unbound type constructor b
+> >
+> > Is there some special syntax I'm missing or is it simply impossible to
+> > declare such a container in the abstract?
+>
+> I think you need higher kinded types, not GADTs. Haskell has them, 
+> for example you can write code that only depends on the type class 
+> of "b" (which is parameterized by "a"), and "b" has signature 
+> "* -> *" or something like that.
+
+That type is indeed higher-kinded. OCaml does support higher-kinded
+types but not in the core type system: you need to use functors.
+
+For example,
+
+> > let create : type a b . int -> (a b, a) t =
+> >        fun x -> Hashtbl.create x
+
+could be written as:
+
+  module Create (B: sig type 'a t end) = struct
+    let f x : ('a B.t, 'a) Hashtbl.t = Hashtbl.create x
+  end;;
+
+Note that this is not actually the correct type for writing an
+associative container. See Jeremy's post for details.
+      
+** Alain Frisch also suggested:
+
+This thread might of interest to you:
+<https://sympa.inria.fr/sympa/arc/caml-list/2013-02/msg00037.html>
+			
+** Jeremy Yallop suggested:
+
+It is indeed possible to create associative containers where the types
+of the values depend on the types of the keys.  Let's see what can to
+be done to turn the standard hash table into such a container, using
+GADTs for keys.
+
+We'll start with the interface.  The standard hash table interface
+(Hashtbl.S) looks like this, in part:
+
+    module type S =
+    sig
+      type key
+      type 'a t
+      val create : int -> 'a t
+      val add : 'a t -> key -> 'a -> unit
+      val remove : 'a t -> key -> unit
+      val find : 'a t -> key -> 'a
+      val iter : (key -> 'a -> unit) -> 'a t -> unit
+    end
+
+The type of tables ('a t) is parameterized by the type of values,
+since each table holds a single type of value.  We're aiming instead
+to have value types depend on key types, so we'll move the type
+parameter into the key type.  Making this change mechanically
+throughout the interface gives us the following:
+
+    module type GS =
+    sig
+      type 'a key
+      type t
+      val create : int -> t
+      val add : t -> 'a key -> 'a -> unit
+      val remove : t -> 'a key -> unit
+      val find : t -> 'a key -> 'a
+      val iter : < f: 'a. 'a key -> 'a -> unit > -> t -> unit
+    end
+
+Actually, I've made one additional change, in the type of iter.  In
+the regular Hashtbl iter function we can get by with ML-style
+polymorphism, where all the type variables are implicitly quantified
+at the outermost point.  This constrains the function passed to iter
+to be monomorphic, which is fine, since regular Hashtbls only support
+a single value type.  In our revised interface, however, the function
+argument must be polymorphic, since it needs to handle *any* suitable
+pairing of keys and values.  The object type allows quantifier
+nesting, giving us the polymorphism we need.
+
+The type of iter is a hint of things to come: putting things *into* a
+polymorphic hash table is a doddle, but there's a bit of a knack to
+getting them *out* again intact, as we'll see further down.
+
+Next up is the definition of keys.  The standard Hashtbl.Make functor
+uses a definition of keys that bundles the key type together with
+equality and hashing operations, like this:
+
+    module type HashedType =
+    sig
+       type t
+       val equal : t -> t -> bool
+       val hash : t -> int
+    end
+
+Of course, it's no good having just any old definitions of equal and
+hash.  It's essential that equal l r implies hash l = hash r, for
+example, and there are additional fairly obvious constraints on equal.
+
+Our analogue to HashedType, GHashedType, comes with some additional
+operations (and so places additional demands on the creator of hash
+tables).  The first part of the signature looks essentially the same
+as HashedType: we've added a parameter to the key type, but it's not
+used as yet, so we can replace it with the don't-care underscore.
+(Note that this means that our equality is heterogeneous, happy to
+accept keys of disparate types.)  The remainder of the signature deals
+with packing up key-value pairs into existential boxes, and attempting
+to get them out again; this will allow us to store different types of
+key in a single table in our implementation.
+
+    module type GHashedType =
+    sig
+      type _ key
+      val equal : _ key -> _ key -> bool
+      val hash : _ key -> int
+
+      type pair = Pair : 'a key * 'a -> pair
+      val unpack : 'a key -> pair -> 'a
+    end
+
+As with HashedType there are requirements not captured in the types.
+In particular, we'd like unpack k (Pair (k', v)) = v whenever equal k
+k' is true.
+
+Time for the implementation.  This is mostly straightforward: after
+some preliminaries (mostly about hiding the type parameter in keys by
+boxing them up appropriately), there are two functions (add and
+remove) that put keys and values in boxes and store them in a
+monomorphic table, and two functions (find and iter) that unbox keys
+and values to recover the parameterization.
+
+    module GHashtbl (G : GHashedType) :
+      GS with type 'a key = 'a G.key =
+    struct
+      include G
+      type k = Key : 'a key -> k
+      module H = Hashtbl.Make(struct
+        type t = k
+        let hash (Key k) = hash k
+        let equal (Key l) (Key r) = equal l r
+      end)
+
+      type t = pair H.t
+
+      let create n = H.create n
+
+      let add tbl k v = H.add tbl (Key k) (Pair (k, v))
+
+      let remove tbl k = H.remove tbl (Key k)
+
+      let find tbl key = unpack key (H.find tbl (Key key))
+
+      let iter (f : <f: 'a. 'a key -> 'a -> unit>) tbl =
+        H.iter (fun _ (Pair (k, v)) -> f#f k v) tbl
+    end
+
+As is often the case, the unboxing is the interesting part.  The find
+function reveals why we introduced the unpack operation for keys (and
+hence the pair type, which could otherwise have been hidden away in
+the body of GHashtbl), and shows the secondary purpose of keys as
+unboxers of values.  The iter function makes use of the polymorphism
+that we introduced in its signature earlier; when we unbox a pair we
+have no idea how to instantiate the type variable in the contents, so
+it's just as well we have a function to hand (f#f) that's polymorphic
+enough to handle any possible instantiation.
+
+Time to try it out.  Here's a sample implementation of GHashedType
+that associates ints with int lists (which we'll use to store prime
+factors) and strings with bools (which we'll use to indicate
+capitalization).
+
+    module KeyType (* : GHashedType *) =
+    struct
+      type _ key =
+        Int : int -> int list key
+      | String : string -> bool key
+
+      let equal : type a b. a key -> b key -> bool =
+        fun l r -> match l, r with
+        | Int x, Int y -> x = y
+        | String x, String y -> x = y
+        | _ -> false
+
+      let hash = Hashtbl.hash
+
+      type pair = Pair : 'a key * 'a -> pair
+
+      let rec unpack : type a. a key -> pair -> a =
+        fun k p -> match k, p with
+        | Int _, Pair (Int _, v) -> v
+        | String _, Pair (String _, v) -> v
+        | _ -> raise Not_found
+    end
+
+Using KeyType we can instantiate the functor and set about creating
+heterogeneous hash tables:
+
+    # module HT = GHashtbl(KeyType)
+    ...
+    # let ht = HT.create 10;;
+    val ht : HT.t = <abstr>
+    # begin HT.add ht (Int 10) [2; 5];
+            HT.add ht (Int 12) [2; 2; 3];
+            HT.add ht (Int 2) [2]; end;;
+    - : unit = ()
+    # begin HT.add ht (String "foo") false;
+            HT.add ht (String "Foo") true;
+            HT.add ht (String "bar") false;
+            HT.add ht (String "Bar") true; end;;
+          - : unit = ()
+    # HT.find ht (Int 10), HT.find ht (String "Foo"), HT.find ht (Int 12);;
+    - : int list * bool * int list = ([2; 5], true, [2; 2; 3])
+
+    # let o = object
+        method f : type a. a key -> a -> unit =
+          fun k v -> match k with
+          | Int i -> let s = String.concat "*" (List.map string_of_int v) in
+                     Printf.printf "%d = %s\n" i s
+          | String s -> Printf.printf "%s is%s capitalized\n"
+                          s (if v then "" else " not")
+      end;;
+    val o : < f : 'a. 'a KeyType.key -> 'a -> unit > = <obj>
+    # HT.iter o ht;;
+    2 = 2
+    12 = 2*2*3
+    10 = 2*5
+    foo is not capitalized
+    bar is not capitalized
+    Bar is capitalized
+    Foo is capitalized
+    - : unit = ()
+			
+========================================================================
+3) Engineering position at Vector Fabrics
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-07/msg00077.html>
+------------------------------------------------------------------------
+** Stefan Holdermans announced:
+
+Vector Fabrics has another position open for a functional programmer. See
+below and <http://www.vectorfabrics.com/company/career/functional_programmer>
+for details.
+
+This time, we particularly welcome applications from experienced developers,
+the position providing a fair share of opportunities for growing into the
+rôle of an architect.
+
+Interested? Please contact us at jobs <AT> vectorfabrics.com.
+      
+========================================================================
+4) OCaml 2013 (24/09, Boston): Preliminary program is available
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-07/msg00086.html>
+------------------------------------------------------------------------
+** Michel Mauny announced:
+
+The OCaml 2013 (preliminary) program is now available:
+
+<http://ocaml.org/meetings/ocaml/2013/program.html>
+
+The workshop is just the day before ICFP, and the registration is now
+open (from <http://icfpconference.org/icfp2013/>).
+
+It is time to plan your trip and to make hotel reservations!
+      
+========================================================================
+5) enhancements for "perf" on OCaml code
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-07/msg00087.html>
+------------------------------------------------------------------------
+** Mark Shinwell announced:
+
+Linux has a tool called "perf" that enables the display of source code
+alongside time profiling information and the corresponding assembly code.
+(See <https://perf.wiki.kernel.org/index.php/Tutorial>, "perf annotate").
+
+I am pleased to announce an alpha version of the OCaml native code compiler
+that permits perf to do the same for OCaml code. This compiler works only on
+x86-64 Linux, although porting it to other Linux targets should be
+straightforward.
+
+The compiler is available in OPAM. If you add the remote repository
+git://github.com/mshinwell/opam-repo-dev then you should be able to
+"opam switch" to the 4.01-perf-annotate compiler. Please let me have any
+reports of problems.
+
+After compilation, you can run "perf record" to gather data about your
+OCaml program, and then use "perf report" to interactively examine it.
+If you hit Return on a function, then you should be given the option to
+annotate it, and then you should see the OCaml code as above. Note that
+line number information is not yet as fine-grained for OCaml as it might
+be for C code.
+
+You need to have the source files available at the same location on the
+filesystem when you run "perf report" as you did when you compiled the
+program.
+
+This work forms part of a larger project in collaboration with OCaml Labs
+at Cambridge, UK, to enhance the level of debugging information emitted
+by the OCaml compiler. The perf-annotate compiler emits debugging sections
+that aim to be compliant with the DWARF-2 standard.
+
+Mark
+
+P.S. The eagle-eyed of you will notice that there is another compiler,
+4.01-allocation-profiling, also available in that OPAM repo. This provides
+allocation profiling capabilities for native code, documentation for which I
+will endeavour to circulate to the list shortly.
+      
+** Maxime Dénès asked and Mark Shinwell replied:
+
+> Is it related to the recently introduced "-with-frame-pointers" configure
+> flag <http://caml.inria.fr/mantis/view.php?id=5721> ?
+>
+> The purpose of this flag seemed to be the use of the same perf tool.
+
+Compilation with a frame pointer enables the display of callgraph
+information in perf. It is effectively a workaround for the fact that the
+in-kernel stack unwinder used by perf does not use the debugging
+information in the executable.
+
+The perf-annotate compiler is designed specifically to make the
+"perf annotate" feature of the perf tools work in a satisfactory way
+for OCaml code. It's roughly speaking orthogonal, but you probably
+want to use both.
+			
+========================================================================
+6) Other Caml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocaml.org/>.
+
+Full Time: Software Developer (Functional Programming) at Jane Street in New York, NY; London, UK; Hong Kong:
+  <http://jobs.github.com/positions/0a9333c4-71da-11e0-9ac7-692793c00b45>
+
+Better Inlining: Progress Report:
+  <http://www.ocamlpro.com/blog/2013/07/11/inlining-progress-report.html>
+
+Experimenting in API Design: Riakc:
+  <http://functional-orbitz.blogspot.com/2013/07/experimenting-in-api-design-riakc.html>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

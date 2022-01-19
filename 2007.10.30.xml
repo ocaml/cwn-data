@@ -1,0 +1,369 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+	<cwn_head>
+		<cwn_date>2007.10.30</cwn_date>
+		<cwn_prev>2007.10.23</cwn_prev>
+		<cwn_next>2007.11.06</cwn_next>
+		<cwn_date_text>October 23 to 30, 2007</cwn_date_text>
+	</cwn_head>
+	<cwn_body>
+		<cwn_entry>
+			<cwn_title>Working on dependent projects with ocamlbuild</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/1e39219f2117bd17/3b6a5ea1f0c70fe0#3b6a5ea1f0c70fe0</cwn_url>
+			<cwn_who>Daniel Bünzli explained</cwn_who>
+			<cwn_what>
+Somewhat related to the discussion we had about the (bad) idea of   
+embedding dependencies into projects. I'd like to share the following   
+setup with ocamlbuild that allows me to work simultaneously on a   
+'base' project and two independent projects 'p1' and 'p2' that use   
+'base'. Basically my sources are distributed as follows : 
+
+base/src 
+p1/src 
+p2/src 
+
+What I used to do is to build a .cma out of the sources in base/src   
+and point the others to that .cma. When I did a change in base, I had   
+to build that .cma again, sometimes forgetting and seeking for bugs   
+in code while it was just a .cma freshness issue. 
+
+What I do now is that I completly forget about .cma's. I just create   
+the following links in p1 and p2 
+
+ln -s ../base/src p1/base 
+ln -s ../base/src p2/base 
+
+And add the following to their _tags file : 
+
+echo "&lt;base&gt;: include" &gt;&gt; p1/_tags 
+echo "&lt;base&gt;: include" &gt;&gt; p2/_tags 
+
+The rest is simply sorted out by ocamlbuild. Whenever I do a change   
+in base/src I don't need to recompile anything there, if I rework in   
+p1 or p2 things are automatically updated, I always use the latest   
+version of base's code. Of course this means longer build time when   
+you ocamlbuild -clean in p1 and p2 since they each build their own   
+version of base. But on the scale at which I work it is currently not   
+an issue. 
+
+The only caveat (that may disappear in the future) is that base/src   
+should be able to build without a plugin. Otherwise you will 
+have to integrate base's myocamlbuild.ml instructions into p1 and   
+p2's myocamlbuild.ml (btw. couldn't we find a less egoistic name for   
+that file). But if you are only working with _tagged caml sources it   
+should works perfectly, put your tags for base in base/src/_tags.
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>Preferred use of Invalid_argument and Failure</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/afe65861a6c384f1/3162e6c9f0aef307#3162e6c9f0aef307</cwn_url>
+			<cwn_who>Michaël Le Barbier asked and Xavier Leroy answered</cwn_who>
+			<cwn_what>
+&gt; Let's quote the manual (release 3.09): 
+&gt;   exception Invalid_argument of string 
+&gt;     Exception raised by library functions to signal that the given 
+&gt;     arguments do not make sense. 
+&gt;   exception Failure of string 
+&gt;     Exception raised by library functions to signal that they are 
+&gt;     undefined on the given arguments. 
+&gt; It seems to me that Invalid_argument is a sort of specialisation of 
+&gt; Failure. 
+
+The convention that the standard library tries to follow is this. 
+
+Invalid_argument is very much like a failed assertion: it indicates 
+that something is wrong in the program itself, i.e. negative character 
+positions in string functions.  Most programs will not catch 
+Invalid_argument, treating as a fatal error.  Others will catch it, 
+but only to enter a piece of generic "recover from unexpected error" 
+code. 
+
+Failure, on the other hand, signals errors that can happen in normal 
+runs of the code.  For instance, you're converting a user-provided 
+string to a number, and the string does not represent a number.  It is 
+expected that the client code catches Failure and recovers gracefully, 
+e.g. by asking for the number again, or producing a precise "syntax 
+error" message. 
+
+I recommend the use of Invalid_argument to report "should never 
+happen" conditions at the boundary between library functions and user 
+code.  On the other hand, the "Failure" exception is a bit of a legacy 
+from earlier designs (Caml Light and even the original LeLisp-based 
+Caml), and often is not the best way to report "normal error" 
+conditions: instead, you could consider defining your own exceptions 
+as Alain suggested, or even have your functions return "option" types 
+instead of raising exceptions.
+			</cwn_what>
+			<cwn_who>Yaron Minsky said, Joel Reymont asked, and Yaron Minsky replied</cwn_who>
+			<cwn_what>
+&gt; &gt; Where I work, we have come to dearly love the practice of returning   
+&gt; &gt; polymorphic variants with explicit  variants for various "normal"   
+&gt; &gt; error cases. 
+&gt; 
+&gt; Can you elaborate? Are your explicit variants still polymorphic? 
+
+As in: 
+
+  map_of_alist : ('a * 'b) list -&gt; [ `Repeated_key of 'a | `Succ of ('a,'b) 
+Map.t ] 
+
+The return value is both explicit and a polymorphic variant.
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>Camlp4 as a universal pre-processor ?</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/522333c5bc79d1a9/400ecef341ba4ab5#400ecef341ba4ab5</cwn_url>
+			<cwn_who>David Teller asked and Nicolas Pouillard answered</cwn_who>
+			<cwn_what>
+&gt;  I'm currently playing with camlp4 3.10. I've succeeded in making a 
+&gt; syntax extension to help me generate annotated trees, which is a good 
+&gt; start. 
+&gt;
+&gt;  Now, I understand that, by invoking ocpp, camlp4 may be used as a 
+&gt; pre-processor for non-OCaml language, which sounds interesting, for I 
+&gt; have need of pre-processing some parser generator input (at the moment, 
+&gt; menhir, but there are good chances I'll switch to Dypgen to get around 
+&gt; some limitations) to maintain consistency between the implementation and 
+&gt; the specifications. There are very good chances that I could do that 
+&gt; with cpp, as it's essentially trivial pre-processing, but I'd rather use 
+&gt; camlp4, if only to learn more about it. 
+&gt;
+&gt;  So, my question is: how do I write a pre-processor that doesn't depend 
+&gt; on the syntax of OCaml ? I'm hoping I can get away with one or two 
+&gt; quotations and one anti-quotation, but I have no clue how to register 
+&gt; these without adding dependencies to either OCaml's Original or Revised 
+&gt; syntax. Does anyone have any examples handy ? 
+
+A  way  to  start  this  is  to  just keep the lexer and provide a new grammar 
+including  quotations  [2] and antiquotations. On the wiki [1] there is also a 
+small  but  complete example of a grammar for the untyped lambda calculus with 
+antiquotations [3], and also a tutorial of making a full parser with Camlp4 [4]. 
+
+[1]: http://brion.inria.fr/gallium/index.php/Camlp4 
+[2]: http://brion.inria.fr/gallium/index.php/Quotation 
+[3]: http://brion.inria.fr/gallium/index.php/Lambda_calculus_quotations 
+[4]: http://brion.inria.fr/gallium/index.php/Full_parser_tutorial
+			</cwn_what>
+			<cwn_who>David Teller then asked and Nicolas Pouillard replied</cwn_who>
+			<cwn_what>
+&gt; I've read the Lambda example, but it looked to me like it was a syntax 
+&gt; extension for OCaml and no other language, unless I completely 
+&gt; misunderstand the meaning of, say, &lt;:expr&lt;...&gt;&gt; . 
+
+You're  right the lambda example is not adapted. 
+
+&gt; Now, do you suggest I should write a full lexer and parser with Camlp4 
+&gt; just in order to write simple macros ? 
+
+Hum,  in  fact  that's  because  ocpp  is  no  longer supported in Camlp4 3.10 
+(another (external) tool that can replace it is in preparation). 
+
+However  writing  a  small  lexer  that catch some quotation of yours is quite 
+simple;  but  since  you  where talking about menhir and dypgen they certainly 
+have  lexing  conventions  quite  close  to OCaml, so the default lexer should 
+suffice. 
+
+It's  mainly  about writing a parser that search for some QUOTATION tokens and 
+expand them, in fact it will be even simpler to directly use a stream parser. 
+
+(* pseudo untested code *) 
+let rec go = parse 
+  | [&lt; '(QUOTATION q, _loc); strm &gt;] -&gt; expand q; go strm 
+  | [&lt; '(token, _loc); strm &gt;] -&gt; Token.&lt;some function&gt; tok; go strm 
+  | [&lt; &gt;] -&gt; ()
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>Z3 version 1.1</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/940f31dd01d454b2/ea7b2cb91cddcd85#ea7b2cb91cddcd85</cwn_url>
+			<cwn_who>Leonardo de Moura and Nikolaj Bjorner announced</cwn_who>
+			<cwn_what>
+We are pleased to announce of Z3 version 1.1. 
+
+Z3 is a new high-performance theorem prover for Satisfiability Modulo 
+Theories (SMT) problems being developed at Microsoft Research. Z3 
+supports linear real and integer arithmetic, fixed-size bit-vectors, 
+extensional arrays, uninterpreted functions, and quantifiers. Z3 has 
+already been integrated in several projects and products at 
+Microsoft. It can read problems in SMT-LIB, Simplify and a native 
+low-level format. Z3 can also be invoked programmatically from either 
+C/C++, OCaml or from .NET. 
+
+More information about Z3, including download links are available from: 
+
+http://research.microsoft.com/projects/z3
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>Finger trees</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/aeff1d0f48e5b36f/8b64513d1f4830c9#8b64513d1f4830c9</cwn_url>
+			<cwn_who>Jon Harrop asked, Arnaud Spiwack said, and Matthieu Sozeau replied</cwn_who>
+			<cwn_what>
+&gt; &gt; I'm just perusing the multitude of tree data structures out there and was 
+&gt; &gt; wondering if anyone has a finger tree implementation written in OCaml?
+&gt; 
+&gt; There's at least been a Coq implementation (proven correct if I'm not 
+&gt; mistaken). Thus extractible into OCaml in a probably idiomatic way. I don't 
+&gt; know if the library is self contained or just a small proof-of concept, 
+&gt; though.
+&gt; 
+&gt; http://www.lri.fr/~sozeau/research/russell/fingertrees.fr.html
+
+Indeed, this is a certified implementation of Finger Trees, it's just not 
+ready for release yet. I'm actually working on a version using modules which 
+extracts to efficient OCaml code (e.g. ropes built on top of them permit to 
+run the ICFP simulator in reasonnable time). So, the basic extracted code 
+works well but I haven't finished building a certified implementation of the 
+ropes which I want to release with it. In the meantime you can try this 
+extracted version:
+
+http://www.lri.fr/~sozeau/res/fingertrees-0.1.tgz
+
+Some random notes:
+- No documentation / beautifying of the ocaml sources, look at the Coq 
+  literate code for that, available from the webpage:
+  http://www.lri.fr/~sozeau/research/russell/fingertrees.en.html
+- Uses a bit of Obj.magic for polymorphic recursion
+- Some artifacts of extraction make it a bit slower than it could be (useless 
+  beta-redexes)
+- Should still be bug free even at 0.1 !
+- Uses ocamlfind for installation
+- Released under the LGPL
+- It will get polished soon...
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>lazy patterns (patterns v 0.3)</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/acfcb60f77824d38/f02a4ba3b0b9e80c#f02a4ba3b0b9e80c</cwn_url>
+			<cwn_who>Jeremy Yallop announced</cwn_who>
+			<cwn_what>
+I'm pleased to announce a new release of `patterns', an OCaml 
+extension providing general-purposes additions to pattern matching. 
+This release includes a new feature, "lazy patterns". 
+
+You can download patterns from 
+
+    http://code.google.com/p/ocaml-patterns/ 
+
+Lazy patterns extend OCaml pattern syntax with the keyword "lazy", 
+mirroring the use of lazy in expressions.  With this extension 
+patterns can be used to deconstruct lazy values; for example, you can 
+define a function that behaves like Lazy.force as follows 
+
+    let force (lazy x) = x 
+
+or, given a type of lazy lists in the "odd style": 
+
+    type 'a llist = Nil | Cons of 'a * lazy llist 
+
+you can write a lazy map function: 
+
+    let rec map f = function 
+     | Nil -&gt; Nil 
+     | Cons (h, lazy t) -&gt; Cons (f h, lazy (map f t)) 
+
+You can use "lazy" anywhere you can use a constructor: in nested 
+patterns, or-patterns, patterns for "let", "function", "match", 
+"try/with", etc.  Lazy patterns can also be used with the other 
+extension provided in the current release, pattern guards: you can 
+write, for example, 
+
+    match v with 
+     | A (x, y) with lazy (z,w) = f x -&gt; e 
+
+Paradoxically, lazy patterns make pattern-matching more eager, since 
+they force evaluation of delayed values.  However, no more forcing 
+than necessary (for some suitable definition thereof) will occur: the 
+following will return "true", for example. 
+
+    match lazy 3, lazy (assert false) with 
+     | lazy 2, lazy x -&gt; false 
+     | lazy 3, _ -&gt; true 
+
+Documentation for lazy patterns will be available soon.  Comments are 
+welcome, bug reports especially so. 
+
+A caveat: due to the translation used, lazy patterns can sometimes 
+give rise to spurious warnings.  For example, for the following 
+function 
+
+    function 
+       lazy (Some _) -&gt; 1 
+     | lazy None     -&gt; 0 
+
+OCaml gives the warning 
+
+    "Warning X: bad style, all clauses in this pattern-matching are 
+guarded." 
+
+It is of course possible to avoid these warnings by using "-w x" or by 
+adding redundant match cases. 
+
+For information on pattern guards see the previous announcements 
+
+    v0.1: http://groups.google.com/group/fa.caml/msg/b0ec5324180bfeba 
+    v0.2: http://groups.google.com/group/fa.caml/msg/016e76d7a51559c8 
+
+and the documentation on the website 
+
+    http://code.google.com/p/ocaml-patterns/wiki/PatternGuards
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>Patch to 3.10.0 compiler enabling simple spell-checking</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/97d67528b2c832fa/9d528ae994d45191#9d528ae994d45191</cwn_url>
+			<cwn_who>Edgar Friendly announced</cwn_who>
+			<cwn_what>
+Editor note: the patches are available at the archive link above.
+
+One random little feature of GNAT that comes in handy for me is its 
+habit of, when I misspell an identifier, giving me a possible correction 
+in its compile error message.  Spending some time with the 3.10.0 
+sources, I have created a "second draft" patch creating this 
+functionality in my favored language. 
+
+Example: 
+======== 
+
+# /home/thelema/Projects/ocaml-custom/bin/ocamlc -o coml -I +lablgtk2 
+lablgtk.cma gtkInit.cmo coml.ml 
+File "coml.ml", line 61, characters 16-25: 
+Unbound value is_arcive, possible misspelling of is_archive 
+
+Impacts: 
+======== 
+
+Efficiency in the case of finding a mistake should be quite good, 
+although this shouldn't matter too much since the compiler quits pretty 
+early in compilation when it finds an unbound identifier. 
+
+In the case of no unbound identifiers, the cost is an extra try/with 
+block around the standard lookup.  I haven't made any benchmarks, though. 
+
+I expect this code to have little long term maintenance issues - the 
+major source of code changes was adding a "* string list" to a number of 
+exceptions to carry the list of possible correct spellings to the point 
+they get output by the compiler.  These exceptions are still usable as 
+before with an empty list in this spot. 
+
+It's possible the code has created opportunities for uncaught exceptions 
+in the compiler as I only checked for instances of "Not_found" in a few 
+files -- those which dealt with the Unbound_* exceptions.  Someone who 
+knows the internals better might find places the "Found_nearly" 
+exception that carries possible corrections might escape into. 
+
+Dedicated to: 
+Yaron Minsky and the team at Jane Street
+			</cwn_what>
+			<cwn_who>Julien Moutinho asked and Edgar Friendly answered</cwn_who>
+			<cwn_what>
+&gt; I'm sorry but could it be that you have posted an incomplete patch? 
+
+I did.  Here's a "third draft" which should include all the necessary 
+bits to patch off 3.10.0.  There's still plenty of rough edges to smooth 
+out in the patch, but it should suffice for people to have something 
+working.
+			</cwn_what>
+		</cwn_entry>
+	</cwn_body>
+</cwn>

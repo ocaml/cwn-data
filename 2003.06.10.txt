@@ -1,0 +1,834 @@
+Hello,
+
+Here is the latest Caml Weekly News, week 03 to 10 June, 2003.
+
+01) Generics & a working mathematician's testimonial
+02) Miller-Rabin primality test
+03) yet another benchmark: List.map vs tail recursive map
+04) Yet another OCaml tutorial
+05) Parsers
+06) easy print and read
+07) red-black trees
+08) CKit for O'Caml
+09) Asynchronous communication channels
+10) Xml-Light update
+11) OCaml Standards Document
+
+==============================================================================
+01) Generics & a working mathematician's testimonial
+------------------------------------------------------------------------------
+Sébastien Loisel wrote:
+
+Recently, there have been encouraging rumours[1] to the effect that
+"extensional polymorphism" would get more love. I am writing this to
+share with you my enthusiasm regarding this kind of polymorphism. 
+
+My current work is in scientific computing (solving PDE's and that kind   
+of stuff) and, in a previous life, I worked in pure math in analysis,
+with computer proofs. As has been hinted by others[2,4,5,6], many in the
+scientific computing community (including adjacent disciplines such as
+weather simulation and such) are moving to C++ (while still using
+primarily Fortran) with a large contingent of people content to use Matlab.
+
+For this community, it is very important to be able to write complicated
+mathematical expressions in a simple, legible fashion. It is also
+relatively important to be able to control the underlying number
+representations. Most applications use 64-bit floating point numbers,
+but some use 96 bits, and a small number of application are content to
+use 32 bit floating point. In addition, some applications need to use
+real numbers, and other applications need to use complex numbers, and a
+few applications need to use stranger scalar types. Some applications
+require interval arithmetic, while most people wouldn't be willing to
+carry that overhead. The cartesian product of all these is large.
+
+The most important application is, of course, in linear algebra, where
+it is important to be able to manipulate vectors, matrices, and, in some
+cases, higher-order tensors with some elegance.
+
+Fortran is clearly the incumbant, and in a way it does everything less
+well than the languages which are vying against it in the modern
+numerical laboratory. At the moment, Matlab, with its extremely large
+library of "toolboxes" and very efficient algorithms, is widely
+considered to be the tool that is easiest to use, and at the same time
+able to produce results that are important in the real world. Of course,
+from a language theorist's perspective, the Matlab language is brain
+damaged, in addition to its interpreter being hopelessly slow.
+
+The appeal of C++ is obvious. To most of us, the polymorphism available
+in C++ is far greater than what is available in all other alternatives.
+And while it is not possible to define new operators, the overloading
+capabilities combined with the ample variety of existing operators to
+pick from make this language a self-evident choice when we wish to write
+ mathematical expressions and programs in a clear way.
+
+I for one believe it is easier to write erroneous C++ code, compared to
+(say) g'caml. The primary culprit is C++'s lack of garbage collection,
+but sometimes I think that C++'s somewhat lax automatic type conversion
+plays a complicit role.
+
+Many of my predecessors of the eighties held high hopes for Lisp, but us
+younguns prefer to be able to write mathematical expressions with infix
+operators, thank you very much. I also think that "overloading" wouldn't
+work very well in a dynamically typed language. Lastly, most of us
+aren't willing to pay for language features in performance, and dynamic
+typing can exact a toll (unless you go back and add typing hints with
+your profiler...)
+
+In summary, to the community that I am most familiar with, genericity is
+a showstopper. A language such as g'caml would be welcome (at least by
+myself) with open arms as the promised saviour. However, it is with
+great sadness that I had to abandon previous work with ocaml, because
+all my operators were three characters long and the expressions had
+stopped making sense. There are issues, aside from genericity, which are
+ suboptimal for my community[3], but in the interest of staying
+focused, I will not discuss them.
+
+I would invite relevant individuals to comment on their idea of what's
+in the future for such features, and I would like to thanks Jun Furuse
+for the very useful prototype that is g'caml.
+
+Sincerely yours,
+
+Sébastien Loisel
+
+Notes:
+[1] http://caml.inria.fr/archives/200305/msg00059.html
+[2] e.g., http://caml.inria.fr/archives/200305/msg00205.html
+[3] I know a lot of people who use SMP and NUMA, unlike what Xavier
+Leroy suggests here: http://caml.inria.fr/archives/200211/msg00274.html
+[4] http://osl.iu.edu/~tveldhui/papers/DrDobbs2/drdobbs2.html
+[5]
+http://www.codesourcery.com/pooma/pooma_publications/how_templates_enable_high_performance_scientific_computing_in_cplusplus
+ This link should have no spaces. If some mail agent breaks up the
+line, you might have to rearrange it manually.
+[6] I personally use mainly C++, and so does S. W. Drury (my advisor for
+the master's thesis, http://www.math.mcgill.ca/drury/ .)
+
+==============================================================================
+02) Miller-Rabin primality test
+------------------------------------------------------------------------------
+Richard Jones asked:
+
+To save me writing this over again, does someone have an
+implementation of a probabilistic primality test in Ocaml?
+
+Assuming I have to write one, is the 'Nat' module the best (ie.  most 
+mature) way to represent natural numbers in Ocaml? Or is there some
+other module I ought to be using instead?
+
+Yaron Minsky answered:
+
+There's an implementation that's part of SKS
+(http://sks.sourceforge.net).  It's based on the Numerix library,
+although I'm not sure that's necessarily the best way to go.  The key
+files are number.ml and prime.ml, which you can get from the CVS
+repository:
+
+http://cvs.sourceforge.net/cgi-bin/viewcvs.cgi/sks/sks/
+
+(Or you can look at sks.sourceforge.net to download the distribution.)
+
+Anyone know what the status of Numerix is these days?  Is it still
+faster than the alternatives  (gmp, Nat)?
+
+Michel Quercia added:
+
+I'm presently writing Numerix version 0.21. First measurements show that it is
+20% faster than GMP 4.0.1 ...  and 8% slower than GMP 4.1.2. ETA is end of
+August.
+
+David Monniaux also answered the initial question:
+
+MLGMP has extended-precision integers and a builtin primality test. Get
+the latest version from
+
+http://www.di.ens.fr/~monniaux/download
+
+==============================================================================
+03) yet another benchmark: List.map vs tail recursive map
+------------------------------------------------------------------------------
+Stefano Zacchiroli said:
+
+I've done some benchmarks comparing List.map implementation (not tail
+recursive) and the following tail recursive map implementation (which do
+an additional traversal on the list to reverse it):
+
+  let map' f l =
+    let rec aux acc = function
+      | [] -> List.rev acc
+      | hd :: tl -> aux (f hd :: acc) tl
+    in
+    aux [] l
+
+[ Disclaimer: I will be very happy to discover that my benchmarks are
+  wrong, the challange is to find _where_ the bug is ... ]
+
+Surprisingly enough (for me) the tail recursive version of map seems to
+be a lot (6-7 times) faster than List.map when compiled in _bytecode_.
+
+When compiled in native code the tail recursive version seems to be a
+60% slower than List.map. The point is that the difference becomes
+significative only if you use hundred of times map on short lists,
+otherwise List.map segfaults (the bytecode version of the bench was
+indeed performed augmenting stack size).
+
+I'm now wondering: is worthwhile to have a List.map implementation
+not tail recursive in the standard library? Can we consider to replace
+it with a tail recursive implementation?
+
+Benchmarks code and results attached, I'm using OCaml 3.06 and I've not
+tried the same with the CVS version.
+
+Here is the code:
+
+(* Source code for the bytecode benchmark: one single run on a long list *)
+
+  let l = Array.to_list (Array.init 1000000 (fun x -> x)) in
+  let map' f l =  (* tail recursive version of map *)
+    let rec aux acc = function
+      | [] -> List.rev acc
+      | hd :: tl -> aux (f hd :: acc) tl
+    in
+    aux [] l
+  in
+  let f x = x * x in  (* yes ... it overflows ... who cares? *)
+  let test_std () = List.map f l in
+  let test_tail_rec () = map' f l in
+  match Sys.argv.(1) with
+  | "1" -> test_std ()
+  | "2" -> test_tail_rec ()
+  | a -> raise (Invalid_argument a)
+
+(* Bytecode benchmark *)
+
+  $ export OCAMLRUNPARAM="l=10M"
+
+  $ time ./a.out 1  # non tail recursive version
+
+  real  0m24.106s
+  user  0m23.390s
+  sys   0m0.290s
+
+  $ time ./a.out 2  # tail recursive version
+
+  real  0m3.627s
+  user  0m3.390s
+  sys   0m0.100s
+
+(* Source code for the native code benchmark: many runs on a "short" list *)
+
+  let l = Array.to_list (Array.init 120000 (fun x -> x)) in
+  let map' f l =
+    let rec aux acc = function
+      | [] -> List.rev acc
+      | hd :: tl -> aux (f hd :: acc) tl
+    in
+    aux [] l
+  in
+  let f x = x * x in
+  let test_std () = List.map f l in
+  let test_tail_rec () = map' f l in
+  let repeat = 100 in
+  match Sys.argv.(1) with
+  | "1" -> for i = 1 to repeat do test_std () done
+  | "2" -> for i = 1 to repeat do test_tail_rec () done
+  | a -> raise (Invalid_argument a)
+
+(* Native code benchmark *)
+
+  $ time ./a.out 1
+
+  real  0m14.683s
+  user  0m14.270s
+  sys   0m0.190s
+
+  $ time ./a.out 2
+
+  real  0m23.343s
+  user  0m22.950s
+  sys   0m0.070s
+
+Christophe Troestler answered:
+
+> Surprisingly enough (for me) the tail recursive version of map seems
+> to be a lot (6-7 times) faster than List.map when compiled in _bytecode_.
+
+Not for small/medium lists (<= ~10000 elements).  For lists with
+~100000 elements, the tail recursive version is indeed faster but
+wthout something like OCAMLRUNPARAM="l=10M" the bytecode stack
+overflows (as you said).
+
+> When compiled in native code the tail recursive version seems to be a
+> 60% slower than List.map.
+
+I got the same figure for a list with 10000 elements (List.map ~60%
+faster).  For a list with 100_000 elements, List.map is "only" ~30%
+faster.  But then a "crazy" way to do it (see attached code) is ~10%
+faster than List.map...  For really long lists (400000 elements),
+List.map looses its advantage while the "crazy" way is a lot (> 50%)
+faster than the tail rec function.
+
+Given this, it rather seems that List.map is fine -- for if one really
+wants speed, one will compile to native code and the bytecode version
+performs well within the default limits.  Actually, the fact that the
+documentation explicitely states that List.map is "Not tail-recursive"
+should discourage its use for long lists which is good since faster
+functions then exist (I suppose the cost of memory allocation then
+dominates but I haven't measured this).  Now, if you want to "map" a
+lot of elements, it seems you are better off with datastructures other
+than lists...
+
+Here is the code:
+
+(* You need the Benchmark module
+   (http://www.bagley.org/~doug/ocaml/benchmark/). *)
+
+let map' f l =  (* tail recursive version of map *)
+  let rec aux acc = function
+    | [] -> List.rev acc
+    | hd :: tl -> aux (f hd :: acc) tl
+  in
+  aux [] l
+
+
+let map2 f l = (* Crazy way... *)
+  Array.to_list(Array.map f (Array.of_list l))
+
+let () =
+  let f x = succ x in (* simple fun, so its cost should be unimportant *)
+  let bench n =
+    let l = Array.to_list (Array.init n (fun x -> x)) in
+    Printf.printf ">>> LIST LENGTH = %i\n" n;
+    let res = Benchmark.throughputN 20
+                [("List.map", List.map f, l);
+                 ("tail_rec", map' f, l);
+                 ("crazy", map2 f, l)
+                ] in
+    Benchmark.tabulate res in
+
+  bench 100;
+  bench 1000;
+  bench 10_000;
+  bench 100_000;
+  bench 400_000
+
+Stefano Zacchiroli then said:
+
+My point is not having speed, but rather having tail recursion. In many
+cases lists are the correct data structure even for "a lot of elements".
+
+I've always thought that tail recursive version of map would have been
+terribly slower than not tail recrusive one due to the additional
+reversal. But since this is not the case (or at least the shown figures
+don't fit my idea of "terribly"), why keep on using the not tail
+recursive one?
+
+Alan Post proposed:
+
+Have you seen the List.map provided by the extlib guys?
+
+http://cvs.sourceforge.net/cgi-bin/viewcvs.cgi/ocaml-lib/extlib-dev/extList.ml
+
+The discussion then forked to the status of extlib, with the following
+comments by Brian Hurt:
+
+The library as a whole is still unstable (witness Enum).  *That* module is
+stable.  And, in my opinion, 1.0 ready.  There's a known problem with the
+psqueue module-  I'm working on it.
+
+and Nicolas Cannasse:
+
+The library has not been released yet because mainly we need to add some
+documentation and we're planning to include more modules.
+But you can consider that 90% of the library (including the current List
+tail-rec operations) is stable.
+Actually I think it's quite difficult to write unstable code with OCaml :-).
+
+==============================================================================
+04) Yet another OCaml tutorial
+------------------------------------------------------------------------------
+Richard Jones announced:
+
+I've started writing an OCaml tutorial. It's not finished yet.  I know
+it's a familiar story, but I really do intend to finish this one, and
+have a fair amount of ground covered. Anyway, comments are welcome:
+
+http://merjis.com/richj/computers/ocaml/tutorial/
+
+==============================================================================
+05) Parsers
+------------------------------------------------------------------------------
+Diego Olivier Fernandez Pons discussed:
+
+The question is 'are LR parsers really more powerfull/difficult to
+implement/ difficult to hack/difficult to understand... than LL
+parsers' ? And why ?
+
+There are three fundamental parts in a parser :
+- the control automaton
+- the desambiguisation technique
+- the non-determinism handling system
+
+LL parsers are traditionaly compiled to push-down automata whereas LR
+parsers usualy use LR(0) automata. In the first case the stack is
+explicit and transitions have the form (q, E, t, E', q') which means q
+-> q' is possible if (E, t) is the current stack * string, and if the
+transition is taken, (E, t) will be removed and (E', epsilon) pushed.
+In the second case the stack is implicit and contains the list of the
+previously visited nodes. When a transition (q, t, q') is taken, q is
+pushed in the stack. When a reduction takes place A -> abc, 3 symbols
+of the stack are popped.
+
+This may seem a big difference, but both stack-automata are
+equivalent. You can transform one into the other and then write a LL
+parser with a LR(0) control automata, and conversely a pda LR parser.
+In fact, the Dragon book (chapter 4.4 of the french edition at least)
+shows a LL parser controled by a LR(0) automaton. Wim Pijls wrote in
+1993 a paper titled 'Unifying LL and LR parsing' in which he shows 
+that 'traversing the LR(0) automaton in a special way is equivalent to
+LL(1) parsing'. (More recent papers 'LR, LC and LL parsing, some new
+points of view'. All papers available on citeseer)
+
+Then, LR and LL have the same (theoretical) power, which is the
+ability of parsing algebraic (ie context-free) grammars.
+
+Of course... but conflicts ?
+
+When you clearly separate the control automaton and the
+desambiguisation mechanism, you notice that all usual algorithms
+(LL(k), LR(k), LALR(k), SLR(k)) use the same principle : approximating
+algebraic languages by rational ones.
+
+Let's take an LL conflict example :
+
+sentence to parse 'abaa'
+
+S -> aX | aY | cZ
+X -> b...
+Y -> c...
+Z -> d...
+
+Which one to chose, X or Y ?
+
+For an LR algorithm,
+
+a shift/reduce conflict
+
+X -> a
+Y -> aa
+
+a reduce/reduce conflict
+
+X -> a
+Y -> a
+
+Every non-terminal X in a grammar generates a context-free language
+L(X) which can be approximated (upper bound) by a rational language
+R(X). The idea is that checking if a sentence can be derivated from a
+rational language is linear while it is cubic for the algebraic case.
+
+(LL example)
+
+L(X) is included in aE*
+L(Y) is included in bE*
+
+When your entery is ab... if it can be derived by the grammar, the
+only way is to be derived by X (S -> aX -> ab...)
+
+Both LL(k) and LR(k) use a k-prefix rational approximation technique.
+That is why their tables occupate so much space (the cartesian product
+of the control automaton and a k-trie). LALR and SLR follow the same
+idea but merge some states according to some given rules.
+
+Then, there is no reason for LR, LALR and SLR to be more conceptually
+difficult than LL.
+
+Notice that TAG (Tree Adjoint Grammars) and HPSG (Head driven Phrase
+Structure Grammar) try to compute more discriminating approximations
+using the properties of some particular terminals (named 'foot' in the
+first, 'head' in the latter).
+
+The difference of power can be explained by a few simple arguments :
+- LL(1) should be compared to LR(0), not to LR(1)
+- top-down algorithms elagate, bottom-up algorithms memorize. But the
+approximation is essentially an elagation technique. Then, LR take
+more advantage of this orthogonality. But the same power could be
+achieved for LL parsers if they were added memorization (LL + CPS,
+...).
+
+Finally, the non-determinism handling question... There are some
+conflicts you just cannot solve (otherwhise you would have proven
+rational = algebraic). There are two techniques : breadth first search
+(GLR) and depth-first search (backtracking). Both require memorization
+not to compute several times the same thing.
+
+Of course, Masaru Tomita named in 1986 his parsing technique (using
+ideas of Bernard Lang in 1974, theirselves taked from Jan Earley 1970)
+General LR. But it could have been General LL too, since graph
+traversals are generic algorithms.
+
+Brian Rogoff a écrit :
+> I happen to think that recursive descent is the best way to write
+> parsers, but note that recursive descent parsers are capable of
+> parsing non-LL(1) grammars, even without the fairly obvious hacks.
+
+Michal Moskal a écrit :
+> But keyword parser build with camlp4 libraries can be modified at
+> runtime
+
+The ease of implementation is another classical discussion. The
+parsing algorithm (ascending or descending) is orthogonal to its
+recursive functions/table implementation or the static/dynamic data
+structures used.
+
+Most of the people think 'huge tables' as soon as they hear LR(1).
+But this is only the case if you make the two following design choices
+- collapsing the control automaton and the desambiguisation automata
+- representing graphs by tables
+
+You can of course implement a LR(0) automaton with recursive functions
+(recursive ascent), using function calls and exceptions (or any
+equivalent technique...). LR(0) has in general a quite moderated
+number of states.
+
+You can represent all your graphs (stack or desambiguisation automata)
+with purely functional data structures, leading to a parser which can
+be modified at runtime.
+
+More over, separating correctly the three parts of your parsers allow
+you to use different representation/optimisation techniques for every
+element :  non-deterministic bit atomata for desambiguisation automata
+of less than 31 states, matrix representation for dense graphs, ...
+instead of one monolithic 'table compression' technique. And all this
+algorithms can be hidden behind a library, not to be seen by the
+low-level students, casual users, common programmers...
+
+Last point, as said by Luc Maranget, exhaustiveness can be computed on
+pda or lr(0) automata. Not having anything to do with conflict
+resolution, there is no need to work on the desambiguisation automata.
+
+Diego Olivier Fernandez Pons added:
+
+Michal Moskal a écrit :
+> Sorry, I thought camlp4 recognizes LL(1) languages, and my dragon
+> book copy states that LR(1) > LL(1) (I'm not sure about LARL(1)
+> though.
+
+Well... I must admit remembering that LL(1) < LALR(1) was almost true.
+Which means that I knew from the beginning you weren't so far :-)
+
+I found in comp.compilers an example by Terence Parr of a LL(1)
+grammar which is not LALR(1) - I have not checked it ! - 
+
+http://compilers.iecc.com/comparch/article/93-09-025
+
+He says 'there is at least one LL(1) grammar which is not LALR(1)'
+
+Same comment in the Errata page of Andrew Appel's book, edition of  
+1997 (the figure of that edition was incorrect)
+
+http://www.cs.princeton.edu/~appel/modern/basic/ml/errata.html
+
+'Figure 3.26 incorrectly shows LL(1) as a subset of SLR. In fact,
+LL(1) is not even a subset of LALR(1): there is an LL(1) grammar that
+is not LALR(1)'
+
+And a lot of people state that LL(1) < LALR(1) is 'essentially' true.
+
+Wim Pijls writes in his paper 'unifying LL and LR' that LL(1) is a
+subclass of LALR(1) but he seems to have removed the problematic
+cases. (Once more, I have not checked the proofs since it wasn't the
+point I was interested in when reading that paper).
+
+==============================================================================
+06) easy print and read
+------------------------------------------------------------------------------
+Oleg Trott asked and Pierre Weis answered:
+
+> I don't think simple overloading will solve the print/read issue to my 
+> personal satisfaction. In G'Caml, one will still have to define these 
+> functions by hand, right? As someone said, "I object to doing what computers 
+> can do".
+
+You're right: simple overloading cannot solve the print/read issue.
+
+You're wrong: in G'Caml, one will not have to define these functions
+by hand.
+
+The reason is that, in G'Caml, the underlying theory is not
+overloading (neither simple or complex overloading); it is a new
+polymorphic typing discipline that supports the definition of a truely
+polymorphic print primitive (while maintaining the safety of a   
+strongly typed discipline). This primitive will not be user's defined
+but would have the same ``magic'' status as a lot of other basic
+primitives in Pervasives, such as ( + ), open_in, print_string, or ( =
+). The read primitive will have the same status.
+
+Interestingly enough, the extensional polymorphism will allow user's
+defined extensions of the print primitive to fit specific treatments
+for the data types of interest in the program.
+
+The Extensional polymorphism has been described in a 1995 POPL article
+(see [1]). I connot resist to cite its abstract since it strangely
+seems to be an anticipated answer to the issue you are pointing out
+today:
+
+       We present the extensional polymorphism framework, a new kind of
+   polymorphism for functions defined inductively on types. As parametric
+   polymorphic functions discriminate their argument via structural
+   pattern matching on values, extensionally polymorphic functions
+   discriminate their argument via structural pattern matching on types.
+
+       Extensional polymorphism is fully compatible with parametric
+   polymorphism, and provides a clean way to handle primitives such as
+   equality and input and output functions. In particular, our type
+   system supports a polymorphic printing procedure that prints any value
+   in any context.
+
+       We give a type reconstruction algorithm for extensional
+   polymorphism and a translation scheme to a language with run-time
+   types. The formalism allows the definition of generic functions as a
+   set of clauses, each clause associating an expression to a possible
+   type of the function. This leads to a powerful overloading scheme. We
+   define a large class of generic functions for which strong typing is
+   decidable: a static verification algorithm checks that every generic
+   function is called on a type for which it is defined. In addition, we
+   prove that this checking problem for unrestricted generic functions is
+   undecidable.
+
+Since 1995, we continued to work on this; in particular Jun Furuse
+wrote his thesis on the Extensional Polymorphism. He also wrote the
+G'Caml extension of Caml as a proof of concept for further integration
+into the main stream compiler.
+
+All this hard work needed a long time to mature (1995 -> 2003!) and is
+now in a stable and satisfying state. So please, be kind enough to
+read our papers and try the system, before stating definitive (and
+maybe not so well argued) opinions such has ``overloading is
+dangerous'' (or worse ``overloading is useless''), G'Caml cannot solve
+polymorphic printing and reading, or even ``generic functions in
+G'Caml are too weak and not extensible enough''. I'm sure you would be
+astonished by the additive power G'Caml could bring into Caml;
+consider also that all that new features is brought to you without
+sacrificing the good old strongly typed discipline and static type
+inference facility that we all love so much in Caml. I would like you
+to be convinced it is worth supporting the experimental introduction of
+these marvels into the language!
+
+Brian Rogoff added:
+
+Let me add that if you don't want to read lots of type theory papers even if
+it's good for you, that the GCaml implementation README at
+
+        http://cristal.inria.fr/~furuse/generics/README.gcaml
+
+takes you on a quick walk through what you can do, and it's pretty cool.
+
+I'm really looking forward to the next version, which will hopefully include
+modules. I also wonder about how the object system will fit in with all of
+this. The interaction of generics with all of this "non-core" ML is still
+a mystery to us anxious users :-)
+
+BTW, someone (Brian Hurt?) brought up a nice simple example of where the   
+current generic polymorphism seems a bit weak
+
+generic one = | int => 1 | float => 1.0 ;;
+generic two = | int => 2 | float => 2.0 ;;
+generic plus = | float -> float -> float => (+.) | int -> int -> int => (+);;
+
+plus one two;; (* Can't determine plus without at least one type annotation *)
+
+and it would be nice if in such situations the correct plus could be inferred.
+
+This is very exciting stuff! Beyond overloading, this system provides a type
+safe value IO and dynamic typing capabilities.
+
+Jun Furuse answered:
+
+Yes, in this case, it is easy to tell that there is only one
+applicable typing for plus one two, that is plus : float -> float -> float.
+But in general, nubmer of type case combinations may increase quite
+easily and searching applicable typing from them becomes quite inefficient.
+Moreover, when we have recursive generic values, the search space may
+be infinite! Therefore, we must restrict the search space of type case
+combinations in some manner (otherwise, typing may never terminates).
+
+The restriciton in the G'Caml implementation is quite simple,
+therefore you may feel some inconvenience: the type of plus one two
+is not inferred automatically, for example.
+
+Chris Hecker asked and Jun Furuse answered:
+
+ This is great.  My concern about generics in ocaml is one of efficiency.  I 
+> read the paper (as much as I could understand), and the flow array stuff 
+> seems smart and better than type pattern matching in the case where you 
+> don't know the definition of the generic function at the call point, but is 
+> there going to be inlining with generics as well in this initial 
+> implementation? 
+
+This is one of the TODO items of G'Caml.
+You can hope that inlining of very simple generic values such as plus
+will be available in near future, (but not in the next release, sorry.)
+The inlining will occur only when:
+
+  * The type of a generic value instance is statically known.
+  * The corresponding overloaded definition is an identifier, such as
+        (+) and (+.)
+
+Inlining more complex generic values such as double
+(let double x = plus x x) will be another story...
+
+==============================================================================
+07) red-black trees
+------------------------------------------------------------------------------
+Jean-Christophe Filliatre announced:
+
+I've implemented  sets using red-black trees, with  the same interface
+as Ocaml's  sets (that  is Set.S). This  implementation is  not better
+than Ocaml's sets but
+
+  (1) it uses a little less space (20% less to be precise),
+
+and
+
+  (2) a  formal proof  of  this library  is  work in  progress (to  be
+      available soon).
+
+This red-black trees implementation is available from
+
+        http://www.lri.fr/~filliatr/software.en.html
+
+PS:  please note  that another  implementation of  red-black  trees is
+contained in  Baire, which  is more optimized  with some  respects but
+does not provide exactly the same interface as Ocaml sets.
+
+==============================================================================
+08) CKit for O'Caml
+------------------------------------------------------------------------------
+Mary Fernandez asked:
+
+Does anyone know if there are any O'Caml tools similar to the SML CKit
+(http://www.smlnj.org/doc/ckit/).  I've searched comp.lang.ml, this
+mailing list's archives and looked at "The Hump", but no luck.
+In particular, I'm most interested in the C AST and pretty printer.
+
+Jeff Henrikson answered:
+
+I use the frontc package, by Hugues Casse, which you can find in the
+Caml Development Kit. (cdk)  There is an AST, parser, and pretty
+printer.  My only two difficulties with it have been:
+
+- it can't parse the ":" operator for denoting bit fields in structs.
+
+- it took me a while to figure out how to access what I want out of the
+AST.  The three constructors TYPEDEF, ONLYTYPEDEF and DECDEF have a lot 
+of crossover, and I never figured out exactly why, but that if I
+projected these out with a filter function
+
+  let simplify_def def =
+    match def with
+      (Cabs.TYPEDEF(bt0,_,vars)) -> Some (bt0,vars)
+    | (Cabs.ONLYTYPEDEF(bt0,_,vars)) -> Some (bt0,vars)
+    | (Cabs.DECDEF(bt0,_,vars)) -> Some (bt0,vars)
+    | _ -> None;;
+
+that I got access to the structs, unions and enums more easily.  The
+messiest part of my code ended up being the "view" I wrapped around the
+AST.
+
+Guillaume Marceau also answered:
+
+George Necula's Cil framework is solid enough to turn the Linux kernel
+into a cleaned-up ast. I am not sure how easy it would be to modify the C
+syntax of its parser though.
+
+http://manju.cs.berkeley.edu/cil/
+
+==============================================================================
+09) Asynchronous communication channels
+------------------------------------------------------------------------------
+Vincenzo asked and SooHyoung Oh answered:
+
+> I need some asynchronous channels in my current project. Some of those
+> have to block when the maximum capacity is exceded, others are
+> one-position buffers wich should have overwrite semantics. Are there
+> already done libraries or should I roll my own?
+>
+> If I have to implement the buffer myself, what's the best way, a buffer
+> thread wich uses the Event module or rewriting everything from scratch
+> with condition variables to spare a thread?
+
+Please check CML (Concurrent ML) in http://cml.cs.uchicago.edu/ .
+Event module in ocaml  has the similiar functionality with CML.
+
+And you can find some examples in my web
+http://www.duonix.com/~shoh/ocaml/concurrent.html .
+
+==============================================================================
+10) Xml-Light update
+------------------------------------------------------------------------------
+Nicolas Cannasse announced:
+
+XmlLight has been updated to version 2.01 :
+- few bug fixes
+- added multiattributes declaration
+- added support for DTD attributes NMTOKEN type
+- parsing Unicode chars &# escaped is now possible.
+- added a README
+
+  Xml Light is a minimal Xml parser & printer for OCaml.
+  It provide few functions to parse a basic Xml document into
+  an OCaml data structure and to print back the data structures
+  to an Xml document.
+
+Update available at http://tech.motion-twin.com/xmllight
+
+==============================================================================
+11) OCaml Standards Document
+------------------------------------------------------------------------------
+Xavier Leroy answered a question:
+
+> While trying to learn functional programming using OCaml, I
+> came across the following question: does OCaml have a
+> defined standard (formal or informal; such as ANSI/ISO C++
+> or RnRS Scheme).
+
+Not really.  Chapter 6 of the reference manual ("The Objective Caml
+language") was written with the intent of defining the OCaml language
+and not just its current implementation, following the model of the RnRS.
+This is apparent, for instance, in the fact that it explicitly says
+that the evaluation order for some constructs is unspecified in the
+language, while the implementation imposes a particular evaluation
+order.
+
+Still, chapter 6 is still a long way (in term of precision and ability
+to reimplement the language from scratch) from a good informal
+standard like RnRS.  Moreover, many users seem to find it more useful
+for the documentation to describe the actual implementation in as much
+details as possible, rather than an hypothetical "standardized"
+subset...
+
+==============================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------------
+Here is a quick trick to help you read this cwn if you are viewing it using
+vim (at least version 6).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+
+If you know of a better way, please let me know.
+
+==============================================================================
+Old cwn
+------------------------------------------------------------------------------
+
+If you happen to miss a cwn, you can send me a message
+(alan.schmitt@inria.fr) and I'll mail it to you, or go take a look at
+the archive (http://pauillac.inria.fr/~aschmitt/cwn/). If you also wish
+to receive it every week by mail, just tell me so.
+
+==============================================================================
+
+Alan Schmitt

@@ -1,0 +1,456 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2007.10.02.html">Previous week</a> <a href="index.html">Up</a> <a href="2007.10.16.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of October 02 to 09, 2007.</p><ol><li><a href="#1">Weaktbl: a weak hash table library</a></li><li><a href="#2">Announcing The Decision Procedure Toolkit Version 1.1</a></li><li><a href="#3">Job Announcement</a></li><li><a href="#4">Smoke 2.01 for OCaml 3.09</a></li><li><a href="#5">camlp4: Parsing and transforming class definitions</a></li><li><a href="#6">camlp4: Understanding class_declaration</a></li><li><a href="#7">Wink Technologies release OCaml libraries</a></li><li><a href="#8">camlp4: Creating my own quasiquotations</a></li><li><a href="#9">Camlp5 new release 5.01</a></li><li><a href="#10">camlp4: Where's Loc?</a></li><li><a href="#11">Pretty-printing the OCaml AST from the toplevel</a></li><li><a href="#12">Correct way of programming a CGI script</a></li></ol><a name="1" /><hr /><h3>Weaktbl: a weak hash table library</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_frm/thread/64e3bd4ff4ad7699/966777a90a9da8b6#966777a90a9da8b6">http://groups.google.com/group/fa.caml/browse_frm/thread/64e3bd4ff4ad7699/966777a90a9da8b6#966777a90a9da8b6</a></p><i>Zheng Li announced:</i><br /><pre>
+Follow some advices, I updated Weaktbl to version 0.02. Notable improvements 
+include: 
+
+ - the implementation is improved based on the clarified semantics 
+ - a new weak stack implementation is used internally (I'm not sure whether 
+   it's useful to others so I decide not to expose it through interface) 
+ - add new sections to README 
+
+The interface remains the same. Anyone has downloaded the previous version is 
+strongly suggested to upgrade. Btw, the code is released under LGPL + linking 
+exception. 
+
+Here are the extra sections from the README: 
+------------------------------------------- 
+
+..... 
+
+== Semantics == 
+
+Weaktbl have all the same semantics as standard Hashtbl, with the only 
+exception: a binding will be automatically garbage collected, if *its key* is 
+no longer referenced by (hence unreachable from) the rest part your program. 
+Note that 
+
+ - Here, "its key" indicates the exact (physical) key with which the binding 
+   was added, not any other keys of its equivalent class even if they may 
+   (or may not) be structurally equivalent to this key. 
+ - You may use noncollectable values as keys (such as int), but they won't be 
+   collected by the Weaktbl (this is the same convention all weak data 
+   structures follow). Since the keys won't be collected, according to our 
+   principle -- key's aliveness decide its' binding's aliveness, the bindings 
+   won't be collected too. You're actually using Weaktbl as a persistent 
+   Hashtbl, but that's still not too bad. 
+
+Finally, the polymorphic hash interface of Weaktbl takes ''equal x y = (compare 
+x y) = 0'' and ''hash = Hashtbl.hash'' as the default setting, the same as the 
+polymorphic interface of standard Hashtbl. 
+
+== Application == 
+
+Weaktbl is useful for many kinds of applications, where standard Hashtbl's 
+persistent storage prevents the necessity of automatic garbage 
+collection. We'll illustrate this with a few typical examples: 
+
+=== Dict cache === 
+
+Hash table is typically used for quick dictionary lookup. Suppose you're working 
+with a huge data set and key-&gt;value lookup is the most frequent operations. To 
+have all the data into a hash table in memory is out of consideration; but to 
+have everything external is way too expensive (e.g. looking up in a large file 
+or querying from a external database each time). Fortunately, you can work on 
+one small part of the data set at a time, and the range of this small part 
+evolving gradually, i.e. some data coming into the range of vision, others 
+going out of scope. A typical working mechanics can be written as 
+
+  let query key = 
+    try lookup $key in $hashtable (* quick *) 
+    with Not_found -&gt; 
+      let value = lookup $key in $external_storage in (* slow *) 
+      add $key $value to $hashtable; (* we may query it quite often recently *) 
+      value 
+
+You'll soon find the problem -- $hashtable here will growing forever! The 
+situation is, with the evolving of working range, some keys are out of reach 
+and should be collected by the GC, so should the bindings related to them. 
+However due to the Hashtbl's persistence, this won't happen. First, the key 
+itself is persistently referenced by Hashtbl, it wouldn't likely to be GCed, 
+not mention the bindings. For a weak hash table, this is not a problem: 
+keys themselves are *weakly* referenced by the table, besides when a key is 
+forgotten (GCed) by your program, its binding(s) will be forgotten (GCed) by 
+the table too [*]. 
+
+=== User-level GC === 
+
+Suppose you are working on graph-like data structure. Each node is represented 
+as a id -&gt; {links: id list; info: huge_data} bindings in a hash table, where 
+the links is all the nodes directly reachable from node id, and the info is 
+large blocks of information affiliated to the node id. The graph structure 
+keeps evolving over time, i.e. new nodes being added, new links being 
+established, old links being broken and old nodes being dropped etc. So far 
+it's just normal. Image you break a link, i.e. remove some $id_b from the links 
+field of $id_a, it's possible this is the only bridge between the sub-graph 
+$id_b is located and the outside world, besides there's no active id directly 
+points to this sub-graph. In short, the sub-graph is disconnected, obsoleted 
+and unreachable. Because the graph data structure keeps evolving, it's very 
+important to GC those unreachable parts. How this is done with a standard 
+Hashtbl? Whenever we break a line $id_a -&gt; $id_b, we check all the nodes' links 
+field to see whether this is the last link to $id_b. If so, we first remove 
+$id_b, break each outward link of $id_b and recursively check whether these 
+broken links produce more unreachable nodes... With weak hash table, you do 
+nothing. When the last link to a sub-graph is broken, it simply means the 
+sub-graph is no longer referenced by the rest program, so it's GCed 
+automatically.
+			</pre><a name="2" /><hr /><h3>Announcing The Decision Procedure Toolkit Version 1.1</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_frm/thread/2f4fb90022cf8374/efa073fe7ddd67ad#efa073fe7ddd67ad">http://groups.google.com/group/fa.caml/browse_frm/thread/2f4fb90022cf8374/efa073fe7ddd67ad#efa073fe7ddd67ad</a></p><i>Amit Goel, Jim Grundy and Sava Krstic announced:</i><br /><pre>
+We are pleased to announce the open source availability of the 
+Decision Procedure Toolkit (DPT).  DPT is a modern SMT solver.  This 
+release provides a MiniSAT-like DPLL solver, a DPLL(T) style theory 
+combination mechanism, and a solver for the theory of Uninterpreted 
+Functions (EUF).  The next release will add a linear arithmetic solver 
+and a cooperation mechanism for more than one theory. 
+
+DPT is an open source project licensed under the Apache 2.0 license. 
+You can download DPT from sourceforge: 
+
+<a href="http://sourceforge.net/projects/dpt">http://sourceforge.net/projects/dpt</a> 
+
+DPT is intended to serve as a platform for experiments in SMT solvers 
+and their applications.  Subsequent releases will include features 
+like model generation, proof production and interpolants.  We also 
+expect to support parametric theories and the HOL logic. 
+
+The DPT design philosophy emphasizes flexible interfaces and 
+transparent implementation over raw speed.  DPT is implemented in 
+OCaml.  These decisions not withstanding, speed is good, and so we 
+have made a reasonable effort to ensure DPT is fast. 
+
+Further announcements about DPT will be made on the dpt-announce mailing 
+list.  You can subscribe to the list via the project web site.
+			</pre><i>Jim Grundy later added:</i><br /><pre>
+DPLL = The Davis-Putnam-Logemann-Loveland backtracking algorithm for 
+deciding the satisfiability of propositional logic formulae.  Modern SAT 
+solvers (mini-SAT, chaff, etc) use cunning variants of DPLL - as does DPT. 
+
+DPLL(T) is an algorithm that combines a DPLL solver with a solver for 
+some theory to yield a combined solver.  In the case of DPT, we have 
+included a EUF solver.  EUF is the theory of equality of uninterpreted 
+functions.    You can pose DPT problems propositional problems with the 
+atoms are propositional variables or equations between variables and 
+(uninterpreted) function applications. 
+
+DPT is completely implemented in OCaml - even the DPLL solver, and yet 
+we get good (read seemingly competitive) from the tool.
+			</pre><i>Denis Bueno asked and Jim Grundy answered:</i><br /><pre>
+&gt; Have you benchmarked against Minisat?  Is DPT a re-implementation of 
+&gt; the Minisat paper using OCaml, or is simply a solver in the DPLL 
+&gt; framework as opposed to a solver aiming to mimic Minisat?
+
+We have benchmarked against MiniSAT - at little. 
+Naturally MiniSAT is faster.  For problems that combine SAT reasoning 
+with theory reasoning then the extra SAT performance doesn't all get 
+translated into extra combined theory solving performance - hence our 
+overall performance is not too shabby. 
+
+Our SAT solver is very much MiniSAT like, but with some extra features 
+and a more open API to better facilitate it's use in a collaborative 
+solving tool.  The code is very cleanly written (IMHO), commented, and 
+heavy with assertions. It may serve as a good starting place for someone 
+wishing to learn about how MiniSAT like algorithms work. 
+
+Our SAT performance - on a few selected benchmarks we have tried - is 
+about 1/2 - 1/3 of MiniSAT.  If you start playing with the garbage 
+collection tuning, which we have yet to experiment much with, you seem 
+to be able to get better than 1/3. 
+			</pre><a name="3" /><hr /><h3>Job Announcement</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_frm/thread/eeb092296dc09468/b088e1f1c3db1b45#b088e1f1c3db1b45">http://groups.google.com/group/fa.caml/browse_frm/thread/eeb092296dc09468/b088e1f1c3db1b45#b088e1f1c3db1b45</a></p><i>Yaron Minsky announced:</i><br /><pre>
+I apologize for boring long-time subscribes to this list, but I would 
+like to mention yet again that Jane Street is hiring OCaml programmers. 
+Over the last few years we have built up a team of more than 20 
+functional programmers, and we're looking to hire more.   
+
+A couple of notes: 
+
+  * We have offices in London, New York and Tokyo.  We are especially 
+    eager to hire OCaml developers into the Tokyo office. 
+  * We are particularly interested in developers who have experience in 
+    systems administration and design. 
+
+Here's a quick summary of what Jane Street is all about: 
+
+------------------------------------------------- 
+
+Jane Street is a trading firm that brings a deep understanding of 
+trading, a scientific approach, and innovative technology to bear on the 
+problem of trading profitably on the world's highly-competitive 
+financial markets.  We run a small, nimble operation where technology 
+and trading are tightly integrated. 
+
+At Jane Street, there is room to get deeply involved in a number of 
+areas at the same time. We are actively looking for people interested in 
+software development, system administration, and quantitative 
+research--potentially all on the same day. 
+
+The ideal candidate has: 
+
+    * A commitment to the practical. One of the big attractions of our 
+      work is the opportunity to apply serious ideas to real-world 
+      problems. 
+    * Experience with functional programming languages (OCaml, SML, 
+      Scheme, Haskell, Lisp, F#, Erlang, etc) is important. Applicants 
+      should also have experience with UNIX and a strong understanding 
+      of computers and technology. 
+    * Good second-order knowledge. In trading, understanding the 
+      boundary between what you do and don't know is as (or more) 
+      important than how much you know. 
+    * If you're interested in research, a strong mathematical background 
+      is a must. This includes a good understanding of probability and 
+      statistics, calculus, algorithms, etc. We draw on ideas from 
+      everywhere we can, so we value interest and experience in a range 
+      of scientific fields. 
+
+The environment at Jane Street is open, informal, intellectual, and 
+fun. You can wear a t-shirt and jeans to the office every day, the 
+kitchen is stocked, and discussions are always lively. We encourage a 
+focus on learning, both through formal seminars and classes, as well as 
+through day-to-day conversations with colleagues. Other perks include 
+competitive salaries, rapid advancement for people who do well, 
+excellent benefits, free lunch, and a gym on-site (the last is NY only). 
+
+If you are interested, send an application to Yaron Minsky 
+(yminsky@janestcapital.com) including a resume, cover letter, and 
+optionally some sample code you've written. 
+
+If you'd like to know a little bit more about how we came to use OCaml 
+as our primary development language, take a look at these slides from a 
+talk we gave at CUFP 2006 and the article I wrote for the Monad Reader. 
+
+   <a href="http://www.galois.com/cufp/slides/2006/YaronMinsky.pdf">http://www.galois.com/cufp/slides/2006/YaronMinsky.pdf</a> 
+   <a href="http://www.haskell.org/sitewiki/images/0/03/TMR-Issue7.pdf">http://www.haskell.org/sitewiki/images/0/03/TMR-Issue7.pdf</a>
+			</pre><a name="4" /><hr /><h3>Smoke 2.01 for OCaml 3.09</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_frm/thread/d65f3d2996672557/403fbcceb25331f0#403fbcceb25331f0">http://groups.google.com/group/fa.caml/browse_frm/thread/d65f3d2996672557/403fbcceb25331f0#403fbcceb25331f0</a></p><i>Jon Harrop announced:</i><br /><pre>
+Matthieu Dubuget kindly pointed out that our previous upload of the free 
+edition of Smoke for OCaml 3.09 still had the erroneous requirement upon our 
+internal stdlib2 library. 
+
+As around a third of the downloads are still for 3.09, we've removed this 
+dependency so you can still use Smoke without upgrading to 3.10: 
+
+  <a href="http://www.ffconsultancy.com/products/smoke_vector_graphics/free.html">http://www.ffconsultancy.com/products/smoke_vector_graphics/free.html</a> 
+
+If you're interested in buying add-ons or a commercial license for Smoke, 
+please e-mail me or register your interest on-line: 
+
+  <a href="http://www.ffconsultancy.com/products/smoke_vector_graphics/register.html">http://www.ffconsultancy.com/products/smoke_vector_graphics/register.html</a>
+			</pre><a name="5" /><hr /><h3>camlp4: Parsing and transforming class definitions</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_frm/thread/cc23ede409e2066f/8f851b20eced21d8#8f851b20eced21d8">http://groups.google.com/group/fa.caml/browse_frm/thread/cc23ede409e2066f/8f851b20eced21d8#8f851b20eced21d8</a></p><i>Joel Reymont asked and Martin Jambon answered:</i><br /><pre>
+&gt; I would like to use camlp4 to parse OCaml class definitions and transform the 
+&gt; code if the class inherits from a given one. Are there any OCaml extensions 
+&gt; that manipulate classes? 
+
+See Jacques Garrigue's pa_oo extension. I think Nicolas made a port to 
+camlp4 3.10. 
+<a href="http://www.math.nagoya-u.ac.jp/~garrigue/code/pa_oo.ml">http://www.math.nagoya-u.ac.jp/~garrigue/code/pa_oo.ml</a>
+			</pre><i>Nicolas Pouillard later added:</i><br /><pre>
+No it's not part of the distribution (but I think it should).
+			</pre><a name="6" /><hr /><h3>camlp4: Understanding class_declaration</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_frm/thread/74eadb9d34f722c4/e7fd90720e221125#e7fd90720e221125">http://groups.google.com/group/fa.caml/browse_frm/thread/74eadb9d34f722c4/e7fd90720e221125#e7fd90720e221125</a></p><i>Joel Reymont asked and Nicolas Pouillard answered:</i><br /><pre>
+&gt; Would someone kindly explain LEFTA, SELF, ANTIQUOT and QUOTATION below? 
+
+The main page about camlp4 extensible grammars/parsers is: 
+  <a href="http://brion.inria.fr/gallium/index.php/Extensible_Parser">http://brion.inria.fr/gallium/index.php/Extensible_Parser</a> 
+The syntax of grammars is given in: 
+  <a href="http://brion.inria.fr/gallium/index.php/EXTEND">http://brion.inria.fr/gallium/index.php/EXTEND</a> 
+
+* LEFTA is left associative (its the default). 
+* SELF  refers  to  the  current  rule  (class_declaration here), in most common 
+cases SELF does what you want. 
+
+ANTIQUOT  and  QUOTATION  are  token  types  like STRING, INT... The backquote 
+syntax  mark  the  begining  of an OCaml pattern. So ANTIQUOT is a constructor 
+(the  token  type [1]). The lexical syntax of an antiquotation is "$name:...$" 
+or  "$...$",  it  use  in  order to treat quotations [2] such as 
+  &lt;:class_expr&lt; myclass = object method m = $e$ end &gt;&gt; 
+where `e' should better be an expression (Ast.expr). 
+
+[1]: <a href="http://brion.inria.fr/gallium/index.php/Generic_Token_Type">http://brion.inria.fr/gallium/index.php/Generic_Token_Type</a> 
+[2]: <a href="http://brion.inria.fr/gallium/index.php/Quotation">http://brion.inria.fr/gallium/index.php/Quotation</a> 
+
+&gt;     class_declaration: 
+&gt;        [ LEFTA 
+&gt;          [ c1 = SELF; "and"; c2 = SELF -&gt; 
+&gt;              &lt;:class_expr&lt; $c1$ and $c2$ &gt;&gt; 
+&gt;          | `ANTIQUOT (""|"cdcl"|"anti"|"list" as n) s -&gt; 
+&gt;              &lt;:class_expr&lt; $anti:mk_anti ~c:"class_expr" n s$ &gt;&gt; 
+&gt;          | `QUOTATION x -&gt; Quotation.expand _loc x   
+&gt; Quotation.DynAst.class_expr_tag 
+&gt;          | ci = class_info_for_class_expr; ce = class_fun_binding -&gt; 
+&gt;              &lt;:class_expr&lt; $ci$ = $ce$ &gt;&gt; 
+&gt;        ] ] 
+&gt;
+&gt; It seems they are variants but that's about as much as I understand.   
+&gt; What are the "cdcl", "anti" or "list", for example? Why are they   
+&gt; strings? 
+
+They  are  antiquotations  names  so  you  can  write  (don't pay attention to 
+"anti") &lt;:class_expr&lt; $cdcl:x$ and $list:xs$ &gt;&gt;. 
+
+&gt; And why is `QUOTATION x expanded into Quotation.expand _loc x   
+&gt; Quotation.DynAst.class_expr_tag? 
+
+When  you  see  &lt;:class_expr&lt;...&gt;&gt;  you  give  "..." to the quotation expander 
+manager  that  will call the registered expanding function (the class_expr_tag 
+is too indicate the requested type).
+			</pre><a name="7" /><hr /><h3>Wink Technologies release OCaml libraries</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_frm/thread/7bd2ae0a9415340d/1db1cb3ce338a9e2#1db1cb3ce338a9e2">http://groups.google.com/group/fa.caml/browse_frm/thread/7bd2ae0a9415340d/1db1cb3ce338a9e2#1db1cb3ce338a9e2</a></p><i>Gerd Stolpmann announced:</i><br /><pre>
+I'm proud to report that we've won another company supporting OCaml, 
+nameley Wink Technologies, in Los Altos, California (<a href="http://wink.com">http://wink.com</a>). 
+They developed a people search engine that lets you find people in the web 
+(it is online, check it out), and a substantial part of it is written in 
+OCaml. Although Wink is still tiny in comparison with its competitors this 
+is nevertheless an important investment into into our beloved language. 
+
+As a commitment to OCaml Wink releases two libraries as open source: 
+"Files" is a batch-oriented persistent key/value container, and "Netdns" 
+is a DNS stub resolver that is capable of doing asynchronous name 
+resolutions. You find these libraries at <a href="http://oss.wink.com">http://oss.wink.com</a>. Please note 
+that the packing is not yet optimal, and more polishing will be done soon. 
+But the best is: there is really exciting stuff in the queue of the to be 
+released code, especially for distributed computing.
+			</pre><a name="8" /><hr /><h3>camlp4: Creating my own quasiquotations</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_frm/thread/aaeeeb19ede6e677/fcf006a1f8a25c2a#fcf006a1f8a25c2a">http://groups.google.com/group/fa.caml/browse_frm/thread/aaeeeb19ede6e677/fcf006a1f8a25c2a#fcf006a1f8a25c2a</a></p><i>Joel Reymont asked, Pietro Abate suggested, and Nicolas Pouillard said:</i><br /><pre>
+&gt; &gt; The "One-day compiler" presentation [1] mentions creating your own   
+&gt; &gt; quasiquoations, &lt;:cstmt&lt; ... &gt;&gt; in that particular case. The   
+&gt; &gt; presentation does not explain how this is accomplished, though. Are   
+&gt; &gt; there examples? 
+&gt; &gt;     Thanks, Joel 
+&gt; &gt; [1] <a href="http://www.venge.net/graydon/talks/mkc/html/index.html">http://www.venge.net/graydon/talks/mkc/html/index.html</a>
+&gt;
+&gt; maybe you can find something here: 
+&gt; <a href="http://www.venge.net/graydon/cgi-bin/viewcvs.cgi/src/mkc/">http://www.venge.net/graydon/cgi-bin/viewcvs.cgi/src/mkc/</a> 
+
+Here is some pointers about that subjects: 
+
+The camlp4 wiki: <a href="http://brion.inria.fr/gallium/index.php/Camlp4">http://brion.inria.fr/gallium/index.php/Camlp4</a> 
+
+About quotations: <a href="http://brion.inria.fr/gallium/index.php/Quotation">http://brion.inria.fr/gallium/index.php/Quotation</a> 
+
+A small but complete example of a new quotation expander: 
+  <a href="http://brion.inria.fr/gallium/index.php/Lambda_calculus_quotations">http://brion.inria.fr/gallium/index.php/Lambda_calculus_quotations</a> 
+			</pre><a name="9" /><hr /><h3>Camlp5 new release 5.01</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_frm/thread/3f49d366dd2960ff/3d8a7867acc7cb13#3d8a7867acc7cb13">http://groups.google.com/group/fa.caml/browse_frm/thread/3f49d366dd2960ff/3d8a7867acc7cb13#3d8a7867acc7cb13</a></p><i>Daniel de Rauglaudre announced:</i><br /><pre>
+New release of Camlp5: 5.01 
+
+Fixed two major bugs: 
+ * in grammars, there was parsing confusion when using entries with 
+   qualified names with the same final name (e.g. A.foo, B.foo), 
+   resulting wrong parse errors =&gt; fixed 
+ * the syntax "a, b as c, d" (in pattern in normal syntax) did not 
+   work any more =&gt; fixed 
+
+New features: 
+ * added library module Diff to compare two arrays, implemented with 
+   the same algorithm than the Unix 'diff' command 
+ * added flag 'E' in pretty print normal and revised syntax to allow 
+   equilibrated display in match cases, if statement, and cases in parsers 
+   and grammars (equilibrated = if one case needs a newline, all cases 
+   are printed with newlines also) 
+
+A new version of the pretty printer in Scheme syntax is in preparation. 
+Some changes in the parser in Scheme syntax still exist in this version. 
+
+Details in file CHANGES in the distribution and in the site. 
+
+Download the sources and the documentation at: 
+   <a href="http://pauillac.inria.fr/~ddr/camlp5/">http://pauillac.inria.fr/~ddr/camlp5/</a>
+			</pre><a name="10" /><hr /><h3>camlp4: Where's Loc?</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_frm/thread/f873ec31a67e06bb/ac2f6c54d291d4c1#ac2f6c54d291d4c1">http://groups.google.com/group/fa.caml/browse_frm/thread/f873ec31a67e06bb/ac2f6c54d291d4c1#ac2f6c54d291d4c1</a></p><i>Nathaniel Gray asked and Nicolas Pouillard answered:</i><br /><pre>
+&gt; I'm trying to figure out how to use the Camlp4MacroParser extension 
+&gt; but I can't seem to find the Loc module it requires: 
+
+Log is exposed to the user in Camlp4.PreCast, so: 
+
+open Camlp4.PreCast;; 
+
+&gt; macro.ml: 
+&gt; """ 
+&gt; open Camlp4.Sig 
+&gt; let here = __LOCATION__ 
+&gt; """ 
+&gt;
+&gt; Build command: 
+&gt; ocamlc -I +camlp4 -pp "camlp4o -parser Camlp4MacroParser" 
+&gt; camlp4lib.cma -o macro macro.ml 
+&gt;
+&gt; Result: 
+&gt; File "macro.ml", line 2, characters 11-23: 
+&gt; Unbound value Loc.of_tuple 
+&gt;
+&gt; According to the documentation the Loc module's supposed to be in 
+&gt; Camlp4.Sig.  Any clues? 
+
+In sig there is the Loc module type.
+			</pre><a name="11" /><hr /><h3>Pretty-printing the OCaml AST from the toplevel</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_frm/thread/1633bf5b4de0ba71/cdf43fb2df35549f#cdf43fb2df35549f">http://groups.google.com/group/fa.caml/browse_frm/thread/1633bf5b4de0ba71/cdf43fb2df35549f#cdf43fb2df35549f</a></p><i>Joel Reymont asked and Nicolas Pouillard answered:</i><br /><pre>
+&gt; Are there any examples of pretty-printing the OCaml AST from the   
+&gt; toplevel? 
+
+$ rlwrap ocaml camlp4of.cma 
+open Camlp4.PreCast;; 
+module PP = Camlp4.Printers.OCaml.Make(Syntax);; 
+let pp = new PP.printer ();; 
+let ghost = Loc.ghost;; 
+module PP = Camlp4.Printers.OCaml.Make(Syntax);; 
+Format.eprintf "%a@." pp#expr &lt;:expr@ghost&lt; 3 + 4 &gt;&gt;;; 
+
+&gt; I'm looking to use this during interactive debugging. 
+&gt;
+&gt; I see the following example in the camlp4 changes doc 
+&gt;
+&gt; camlp4 -parser OCaml -printer OCamlr foo.ml 
+&gt;
+&gt; but I'm still browsing through Camlp4.ml to figure out what that does   
+&gt; exactly. 
+
+Camlp4.ml  is  a  generated file. It's perhaps not the best way to read camlp4 
+sources.
+			</pre><a name="12" /><hr /><h3>Correct way of programming a CGI script</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_frm/thread/22eb15a131b77391/e24c44c737b60a37#e24c44c737b60a37">http://groups.google.com/group/fa.caml/browse_frm/thread/22eb15a131b77391/e24c44c737b60a37#e24c44c737b60a37</a></p><i>Tom asked:</i><br /><pre>
+Hi! I am in a process of making a website (which might receive substantial 
+amounts of traffic), and am considering options for the backend. I discarded 
+PHP and other similar server-side scripting languages, due to performance 
+problems (I suspect that PHP and similar could not scale well, unless I 
+implemented complex caching techniques). I plan to use OCaml to generate 
+static .html documents from the content from the database. Since the content 
+will probably change not as often as it will be accessed, I believe this is 
+the better way (as opposed to accessing the database every time a user wants 
+to load the page).
+
+So, OCaml programs will only be run seldomly to access the database and 
+generate HTML files, using the data fetched from the DB. However, I am still 
+worried whether this would cause too much performance impact.
+			</pre><i>Dario Teixeira answered:</i><br /><pre>
+I suggest you take a look at Ocsigen (<a href="http://www.ocsigen.org/">http://www.ocsigen.org/</a>).  It's 
+a fully-featured web server written in OCaml, that not only supports 
+static pages and traditional CGI programming, but also has a module 
+called Eliom that allows you to build dynamic websites using all the 
+best features of the OCaml language. 
+
+As for performance, the bottleneck will surely be the database backend. 
+Even when generating dynamic pages with Eliom, Ocsigen can easily output 
+close to a hundred pages per second on a decent machine.  (And of course 
+it's even faster with static content!)
+			</pre><i>Gerd Stolpmann also answered:</i><br /><pre>
+Have a look at ocamlnet (<a href="http://ocamlnet.sf.net">http://ocamlnet.sf.net</a>). It has plenty of ways of 
+building web apps. For example, you can easily run your own HTTP server 
+in a multi-processing or multi-threading setup. Or you can connect your 
+web app with Apache by using fastcgi or a few other available protocols. 
+All this is pretty much scalable. 
+
+There is no support for generating HTML, however. 
+
+An example for a stand-alone webserver (it is accompanied only by a 
+config file): 
+
+<a href="https://godirepo.camlcity.org/wwwsvn/trunk/code/examples/nethttpd/netplex.ml?rev=1122&amp;root=lib-ocamlnet2&amp;view=auto">https://godirepo.camlcity.org/wwwsvn/trunk/code/examples/nethttpd/netplex.ml?rev=1122&amp;root=lib-ocamlnet2&amp;view=auto</a>
+
+Here is the same for the "connect to Apache" approach: 
+
+<a href="https://godirepo.camlcity.org/wwwsvn/trunk/code/examples/cgi/netcgi2-plex/?root=lib-ocamlnet2">https://godirepo.camlcity.org/wwwsvn/trunk/code/examples/cgi/netcgi2-plex/?root=lib-ocamlnet2</a>
+
+In either way, it is possible to keep the connection to the db in case 
+you need it for generating the page.
+			</pre><hr /><h3>Using folding to read the cwn in vim 6+</h3><p>Here is a quick trick to help you read this CWN if you are viewing it using vim (version 6 or greater).</p><pre>:set foldmethod=expr<br />:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'&amp;lt;1':1<br />zM</pre><p>If you know of a better way, please let me know.</p><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

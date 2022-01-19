@@ -1,0 +1,244 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of April 28 to May 05, 2009.
+
+1) OCaml on iPhone
+2) EPTCS launch
+3) Other Caml News
+
+========================================================================
+1) OCaml on iPhone
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/0e411d2051ead4b4#>
+------------------------------------------------------------------------
+** Continuing a related thread, Nathaniel Gray asked and Jeff Scofield said:
+
+> Speaking of which, has anybody built an ocaml cross compiler for the
+> iphone that can work with native cocoa touch apps built with the
+> official SDK?  It's probably too late for my current project but in
+> the future I'd love to use ocaml for my iPhone projects.  I tried
+> following the instructions here[1] with some necessary
+> modifications[2] to get the assembler to work but my test app crashed
+> as soon as it entered ocaml code.  I don't know enough about the ARM
+> platform to say why.
+
+Yes, we have OCaml 3.10.2 cross compiling for iPhone OS 2.2.
+
+We started from the instructions you mention:
+
+> [1] <http://web.yl.is.s.u-tokyo.ac.jp/~tosh/ocaml-on-iphone/>
+
+We made the same change to the .global pseudo-ops:
+
+> [2] I had to change all '.global' to '.globl' in arm.s and
+> arm/emit.mlp.  I have no idea what that signifies.
+
+(These are just variant spellings of the same pseudo-op
+for declaring a global symbol.  For whatever reason, the
+Apple assembler seems to insist on .globl.  Other
+incarnations of gas seem to allow either spelling.)
+
+There are at least two more problems, however.  Presumably
+this is due to differences between the iPhone ABI and the one that
+the ARM port (the old one I guess you could say) is targeted for.
+
+1.  arm.S uses r10 as a scratch register, but it is not a scratch
+   register on iPhone.  It has to be saved/restored when passing
+   between OCaml and the native iPhone code (I think of it as
+   ObjC code).  Note, by the way, that gdb shows r10 by the
+  alternate name of sl.  This is confusing at first.
+
+2. arm.S assumes r9 can be used as a general purpose register,
+   but it is used on the iPhone to hold a global thread context.
+  Again, it has to be saved/restored (or at least that's what we
+  decided to do).
+
+We saw crashes caused by both of these problems.
+
+I'm appending a new version of arm.S that works for us with
+one OCaml thread.  (Multiple threads will almost certainly
+require more careful handling of r9.)  It has the patches
+from Toshiyuki Maeda mentioned above and a few of our
+own to fix these two problems.
+
+We have an application that has been working well for
+a couple months, so there's some evidence that these
+changes are sufficient.
+
+We also made a small fix to the ARM code generator
+(beyond the patches from Toshiyuki Maeda).  In essence,
+it fixes up the handling of unboxed floating return
+values of external functions.  Things mostly work without
+this change; I'll save a description for a later post (if
+anybody is interested).
+
+(Editor note: see the archive link for the arm.S code.)
+			
+** Nathaniel Gray then asked and Jeff Scofield replied:
+
+> Awesome, but now I'm confused because the arm.S you included
+> has lots of .global pseudo-ops.  Do you not compile it with
+> Apple's as?
+
+At around line 36, you'll see:
+
+ #define global globl
+
+As I said in private mail, you could call this a hack, but it's a
+way to avoid making lots of small changes everywhere in the file.
+
+> What's your app?
+
+We're working on a collection of card games for casual play.
+
+> How are you managing the interface between Cocoa and OCaml?
+
+This is a big topic.  The summary is that we model Cocoa objects
+as OCaml objects.  We have a layer that wraps OCaml objects in
+smallish ObjC objects for use on the ObjC side, and wraps ObjC
+objects in smallish OCaml objects for use on the OCaml side.  The
+layer then translates between these representations as required
+for calls into iPhoneOS and Cocoa Touch from OCaml (asking for
+iPhone OS services) and into OCaml from iPhoneOS (for event
+handling).
+
+> > We also made a small fix to the ARM code generator
+> 
+> I am very interested in any and all information needed to get a
+> correct OCaml port suitable for use in App Store applications.
+> Please share!
+
+OK, I'll gather up our patch and send it to the list.  I want to
+separate out our changes from those of Toshiyuki Maeda [1].
+
+As I said, our patch fixes calls to external C float functions
+such as floor(), sin(), and so on.  There is special handling in
+ocamlopt to allow them to be unboxed, but the ABI of the existing
+ARM code generator doesn't match the iPhone ABI.
+
+Regards,
+
+Jeff Scofield
+Seattle
+
+[1] <http://web.yl.is.s.u-tokyo.ac.jp/~tosh/ocaml-on-iphone/>
+			
+========================================================================
+2) EPTCS launch
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/a309fd7489847c76#>
+------------------------------------------------------------------------
+** Rob van Glabbeek announced:
+
+With this email, we are launching
+
+   Electronic Proceedings in Theoretic Computer Science (EPTCS)
+
+a new international refereed open access venue for the rapid
+electronic publication of the proceedings of workshops and
+conferences, and of festschrifts, etc, in the general area of
+theoretical computer science, broadly construed.
+
+We do not charge authors or event organisers for electronic
+publication in EPTCS in any way. If hard-copies of proceedings are
+desired, event organisers have the choice of organising the printing
+themselves or taking advantage of a standard contract we will make
+with a printing house. Copyright on all papers is retained by the
+author, and full-text electronic access to all papers is freely
+available, without any need for registration or subscription.
+
+Permanent archival of EPTCS publications is ensured by organising
+EPTCS as an overlay of the Computing Research Repository (CoRR): see
+arXiv.org. The content of EPTCS will be indexed by DBLP.
+
+Only original papers will be considered for publication in EPTCS:
+manuscripts are accepted for review by an EPTCS conference or workshop
+with the understanding that the same work has not been published, nor
+is presently submitted, elsewhere. However, full versions of extended
+abstracts published in EPTCS, or substantial revisions, may later be
+published elsewhere.
+
+The submission and refereeing process is handled entirely by the
+organisation of the conference, workshop or festschrift to which the
+paper is submitted. Our editorial board carefully selects which
+workshops and conferences can be trusted to select scientific papers
+of quality only, and only those events will be granted a contract to
+fill a volume of EPTCS.
+
+Our editorial board consists of:
+
+Luca Aceto		Rob van Glabbeek	Gordon Plotkin
+Rajeev Alur		Lane A. Hemaspaandra	Vladimiro Sassone
+Krzysztof R. Apt	Matthew Hennessy	Robert H. Sloan
+Lars Arge		Bartek Klin		Wolfgang Thomas
+Ran Canetti 		Evangelos Kranakis	Irek Ulidowski
+Luca Cardelli		Shay Kutten		Dorothea Wagner
+Rocco De Nicola		Nancy Lynch		Martin Wirsing
+Jose' Luiz Fiadeiro	Aart Middeldorp		Moti Yung
+Wan Fokkink		Benjamin Pierce
+
+Further information can be found on our website:
+
+			  <http://eptcs.org/>.
+
+In the hope this initiative will benefit the theoretical computer
+science community,
+			
+========================================================================
+3) Other Caml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocamlcore.org/>.
+
+ocaml-text:
+  <http://forge.ocamlcore.org/projects/ocaml-text/>
+
+0.1.3 sources now in subversion: 
+  <http://forge.ocamlcore.org/forum/forum.php?forum_id=355>
+
+Sudoku in ocamljs, part 2: RPC over HTTP: 
+  <http://ambassadortothecomputers.blogspot.com/2009/05/sudoku-in-ocamljs-part-2-rpc-over-http.html>
+
+Bouncing Ball in OCaml with OCamlSDL: 
+  <http://blog.mestan.fr/2009/04/28/bouncing-ball-in-ocaml-with-ocamlsdl/>
+
+Sudoku in ocamljs, part 1: DOM programming: 
+  <http://ambassadortothecomputers.blogspot.com/2009/04/sudoku-in-ocamljs-part-1-dom.html>
+
+Using OCaml?s module functors to provide monadic contexts for Batteries: 
+  <http://blog.mestan.fr/2009/04/24/using-ocamls-module-functors-to-provide-monadic-contexts-for-batteries/>
+
+Lastfm no longer free as in free beer (and some bits about xml in OCaml): 
+  <http://blog.rastageeks.org/spip.php?article34>
+
+Last lecture: 
+  <http://dutherenverseauborddelatable.wordpress.com/2009/04/22/last-lecture/>
+
+Liquidsoap now supports AAC+ encoding.: 
+  <http://blog.rastageeks.org/spip.php?article33>
+			
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

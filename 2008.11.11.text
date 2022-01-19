@@ -1,0 +1,552 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of October 21 to November 11, 2008.
+
+1) ocamlbuild-ctools and symbiosis meta build engine
+2) camlish: a simple module for shell scripting in OCaml
+3) Mlpost 0.5
+4) Yacfe 0.2
+5) OCaml meeting 2009 in Grenoble
+6) camlp4
+7) OCaml-Java project: 1.1 release
+8) OCaml Batteries Included alpha 2
+
+========================================================================
+1) ocamlbuild-ctools and symbiosis meta build engine
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/07e378f754695eec#>
+------------------------------------------------------------------------
+** Mikkel Fahnøe Jørgensen announced:
+
+There is a tutorial online (and in the source) now and two examples in
+the source tree.
+
+<http://dvide.com/labs/symbiosis/tutorial/>
+<http://git.dvide.com/pub/symbiosis/tree/examples>
+
+The examples are created during the tutorial.
+
+The tutorial also creates a more complex setup with source control
+which is not possible include in the example tree due to the
+configuration involved.
+
+symbiosis v0.1.1 adds the tutorial and basic git and wget supported -
+both used in the tutorial.
+
+The three tools now have a home page:
+
+<http://dvide.com/labs/symbiosis/>
+<http://dvide.com/labs/ocamlbuild-ctools/>
+<http://dvide.com/labs/cppinclude/>
+
+or just
+
+<http://dvide.com/labs/>
+			
+========================================================================
+2) camlish: a simple module for shell scripting in OCaml
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/6e9aadc9409313a7#>
+------------------------------------------------------------------------
+** Zheng Li announced:
+
+I'd like to announce the availability of a small module for shell scripting:
+camlish.
+
+The project URL is: <http://zheng.li/projects/ocaml/camlish>, where you can
+get all the code and docs. A source repo is going to provide later.
+
+It's rather experimental, bug reports are always welcome.
+
+Have fun!
+
+
+FYI, the rest parts are directly copy&pasted from the README file:
+-----------------------------------------------------------------------
+
+
+===== Motivation =====
+
+I was thinking about using OCaml for shell scripting. I once looked at
+Cash, but quickly went away: I didn't really want to read 100+ pages of
+manual just for my little scripting purposes. Recently there came
+Caml-Shcaml, it also successfully stopped me from exploring any further
+with its ~700 APIs (Sure I believe learning a small portion of them can
+be enough to get me a quick start, but still...)
+
+I believe they are both excellent and full-fledged shell
+implementations, but they are really overkilled for me. Vanilla OCaml is
+already a full-functional language which I can do anything with, include
+scripting. What I want is just a little more convenience on this aspect,
+better with minimal learning cost, not to learn another "language".
+Otherwise I could just resort to plain ocaml because I'm lazy. Moreover,
+I don't want to patch my compiler source or use Camlp4 magic to have a
+more shell-like syntax: it's probably nice-looking but alien.
+
+
+==== Basics ====
+
+So I wrote camlish, a plain OCaml module to ease shell scripting in
+OCaml, especially for those thinking the same.
+
+Camlish follows simple principles:
+
+ * It deals with simple coordination and interaction with outside
+   commands and shells. It provides a very thin layer of glues to
+   ease that. That's all it does.
+
+ * OCaml itself has far better language features than any shell
+   script languages out there, so when camlish is used for scripting,
+   it encourages you to stay on the OCaml side as much as possible,
+   call external and push/pull the inputs/outputs back/forth as OCaml
+   values, and sometime resort to /bin/sh if necessary.
+
+==== Features ====
+
+Here are some features of camlish:
+
+ * Code base is small. The core is just 500+ loc, 30+ definitions
+   (except operator sugar).
+
+ * Interface is simple. It deals and only deals with the follows:
+
+   - command construction: wrap a string or a OCaml function to a
+     typed command
+
+     <code ocaml>
+     let c1 = cmd "seq 1 20"                    (* (unit, unit) cmd *)
+
+     let c2 = func (List.map float_of_int)
+                                      (* (int list, float list) cmd *)
+     </code>
+
+   - command redirection: redirect input/output/error to any files,
+     file descriptors and OCaml values, via plain record syntax. We
+     call all these direction adapters as "ports". Besides a number
+     of primitive ports, we can define and compose our own "ports"
+     for any data type.
+
+     <code ocaml>
+     let c3 = { c1 with pout = pout_lines }
+     	       	    	      		  (* (unit, string list) cmd *)
+     let c4 = { c2 with pin = int_of_string =| c2.pin }
+                                   (* (string list, float list) cmd *)
+     </code>
+
+   - command composition: pipeline(>>>), sequence (&&&) and
+     subshell(~$) and more.
+
+     <code ocaml>
+     let c5 = c3 >>> c4                    (* (unit, float list) cmd *)
+     let c6 = {(cmd "pwd" &&& cmd "date") with pout = pout_file "log"}
+                                                 (* (unit, unit) cmd *)
+     </code>
+
+   - command execution: input/return values according to command's
+     redirection. There are different execution schemes depending on
+     various factors (e.g. having input value or not, running in
+     background or not etc.)
+
+     <code ocaml>
+     !! c5                          (* get float list [1.; ...; 20.] *)
+     </code>
+
+     The example is made up for illustration. In practice you'd
+     instead write
+
+     <code ocaml>
+     !! { (cmd "seq 1 20") with pout = pout_lines |= float_of_string }
+     </code>
+
+     and commands without redirection look normal:
+
+     <code ocaml>
+     !! (cmd "ls -l" >>> cmd "wc -l")
+     !$ "ls -l | wc -l"                    (* resort to /bin/sh pipe *)
+     </code>
+
+     Here is an example collaborating commands and functions to count
+     the numbers x between 1 .. n where x mod 3 or 5 is 0.
+
+     <code ocaml>
+     let count n=
+       { (cmd "seq 1 %d" n) with pout = pout_lines }
+       >>= int_of_string
+       >>- List.filter (fun x -> x mod 3 = 0 || x mod 5 = 0)
+       >>> {( cmd "wc -l") with
+              pin = string_of_int =| pin_lines;
+              pout = pout_string |- int_of_string }
+                                        (* int -> (unit, int) cmd *)
+
+     !! (count 1000)                     (* return OCaml int: 466 *)
+     </code>
+
+     Please read the manual for more details.
+
+ * The interaction between external commands and OCaml values are
+   implemented asynchronously inside (but with a synchronous
+   interface). So it won't get stuck unnecessarily when dealing with
+   large chunk of input/output.
+
+   Moreover, a pair of stream ports are provided, so that you can
+   read/write "not fully available" or infinite string/data on
+   the borders of OCaml and commands. E.g.
+
+   <code ocaml>
+   let s = !!. { (cmd "yes") with pout = pout_stream "\n" }
+                                (* the endless output of "yes" is
+				    redirected to a stream value. *)
+
+   let _ = Stream.iter print_endline s     (* print infinite "y" *)
+   </code>
+
+ * It's tempting to use Camlp4 or to modify the compiler in order to
+   achieving terse shell-like syntax, but we choose not. Camlish is a
+   plain OCaml module.
+
+ * It's also tempting to implement simple versions of common unix
+   tools such as "ls" and "grep" as OCaml functions to achieve better
+   composability. We opt not for the core module and not for now.
+
+ * Camlish supports RC file written in OCaml, i.e. when you load
+   camlish module from toplevel or run customized toplevel with
+   Camlish embedded, it will try to read a file named ".camlishrc"
+   from the current working directory firstly and the home directory
+   of current user secondly. The RC file can be any plain ocaml file,
+   e.g.
+
+   <code ocaml>
+   open Camlish
+   open List
+   open Prelude
+   module A = Array
+   module S = String
+   module U = Unix
+   </code>
+
+ * When used interactively, camlish can additionally execute shell
+   commands directly. So we can now use the toplevel as a shell,
+   feeding it ocaml phrases and shell commands at the same time.
+
+   Here is a trace of record:
+
+   <code ocaml>
+   $ rlwrap camlish   (* Or rlwrap ocaml unix.cma camlish.cma *)
+
+          Objective Caml version 3.10.2
+
+   [1] ls -l | wc -l;;
+   53
+   - : unit = ()
+   [2] date;;
+   Sat Oct 25 12:06:51 CEST 2008
+   - : unit = ()
+   [3] let f x = x;;
+   val f : 'a -> 'a = <fun>
+   [4] f 100;;
+   - : int = 100
+   [5] for i in `seq 1 3`; do echo "Now: "$i; done;;;
+   Now: 1
+   Now: 2
+   Now: 3
+   - : unit = ()
+   [6] emacs -nw;;
+   </code>
+
+   In case there is some ambiguity, e.g. a OCaml value shadows a
+   command name, a ";;;" ending can be used to enforce it is a
+   command instead of OCaml toplevel phrase.
+
+
+Please refer to the manual for more details.
+			
+** Sylvain Le Gall then suggested:
+
+>    * It's also tempting to implement simple versions of common unix 
+>      tools such as "ls" and "grep" as OCaml functions to achieve better 
+>      composability. We opt not for the core module and not for now. 
+
+
+You should take a look at 
+<http://le-gall.net/sylvain+violaine/documentation/ocaml-fileutils/html/api/FileUtil.StrUtil.html>
+
+Where you already have a basic implementation for ls, find, touch, rm, 
+cp, du, cmp... These are pure OCaml functions, that you can call directly 
+from OCaml (not external call).
+			
+** Mikkel Fahnøe Jørgensen also replied, and Zheng Li said:
+
+> Great!, but bummer, I wrote one too last night....
+> <http://git.dvide.com/pub/ocaml-shell-utils/tree/>
+> <http://git.dvide.com/pub/ocaml-shell-utils/plain/README.txt>
+> Also looked at FileUtils and ShCaml, but wanted something light.
+> Anyway - it seems orthogonal to mine.
+> I don't do any pipeline processing, I just make it easy to cp, mv,
+> etc. using ocaml toplevel scripts as an alternative to install
+> scripts.
+
+I just had a visit to your project, and yes, I agree they are mostly
+orthogonal. Camlish only concentrates on the interaction, redirection,
+composition and coordination of _external_ commands, pushing/pulling the
+input/output as OCaml values. It doesn't, and probably won't, define
+functions as common shell commands by itself, which, I believe, are
+better left to other libraries.
+
+As a compensation, camlish allows one to execute shell commands directly
+from toplevel, if (s)he doesn't care about the interaction with OCaml
+world. So instead of writing
+
+ # !! cmd "ls -l";;
+
+which is plain OCaml function calling outside command "ls", one can
+simply write
+
+ # ls -l ;;
+
+which is a shell command, not a function named "ls". I myself am
+interested in using OCaml toplevel as a shell environment.
+
+Still, it's very nice to see others confronting similar problems and
+trying to solve them in different approaches.
+			
+========================================================================
+3) Mlpost 0.5
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/4996f39ea0f1f24c#>
+------------------------------------------------------------------------
+** Jean-Christophe Filliâtre announced:
+
+We are pleased to announce the first release of Mlpost, an Ocaml
+interface to MetaPost, a powerful software to draw pictures to be
+embedded in LaTeX documents.
+
+Mlpost is free software under LGPL license and is available at
+
+ <http://mlpost.lri.fr/>
+
+Some examples are available online (thanks to Martin Jambon's caml2html):
+
+ <http://mlpost.lri.fr/examples/>
+
+You can have a look at Mlpost's API online:
+
+ <http://mlpost.lri.fr/doc/Mlpost.html>
+
+Have fun with Mlpost,
+
+-- 
+the Mlpost authors,
+Romain Bardou, Johannes Kanig,
+Stéphane Lescuyer and Jean-Christophe Filliâtre
+			
+========================================================================
+4) Yacfe 0.2
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/4a53b23de0c6b65b#>
+------------------------------------------------------------------------
+** Yoann Padioleau announced:
+
+I am pleased to announce the first release of Yacfe, Yet Another C/C++
+Front-End, which is an OCaml API to write style-preserving source-to-source
+transformations such as refactorings on C or C++ source code.
+
+The goal of Yacfe is to parse the code as-is, and to represent it
+internally as-is. Yacfe thus maintain in the abstract syntax tree (AST)
+as much information as possible so that one can transform this AST and
+unparse it in a new file while preserving the coding style of the
+original file. Yacfe preserves the whitespaces, newlines, indentation,
+and comments from the original file, as well as the C preprocessor
+(cpp) macros and cpp directives. 
+
+Other source-to-source transformation tools such as CIL [1] do not
+preserve this coding style as they first call cpp on the original file
+and perform the transformation on the preprocessed file. The AST of
+Yacfe on the opposite contains explicit constructions representing cpp
+directives, macro definitions, or cpp idioms such as macro iterators
+as in 'list_for_each(i, x) { printf("%d", x); }'. "What You See In The
+Yacfe AST Is What Was Written". The Yacfe abstract syntax tree is thus
+in fact more a concrete syntax tree (cf parsing_c/ast_c.ml).
+
+
+Yacfe is free software under GPL license and is available at
+
+ <http://aryx.kicks-ass.org/~pad/software-yacfe.php>
+
+A simple example of the code of a style-preserving program transformation 
+using the Yacfe API is available here:
+
+ <http://aryx.kicks-ass.org/~pad/software/project-yacfe/simple_zero_to_null.ml.html>
+
+
+If you want to do fancy static analysis on C code, use CIL [1], it is
+better equiped for that task, more robust, more mature. If you want to
+do style-preserving source-to-source transformation, well, you may
+find Yacfe useful.
+
+[1] <http://manju.cs.berkeley.edu/cil/>
+
+
+PS: Yacfe was extracted from the code of the Coccinelle project 
+<http://www.emn.fr/x-info/coccinelle/> for Linux device drivers
+evolutions. Yacfe was supported mainly by money from l'Ecole des 
+Mines de Nantes as well as money from the University of Urbana-Champaign.
+			
+========================================================================
+5) OCaml meeting 2009 in Grenoble
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/16739881f2088f87#>
+------------------------------------------------------------------------
+** Sylvain Le Gall announced:
+
+For the second time, I am proud to invite all OCaml enthusiasts to join
+us at OCaml Meeting 2009 in Grenoble.
+
+This year event will be in Grenoble just after JFLA. We choose this
+location because a lot of OCaml enthusiasts will probably already been
+there and to avoid last year collision between the two events.
+
+As last year, participants are invited to give a talk on what they are
+doing with OCaml.
+
+The meeting will be partly sponsored by OCamlCore. Participation will be
+used for the lunch.
+
+Volunteer to help before/during the event can contact me directly.
+
+Further information:
+<http://wiki.cocan.org/events/europe/ocamlmeetinggrenoble2009>
+<http://jfla.inria.fr/2009>
+
+For people who need further information, you can contact either me or
+Alan Schmitt (see wiki.cocan.org for contact details).
+
+Hope to see a lot of you
+Regards
+Sylvain Le Gall on behalf of the OCaml Meeting organization team.
+			
+========================================================================
+6) camlp4
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/ba203e870f4367fc#>
+------------------------------------------------------------------------
+** Anastasia Gornostaeva asked and Richard Jones answered:
+
+> How can I learn modern Camlp4?
+
+With difficulty.  That's sad because it's very powerful.
+
+I would suggest starting with Martin's Jambon's tutorial.  Even though
+it refers to the "old" camlp4 / camlp5, it's still useful to
+understand the concepts:
+
+<http://martin.jambon.free.fr/extend-ocaml-syntax.html>
+
+Then take a look at Martin's example of what changed between the two
+versions:
+
+<http://martin.jambon.free.fr/examples/pa_json_static_3100beta.html>
+
+The camlp4 wiki has already been mentioned, and is very useful.  This
+is probably the most useful reference page of all:
+
+<http://brion.inria.fr/gallium/index.php/AST>
+
+Finally take a look at some real examples:
+
+<http://caml.inria.fr/cgi-bin/hump.en.cgi?sort=0&browse=92>
+			
+** Jon Harrop also replied:
+
+The new Camlp4 is not yet fully documented. The official documentation is on a 
+wiki here: 
+
+  <http://brion.inria.fr/gallium/index.php/Camlp4> 
+
+Richard Jones' OCaml tutorial site has a simple "foreach" example: 
+
+  <http://www.ocaml-tutorial.org/camlp4_3.10/> 
+
+Our OCaml Journal published an article about parsers and macros using the new 
+Camlp4 on 23rd November 2007: 
+
+  <http://www.ffconsultancy.com/products/ocaml_journal/?ol> 
+
+I once posted a simple compiler for the "Minim" language that was written 
+using Camlp4: 
+
+<http://caml.inria.fr/pub/ml-archives/caml-list/2007/08/c92bb15c444511674faf0c898d2e9986.en.html>
+			
+========================================================================
+7) OCaml-Java project: 1.1 release
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/efb2cdcbebbe3a6e#>
+------------------------------------------------------------------------
+** Xavier Clerc announced:
+
+This post announces the 1.1 release of the OCaml-Java project.
+The goal of the OCaml-Java project is to allow seamless integration of OCaml
+and Java.
+This version is still based on Objective Caml 3.10.2, the next one will be
+based on 3.11.0.
+
+Home page: <http://ocamljava.x9c.fr>
+Download page: <http://ocamljava.x9c.fr/downloads.html>
+Toplevel applet: <http://ocamljava.x9c.fr/toplevel/toplevel.html>
+
+Main changes since 1.0:
+ - move from Java 1.5 to Java 1.6 (will hence not run on a 1.5 JVM)
+ - support for JDBC, with automatic generation of bindings to databases
+ - support for java.math package
+ - Dbm, Servlet, SwiXml and OCamlScripting projects merged into Cadmium
+ - experimental support for stack frames
+ - bug fixes
+			
+========================================================================
+8) OCaml Batteries Included alpha 2
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/1a1a6df18d48e44d#>
+------------------------------------------------------------------------
+** David Teller-Rajchenbach announced:
+
+We are happy to inform you of the availability of OCaml Batteries
+Included Alpha 2. This new release introdues numerous bugfixes, more
+documentation, numerous new features, speed improvements, a new build
+system, a toplevel with on-line help, an optional new toolchain,
+on-the-fly gzip (de)compression, better I/O management, more Unicode,
+etc.
+
+You may download this new version from The Forge [1] or from GODI.
+Debian packages are at work. Extended release notes [2] and
+documentation [3] are also available on-line. To contact us, please
+visit our home page [4].
+
+We hope you find this work useful and consider adopting it for your next
+developments with OCaml.
+
+Cheers,
+ The OCaml Batteries Included team
+
+[1] <http://forge.ocamlcore.org/frs/?group_id=17&release_id=54> 
+[2]
+<http://dutherenverseauborddelatable.wordpress.com/2008/10/11/ocaml-batteries-included-version-alpha/> 
+[3]
+<http://batteries.forge.ocamlcore.org/doc.preview/batteries-alpha2/doc/batteries/html/> 
+[4] <http://batteries.forge.ocamlcore.org/>
+			
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

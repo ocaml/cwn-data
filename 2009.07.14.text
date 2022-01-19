@@ -1,0 +1,296 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of July 7 to 14, 2009.
+
+Happy Bastille day! I'm going away for vacation for a month, so the next CWN will be published on August 25.
+
+1) ocaml job at Citrix Systems (Cambridge, UK)
+2) GADTs in OCaml
+3) Other Caml News
+
+========================================================================
+1) ocaml job at Citrix Systems (Cambridge, UK)
+Archive: <http://caml.inria.fr/pub/ml-archives/caml-list/2009/07/36fee5f2c665901f2dc7d1b647c4eace.en.html>
+------------------------------------------------------------------------
+** Thomas Gazagnaire announced:
+
+Position Summary
+XenClient - Developer / API
+
+The Citrix XenClient product is a virtualization platform for mobile end
+users. Using XenClient will allow Corporate IT departments to securely
+separate Personal and Corporate Desktop environments while providing the same
+user experience to the end users.
+
+XenClient will be based on the next generation XEN hypervisor project.
+
+Citrix uses high-level languages such as python and OCAML to accelerate
+development and maximize the quality of the virtualization tool-stack of the
+XenClient product line. We are looking to recruit top-class engineers to work
+on the XenClient tool-stack; applicants must have a good knowledge of data
+structures and algorithms, experience of programming in the context of large
+systems and general aesthetic good taste when it comes to code and
+architecture.
+
+
+Responsibilities
+
+* Implementation and integration of product features in the tool stack and
+  related subsystems.
+* Day-to-day issue triage
+
+Qualifications and Requirements
+
+* Significant experience of applications programming in high-level languages
+* An aptitude for implementing (and reasoning about) complex concurrent,
+  distributed systems
+* She skills required to contribute to both the architectural design and
+  day-to-day development of a large code-base
+* Strong communication skills and problem solving ability
+* A determination to deliver great products that perform brilliantly and meet
+  our customers' needs
+* Functional programming experience, OCAML would be a plus
+* Scripting language (Python, Bash, etc.)
+* We're particularly interested in skills like power management, ACPI, 802.11
+  wireless networking stack and 3D graphics.
+
+Location
+
+The Citrix Systems R&D, UK Centre is located on the Science Park of Cambridge,
+UK.
+
+Contact
+
+Candidates should send a resume to Vincent Hanquez
+(vincent.hanquez@citrix.com)
+      
+========================================================================
+2) GADTs in OCaml
+Archive: <http://caml.inria.fr/pub/ml-archives/caml-list/2009/07/2984f23799f442d0579faacbf4e6e904.en.html>
+------------------------------------------------------------------------
+** Oleg announced:
+
+We present a simple, pure, magic-free implementation of a form of
+GADTs in OCaml that is sufficient for the common applications of GADTs
+such as data structures with embedded invariants, typed printf/scanf,
+tagless interpreters.  The implementation is a simple module,
+requiring no changes to the OCaml system. The implementation is so
+trivial that it should work on any ML system (although, like nested
+data types, GADTs aren't very useful on an SML system without support
+for polymorphic recursion).
+
+Our examples include: 
+	- enforcing invariants on data structures: statically
+ensuring that in a tree representation of an HTML document, a link
+node is never an ancestor of another link node;
+	- typed printf/scanf sharing the same format descriptor, which
+is first-class and can be built incrementally;
+	- simply typed lambda-calculus with constants and higher-order
+abstract syntax. This is essentially the example of Hongwei Xi's et al 
+POPL 2003 paper.
+
+The complete code with the implementation and examples is available at
+	<http://okmij.org/ftp/ML/GADT.ml>
+
+The GADT notation turns out lightweight. However, GADTs are often
+inductive, and so we need polymorphic recursion to process them. That
+adds some (relatively small) notational overhead.  Mainly, GADTs are
+often used with existentials -- so often that Haskell makes
+existential quantification implicit in GADT declarations.  OCaml, alas,
+lacks such notational conveniences, and so existentials (which must be
+encoded via double-negation) aren't pretty. Smart constructors --
+which can be build mechanically, perhaps with a suitable camlp4
+macro -- ease the pain.
+
+We learned the lesson that common GADTs are available in OCaml here
+and now. We can truly write the published examples that motivated
+GADTs, without too much violence to their notation. We can translate
+GADT code from Haskell, more or less mechanically. No changes to the
+OCaml type system or the type checker are necessary. Of course changes
+such as explicit existential quantification, better support for rank-2
+types, etc. shall be greatly appreciated -- but they are not necessary
+to start using and enjoying GADTs.
+
+Hopefully the present implementation lets one get a taste of GADTs and
+write code that seems to require them. The end of GADT.ml
+points out to a more efficient implementation, which perhaps can be
+the basis for the native OCaml implementation. 
+
+
+As shown by Patricia Johann and Neil Ghani: 
+    Foundations for Structured Programming with GADT. POPL 2008.
+the essence of GADTs is the EQ GADT, which implements the following interface:
+
+      type ('a,'b) eq
+      val refl : ('a,'a) eq
+      val apply_eq : ('a,'b) eq -> 'a -> 'b
+
+The value of the type ('a,'b) eq witnesses the equality of two types.
+The function apply_eq relies on the witness when performing type coercion.
+
+To be precise, the genuine GADTs provide a more general function
+for the Leibniz principle
+      val apply_eq : ('a,'b) eq -> 'a tau -> 'b tau
+for any type tau. Our implementation supports only those tau that are
+functors (that is, admit a map operation). That seems sufficient however
+for all the common examples.
+
+The following trivial implementation is genuinely safe, meaning it
+never leads to segmentation faults, even in principle.
+
+module EQ = struct
+  type ('a,'b) eq = Refl of 'a option ref * 'b option ref
+
+  let refl () = let r = ref None in Refl (r,r)
+
+  let symm : ('a,'b) eq -> ('b,'a) eq = function 
+      Refl (x,y) -> Refl (y,x)
+
+  let apply_eq : ('a,'b) eq -> 'a -> 'b = function
+      Refl (rx,ry) -> fun x ->
+        rx := Some x;
+        match !ry with
+	| Some y -> rx := None; y
+	|     _  -> failwith "Impossible"
+end;;
+
+
+We show briefly one of the examples from GADT.ml: typed printf/scanf
+sharing the same format descriptor (which is first-class and can be
+built incrementally):
+
+let tp2 = sprintf (f_lit "Hello " ^^ f_lit "world" ^^ f_char) '!';;
+(* val tp2 : string = "Hello world!" *)
+
+let ts2 = sscanf tp2 (f_lit "Hello " ^^ f_lit "world" ^^ f_char) (fun x -> x);;
+(* val ts2 : char * string = ('!', "") *)
+
+(* Formats are first-class and can be constructed incrementally *)
+let fmt31 () = f_lit "The value of " ^^ f_char ^^ f_lit " is ";;
+(* val fmt31 : unit -> ('a, char -> 'a) fmt *)
+
+let fmt3 () = fmt31 () ^^ f_int;;
+(* val fmt3 : unit -> ('a, char -> int -> 'a) fmt *)
+
+let tp3 = sprintf (fmt3 ()) 'x' 3;;
+(* val tp3 : string = "The value of x is 3" *)
+
+(* What we print, we can parse back *)
+let ts3 = sscanf tp3 (fmt3 ()) (fun x n -> (x,n));;
+(* val ts3 : (char * int) * string = (('x', 3), "") *)
+
+
+The example is a straightforward re-implementation of the Haskell code
+   <http://okmij.org/ftp/typed-formatting/PrintScanI.txt>
+   <http://okmij.org/ftp/typed-formatting/PrintScan.hs>
+
+In particular, the GADT defining a domain-specific language of format
+descriptors is written in OCaml as follows:
+
+type ('a,'b) fmt =
+  | FLit of < m_flit : 'w. (('a,'b) eq -> string -> 'w) -> 'w >
+  | FInt of < m_fint : 'w. ((int -> 'a,'b) eq -> 'w) -> 'w >
+  | FChr of < m_fchr : 'w. ((char -> 'a,'b) eq -> 'w) -> 'w >
+  | FCmp of < m_fcmp : 'w. ('a,'b,'w) fcmp_k -> 'w >
+      (* The standard encoding of existentials *)
+and ('a,'c,'w) fcmp_k = 
+    {fcmp_k : 'b. ('b,'c) fmt * ('a,'b) fmt -> 'w}
+;;
+
+We can (mechanically) define smart constructors:
+let f_lit x 
+    = FLit (object method m_flit : 'w. (('a,'b) eq -> string -> 'w) -> 'w
+	= fun k -> k (refl ()) x end);;
+(* val f_lit : string -> ('a, 'a) fmt *)
+
+let f_int 
+    = FInt (object method m_fint : 'w. ((int -> 'a,'b) eq -> 'w) -> 'w
+	= fun k -> k (refl ()) end);;
+(* val f_int : ('a, int -> 'a) fmt *)
+
+We show one interpreter of the DSL, to format values into a string:
+
+type print_sig = {pr: 'a 'b. ('a,'b) fmt -> (string -> 'a) -> 'b};;
+let rec printer = {pr = 
+ function 
+   | FLit x -> fun k -> x#m_flit (fun eq x -> apply_eq eq (k x))
+   | FInt x -> fun k -> x#m_fint (fun eq   -> apply_eq eq 
+	 (fun x -> k (string_of_int x)))
+   | FChr x -> fun k -> x#m_fchr (fun eq   -> apply_eq eq 
+	 (fun x -> k (String.make 1 x)))
+   | FCmp x -> fun k ->
+       x#m_fcmp {fcmp_k = 
+	  fun (a,b) -> printer.pr a (fun sa ->
+	                printer.pr b (fun sb -> k (sa ^ sb)))}
+};;
+let sprintf fmt = printer.pr fmt (fun x -> x);;
+(* val sprintf : (string, 'a) fmt -> 'a *)
+
+The code is rather straightforward.  One can build many similar
+interpreters, e.g., to direct the output into any suitable data
+sink. No changes to the format descriptor or the library is
+needed.
+      
+** Dario Teixeira then replied:
+
+Very interesting -- clever, yet so simple!  But note that as far as the
+link-nodes-shall-not-be-ancestors-of-their-kind problem is concerned, there
+is one problem with the presented implementation.  Consider the following
+declarations:
+
+let t1 = text "ola"
+let t2 = href "http"
+let t3 = bold [t1; t2]
+let t4 = mref "http" [t1]
+
+This causes an error upon t4. The reason is that because of t3, t1 was unified
+as "node_link node_t", whereas t4 requires it to be "node_nolink node_t". I
+think the solution is to revert to using polymorphic variants for the phantom
+type, and take advantage of their open-ended nature. (Though I'm guessing some
+extra massaging will be required -- it's Sunday and I don't have much time to
+look into this).
+
+Anyway, perhaps the Batteries folks will consider including both versions
+of the Eq module?  It will certainly prove useful for many people. (Am I
+correct in assuming you are releasing the code into the public domain or
+at least some open-source friendly license?)
+      
+** Edgar Friendly then said:
+
+> Anyway, perhaps the Batteries folks will consider including both versions
+> of the Eq module?  It will certainly prove useful for many people. (Am I
+> correct in assuming you are releasing the code into the public domain or
+> at least some open-source friendly license?)
+
+Absolutely - this kind of thing seems perfect for batteries included.  I
+still need to wrap my head around exactly how to use it, but I'm very
+happy to have more flexible types available.
+      
+========================================================================
+3) Other Caml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocamlcore.org/>.
+
+Lambdium:
+  <http://forge.ocamlcore.org/projects/lambdium/>
+
+Debcamp, Debconf 9 and OCaml:
+  <http://le-gall.net/sylvain+violaine/blog/index.php?2009/07/08/51-debcamp-debconf-9-and-ocaml>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

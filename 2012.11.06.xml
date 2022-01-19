@@ -1,0 +1,230 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2012.11.06</cwn_date>
+    <cwn_prev>2012.10.30</cwn_prev>
+    <cwn_next>2012.11.13</cwn_next>
+    <cwn_date_text>October 30 to November 06, 2012</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>Why should I use .mli files?</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2012-11/msg00005.html</cwn_url>
+      <cwn_who>Deep in this thread, Jacques Garrigue explained</cwn_who>
+      <cwn_what>
+Wow.
+I see that a big debate is going on mli files and declarations
+inside ml files.
+
+I think that lots of people have given this problem a lot of thought
+during many years.
+My conclusion has unfortunately been that trying to solve this at
+the language level without breaking backward compatibility is
+very difficult.
+
+For instance, one is currently allowed to do something like that:
+
+a.ml:
+let f x = x
+
+let b = f true
+
+a.mli:
+val f: int -&gt; int
+
+This may look stupid, but this kind of code (of course more
+complicated) exists in the wild, and sometimes for sensible
+reasons.
+For this kind of reason, I do not see any easy way to import
+information from mli files to ml files.
+
+Now, is maintaining mli files really painful?
+In my experience, not at all.
+Taking as example the ocaml compiler itself, the only
+duplication that bothers me a little is the error type exported
+by many modules, as one always has to keep it in sync by
+copy-paste. This is a bit of a problem because for most uses
+this type could be abstract (you don't really care about its
+contents), but in some rare occasions you need it public.
+For other types, do not see syncing as a disadvantage, because
+it rather makes you conscious that other modules depend on
+this type, so better look at it twice :-)
+
+Of course I know that some people (probably with a different
+background) do not like mli files.
+Couldn't we just imagine a preprocessing tool that allows to
+generate both ml and mli from the same file?
+This is pretty standard for literate programming.
+It could even call the compiler if you want the types to be inferred
+automatically (even though I personally think that having to write
+value types in the mli file is good, because you know when you
+are changing an export.)
+As an external tool, it could use pragmas (keywords inside
+comments) for instance.
+Something close to ocamldoc (ocamldoc itself?) but which you
+would integrate in the compilation cycle.
+
+Anyway, I just wanted to state, from my experience, my lack of
+enthusiasm about modifying the core language to accommodate
+that.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Functional programming users group in Cambridge, UK (free beer!)</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2012-11/msg00008.html</cwn_url>
+      <cwn_who>Mike McClurg announced</cwn_who>
+      <cwn_what>
+We're starting a functional programming group in Cambridge, UK, called
+NonDysFunctional. We're having our first meet up this Friday from 5pm
+to 9pm at the Old Spring Pub. Feel free to come at any time during
+that window. Citrix has kindly offered to pay for everyone's beer, so
+come thirsty!
+
+See our website for more information, including a map to the Old
+Spring: http://nondysfunctional.wikidot.com/blog:2
+
+Also, we will be tweeting about future events on @nondysfun
+(&lt;https://twitter.com/nondysfun&gt;)
+
+If you think you might come, please email me, just so I have an idea
+of how many people might turn up. You don't have to register in order
+to come, however. Hope to see you there!
+      </cwn_what>
+      <cwn_who>He later added</cwn_who>
+      <cwn_what>
+We had a successful meeting last Friday for our first Cambridge
+functional programmers meetup. As requested by those who turned up,
+I've created a meetup group to help us organize. If you are
+interested, please join here:
+
+http://www.meetup.com/Cambridge-NonDysFunctional-Programmers/
+
+We're probably going to have another meeting in early December. It
+will probably just be another pub meetup. If you've got any requests
+for dates or for particular pubs, please let me know.
+
+Now that we've got an online home at meetup.com, I'll avoid spamming
+this list with future announcements.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Writing the function Set.map using first-class modules and 4.00 inference</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2012-11/msg00011.html</cwn_url>
+      <cwn_who>Jeff Meister said</cwn_who>
+      <cwn_what>
+I found an interesting (to me, anyway) use of OCaml's first-class
+modules, and particularly the new 4.00 type inference features, which
+I thought was worth sharing with the list. This has probably been
+observed by someone else already, but I haven't seen it discussed.
+
+In the OCaml standard library, the polymorphic set data structure is
+implemented as a functor, which takes a module containing a type t and
+total ordering function over t, and returns a module representing sets
+whose elements have type t. Like so:
+
+module StringSet = Set.Make(String)
+module CharSet = Set.Make(Char)
+
+One disadvantage of this method is that once the functor has been
+called, the type of the set elements is fixed. As a consequence,
+OCaml's set interface has no map function. If we had a polymorphic
+type like 'a set, this function would have type 'a set -&gt; ('a -&gt; 'b)
+-&gt; 'b set. But StringSet.t and CharSet.t are not polymorphic; the
+corresponding type elt in each module cannot be changed.
+
+However, using first-class modules, we can write a function map for
+sets, which takes as an extra argument the packaged module
+representing the set we're mapping from. Maybe this function is better
+called map_from. Check it out:
+
+# module Set = struct
+    module type OrderedType = Set.OrderedType
+    module type S = Set.S
+    module Make(Ord : OrderedType) = struct
+      include Set.Make(Ord)
+      let map (type e') (type t') (module OtherSet : S with type elt = e' and type t = t') os f =
+       OtherSet.fold (fun x accu -&gt; add (f x) accu) os empty
+   end
+ end;;
+[... bunch of output ...]
+val map :
+  (module S with type elt = 'a and type t = 'b) -&gt;
+  'b -&gt; ('a -&gt; elt) -&gt; t
+
+Now, back in OCaml 3.12, this function could be written (without the
+nice package-expanding pattern I've made use of), but calling it was
+quite a pain, enough to invalidate the whole enterprise. One would
+have to type this:
+
+# let strs = StringSet.(add "foo" (add "bar" empty));;
+val strs : StringSet.t = &lt;abstr&gt;
+# let chrs = CharSet.map (module StringSet : Set.S with type elt = StringSet.elt and type t = StringSet.t) strs (fun s -&gt; s.[0]);;
+val chrs : CharSet.t = &lt;abstr&gt;
+
+It's much easier with the type inference changes in OCaml 4.00:
+
+# let strs = StringSet.(add "foo" (add "bar" empty));;
+val strs : StringSet.t = &lt;abstr&gt;
+# let chrs = CharSet.map (module StringSet) strs (fun s -&gt; s.[0]);;
+val chrs : CharSet.t = &lt;abstr&gt;
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Bisect 1.3 release</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2012-11/msg00028.html</cwn_url>
+      <cwn_who>Xavier Clerc announced</cwn_who>
+      <cwn_what>
+This post announces the 1.3 release of the Bisect project, whose goal
+is to provide a code coverage tool for the OCaml language.
+
+Home page: http://bisect.x9c.fr
+
+Main changes since 1.2:
+- new instrumenter based on '-ppx'
+- new '-summary-only' to output only summary (text mode only)
+- refactoring, including minor bugfixes
+- bug#86: '-ocaml-prefix' doesn't really work
+- bug#87: install shouldn't build anything
+- bug#89: do not activate warnings by default
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OCaml interpreter in JavaScript</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2012-11/msg00033.html</cwn_url>
+      <cwn_who>Diego Olivier Fernandez Pons asked and Fabrice Le Fessant replied</cwn_who>
+      <cwn_what>
+&gt; Last time I was looking for a JavaScript interpreter in Caml. Now I
+&gt; need a Core ML interpreter written in JavaScript to run source OCaml
+&gt; code on a browser, similar to Skulpt one in Python
+&gt; http://www.skulpt.org/
+
+Have you tested http://try.ocamlpro.com/ ? It is the ocaml toplevel,
+compiled with js_of_ocaml, so executing ocaml sources in a browser.
+The sources are available on GitHub from the link.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other Caml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocamlcore.org/&gt;.
+
+RTT:
+  &lt;https://forge.ocamlcore.org/projects/rtt/&gt;
+
+Bisect: 1.3:
+  &lt;https://forge.ocamlcore.org/forum/forum.php?forum_id=866&gt;
+
+Dropbox-as-a-Database, the tutorial:
+  &lt;http://blog.opalang.org/2012/11/dropbox-as-database-tutorial.html&gt;
+
+Dropbox-as-a-Database:
+  &lt;http://blog.opalang.org/2012/10/dropbox-as-database.html&gt;
+
+Generic Graphml Printer for OcamlGraph:
+  &lt;https://mancoosi.org/~abate/generic-graphml-printer-ocamlgraph&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

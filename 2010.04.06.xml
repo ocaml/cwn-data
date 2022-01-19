@@ -1,0 +1,291 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2010.04.06</cwn_date>
+    <cwn_prev>2010.03.30</cwn_prev>
+    <cwn_next>2010.04.13</cwn_next>
+    <cwn_date_text>March 30 to April 06, 2010</cwn_date_text>
+  </cwn_head>
+	<cwn_body>
+	  <cwn_entry>
+	   <cwn_title>Random segfaults / out of memory</cwn_title>
+	   <cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/cffb366ebd4fd448/96741ec49e9bb2b2</cwn_url>
+	   <cwn_who>Deep in this thread, Goswin von Brederlow said</cwn_who>
+	   <cwn_what>
+I finaly tracked down the issue with the help of Erkki Seppala.
+
+First problem:
+
+I had the function declared as "noalloc" but used CAMLparam2() in
+it. That seems to cause random segfaults. I don't understand why but if
+I remove the "noalloc" then it works.
+
+Second problem:
+
+When I remove the CAMLparam2() the finalizer is called too early:
+
+CAMLprim value md5_update_bigarray(value context, value vb)
+{
+ //CAMLparam2(context, vb);
+ struct helper *helper = (struct helper*)Data_custom_val(context);
+ struct MD5Context *ctx = helper-&gt;ctx;
+ fprintf(stderr, "update_bigarray: helper = %p, ctx = %p\n", helper, ctx);
+ struct caml_ba_array * b = Caml_ba_array_val(vb);
+ unsigned char *data = b-&gt;data;
+ uintnat len = caml_ba_byte_size(b);
+ caml_enter_blocking_section();
+ caml_MD5Update(ctx, data, len);
+ caml_leave_blocking_section();
+ //CAMLreturn(Val_unit);
+ return Val_unit;
+}
+
+ let rec loop () =
+   Mutex.lock mutex;
+   if !num = 0
+   then Mutex.unlock mutex
+   else begin
+     decr num;
+     Mutex.unlock mutex;
+     let context = context () in
+     let () = update_bigarray context buf
+     in
+       loop ()
+   end
+ in
+   loop ()
+
+This sometimes results in the following code flow:
+
+ context ()                             &lt;- allocates memory
+ update_bigarray context buf
+  caml_enter_blocking_section();
+THREAD SWITCH
+ GC runs
+ context is finalized                   &lt;- frees memory
+THREAD SWITCH BACK
+  caml_MD5Update(ctx, data, len);      &lt;- writes to ctx which is freeed
+
+
+Looks like ocamlopt really is so smart that is sees that context is
+never used after the call to update_bigarray and removes it from the
+root set before calling update_bigarray. It assumes the update_bigarray
+will hold all its arguments alive itself, which is a valid assumption.
+
+
+This is a tricky situation. The md5_update_bigarray() on its own is a
+"noalloc" function. But due to the caml_enter_blocking_section() another
+thread can alloc and trigger a GC run in parallel. So I guess that makes
+the function actually not "noalloc".
+	   </cwn_what>
+	   <cwn_who>David Baelde then asked</cwn_who>
+	   <cwn_what>
+Thanks for reporting about your experience! This made me suspect
+noalloc in a bug of mine, and indeed removing a bunch of noalloc did
+the trick. Now I'd like to understand.
+
+Unlike in your example, global roots were registered for the bigarrays
+in "my" functions. This should avoid that they are freed when the
+global lock is released. Still, noalloc seems wrong with those
+functions.
+
+I'm not sure yet which function is problematic in my case, but they
+all follow the same scheme, see for example
+&lt;http://savonet.rastageeks.org/browser/trunk/liquidsoap/src/stream/rgb_c.c#L563&gt;.
+
+So, is it really forbidden to release the global lock in a noalloc function?
+	   </cwn_what>
+	   <cwn_who>To which Xavier Leroy replied</cwn_who>
+	   <cwn_what>
+&gt; So, is it really forbidden to release the global lock in a noalloc function?
+
+Yes.  Actually, it is forbidden to call any function of the OCaml
+runtime system from a noalloc function.
+
+Explanation: ocamlopt-generated code caches in registers some global
+variables of importance to the OCaml runtime system, such as the
+current allocation pointer.
+
+When calling a regular (no-"noalloc") C function from OCaml, these
+global variables are updated with the cached values so that everything
+goes well if the C function allocates, triggers a GC, or releases the
+global lock (enabling a context switch).
+
+This updating is skipped when the C function has been declared
+"noalloc" -- this is why calls to "noalloc" functions are slightly
+faster.  The downside is that the runtime system is not in a
+functioning state while within a "noalloc" C function, and must
+therefore not be invoked.
+
+The cost of updating global variables is small, so "noalloc" makes
+sense only for short-running C functions (say, &lt; 100 instructions) like
+those from the math library (sin, cos, etc).  If the C function makes
+significant work (1000 instructions or more), just play it safe and
+don't declare it "noalloc".
+	   </cwn_what>
+	   <cwn_who>Markus Mottl then said</cwn_who>
+	   <cwn_what>
+It may not always be clear to developers whether a function provided
+by the OCaml API is safe.  E.g. calling Val_int is fine (at least now
+and for the foreseeable future), but caml_copy_string is not.  I agree
+that people should generally avoid noalloc.  The speed difference is
+clearly negligible in almost all practical cases.
+
+Note, too, that sometimes people forget that they had declared a
+previously safe function as "noalloc", but later change the C-code in
+ways that breaks this property.  The tiny extra performance may not be
+worth that risk.
+	   </cwn_what>
+	  </cwn_entry>
+	  <cwn_entry>
+	   <cwn_title>orpc 0.3</cwn_title>
+	   <cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/93a1abe6b2b091eb#</cwn_url>
+	   <cwn_who>Jake Donham announced</cwn_who>
+	   <cwn_what>
+I am happy to announce version 0.3 of orpc, a tool for generating RPC
+bindings from OCaml signatures. Orpc can generate ONC RPC stubs for
+use with Ocamlnet (in place of ocamlrpcgen), and it can also generate
+RPC over HTTP stubs for use with ocamljs. You can use most OCaml types
+in interfaces, as well as exceptions and labelled/optional arguments.
+
+Changes since version 0.2 include
+
+ * a way to use types defined outside the interface file, so you can
+use a type in more than one interface
+ * support for polymorphic variants
+ * a way to specify "abstract" interfaces that can be instantiated for
+synchronous, asynchronous, and Lwt clients and servers
+ * bug fixes
+
+Development of orpc has moved from Google Code to Github; see
+
+ * project page: http://github.com/jaked/orpc
+ * documentation: http://jaked.github.com/orpc
+ * downloads: http://github.com/jaked/orpc/downloads
+
+I hope you find this work useful. Let me know what you think.
+	   </cwn_what>
+	  </cwn_entry>
+	  <cwn_entry>
+	   <cwn_title>GraphPDF - PDF version of Graphics module</cwn_title>
+	   <cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/173d31821deaaa9b#</cwn_url>
+	   <cwn_who>John Whitington announced</cwn_who>
+	   <cwn_what>
+I’ve written a version of Ocaml’s Graphics module which outputs PDF directly,
+using the CamlPDF library - its only dependency. It’s based on the approach of
+Pierre Weis’ GraphPS program.
+
+It has the same API as Ocaml’s module - just have your build process find the
+GraphPDF files before it finds the system ones - the vast majority of programs
+shouldn’t need altering.
+
+http://www.coherentpdf.com/graphpdf-1.0.tar.bz2
+	   </cwn_what>
+	  </cwn_entry>
+	  <cwn_entry>
+	   <cwn_title>Chess III Arena v0.8</cwn_title>
+	   <cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/1f85a654ed29f4d7#</cwn_url>
+	   <cwn_who>Grant Olson announced</cwn_who>
+	   <cwn_what>
+Chess III Arena is a chess game that uses Quake 3 characters as the
+chess pieces.  Version 0.8 includes many improvements over the last
+version.  I'll only go into two major improvements here:
+
+1) The distribution now includes everything you need to play.  Previous
+versions required access to an official copy of Quake 3 to get the
+character art.  This version now includes gpl licensed character art
+courtesy of the openArena project.
+
+2) C3A can now be used as a graphical front-end for gnuchess, allowing
+you to play a computer opponent.
+
+More information, source downloads, and a binary Windows download can be
+found here:
+
+http://www.grant-olson.net/ocaml/chess-iii-arena
+	   </cwn_what>
+	  </cwn_entry>
+	  <cwn_entry>
+	   <cwn_title>The course on Unix System programming in OCaml is translated</cwn_title>
+	   <cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/3566a5f25ba5af36#</cwn_url>
+	   <cwn_who>Daniel Bünzli announced</cwn_who>
+	   <cwn_what>
+It is my pleasure to announce that Xavier Leroy and Didier Rémy's
+course on Unix system programming in Objective Caml is now available
+in english at this address :
+
+http://ocamlunix.forge.ocamlcore.org/
+
+If you had a look at the individual publications of the chapters
+announced on the project feed you may want to have a look again: some
+parts of the text were improved and a few translation errors were
+corrected in the final version.
+
+The translation was made by :
+
+* Eric Cooper
+* Eliot Handelman
+* Priya Hattiangdi
+* Thad Meyer
+* Prashanth Mundkur
+* Richard Paradies
+* Till Varoquaux
+* Mark Wong-VanHaren
+* Daniel C. Bünzli
+
+And the resulting text was proofread by :
+
+* David Allsopp
+* Erik de Castro Lopo
+* John Clements
+* Anil Madhavapeddy
+* Prashanth Mundkur.
+
+A big thank to all of them for the time they provided for the project.
+
+A special mention goes to Prashanth Mundkur who was very supportive
+and responsive all along. He not only proofread more than one chapter
+but also provided fixes and improvements for every part of the
+document.
+
+Thanks also to all the people working on ocamlcore.org for the hosting
+resources.
+	   </cwn_what>
+	  </cwn_entry>
+	  <cwn_entry>
+      <cwn_title>Other Caml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocamlcore.org/&gt;.
+
+The course on Unix System programming in OCaml is translated:
+  &lt;http://forge.ocamlcore.org/forum/forum.php?forum_id=573&gt;
+
+Xavierbot 0.9:
+  &lt;http://rwmj.wordpress.com/2010/04/04/xavierbot-0-9/&gt;
+
+ocaml bindings for picosat:
+  &lt;https://mancoosi.org/~abate/ocaml-bindings-picosat&gt;
+
+What is the defacto OCaml build tool?:
+  &lt;http://www.wisdomandwonder.com/link/4665/what-is-the-defacto-ocaml-build-tool&gt;
+
+What is the defacto OCaml unit testing tool?:
+  &lt;http://www.wisdomandwonder.com/link/4660/what-is-the-defacto-ocaml-unit-testing-tool&gt;
+
+GraphPDF: A PDF Version of Ocaml’s Graphics Module:
+  &lt;http://coherentpdf.com/blog/?p=45&gt;
+
+orpc 0.3:
+  &lt;http://ambassadortothecomputers.blogspot.com/2010/04/orpc-03.html&gt;
+
+Tip: find out when filesystems get full with virt-df (working version!):
+  &lt;http://rwmj.wordpress.com/2010/04/02/tip-find-out-when-filesystems-get-full-with-virt-df-working-version/&gt;
+
+Pourquoi je quitte l'expérience démocratique:
+  &lt;http://bentobako.org/david/blog/index.php?post/2010/04/01/Pourquoi-je-quitte-l-exp%C3%A9rience-d%C3%A9mocratique&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

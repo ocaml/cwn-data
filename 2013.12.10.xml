@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2013.12.10</cwn_date>
+    <cwn_prev>2013.12.03</cwn_prev>
+    <cwn_next>2013.12.17</cwn_next>
+    <cwn_date_text>December 03 to 10, 2013</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>Wojciech Meyer</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-12/msg00035.html</cwn_url>
+      <cwn_who>Vitaly S. Lugovskiy gave some sad news</cwn_who>
+      <cwn_what>
+It is with great sadness that I am writing to inform that Wojciech
+Daniel Meyer, who was known in the OCaml community, passed away 18th
+November 2013 at the age of 32.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Polymorphic recursion and GADTs</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-12/msg00053.html</cwn_url>
+      <cwn_who>Lukasz Stafiniak asked</cwn_who>
+      <cwn_what>
+I am at a loss as to the difference between ['a.] syntax and [type a.]
+syntax of introducing polymorphic recursion. I will provide some examples.
+(Bear with me, they are automatically generated.)
+&gt;&gt;&gt;
+type _ term =
+  | Lit : integer -&gt; integer term
+  | Plus : integer term * integer term -&gt; integer term
+  | IsZero : integer term -&gt; boolean term
+  | If : (*∀'a.*)boolean term * 'a term * 'a term -&gt; 'a term
+and integer
+
+and boolean
+
+external plus : (integer -&gt; integer -&gt; integer) = "plus"
+external is_zero : (integer -&gt; boolean) = "is_zero"
+external if_then : (boolean -&gt; 'a -&gt; 'a -&gt; 'a) = "if_then"
+let rec eval : 'a . ('a term -&gt; 'a) =
+  (function Lit i -&gt; i | IsZero x -&gt; is_zero (eval x)
+    | Plus (x, y) -&gt; plus (eval x) (eval y)
+    | If (b, t, e) -&gt; if_then (eval b) (eval t) (eval e))
+&lt;&lt;&lt;
+The above produces:
+Error: This pattern matches values of type boolean term
+       but a pattern was expected which matches values of type integer term
+       Type boolean is not compatible with type integer
+but if we replace the corresponding line with:
+&gt;&gt;&gt;
+...
+let rec eval : type a . (a term -&gt; a) =
+...
+&lt;&lt;&lt;
+then it compiles fine.
+
+Now to a more complex example. According to my understanding (and
+InvarGenT), the following code should type-check:
+&gt;&gt;&gt;
+type _ place =
+  | LocA : a place
+  | LocB : b place
+and a
+and b
+
+type (_, _) nearby =
+  | Here : (*∀'b.*)'b place * 'b place -&gt; ('b, 'b) nearby
+  | Transitive : (*∀'a, 'b, 'c.*)('a, 'b) nearby * ('b, 'c) nearby -&gt;
+    ('a, 'c) nearby
+type boolean
+
+external is_nearby : (('a, 'b) nearby -&gt; boolean) = "is_nearby"
+type _ ex1 =
+  | Ex1 : (*∀'a, 'b.*)('b place * ('a, 'b) nearby) -&gt; 'a ex1
+external wander : ('a place -&gt; 'a ex1) = "wander"
+type (_, _) meet =
+  | Same : (*∀'b.*) ('b, 'b) meet
+  | NotSame : (*∀'a, 'b.*) ('a, 'b) meet
+external compare : ('a place -&gt; 'b place -&gt; ('a, 'b) meet) = "compare"
+let rec walk : type a b . (a place -&gt; b place -&gt; (a, b) nearby) =
+  (fun x goal -&gt;
+    ((function Same -&gt; Here (x, goal)
+       | NotSame -&gt;
+           let Ex1 ((y, to_y)) = wander x in Transitive (to_y, walk y
+goal)))
+      (compare x goal))
+&lt;&lt;&lt;
+Here we get
+Error: This expression has type b place
+       but an expression was expected of type a place
+       Type b is not compatible with type a
+And when we switch to the ['a.] syntax, we get
+Error: This definition has type 'a. 'a place -&gt; 'a place -&gt; ('a, 'a) nearby
+       which is less general than
+         'a 'b. 'a place -&gt; 'b place -&gt; ('a, 'b) nearby
+
+Thanks in advance for any thoughts.
+If you are curious, the source code is:
+https://github.com/lukstafi/invargent/blob/master/examples/simple_eval.gadt
+https://github.com/lukstafi/invargent/blob/master/examples/equational_reas.gadt
+      </cwn_what>
+      <cwn_who>Gabriel Scherer replied</cwn_who>
+      <cwn_what>
+TL;DR: you should use those "rigid variables" to annotate type variable
+that will be refined in a GADT pattern matching.
+
+The way GADT type variables can be refined with different types in each
+branches is different and orthogonal to the type unification mechanism.
+Variables ('a) use type unification on each branch, which fails with the
+error you observe. Local type constructors (a), and only them, can be
+refined in GADT clauses, so that type refinement works. The syntax
+  let rec f : type a . a -&gt; ... = fun x -&gt; ...
+as opposed to
+  let rec f (type a) (x : a) ... = ...
+combines the GADT-readiness of those weird variables with polymorphic
+recursion -- which is orthogonal, but in practice they often come together.
+
+For more technical details, see "Ambivalent types for type inference with
+GADTs", by Jacques Garrigue and Didier Rémy, 2013:
+http://gallium.inria.fr/~remy/gadts/Garrigue-Remy:gadts@short2013.pdf
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocaml.org/&gt;.
+
+Mirage 1.0: not just a hallucination!:
+  &lt;http://openmirage.org/blog/announcing-mirage10&gt;
+
+RWO tidbits: the runtime:
+  &lt;https://ocaml.janestreet.com/?q=node/119&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

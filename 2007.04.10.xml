@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+	<cwn_head>
+		<cwn_date>2007.04.10</cwn_date>
+		<cwn_prev>2007.04.03</cwn_prev>
+		<cwn_next>2007.04.17</cwn_next>
+		<cwn_date_text>April 03 to 10, 2007</cwn_date_text>
+	</cwn_head>
+	<cwn_body>
+	<cwn_entry>
+		<cwn_title>camlp4: let binding</cwn_title>
+		<cwn_url>http://groups.google.com/group/ocaml-developer/browse_frm/thread/60e0ea039394bff6</cwn_url>
+		<cwn_who>Hugo Ferreira asked, Martin Jambon said, and Nicolas Pouillard answered</cwn_who>
+		<cwn_what>
+&gt; &gt; I would like to use a reserved word and substitute that by a function 
+&gt; &gt; call. For example, the following: 
+&gt; &gt;
+&gt; &gt; let  _ = HEAP in 
+&gt; &gt; let h1 = HEAP in 
+&gt; &gt;
+&gt; &gt; would become 
+&gt; &gt;
+&gt; &gt; let __heap = new_heap () in 
+&gt; &gt; let     h1 = new_heap () in 
+
+
+As always it will be a lot simpler to do that kind of thing using a 
+filter in camlp4 3.10. 
+... 
+match (* do things bottom-up *) super#expr e with 
+| &lt;:expr@loc&lt; let _ = HEAP in $e$ &gt;&gt; -&gt; 
+     &lt;:expr@loc&lt; let __heap = new_heap () in $e$ &gt;&gt; 
+| &lt;:expr@loc&lt; let $p$ = HEAP in $e$ &gt;&gt; -&gt; 
+     &lt;:expr@loc&lt; let $p$ = new_heap () in $e$ &gt;&gt; 
+| e -&gt; e 
+... 
+
+&gt; You shouldn't try to do this because the parser looks only one token ahead 
+&gt; to make its decision. If you add a rule that starts from "let" (it has 
+&gt; to), the token which enables the parser to select this rule is in position 
+&gt; 3, so it comes too late. Camlp4 will not warn you about the conflict but 
+&gt; fail during preprocessing because it will choose either the predefined 
+&gt; "let" rule or yours without knowing if it's the right one. 
+
+In fact it's wrong camlp4 can takes more than one token of look ahead. 
+It will try to match the input with all the firsts terminals of a rule. 
+However you're right to discourage him to try that kind of thing. 
+Indeed it's highly dependent on the left factorization mechanism 
+performed by camlp4.
+		</cwn_what>
+		<cwn_who>Hugo Ferreira asked and Nicolas Pouillard answered</cwn_who>
+		<cwn_what>
+&gt; Just a comment: my greatest difficulty with camlp4 is twofold: 
+&gt;
+&gt; - knowing how the AST maps to the actual Ocaml syntax. 
+
+
+You can ask to camlp4 itself! 
+Using the old one... 
+
+$ cat test.ml 
+(* here is some expression that you want to understand *) 
+fun e -&gt; &lt;:expr&lt; let x= HEAP in $e$ &gt;&gt; 
+
+$ camlp4o q_MLast.cmo pr_o.cmo test.ml 
+let _ = 
+  fun e -&gt; 
+    MLast.ExLet 
+      (_loc, false, [MLast.PaLid (_loc, "x"), MLast.ExUid (_loc, "HEAP")], e) 
+
+&gt; - knowing when/where the camlp4 parser does its transformations so that 
+&gt; I may alter these transformations (match and replace expressions). 
+
+That's not really transformations of the AST. 
+However there is some grammar tranformations: 
+When you add a rule to a grammar entry at a specific level camlp4 
+insert it in a tree to factor out the prefix or rules as much as 
+possible. 
+
+e1 = SELF; "+"; e2 = SELF -&gt; ... 
+e1 = SELF; "*"; e2 = SELF -&gt; ... 
+
+is in fact something like: 
+
+e1 = SELF; [ "+"; e2 = SELF -&gt; ... | "*";  e2 = SELF -&gt; ... ] 
+
+So if you add something make it as much as possible a prefix of existing ones. 
+
+[...] 
+
+&gt; In effect I write Ocaml "expression" which is automatically matched and 
+&gt; I only need write an Ocaml expression to introduce the changes I want. 
+&gt; All this using simply using the quotation system. The rules and the AST 
+&gt; structure itself should, in my humble opinion, be avoided. 
+
+Indeed, extension that are highly dependent on the actual grammar 
+should be avoided. 
+
+&gt; This will also allow the underlying camlp4 system to change without unduly 
+&gt; affecting user's code. 
+
+Exactly!
+		</cwn_what>
+	</cwn_entry>
+	</cwn_body>
+</cwn>

@@ -1,0 +1,230 @@
+Hello,
+
+Here is the latest OCaml Weekly News, for the week of May 05 to 12, 2015.
+
+1) Problems with printing MetaOCaml generated code
+2) OCaml release roadmap
+3) Backtraces in toplevel
+4) Other OCaml News
+
+========================================================================
+1) Problems with printing MetaOCaml generated code
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2015-05/msg00032.html>
+------------------------------------------------------------------------
+** Deep in this thread, Oleg Kiselyov said and Jeremy Yallop replied:
+
+> Of course MetaOCaml serialization can be improved. What I'd like to
+> stress is that you don't have to wait for the improvement. You can
+> always, instead of
+>         .<fun u ->  x>.
+> write
+>         .<fun u -> .~(mylift x)>.
+> where
+>         mylift : t -> t code
+> is *your* function that does whatever _you_ like it to do at that
+> particular type t (it should still produce something of the type (t
+> code)).
+>
+> If some particular mylift functions turn out popular, they can be
+> added to MetaOCaml, to save everyone trouble writing them.
+>
+> And I generally agree with Leo that this implicit lifting is
+> baroque. At present I'm not sure if requiring the explicit lifting is
+> too much of a burden. I'm sure that with modular implicits, it won't
+> be.
+
+I've just pushed an OPAM switch for an OCaml compiler that combines
+the MetaOCaml and modular implicits patches, making it possible to
+experiment with explicit user-defined polymorphic CSP.
+
+For example, you might define a signature, CSP, for "things that can
+be persisted":
+
+  module type CSP =
+   sig
+     type t
+     val lift : t -> t code
+  end
+
+together with a top-level function that dispatches to the appropriate instance
+
+  let csp (implicit C: CSP) (x : C.t) = C.lift x
+
+and instances of CSP for each type of interest.  Here's an instance
+for the stx type from earlier in the thread:
+
+  implicit module CSP_stx : CSP with type t = stx =
+  struct
+    type t = stx
+
+    let rec lift : stx -> stx code = function
+      | A -> .< A >.
+      | B s -> .< B .~ (lift s) >.
+      | C (s1, s2) -> .< C ( .~(lift s1), .~(lift s2) ) >.
+   end
+
+and here's a parameterised instance for lists that makes it possible
+to persist lists of any persistable element type:
+
+  implicit functor CSP_list(C: CSP) : CSP with type t = C.t list =
+  struct
+    type t = C.t list
+
+    let rec lift : C.t list -> C.t list code = function
+        [] -> .< [] >.
+      | x :: xs -> .< .~(csp x) :: .~(lift xs) >.
+  end
+
+These two instances make it possible to use the CSP function to
+persist stx values, or lists of stx values, or lists of lists of stx
+values (etc.):
+
+   # let ba = B A in .< .~(csp ba) >.;;
+   - : stx code = .<Stx.B Stx.A>.
+
+  # let l = [A; B A] in .< .~(csp l) >.;;
+  - : stx list code = .<[Stx.A; Stx.B Stx.A]>.
+
+  # let ll = [[A; B A]] and ba = B A in .< .~(csp ll), .~(csp ba) >.;;
+  - : (stx list list * stx) code = .<([[Stx.A; Stx.B Stx.A]], (Stx.B Stx.A))>.
+
+It's easy to imagine having the csp function built in to MetaOCaml, so
+that we could write .< x >.  (or some similarly convenient syntax) to
+mean .< .~(csp x) >...
+
+You can try out the switch with OPAM in the usual way:
+
+   opam update
+   opam switch 4.02.1+modular-implicits-ber
+   eval `opam config env`
+      
+========================================================================
+2) OCaml release roadmap
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2015-05/msg00034.html>
+------------------------------------------------------------------------
+** Damien Doligez announced:
+
+We are now preparing release 4.02.2, mostly a bug-fix release with a
+few new features. We are planning to release it in the first week of
+June (about 1 month from now). If you want to try a preview, get it:
+  - from github: < <https://github.com/ocaml/ocaml/tree/4.02> > (don't
+forget to switch to branch 4.02 after cloning)
+  - through OPAM: opam switch 4.02.0+trunk (watch out for the misnomer)
+If you find bugs, please report them as quickly as possible.
+
+As for the next major release, it will include a number of new
+features (including, if all goes well, support for multicore). It will
+be released some time around the end of this year.
+
+-- Damien Doligez for the OCaml development team
+      
+** Francois Berenger then asked and Mark Shinwell replied:
+
+> Who added the support for multicore?
+>
+> Will it have an impact on the performance of sequential programs (i.e. which
+> don't use multicore)?
+>
+> Does it mean we will be able to write parallel code that scales better
+> than what we currently can get with parmap?
+> I.e. we could see a speedup even if the task is very fine grain.
+>
+> Will we have to rewrite Parmap ? ;)
+
+I can answer two of your points:
+
+I think it's unlikely that multicore support is going to be in a
+production-ready state for 4.03, although I may be proven wrong.  It
+seems plausible that a beta version of the support will be ready at
+that time, however.
+
+Degradation of the performance of code not using the new parallelism
+features (but possibly using the existing thread support) is a matter
+of serious concern for some users, and best efforts will be made to
+minimize or eliminate it.  We will know more on this front in the next
+few months.
+      
+** Mark Shinwell later added:
+
+Sorry, I missed one paragraph: the multicore support is being
+developed at OCaml Labs in Cambridge, UK.
+      
+========================================================================
+3) Backtraces in toplevel
+Archive: <http://lists.ocaml.org/pipermail/teaching/2015-May/000070.html>
+------------------------------------------------------------------------
+** On the Teaching mailing list, Yann Salmon asked and Gabriel Scherer replied:
+
+> I have recently started using Arthur Charguéraud's experimental OCaml
+> compiler and top-level with improved type error messages. This is great
+> and the students are now able to gain better autonomy in programming. I
+> modified the OCaml source code to enable easy-type-errors by default.
+> 
+> However, Arthur's patch cannot improve runtime error messages, like the
+> frequent Out-of-bound access exception. For this, I would like the OCaml
+> toplevel to automatically print a backtrace.
+> 
+> I understand that I should do two things :
+> 1. compile the toplevel with -g
+> 2. run the toplevel with OCAMLRUNPARAM set to B.
+> 
+> I do not understand however what I should change in the makefiles to
+> pass the -g option correctly (my attempts were not successful), and I am
+> not sure what parts of the OCaml source code I should change to get de
+> backtrace printing behaviour enabled by default.
+> 
+> Can somebody help ?
+
+I don't think you need the toplevel itself to be compiled with -g to get stack
+traces (that would be true of stack traces raised by exception inside the
+toplevel implementation, but those correspond to OCaml implementation bugs,
+not to bugs in your student's programs). However, in existing released
+versions of OCaml I suspect that stack traces are not available for code
+defined from the toplevel (I think it works for libraries compiled outside the
+toplevel and linked/loaded from the toplevel, but not for functions defined
+directly by sending phrases to the toplevel). This was the topic of the issue
+report PR#6468 ( <http://caml.inria.fr/mantis/view.php?id=6468> ), and Peter
+Zotov developed a patch to implement that feature. It will be available in the
+next *major* release of the OCaml distribution (around autumn/winter), but if
+you already maintain a fork you could try to backport it.
+      
+========================================================================
+4) Other OCaml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocaml.org/>.
+
+Full Time: Senior C++ Engineer at Ufora in New York, NY:
+  <http://jobs.github.com/positions/0bbe858e-f55f-11e4-98b7-491295bfdc93>
+
+OPAM 1.2.2 Released:
+  <http://ocaml.org/>
+
+Haskell Web Engineer at Front Row Education (Full-time):
+  <http://functionaljobs.com/jobs/8823-haskell-web-engineer-at-front-row-education>
+
+Full-Stack Senior Functional Web Engineer at Front Row Education (Full-time):
+  <http://functionaljobs.com/jobs/8823-full-stack-senior-functional-web-engineer-at-front-row-education>
+
+CPU Registers and OCaml:
+  <https://blogs.janestreet.com/cpu-registers-and-ocaml-2/>
+
+Permutations:
+  <http://typeocaml.com/2015/05/05/permutation/>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

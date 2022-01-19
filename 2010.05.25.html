@@ -1,0 +1,398 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2010.05.18.html">Previous week</a> <a href="index.html">Up</a> <a href="2010.06.01.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of May 18 to 25, 2010.</p><ol><li><a href="#1">What should the "size" in "caml_alloc_custom" be?</a></li><li><a href="#2">Problem with recursive class and non-class types</a></li><li><a href="#3">LablGtk 2.14.1</a></li><li><a href="#4">A Tutorial on GNU Make with OCaml</a></li><li><a href="#5">Jane Street is hiring</a></li><li><a href="#6">Workshop on ML 2010 - Call for Content</a></li><li><a href="#7">new emacs tuareg mode release</a></li><li><a href="#8">DSL + phantom types</a></li><li><a href="#9">Other Caml News</a></li></ol><a name="1" /><hr /><h3>What should the "size" in "caml_alloc_custom" be?</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/86614b3421bab408#">http://groups.google.com/group/fa.caml/browse_thread/thread/86614b3421bab408#</a></p><i>Lyn Hong asked and Goswin von Brederlow replied:</i><br /><pre>
+&gt; I have a question about "allocating custom blocks" in "iterfacing C with object
+&gt; Ocaml". when we call function "caml_alloc_custom(ops, size, used, max)" in the
+&gt; C side, if the structure we want to allocate has a pointer, is the "size" 
+&gt; going to be size of the structure itself only, or should we also include the
+&gt; memory block that pointer points to?
+
+The size is the number of ocaml words in the structure itself. The
+pointer then points outside the ocaml heap to some C memory allocated by
+malloc(). You should account for that size in the used/max pair.
+      </pre><i>Lyn Hong then asked and Goswin von Brederlow replied:</i><br /><pre>
+&gt; Thank you so much for the reply.
+&gt; So when we free the memory, what do we do with the block that pointer points
+&gt; to? Free it in the 'finalization function' associated to 'ops'?
+
+That depends on who allocted the memory and who is supposed to free
+it.
+
+In some cases a library will free the chunk when some cleanup function
+is called and your binding for cleanup() should then invalidate the
+pointer and other bindings should verify the pointer is still valid
+before using it. In that case the 'finalization function' can either
+call cleanup() when the pointer is still valid when ocaml declares the
+block as unused, give a warning that cleanup() wasn't called and call it
+or even give an error. I like the warning best.
+
+In other cases the chunk is something you are supposed to free when you
+are done with it. Then you just free() it.
+
+I really depends on the situation. Make damn sure that neigther the
+ocaml nor C code accesses the chunk after it has been freed, ever.
+Also make sure it doesn't get leaked.
+      </pre><i>Richard Jones then suggested:</i><br /><pre>
+This example code might be helpful:
+
+<a href="http://oirase.annexia.org/libguestfs-1.3.13/ocaml/guestfs_c.c.html">http://oirase.annexia.org/libguestfs-1.3.13/ocaml/guestfs_c.c.html</a>
+and more here: <a href="http://oirase.annexia.org/libguestfs-1.3.13/ocaml/">http://oirase.annexia.org/libguestfs-1.3.13/ocaml/</a>
+      </pre><a name="2" /><hr /><h3>Problem with recursive class and non-class types</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/5ade4e58eef72cbb#">http://groups.google.com/group/fa.caml/browse_thread/thread/5ade4e58eef72cbb#</a></p><i>Goswin von Brederlow asked and Jacques Garrigue replied:</i><br /><pre>
+&gt; I want to define the two types below:
+&gt; 
+&gt; type foo = { bar : bar; }
+&gt; class bar = object val mutable foo : foo list = [] end
+&gt; 
+&gt; Is there another way of doing this other than:
+&gt; 
+&gt; # type 'a foo = { bar : 'a; } 
+&gt;   class bar = object val mutable foo : #bar foo list = [] end;;
+&gt; type 'a foo = { bar : 'a; }
+&gt; class bar : object val mutable foo : #bar foo list end
+
+The alternative is to use a recursive module, but this is actually
+more verbose.
+
+module rec M : sig
+  type foo = { bar : M.bar; }
+  class bar : object val mutable foo : foo list end
+end = struct
+  type foo = { bar : M.bar; }
+  class bar =  object val mutable foo : foo list = [] end
+end
+
+You can avoid a bit of the verboseness by splitting types and values,
+since recursive modules built only from types require no duplication.
+
+module rec M : sig
+  type foo = { bar : M.bar; }
+  class type bar = object val mutable foo : foo list end
+end = M
+
+class bar : M.bar = object val mutable foo : M.foo list = [] end
+
+You still need to provide an explicit interface for bar.
+      </pre><a name="3" /><hr /><h3>LablGtk 2.14.1</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/ba38cc4dc5dcd30d#">http://groups.google.com/group/fa.caml/browse_thread/thread/ba38cc4dc5dcd30d#</a></p><i>Jacques Garrigue announced:</i><br /><pre>
+Following a number of bug fixes, here is a new release of LablGtk2,
+the ocaml interface to the Gtk+ GUI library and friends (glade, rsvg,
+gnomecanvas, gnomedruid, panel, gtkspell, gtksourceview2.)
+
+You can find it at:
+
+ <a href="http://wwwfun.kurims.kyoto-u.ac.jp/soft/olabl/lablgtk.html">http://wwwfun.kurims.kyoto-u.ac.jp/soft/olabl/lablgtk.html</a>
+
+The windows release has not been updated at this time.
+      </pre><a name="4" /><hr /><h3>A Tutorial on GNU Make with OCaml</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/8555399454d2348e#">http://groups.google.com/group/fa.caml/browse_thread/thread/8555399454d2348e#</a></p><i>Jeff Shaw announced:</i><br /><pre>
+I spent quite a lot of time today getting better acquainted with GNU make and
+decided I to share my experience and results. It's a bit on the newbie
+friendly side of instruction.
+
+<a href="http://shawjeff.blogspot.com/2010/05/this-is-storytutorial-about-how-i_20.html">http://shawjeff.blogspot.com/2010/05/this-is-storytutorial-about-how-i_20.html</a>
+      </pre><i>Goswin von Brederlow suggested:</i><br /><pre>
+Some comments:
+
+- For things you don't want to be deleted even though make sees they
+will never be reused on subsequent make calls look up .PRECIOUS
+
+- Targets that have no dependencies and create no file are implicitly
+PHONY. No need to specify it as such. A reason for why one might do it
+anyway would be to protect against someone doing "touch clean" by
+accident:
+
+% touch clean
+% make clean
+make: `clean' is up to date.
+
+A .PHONY: clean would prevent that and run clean anyway.
+
+- Don't create interface files if there are none
+
+If you start writing a module and haven't decided on the exact interface
+it will be a pain to delete the generated interface file every time. It
+is also completly useless as you can generate the cmi file from the .ml
+file directly. No need to create .mli first.
+
+- Use ocamldep
+
+Ocamldep figures out wich modules depend on other modules and generates
+that in Makefile syntax for you. Unfortunately ocamldep lacks an option
+to generate a dependency line for the final binary so SOURCES below must
+be set by hand and in the right order.
+
+- List source files, not generated files and use pattern substitution to
+get the later
+
+
+Here is my own version of a Makefile for a trivial project. I hardcoded
+it for native code but you already know how to use 'TARGET=byte' from
+your Makefile. Merging the two is left as an execise.
+
+PROG       := prog
+LIBS       := graphics unix
+SOURCES    := foo.ml bar.ml baz.ml
+
+# No user servicable parts below
+INTERFACES := $(wildcard *.mli)
+OBJS       := $(patsubst %.ml,%.cmx,$(SOURCES))
+LIBS       := $(patsubst %,%.cmxa,$(LIBS))
+
+# Count number of cores and use them all, no idea how do to that for windows
+PARALLEL   := -j$(shell cat /proc/cpuinfo | grep processor | wc -l)
+
+all:
+	$(MAKE) $(PARALLEL) $(PROG)
+
+$(PROG): $(OBJS)
+       ocamlopt -o $@ $(LIBS) $(OBJS)
+
+clean:
+       rm -rf $(PROG) *.o *.cmx *.cmi *~
+
+%.cmx: %.ml
+       ocamlopt -c $*.ml
+
+%.cmi: %.mli
+       ocamlopt -c $*.mli
+
+.depend: $(SOURCES) $(INTERFACES)
+       ocamldep -native $(SOURCES) $(INTERFACES) &gt;.depend
+
+include .depend
+      </pre><a name="5" /><hr /><h3>Jane Street is hiring</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/ea39a900de79434e#">http://groups.google.com/group/fa.caml/browse_thread/thread/ea39a900de79434e#</a></p><i>Yaron Minsky announced:</i><br /><pre>
+I would like to announce that Jane Street, a proprietary trading
+company with offices in New York, London and (soon) Hong Kong is
+actively looking to hire talented functional programmers.
+
+We're looking for people who have a deep interest in and understanding
+of software and technology.  We're not looking for experience with
+financial markets --- that's something we believe we can teach people
+on the job.
+
+Jane Street is deeply committed to functional programming, having the
+largest team of OCaml programmers in any industrial setting, and
+probably the world's largest OCaml codebase.  We use OCaml for running
+our entire business, supporting everything from research to systems
+administration to trading systems.  If you're interested in seeing how
+functional programming plays out in the real world, there's no better
+place than here.
+
+The atmosphere is informal and intellectual.  There is a focus on
+education, and people get a chance to learn both about software and
+about trading.  The work is challenging, and you get to see the
+practical impact of your efforts in quick and dramatic terms.  Jane
+Street is also a small enough place that people have the freedom to
+get involved in many different areas of the business.  Compensation is
+highly competitive, with a great deal of room for growth.
+
+If you'd like to learn more, here are some links.  You can get an
+overview of the firm from our website:
+
+  <a href="http://janestreet.com">http://janestreet.com</a>
+
+There's a talk I gave at CMU a while back that gives a good overview
+of what Jane Street does and why we use OCaml:
+
+  <a href="http://ocaml.janestreet.com/?q=node/61">http://ocaml.janestreet.com/?q=node/61</a>
+
+We also have an OCaml blog:
+
+ <a href="http://ocaml.janestreet.com">http://ocaml.janestreet.com</a>
+
+There are also a couple of papers we've written about our experiences
+here using functional languages.
+
+  <a href="http://www.janestreet.com/technology/articles.php">http://www.janestreet.com/technology/articles.php</a>
+
+If you're interested, send me a resume and cover letter.
+      </pre><a name="6" /><hr /><h3>Workshop on ML 2010 - Call for Content</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/30439dc60e62c7dd#">http://groups.google.com/group/fa.caml/browse_thread/thread/30439dc60e62c7dd#</a></p><i>Matthew Fluet announced:</i><br /><pre>
+                The 2010 ACM SIGPLAN Workshop on ML
+                 <a href="http://www.cs.rit.edu/~mtf/ml2010">http://www.cs.rit.edu/~mtf/ml2010</a>
+                 Baltimore, Maryland, United States
+                     Sunday, September 26, 2010
+                     co-located with ICFP 2010
+
+                          Call for Content
+
+ML is a family of programming languages that includes dialects known
+as Standard ML, Objective Caml, and F#. The development of these
+languages has inspired a large amount of computer science research,
+both practical and theoretical. This workshop aims to provide a forum
+to encourage discussion and research on ML and related technology
+(higher-order, typed, or strict languages).
+
+The format of the 2010 Workshop on ML will be different than that of
+recent years, returning to a more informal model: a workshop with
+presentations selected from submitted abstracts but without published
+proceedings. We hope that this format will encourage the presentation
+of more exciting (if unpolished) research and deliver a more lively
+workshop atmosphere.
+
+
+Invited Speaker
+~~~~~~~~~~~~~~~
+
+Luke Hoban (Microsoft) -- Bringing F# to Visual Studio 2010
+
+
+Important Dates
+~~~~~~~~~~~~~~~
+
+Submission:	25 June, 2010
+Notification:	9 August, 2010
+
+
+Format
+~~~~~~
+
+The workshop will consist of presentations by the participants,
+selected from submitted abstracts. Participants are invited to submit
+working drafts, source code, and/or extended abstracts for
+distribution on the workshop homepage and to the attendees, but as the
+workshop will have no formal proceedings, any contributions may be
+submitted for publication to other venues. (See the SIGPLAN
+republication policy for more details.)
+
+
+Scope
+~~~~~
+
+We primarily seek research presentations on topics related to ML,
+including (but not limited to):
+* applications: case studies, experience reports, pearls, etc.
+* extensions: higher forms of polymorphism, generic programming,
+  objects, concurrency, distribution and mobility, semi-structured
+  data handling, etc.
+* type systems: inference, effects, overloading, modules, contracts,
+  specifications and assertions, dynamic typing, error reporting,
+  etc.
+* implementation: compilers, interpreters, type checkers, partial
+  evaluators, runtime systems, garbage collectors, etc.
+* environments: libraries, tools, editors, debuggers, cross-language
+  interoperability, functional data structures, etc.
+* semantics: operational, denotational, program equivalence,
+  parametricity, mechanization, etc.
+
+Research presentations should describe new ideas, experimental
+results, significant advances in ML-related projects, or informed
+positions regarding proposals for next-generation ML-style
+languages. We especially encourage presentations that describe work in
+progress, that outline a future research agenda, or that encourage
+lively discussion.
+
+In addition to research presentations, we seek both Status Reports and
+Demos that emphasize the practical application of ML research and
+technology.
+
+Status Reports: Status reports are intended as a way of informing
+others in the ML community about the status of ML-related research or
+implementation projects, as well as communicating insights gained from
+such projects. Status reports need not present original research, but
+should deliver new information. In the abstract submission, describe
+the project and the specific technical content to be presented.
+
+Demos: Live demonstrations or tutorials are intended to show new
+developments, interesting prototypes, or work in progress, in the form
+of tools, libraries, or application software built on or related to ML
+technology. In the abstract submission (which need only be about half
+a page), describe the demo and its technical content, and be sure to
+include the demo's title, authors, collaborators, references, and
+acknowledgments. A demonstration should take 10-15 minutes. The exact
+time per demo will be decided based on the number of accepted
+submissions. (Please note that you will need to provide all the
+hardware and software required for your demo; the workshop organizers
+are only able provide a projector.)
+
+
+Submission Guidelines and Instructions
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Email submissions to mtf AT cs.rit.edu. Submissions should be at most
+two pages, in PDF format, and printable on US Letter or A4 sized
+paper. Persons for whom this poses a hardship should contact the
+program chair. Submissions longer than a half a page should include a
+paragraph synopsis suitable for inclusion in the workshop program.
+
+
+Program Chair
+~~~~~~~~~~~~~
+Matthew Fluet           Rochester Institute of Technology
+
+Program Committee
+~~~~~~~~~~~~~~~~~
+Kathleen Fisher         AT&amp;T Labs Research
+Adam Granicz            IntelliFactory
+Daan Leijen             Microsoft Research
+Johan Nordlander        Lulea University of Technology
+Sungwoo Park            Pohang University of Science and Technology
+Daniel Spoonhower       Google
+      </pre><a name="7" /><hr /><h3>new emacs tuareg mode release</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/00f575a5d8b3d491#">http://groups.google.com/group/fa.caml/browse_thread/thread/00f575a5d8b3d491#</a></p><i>Sam Steingold announced:</i><br /><pre>
+The original author of the alternative Emacs mode for editing Ocaml code 
+(tuareg-mode), Albert Cohen, has stopped development some time ago. 
+Now, with his blessing, Jane Street Capital took over maintenance of the code 
+from him, and released Tuareg Mode v. 2.0.0. 
+It is available for download at <a href="http://www.janestreet.com/ocaml/tuareg.tgz">http://www.janestreet.com/ocaml/tuareg.tgz</a>. 
+It is still released under the GNU General Public License (GPL) v2. 
+Please report bugs and submit patches to the dedicated public mailing list at 
+<a href="http://groups.google.com/group/tuareg-mode">http://groups.google.com/group/tuareg-mode</a>. 
+      </pre><i>Sam Steingold then added:</i><br /><pre>
+&gt; Please report bugs and submit patches to the dedicated public mailing 
+&gt; list at
+&gt; <a href="http://groups.google.com/group/tuareg-mode">http://groups.google.com/group/tuareg-mode</a>.
+
+Not any more.
+Please use <a href="https://forge.ocamlcore.org/projects/tuareg/">https://forge.ocamlcore.org/projects/tuareg/</a> instead.
+bugs: <a href="https://forge.ocamlcore.org/tracker/?atid=255&amp;group_id=43&amp;func=browse">https://forge.ocamlcore.org/tracker/?atid=255&amp;group_id=43&amp;func=browse</a>
+patches: <a href="https://forge.ocamlcore.org/tracker/?atid=257&amp;group_id=43&amp;func=browse">https://forge.ocamlcore.org/tracker/?atid=257&amp;group_id=43&amp;func=browse</a>
+support: <a href="https://forge.ocamlcore.org/tracker/?atid=256&amp;group_id=43&amp;func=browse">https://forge.ocamlcore.org/tracker/?atid=256&amp;group_id=43&amp;func=browse</a>
+
+Thanks to Christophe Troestler for bringing this to my attention.
+      </pre><i>Sam Steingold later added:</i><br /><pre>
+&gt; It is available for download at 
+&gt; <a href="http://www.janestreet.com/ocaml/tuareg.tgz">http://www.janestreet.com/ocaml/tuareg.tgz</a>.
+
+not any more.
+please get it from <a href="https://forge.ocamlcore.org/frs/?group_id=43">https://forge.ocamlcore.org/frs/?group_id=43</a>.
+      </pre><a name="8" /><hr /><h3>DSL + phantom types</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/6fccc94661a1f9a9#">http://groups.google.com/group/fa.caml/browse_thread/thread/6fccc94661a1f9a9#</a></p><i>Deep in this thread, blue storm said:</i><br /><pre>
+In case you're interested in more sophisticated examples of the DSL + 
+phantom types combination, I've worked on [Macaque] wich is a SQL DSL 
+for Caml using essentially the same technique. We were able to encode 
+useful properties of the SQL values, such as nullability, in the OCaml 
+type system. 
+The translation from the DSL to the caml code is not always direct, 
+because in some case you want to generate elaborate source terms wich 
+use the type system to enforce static guarantees (eg. correcteness of 
+the GROUP BY clauses). 
+ [Macaque] <a href="http://macaque.forge.ocamlcore.org/">http://macaque.forge.ocamlcore.org/</a> 
+      </pre><a name="9" /><hr /><h3>Other Caml News</h3><i>From the ocamlcore planet blog:</i><br /><pre>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <a href="http://planet.ocamlcore.org/">http://planet.ocamlcore.org/</a>.
+
+OUnit:
+  <a href="https://forge.ocamlcore.org/projects/ounit/">https://forge.ocamlcore.org/projects/ounit/</a>
+
+LablGTK2 2.14.1:
+  <a href="http://caml.inria.fr/cgi-bin/hump.cgi?contrib=304">http://caml.inria.fr/cgi-bin/hump.cgi?contrib=304</a>
+
+RegStab 1.4.4:
+  <a href="http://caml.inria.fr/cgi-bin/hump.cgi?contrib=706">http://caml.inria.fr/cgi-bin/hump.cgi?contrib=706</a>
+
+Reading Camlp4, part 6: parsing:
+  <a href="http://ambassadortothecomputers.blogspot.com/2010/05/reading-camlp4-part-6-parsing.html">http://ambassadortothecomputers.blogspot.com/2010/05/reading-camlp4-part-6-parsing.html</a>
+
+RegSTAB 1.4.4 released:
+  <a href="http://forge.ocamlcore.org/forum/forum.php?forum_id=611">http://forge.ocamlcore.org/forum/forum.php?forum_id=611</a>
+
+Tussling with Paypal using Ocsigen/OCaml:
+  <a href="http://blog.dbpatterson.com/post/611200341">http://blog.dbpatterson.com/post/611200341</a>
+      </pre><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

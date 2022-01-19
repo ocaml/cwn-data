@@ -1,0 +1,593 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2017.01.10</cwn_date>
+    <cwn_prev>2017.01.03</cwn_prev>
+    <cwn_next>2017.01.17</cwn_next>
+    <cwn_date_text>January 03 to 10, 2017</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>Positions available (functional programmer/OCaml/Ocsigen)</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2017-01/msg00016.html</cwn_url>
+      <cwn_who>Be Sport announced</cwn_who>
+      <cwn_what>
+Be Sport is looking for programmers familiar with functional languages, for a
+development and research work.
+
+The company:
+Be Sport is a young tech company currently building its developers team. We have
+a very ambitious development program and we believe in the use of modern
+technologies coming from research to build strong basis for our apps. We work in
+close relationship with research laboratories (CNRS, Inria, univ. Paris Diderot
+...). Our main focus at the moment are languages and typing for Web and mobile
+apps, recommendation algorithms for social networks, classification algorithms.
+
+Our first app is a social network dedicated to sport.
+Be Sport premises are located in the center of Paris.
+
+Work: 
+We are looking for developers to take part in the development of some features
+of our apps. Good general developers, knowing OCaml or other functional
+languages (or willing to learn) are welcome.
+
+Other skills related to the implementation of a social network are also welcome:
+machine learning, database, search engines, etc.
+
+The developers will be integrated in the programming team: participation in the
+writing of specifications, implementation (client / server), stylesheets,
+testing … They will initially work on improving existing features, before
+progressively taking the lead on some components.
+
+Skills:
+Candidates must have some expertise on some of the following technologies:
+Typed functional languages, ((especially OCaml and Ocsigen Js_of_ocaml/Eliom but
+it is not mandatory)
+Databases
+Machine learning
+Web programming (CSS, Javascript…)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>ppx_deriving question: deferring code generation?</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2017-01/msg00017.html</cwn_url>
+      <cwn_who>François Pottier asked</cwn_who>
+      <cwn_what>
+I am currently in the process of writing a ppx_deriving plugin, called
+"visitors". Overall, this has been a pleasant experience; a few hundred lines
+of code have been sufficient to obtain nontrivial results.
+
+In normal use, the user writes something like this:
+
+  type foo =
+    Bar | Baz
+    [@@deriving visitors]
+
+and some generated code is inserted just after the definition of the type foo.
+
+However, I have reached a situation where the generated code cannot be placed
+just after the type definition. That is, I need to allow user-written code to
+appear after the type definition and before the generated code.
+
+For instance, this user-written code could be a declaration of a global
+variable "x", whose type is "foo ref", and which the generated code uses. The
+declaration of "x" must appear after the definition of the type "foo", because
+the type of "x" mentions "foo". And the declaration of "x" must appear before
+the generated code, because the generated code (intentionally) refers to "x".
+
+I am imagining that perhaps the user could write something like this:
+
+  type foo =
+    Bar | Baz
+    [@@deriving visitors { delayed = true }
+
+  let x : foo option ref =
+    ref None
+
+  [@@visitors]
+
+The effect of the flag { delayed = true } would be to store the generated code
+somewhere in memory (instead of emitting right away), and the effect of the
+floating attribute [@@visitors] would be to fetch that code from memory and
+emit it.
+
+To me, this seems somewhat ugly, but workable. Does ppx_deriving offer a
+better approach? Does anyone have a better suggestion? Comments are
+appreciated.
+      </cwn_what>
+      <cwn_who>Gabriel Scherer replied</cwn_who>
+      <cwn_what>
+The semantics you propose is inherently stateful: delays accumulates some state
+and [@@visitors]'s meaning (nitpick: I think it should be a floating attribute,
+[@@@visitors]) depends on the current state. You could design a similar facility
+using names for references instead of implicit state:
+
+type foo =
+Bar | Baz
+
+let x : foo option ref =
+ref None
+
+[@@@deriving.for foo (visitors)]
+
+(If we had access to the type-checking environment, [@@deriving.for p] could be
+valid for any qualified identifier p that points to a transparent definition in
+the current environment. Given the current ppx pipeline, I suppose that would
+have to be restricted to being in the syntactic scope of an actual declaration.)
+
+Hongbo Zhang introduced a similar "deriving from a distance" feature in his
+preprocessor Fan, for the reason you give, and also to allow deriving
+boilerplate code of datatypes defined in third-party libraries without having to
+modify them directly.
+      </cwn_what>
+      <cwn_who>Christoph Höger also replied, and François Pottier said</cwn_who>
+      <cwn_what>
+&gt; Just out of curiosity, what does "vistors" do? If it resembles the usual
+&gt; Visitor Pattern you might find my ppx_deriving_morphism useful:
+&gt; 
+&gt; https://github.com/choeger/ppx_deriving_morphism/
+&gt; 
+&gt; (either as a starting point or inspiration or as something to obsolete).
+
+Interesting -- thanks for your reply. Although I did search for related ppx
+plugins, I did not find yours.
+
+At a glance, my plugin seems broadly analogous to yours; it also generates
+"iter" (= "fold") and "map" visitors. It differs superficially in that it uses
+OCaml objects instead of OCaml records. It differs perhaps more deeply in that
+the generated code can have more varied types, beyond your "map_routine" and
+"fold_routine". But I need to experiment more, and write more documentation,
+before making a public release.
+      </cwn_what>
+      <cwn_who>Alain Frisch also replied, and François Pottier said</cwn_who>
+      <cwn_what>
+&gt; I don't know if this would cover all similar cases, and perhaps it is a
+&gt; bit verbose, but what about something like:
+&gt;
+&gt;     include(struct
+&gt;      type foo = Bar | Baz
+&gt;
+&gt;      let x = ...
+&gt;     end [@deriving visitors])
+&gt; 
+&gt; i.e. use an attribute on the module expression (and interpret it by appending
+&gt; more declarations to the structure).
+
+This sounds potentially reasonable. However, I am not sure if ppx_deriving
+allows this. If it doesn't, then I would have to package my code generator as
+a ppx preprocessor, instead of a ppx_deriving plugin. Maybe that would be
+easy; I am not sure exactly how much grunt work ppx_deriving is doing for me.
+      </cwn_what>
+       <cwn_who>whitequark finally replied</cwn_who>
+      <cwn_what>
+&gt; To me, this seems somewhat ugly, but workable. Does ppx_deriving offer a
+&gt; better approach? Does anyone have a better suggestion? Comments are
+&gt; appreciated.
+
+ppx_deriving currently does not allow for any (non-horrible) way to do this.
+I am OK with the approach you propose.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Lwt 2.7.0 – monadic promises; concurrent I/O</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2017-01/msg00030.html</cwn_url>
+      <cwn_who>Anton Bachin announced</cwn_who>
+      <cwn_what>
+I am pleased to announce release 2.7.0 of Lwt.
+
+  https://github.com/ocsigen/lwt
+
+The primary goals of this release are (1) to improve communication
+between maintainers and users, and (2) to prepare for (minor) breaking
+changes to some APIs in Lwt 3.0.0 (planned for April). The changelog is
+available here:
+
+  https://github.com/ocsigen/lwt/releases/tag/2.7.0
+
+- Lwt now uses deprecation warnings ([@deprecated]), especially for
+  upcoming breaking changes [1]. This required dropping support for
+  OCaml 4.01.
+- There is a gradual, communicative, conservative process for
+  deprecation and breaking [2]. Maintainers of packages in OPAM get
+  notified proactively (see [1] again). If you have code not published
+  in OPAM, watch the Lwt repo, recompile the code at least once in three
+  months, watch this mailing list, or subscribe to the Lwt announcements
+  issue [3].
+- If a planned breaking change is a bad idea, please let the maintainers
+  know when you see the warning.
+- Lwt now uses semantic versioning [4]. The major version will grow
+  slowly but steadily, but this does not mean that the whole API is
+  being redesigned or broken.
+
+If you are releasing a package to OPAM that depends on Lwt, it is not
+recommended to constrain Lwt to its current major version. A major
+release of Lwt will break only a few APIs, and your package is likely
+not to be affected – if it is, you will be notified. You may, however,
+wish to constrain Lwt to a major version in your private or production
+code.
+
+- The main OPAM package lwt is getting rid of some optional
+  dependencies in 3.0.0, which are now installable through separate OPAM
+  packages lwt_ssl, lwt_glib, lwt_react. This is to reduce recompilation
+  of Lwt when installing OPAM packages ssl, lablgtk, and react.
+- Values of types 'a Lwt.t are now called promises rather than threads.
+  This should eliminate a lot of confusion for beginners.
+
+Lwt 2.7.0 also has a number of more ordinary changes, such as bug fixes
+and the addition of bindings to writev and readv. See the full
+changelog [5].
+
+I am working on an all-new manual, including fully rewritten API
+documentation with examples. It should be ready towards the end of
+winter.
+
+My hope is that all the above allows Lwt to be taken progressively into
+the future, at the same time making development more open and more
+humane :)
+
+Best,
+Anton
+
+
+[1]: https://github.com/ocsigen/lwt/issues/308
+[2]: https://github.com/ocsigen/lwt/issues/293
+[3]: https://github.com/ocsigen/lwt/issues/309
+[4]: http://semver.org/
+[5]: https://github.com/ocsigen/lwt/releases/tag/2.7.0
+      </cwn_what>
+      <cwn_who>Ivan Gotovchits replied</cwn_who>
+      <cwn_what>
+These are the great news! 
+
+And thanks for the maintainers notification, it was really helpful :)
+
+I have one comment, though:
+
+ Values of types 'a Lwt.t are now called promises rather than threads.
+ This should eliminate a lot of confusion for beginners.
+
+And create a confusion for seasoned programmers, especially for those who are
+accustomed to C++ newly introduced concepts, like promises and futures, where a
+promise has quite an opposite meaning. In short, it has the same meaning as a
+value of type `'a Lwt.u`, i.e., it is an object through which a promise can be
+fulfilled. I think that it is better to refer to Lwt.t threads as futures
+because they are the values, whose value is determined in the future. Another
+way to name them is `deferred`, again for the same reason. You can also say,
+that a value of type `'a Lwt.t` is a computation. You can also try to borrow
+names from the Standard ML community, where `'a Lwt.t` like objects are named as
+IVars.
+
+Finally, you may also find this project interesting [1]. This is an attempt to
+factor out the core idea from both Core Async and Lwt. In particular, the Future
+library allows us to write a monadic code, that is independent of a particular
+implementation (Lwt or Async or Identity monad).
+
+[1]: https://github.com/BinaryAnalysisPlatform/bap/blob/master/lib/bap_future/bap_future.mli
+      </cwn_what>
+      <cwn_who>Ivan Gotovchits then added</cwn_who>
+      <cwn_what>
+Forgot to mention F# and their asynchronous workflows [1]. These guys did a good
+job of hiding a monad behind simple ideas. Basically, they use term
+"asynchronous computation" for the values of type `'a Lwt.t`
+
+[1]: https://docs.microsoft.com/en-us/dotnet/articles/fsharp/language-reference/asynchronous-workflows
+      </cwn_what>
+      <cwn_who>Anton Bachin replied to Ivan</cwn_who>
+      <cwn_what>
+I personally would have preferred to call them futures. I actually come
+from a C++ background, including modern C++, and also I just like the
+word "future" more than "promise."
+
+However, I read through some articles, blogs, and SO posts, and came
+away with the impression that the terminology is really not settled
+between languages. Given that, I chose "promise" and "resolver" with the
+following reasoning:
+
+- The term promise is used in JavaScript.
+- A large number of programmers use JavaScript.
+- Lwt compiles to JavaScript sometimes.
+- We may want to give special support for interfacing between Lwt and
+JavaScript promises one day [1].
+- Presumably, the people who standardized on "promise" in JavaScript had
+good reasons for doing so, which I don't have time to deeply
+investigate at the moment. While it is true that C++, among other
+communities, standardized on different terminology, and also had good
+reasons for doing so, the JavaScript precedent suggests that "promise"
+is somehow defensible. I am "calling" on this precedent as an opaque
+"library" of argument and experience. This may be a mistake :)
+- I believe, during their process, JavaScript eventually explicitly rejected
+both terms "future" and "deferred."
+- "resolver" is just what I was left with after assigning "promise" to
+what I thought should be "future" :)
+
+The work-in-progress manual uses these terms.
+
+It is possible to change the terminology, with suitable arguments. The
+terminology issue is in GitHub [2].
+
+Best,
+Anton
+
+[1]: https://github.com/ocsigen/lwt/issues/270
+[2]: https://github.com/ocsigen/lwt/issues/300
+      </cwn_what>
+      <cwn_who>Ivan Gotovchits then said</cwn_who>
+      <cwn_what>
+&gt; - The term promise is used in JavaScript.
+&gt; - A large number of programmers use JavaScript.
+
+These are very strong arguments. Yeah, JS didn't form my worldview (thank god).
+But, I totally agree with you that if we will forget the C++, then "promise" is
+a perfectly fine word for describing Lwt thread values. But please still
+consider adding a small comment about the terminology ambiguity as a tribute for
+the C++ background :) As you may see, we can get confused))
+
+I also like the resolver :) It is non-ambiguous (you can't confuse promise and
+resolver, that's nice).
+      </cwn_what>
+      <cwn_who>Malcolm Matalka also replied</cwn_who>
+      <cwn_what>
+&gt; I personally would have preferred to call them futures. I actually come
+&gt; from a C++ background, including modern C++, and also I just like the
+&gt; word "future" more than "promise."
+
+To add some more terminology to the mix, I have generally seen Future
+and Promise being two sides of the same thing.  A Future is a read-only
+value that can be determined to a value and a Promise is the side that
+can be set.  The wikipedia entry uses this terminology.
+
+https://en.wikipedia.org/wiki/Futures_and_promises
+      </cwn_what>
+      <cwn_who>Andreas Rossberg then added</cwn_who>
+      <cwn_what>
+The history of the future/promise terminology is somewhat confusing. Friedman &amp;
+Wise introduced the concept as promises, Baker &amp; Hewitt (re)named it futures
+(there are only superficial differences). They gained wider popularity with
+Multilisp, which also called them futures. As far as the functional language
+space is concerned, that term pretty much stuck. In the imperative/OO space, the
+term promise became somewhat popular with Liskov &amp; Shrira and their promise
+pipelining. However, most contemporary mainstream languages (C++, Java, ...)
+also use future.
+
+As far as I am aware, Alice ML was the first language that had _both_ futures
+and promises and factorised them in the way you cite, where promises are
+essentially single assignment variables — at least I remember that we iterated
+on various terminologies for a long time around 99/00 until we settled on this.
+I don’t know how the future/promise API in C++ came about, but it arrived at a
+very similar distinction. So did Scala. All these languages characterise
+promises by the presence of a resolve/‘fulfill' operator.
+
+There is a different distinction being made by e.g. Mark Miller, who
+characterises futures by a (synchronous, blocking) read operation, and promises
+by a (asynchronous, nonblocking) bind operator taking a callback. Personally, I
+find this use of terminology rather unintuitive and problematic, since there is
+no reason that a blocking future cannot also have a non-blocking bind method
+(and they often do). But it is the reason that JavaScript calls its notion
+promise (although there was discussion about that). Arguably, though, it is the
+odd one out as far as both mainstream and functional languages are concerned.
+
+(More generally, I would not recommend using JavaScript as precedent for
+anything regarding its promises, since they are broken in just about every
+possible way. And I’m saying that as a member of the committee that standardised
+them… :) )
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Preparing a project for opam</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2017-01/msg00038.html</cwn_url>
+      <cwn_who>Helmut Brandl asked</cwn_who>
+      <cwn_what>
+I am trying to prepare my project to being published via opam. I have pinned my
+project to a local version on my harddisk and generated and opam file which opam
+can build successfully.
+
+Now I am struggling with the "install" section of the opam file.
+
+For building I use ocamlbuild which builds a native executable file in the
+source directory (to be precise in the _build subdirectory of the source
+directory). Installing just means copying this executable into a directory which
+is in the search path. I have achieved this by copying the executable directly
+to ".opam/system/bin". However I am not sure if this is the recommended way
+since somebody else might have chosen another directory name and path on where
+to store ".opam".
+
+Is there a portable way to do this? Thanks for any hint.
+      </cwn_what>
+      <cwn_who>Petter A. Urkedal replied</cwn_who>
+      <cwn_what>
+&gt; Is there a portable way to do this? Thanks for any hint.
+
+Yes, take a look at the "package-name.install" section in
+&lt;http://opam.ocaml.org/doc/Manual.html&gt;.  You can then drop the install
+section from the opam file, and it also saves you from maintaining a
+corresponding removal script, as opam will keep track of what gets
+installed.
+      </cwn_what>
+      <cwn_who>Anton Bachin also replied</cwn_who>
+      <cwn_what>
+When publishing to OPAM, you can create an install file that lists what should
+be installed. I am linking to the example from Bisect_ppx (the question marks
+mean “if the file exists,” don’t use them if your file will always be built).
+Bisect_ppx installs a binary called bisect-ppx-report:
+
+  https://github.com/ocaml/opam-repository/blob/master/packages/bisect_ppx/bisect_ppx.1.2.0/files/bisect_ppx.install
+
+The overall published structure looks like this:
+
+  https://github.com/ocaml/opam-repository/tree/master/packages/bisect_ppx/bisect_ppx.1.2.0
+
+If you are working locally, you can create your .install file next to the opam
+file.
+
+In general, it is also possible to get various OPAM paths for the current
+switch:
+
+  opam config var lib
+  opam config var doc
+  opam config var bin
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Portable way to retrieve and unpack tar files from github</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2017-01/msg00047.html</cwn_url>
+      <cwn_who>Helmut Brandl asked and David Allsopp replied</cwn_who>
+      <cwn_what>
+&gt; I am looking for a portable way to retrieve tar files from github and
+&gt; unpacking them.
+&gt; 
+&gt; I could use system calls to "wget https://www.github.com.." and "tar xzf
+&gt; tarfile.tar.gz",  but this works only in environments where tar and wget
+&gt; are available i.e. possibly not on windows and maybe not on MacOS
+&gt; machines.
+&gt; 
+&gt; Is there any library available on then opam repository to do this in a
+&gt; portable way. Thanks for any hint.
+
+While the Windows support may not (yet) be perfect, ocurl
+(&lt;https://opam.ocaml.org/packages/ocurl/&gt;) and tar-format
+(&lt;https://opam.ocaml.org/packages/tar-format/&gt;) provide a route. There are
+certainly other alternatives to ocurl (ocamlnet, for example - I think it may
+even be possible to do it without needing a C library at all). Note that
+unpacking a tarball is an inherently difficult portable problem in itself where
+Windows support is concerned.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Improved type error messages for Ocaml</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2017-01/msg00049.html</cwn_url>
+      <cwn_who>Arthur Charguéraud announced</cwn_who>
+      <cwn_what>
+It is my pleasure to announce the beta release of my patch for improved type
+error messages.
+
+opam switch 4.02.2+improved-errors
+
+Quick demo:
+
+*** With "ocamlc" ***
+
+let _ = List.map (fun x -&gt; x + 1) [2.0; 3.0]
+                                   ^^^
+Error: This expression has type float but an expression was expected of type int.
+
+This message is very confusing to the user who intented to write: (fun x -&gt; x +. 1.)
+
+*** With "ocamlc -easy-type-errors" ***
+
+let _ = List.map (fun x -&gt; x + 1) [2.0; 3.0]
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Error: The function `List.map' cannot be applied to the arguments provided.
+
+   | Types of the expected arguments: | Types of the provided arguments:
+---|----------------------------------|----------------------------------
+ 1 | 'a -&gt; 'b                         | int -&gt; int
+ 2 | 'a list                          | float list
+
+This new message show all the types involved, and does not attempt to guess
+whether the user intended to write [2; 3] or intended to write (fun x -&gt; x +.
+1.); Trying to guess is a bad idea, because roughly half of the time the guess
+is wrong, and it just adds more confusion.
+
+Many more (cool) demos are available from the following sources:
+
+* paper: http://www.chargueraud.org/research/2015/ocaml_errors/ocaml_errors.pdf 
+* slides: http://www.chargueraud.org/talks/2014_09_05_talk_ocaml_errors.pdf 
+* video: https://www.youtube.com/watch?v=V_ipQZeBueg 
+
+How it works (short version):
+
+When the flag "-easy-type-errors" is activated, the compiler behaves exactly as
+usual, except when a top level definition fails to type-check. At such point,
+the definition is type-checked again, using a slightly modified unification
+algorithm, able to produce messages that are (I argue) more informative for
+locating the error. The patched compiler is thus able to provide alternative
+error messages with zero performance overhead on successful compilations. For
+ill-typed programs, the new typing algorithm may be slightly slower than the
+original one (as it performs a larger number of generalizations), but it should
+never be orders of magnitude slower.
+
+Pretty much all of OCaml is supported, with the notable exceptions of GADTs (by
+lack of time of expertise), and record field name overloading (due to the fact
+that it depends on the order in which unifications are performed). Note that
+top-level definitions involving such features will still compile properly, as
+long as it they do not contain any type error; if they do, then the error
+message will likely be uninformative, in which case the flag "-easy-type-errors"
+needs to be turned off.
+
+If you like this patch and would like to see it one day integrated in the main
+distribution, please post feedback on the mailing list, to convince the
+developers and myself that it is worth further investment. I am especially
+interested in feedback on the use of the new error messages in the context of
+teaching OCaml.
+
+Enjoy!
+
++
+Arthur
+
+[Many thanks to Armaël Guéneau and Gabriel Scherer for their help with the opam
+packaging.]
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Ocaml Github Pull Requests</cwn_title>
+      <cwn_who>Gabriel Scherer compiled this list</cwn_who>
+      <cwn_what>
+Here is a sneak peek at some potential future features of the Ocaml
+compiler, discussed by their implementers in these Github Pull Requests.
+
+Support the '0 dimension case' for bigarrays
+https://github.com/ocaml/ocaml/pull/787
+
+Records with unboxed fields
+https://github.com/ocaml/ocaml/pull/794
+
+Statistical memory profiling - Request for comments
+https://github.com/ocaml/ocaml/pull/847
+
+Fix XSS in ocamldoc
+https://github.com/ocaml/ocaml/pull/848
+
+Option-returning variants of stdlib functions
+https://github.com/ocaml/ocaml/pull/885
+
+Add MPR#6975: truncate in Buffer module
+https://github.com/ocaml/ocaml/pull/902
+
+Add missing @since annotations for 4.00 .. 4.05
+https://github.com/ocaml/ocaml/pull/916
+
+A HACKING.adoc file with hacking advice
+https://github.com/ocaml/ocaml/pull/925
+
+allow build in termux
+https://github.com/ocaml/ocaml/pull/935
+
+Win64 stack overflow detection
+https://github.com/ocaml/ocaml/pull/938
+
+Added some missing numeric C99-functions to Pervasives
+https://github.com/ocaml/ocaml/pull/944
+
+Build dylibs, not bundles, on macOS
+https://github.com/ocaml/ocaml/pull/988
+
+Implement responsefiles support PR7050
+https://github.com/ocaml/ocaml/pull/748
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Here are links from many OCaml blogs aggregated at OCaml Planet,
+&lt;http://ocaml.org/community/planet/&gt;.
+
+Full Time: Software Developer (Functional Programming) at Jane Street in New
+York, NY; London, UK; Hong Kong
+ &lt;http://jobs.github.com/positions/0a9333c4-71da-11e0-9ac7-692793c00b45&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

@@ -1,0 +1,442 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[http://alan.petitepomme.net/cwn/2019.09.03.html][Previous Week]] [[http://alan.petitepomme.net/cwn/index.html][Up]] [[http://alan.petitepomme.net/cwn/2019.09.17.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of September 03 to 10, 2019.
+
+#+TOC: headlines 1
+
+
+* Implicits for the masses
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://sympa.inria.fr/sympa/arc/caml-list/2019-09/msg00003.html
+
+** Oleg announced
+
+
+This is to announce a simple, plain OCaml library to experiment with
+type-class/implicits resolution, which can be thought of as evaluating
+a Prolog-like program. One may allow `overlapping instances' -- or
+prohibit them, insisting on uniqueness. One may make the search fully
+deterministic, fully non-deterministic, or something in-between.
+There is an immediate, albeit modest practical benefit: the facility
+like "#install_printer", which was restricted to top-level, is now
+available for all -- as a small, self-contained, plain OCaml library
+with no knowledge or dependencies on the compiler internals. We show
+an example at the end of the message.
+
+This message has been inspired by the remarkable paper
+#+begin_verse
+        Canonical Structures for the working Coq user
+        Assia Mahboubi, Enrico Tassi
+        DOI: 10.1007/978-3-642-39634-2_5
+#+end_verse
+Its introduction is particularly insightful: the power of
+(mathematical) notation is in eliding distracting details. Yet to
+formally check a proof, or to run a program, the omitted has to be
+found. When pressed to fill in details, people `skillful in the art'
+look in the database of the `state of the art', with the context as
+the key. Computers can be programmed similarly; types well represent
+the needed context to guide the search.
+
+Mahboubi and Tassi's paper explains very well how this eliding and
+filling-in is realized, as a programmable unification, and used in
+Coq. Yet their insights go beyond Coq and deserve to be known better.
+This message and the accompanying code is to explain them in
+plain OCaml and encourage experimentation. It could have been titled
+`Canonical Structures for the working OCaml (meta) programmer'.
+
+The rudiment of canonical structures is already present in OCaml, in
+the form of the registry of printers for user-defined types. This
+facility is available only at the top-level, however, and deeply
+intertwined with it. As a modest practical benefit, this facility is
+now available for all programs, as a plain, small, self-contained
+library, with no compiler or other magic. The full potential of the
+method is realized however in (multi-) staged programming. In fact, I'm
+planning to use it in the upcoming version of MetaOCaml to implement
+`lifting' from a value to the code that produces it -- letting the
+users register lifting functions for their own data types.
+
+
+- http://okmij.org/ftp/ML/canonical.ml \\
+        The implementation and the examples, some of which are noted below.
+- http://okmij.org/ftp/ML/trep.ml \\
+        A generic library of type representations: something like
+        Typeable in Haskell. Some day it may be built-in into the compiler
+- http://okmij.org/ftp/ML/canonical_leadup.ml \\
+        A well-commented code that records the progressive development of
+        canonical.ml. It is not part of the library, but may serve as
+        its explanation.
+
+Here are a few examples, starting with the most trivial one
+#+begin_src ocaml
+   module Show = MakeResolve(struct type 'a dict = 'a -> string end)
+   let () = Show.register Int string_of_int    (* Define `instances' *)
+   let () = Show.register Bool string_of_bool
+   Show.find Int 1;;
+#+end_src
+
+However contrived and flawed, it is instructive. Here (Int : int trep)
+is the value representing the type int. The type checker can certainly
+figure out that 1 is of the type int, and could potentially save us
+trouble writing Int explicitly. What the type checker cannot do by
+itself is to find out which function to use to convert an int to a
+string. After all, there are many of them. Show.register lets us
+register the *canonical* int->string function. Show.find is to search
+the database of such canonical functions: in effect, finding *the*
+evidence that the type int->string is populated. Keeping Curry-Howard
+in mind, Show.find does a _proof search_.
+
+The type of Show.find is 'a trep -> ('a -> string). Compare with
+Haskell's show : Show a => a -> String (or, desuraging => and Show)
+show : ('a -> string) -> ('a -> string).  Haskell's show indeed does
+not actually do anything: it is the identity function. All the hard
+work -- finding out the right dictionary (the string producing
+function) -- is done by the compiler. If one does not like the way the
+compiler goes about it -- tough luck. There is little one may do save
+complaining on reddit. In contrast, the first argument of Show.find is
+trivial: it is a mere reflection of the type int, with no further
+information. Hence Show.find has to do a non-trivial work.  In the
+case of int, this work is the straightforward database search --
+or, if you prefer, running the query ?- dict(int,R) against a logic
+program
+#+begin_example
+     dict(int,string_of_int).
+     dict(bool,string_of_bool).
+#+end_example
+The program becomes more interesting when it comes to pairs:
+#+begin_example
+     dict(T,R) :- T = pair(X,Y), !,
+         dict(X,DX), dict(Y,DY), R=make_pair_dict(DX,DY).
+#+end_example
+Here is how it is expressed in OCaml:
+#+begin_src ocaml
+let () =
+  let open Show in
+  let pat : type b. b trep -> b rule_body option = function
+    | Pair (x,y) ->
+        Some (Arg (x, fun dx -> Arg (y, fun dy ->
+          Fact (fun (x,y) -> "(" ^ dx x ^ "," ^ dy y ^ ")"))))
+    | _      -> None
+  in register_rule {pat}
+
+let () = Show.register (Pair(Bool,Bool))
+           (fun (x,y) -> string_of_bool x ^ string_of_bool y)
+#+end_src
+
+Our library permits `overlapping instances'. We hence registered the
+printer for generic pairs, and a particular printer just for pairs of
+booleans.
+
+The library is extensible with user-defined data types, for example:
+#+begin_src ocaml
+   type my_fancy_datatype = Fancy of int * string * (int -> string)
+#+end_src
+
+After registering the type with trep library, and the printer
+#+begin_src ocaml
+   type _ trep += MyFancy : my_fancy_datatype trep
+   let () = Show.register MyFancy (function Fancy(x,y,_) ->
+     string_of_int x ^ "/" ^ y ^ "/" ^ "<fun>")
+#+end_src
+
+one can print rather complex data with fancy, with no further ado:
+#+begin_src ocaml
+   Show.find (List(List(Pair(MyFancy,Int)))) [[(Fancy ...,5)];[]]
+#+end_src
+
+As Mahboubi and Tassi would say, proof synthesis at work!
+
+We should stress that what we have described is not a type-class
+facility for OCaml. It is *meta* type-class facility.  Show.find has
+many drawbacks: we have to explicitly pass the trep argument like
+Int. The resolution happens at run time, and hence the failure of the
+resolution is a run-time exception. But the canonical instance
+resolution was intended to be a part of a type checker. There, the
+resolution failure is a type checking error. The trep argument,
+representing the type in the object program, is also at
+hand. Likewise, the drawbacks of Show.find disappear when we use the
+library in a meta-program (code generator). The library then becomes a
+type-class/implicits facility, for the generated code -- the facility,
+we can easily (re)program.
+      
+
+** Ivan Gotovchits
+
+
+Very interesting and thought-provoking writeup, thank you!
+
+Incidentally, we're investigating the same venues, in our CMU BAP project,
+as we found out that we need the extensibility in the style of type
+classes/canonical structures to decouple complex dependencies which arise
+in the program analysis domain.
+In fact, we build our new BAP 2.0 framework largely on your
+[[http://okmij.org/ftp/tagless-final/index.html][tagless-final]] style which, let's admit it, works much better with type
+classes. Therefore we ended up implementing extensible type representations
+along with registries for our type classes. Unfortunately, the idea of
+storing rules in the registry didn't visit us, but we're now thinking about
+how to incorporate it (the classes that we have are very nontrivial,
+usually having hundreds of methods, so we're currently using functors to
+manually derive on class from another, and registering the resulting
+structures - but using your approach we can register functors as well and
+automate the derivation). We also didn't generalize the type class
+instantiation, so our solutions do have some boilerplate (but I have to
+admit, that the total number of type classes that we need is not very big,
+so it really never bothered us). What could be surprising is that the
+universe of types actually grew quite large, that large that the linear
+search in the registry is not an option for us anymore. In fact, we have so
+many comparisons between treps, that instead of extracting the extension
+constructor number from an extensible variant we had to rely on our own
+freshly generated identifier. But I'm running in front of myself, an
+important lesson that we have learned is that treps should not only be
+equality comparable but also ordered (and even hashable) so that we can
+implement our registries as hash tables. It is also better to keep them
+abstract so that we can later extend them without breaking user code (to
+implement introspection as well as different resolution schemes). This is
+basically an elaboration of your approach (which is also could be commonly
+found in Janestreet's Core (Type_equal.Uid.t) and other implementations of
+existentials). In our case, we ended up with the following implementation
+#+begin_src ocaml
+    type 'a witness = ..
+
+    module type Witness = sig
+      type t
+      type _ witness += Id : t witness
+    end
+
+    type 'a typeid = (module Witness with type t = 'a)
+
+    type 'a key = {
+      ord : int;
+      key : 'a typeid;
+      name : string; (* for introspection *)
+      show : 'a -> Sexp.t; (* also for introspection *)
+    }
+#+end_src
+Now, we can use the ~ord~ field to order types, compare them, store in
+maps, hash tables, and even arrays. E.g., this is how our ~teq~ function
+looks like,
+#+begin_src ocaml
+    let same (type a b) x y : (a,b) Type_equal.t =
+      if x.id =  y.id then
+        let module X = (val x.key : Witness with type t = a) in
+        let module Y = (val y.key : Witness with type t = b) in
+        match X.Id with
+        | Y.Id -> Type_equal.T
+        | _ -> failwith "broken type equality"
+      else failwith "types are not equal"
+#+end_src
+
+It is often used in the context where we already know that ~x.id = y.id~,
+e.g., when we already found an entry, so we just need to obtain the
+equality witness (we use Janestreet's Type_equal.T, which is the same as
+yours eq type).
+
+Concerning the representation of the registry, we also experimented with
+different approaches (since we have a few ways to make a type existential
+in OCaml), and found out the following to be the most efficient and easy to
+work with,
+
+#+begin_src ocaml
+type ordered = {
+    order : 'a. 'a key -> 'a -> 'a -> int;
+  } [@@unboxed]
+#+end_src
+
+Notice, that thanks to ~[@@unboxed]~ we got a free unpacked existential. We
+will next store ~ordered~ in our registry, which is a hash table,
+
+#+begin_src ocaml
+let ordered : ordered Hashtbl.M(Int).t = Hashtbl.create (module Int)
+#+end_src
+and register it as simple as,
+#+begin_src ocaml
+  let register: type p. p Key.t -> (p -> p -> int) -> unit = fun key order
+->
+    Hashtbl.add_exn vtables ~key:(uid key) ~data:{
+      order = fun (type a) (k : a key) (x : a) (y : a) ->
+        let T = same k key in (* obtain the witness that we found the right structure *)
+        order x y
+     }
+#+end_src
+
+Instead of a hashtable, it is also possible to use ~ordered array ref~
+(since our ~ord~ is just an integer which we increment every time a new
+class is declared). This will give us even faster lookup.
+
+I hope that this was interesting. And if yes, I'm ready to elaborate more
+on our design decision or to hear suggestions and critics. Here are a few
+links:
+
+- https://github.com/BinaryAnalysisPlatform/bap - the BAP project per se.
+- https://binaryanalysisplatform.github.io/knowledge-intro-1  - a small introductionary post about BAP 2.0 Knowledge representation
+- https://github.com/BinaryAnalysisPlatform/bap/blob/master/lib/knowledge/bap_knowledge.ml - the implementation of the knowledge system
+- https://github.com/BinaryAnalysisPlatform/bap/tree/master/lib/bap_core_theory - The Core Theory, an exemplar type class of the theory that we're developing :)
+      
+
+
+
+* Ppx_yojson_conv: deriving plugin to generate Yojson conversion functions
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/ann-ppx-yojson-conv-deriving-plugin-to-generate-yojson-conversion-functions/4109/7
+
+** Hhugo announced
+
+
+@trefis has worked on splitting the ppx_yojson_conv runtime to a different library. See https://github.com/janestreet/ppx_yojson_conv_lib
+      
+
+
+
+* Memory usage in recursive function as infinite loop
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/memory-usage-in-recursive-function-as-infinite-loop/4320/1
+
+** Diego Guraieb asked
+
+
+On my project I have a process that has to run every 1 sec,  fetching events and doing some work with them.
+
+Should I use. a while true loop or recursive function?  How does it affect memory usage?
+      
+
+** Ivan Gotovchits replied
+
+
+A tail recursive function doesn't affect memory usage and is no different in that sense from a while/for or any other loop. A tail recursive function is such function that calls itself in the tail position. In general it means that the recursive call is not followed by any other operation, that uses the result of the call. For example, this is a tail recursive function
+
+#+begin_src ocaml
+open Printf
+
+let reс loop rounds =
+   if rounds > 0
+   then begin
+      printf "Round %d\n" round;
+      loop (rounds - 1)
+   end
+   else printf "We are done!\n"
+#+end_src
+
+In this function, the ~loop (rounds - 1)~ call is in the tail position and is not followed by any other expression.
+
+Any loop could be rewritten using tail-recursion, so if you're having a choice between using a while/for loop and a recursive function, then, given that recursion is a more natural representation of iteration, it is better to use the recursive function, instead of relying on adhoc for or while loops.
+      
+
+** Chimrod then added
+
+
+Nothe that you also can add the [[https://caml.inria.fr/pub/docs/manual-ocaml/manual035.html#sec265][@tailcall]] annotation to ensure that the function will be properly tranformed in a loop. This code trigger a warning at the compilation
+
+#+begin_src ocaml
+open Printf
+
+let rec loop rounds =
+   if rounds > 0
+   then begin
+      printf "Rounds left %d\n" rounds;
+      try (loop [@tailcall]) (rounds - 1)
+      with Not_found -> printf "Error\n"
+   end
+   else printf "We are done!\n"
+#+end_src
+
+#+begin_example
+ocamlc test.ml
+File "test.ml", line 7, characters 10-41:
+Warning 51: expected tailcall
+#+end_example
+      
+
+
+
+* Receiving/sending http requests in an Ocaml program
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/receiving-sending-http-requests-in-an-ocaml-program/4332/1
+
+** Luc_ML asked
+
+
+I have an Ocaml program that does its job.
+Now I would like to make it deliver services over the internet as soon as possible.
+I'm not experienced in the web side of an Ocaml program. I've just studied some tutorials.
+Could you please indicate me how to setup that in a straigth manner?
+
+I understand that I need two things:
+1. receiving http request:
+  - get  incoming data flow from listened port
+  - transform (json/xml) data in OCaml values
+
+2. sending http request:
+  - transform Ocaml values in json data
+  - send data over http (http request targetting IP:port)
+
+That should be pretty simple for people doing that everyday.
+
+I see that Yojson can read a json data flow (Yojson.Basic.from_channel) and print  a json data (Yojson.Basic.pretty_to_string).
+So it should answer one requirement. Am I right?
+
+I intended to wrap curl command to send request, but there should be more elegant methods.
+
+My main question seems to be: how can I receive and send http requests using a json (or xml) object?
+      
+
+** Philippe replied
+
+
+~yojson~ is a good choice for the JSON part. Here are two simple options for the web server:
+- either ~cohttp~ [0], to have total control on your server
+- or ~opium~ [1] which seems well-suited for your task and is more high-level (opium runs on top of cohttp)
+
+[0] https://github.com/mirage/ocaml-cohttp\\
+[1] https://github.com/rgrinberg/opium
+      
+
+
+
+* Other OCaml News
+:PROPERTIES:
+:CUSTOM_ID: 5
+:END:
+** From the ocamlcore planet blog
+
+
+Here are links from many OCaml blogs aggregated at [[http://ocaml.org/community/planet/][OCaml Planet]].
+
+- [[http://math.andrej.com/2019/09/09/on-complete-ordered-fields/][On complete ordered fields]]
+- [[https://tarides.com/blog/2019-09-04-an-introduction-to-fuzzing-ocaml-with-afl-crowbar-and-bun.html][An introduction to fuzzing OCaml with AFL, Crowbar and Bun]]
+- [[http://math.andrej.com/2019/09/03/what-is-algebraic-about-algebraic-effects/][What is algebraic about algebraic effects?]]
+- [[http://math.andrej.com/2019/09/03/the-blog-moved-from-wordpress-to-jekyll/][The blog moved from Wordpress to Jekyll]]
+- [[http://www.ocamlpro.com/2019/08/30/ocamlpros-compiler-team-work-update/][OCamlPro’s compiler team work update]]
+- [[https://blog.janestreet.com/what-the-interns-have-wrought-2019/][What the interns have wrought, 2019 edition]]
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[http://alan.petitepomme.net/cwn/][the archive]] or the [[http://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe [[http://lists.idyll.org/listinfo/caml-news-weekly/][online]].
+
+#+BEGIN_authorname
+[[http://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname

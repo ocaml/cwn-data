@@ -1,0 +1,952 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of 05 to 12 April, 2005.
+
+1) functions for Bigarrays?
+2) Securely loading and running untrusted modules
+3) CFP: The Second MetaOCaml Workshop
+4) Dynamic linking with Cygwin
+5) GODI news
+6) Post-Doctoral position at Inria
+7) Haskell workshop 2005: call for papers
+8) 64 bit SPARC code generator updated for ocaml 3.08.3
+9) Syntactic inclusion of a.ml in b.ml ?
+10) Links and slides from ETAPS meeting
+11) Impact of GC on memoized algorithm
+12) ocaml, int32/64, bigarray and unsigned values ...
+
+========================================================================
+1) functions for Bigarrays?
+Archive: <http://caml.inria.fr/pub/ml-archives/caml-list/2005/04/3b4322f1e9e1975439a6e3e91ec959f4.en.html>
+------------------------------------------------------------------------
+** Martin Willensdorfer asked, Jon Harrop and Liam Stewart answered:
+
+Jon Harrop wrote:
+> Martin Willensdorfer wrote:
+> > I'm looking for a module which provides similar functionality for the
+> > Array type but for Bigarrays: i.e. map, sort, etc.
+> >
+> > Does such a module exist?
+> 
+> Not AFAIK.
+> 
+> > I've looked for one but with no luck. 
+> 
+> I think it is just a case of copying the Array module and implementing "get" 
+> etc.
+
+Some of that functionality does exist in Markus Mottl's LACAML package [1] 
+(for 1 and 2 dimensional arrays). I also have a little package that is 
+seperate from LACAML, but I haven't released it.. it's somewhat messy right 
+now and undergoing change, but I can post a version if there is interest.
+
+liam
+
+[1] <http://www.ocaml.info/home/ocaml_sources.html>
+    
+========================================================================
+2) Securely loading and running untrusted modules
+Archive: <http://caml.inria.fr/pub/ml-archives/caml-list/2005/04/2119b7490aa70835c7fc92bec6673085.en.html>
+------------------------------------------------------------------------
+** Richard Jones asked:
+
+Suppose I wanted to set up a website where people could upload
+untrusted .ml files and have them be compiled and run on my server.
+(This would be used as an OCaml teaching tool).  The uploaded
+"untrusted.ml" source files would be compiled on the server by
+"ocamlc", then loaded using:
+
+  Dynlink.init ();
+  Dynlink.allow_only ["SafeAPI"];
+  Dynlink.loadfile_private "untrusted.cmo"
+
+where SafeAPI is a module which defines a safe, trusted subset of the
+API where only Good Things are allowed.
+
+I don't want the modules to be able to do Bad Things, where Bad Things
+is stuff like:
+
+* Reading and writing local files.
+* Corrupting memory.
+* Inserting executable code into memory.
+* Executing arbitrary functions from the server.
+* Denial of service (infinite loops, unlimited resource allocation).
+* Making arbitrary network connections.
+* (and so on ...)
+
+To prevent unlimited resource allocation, I'm thinking of using
+setrlimit(2) to limit the size of the server process (it would be a
+pre-forked Apache server, so causing one process to hit its memory
+limit does not constitute a denial of service attack).
+
+To prevent infinite loops, starting an alarm(2) before loading the
+module should kill the Apache process if it uses too much CPU time.
+
+I'm fairly sure that the method above should cope with everything
+barring bugs in the compiler and bugs in SafeAPI.
+
+Am I thinking right?
+    
+** Nicolas Cannasse answered and Richard Jones said:
+
+> I think that current VM is optimized for speed and doesn't do more bytecode
+> checking than strictly necessary. That means that someone could forge some
+> bytecode file that would take control of the VM and then can call the whole
+> C api. Tricky, but feasible.
+
+I'm hoping that by compiling from source I'll avoid any bytecode
+attacks.  Is there a way to generate faulty bytecode from a source
+file?
+    
+** Alex Baretta answered and Richard Jones replied:
+
+> alex@alex:~$ ocaml
+>         Objective Caml version 3.08.2
+> 
+> # external pizza : 'a -> 'b = "%identity";;
+> external pizza : 'a -> 'b = "%identity"
+> # pizza 1 = "pasta";;
+> Segmentation fault
+
+Dynlink allows me to specify that modules can't use unsafe features,
+so such declarations wouldn't be permitted.
+
+A much more serious problem which I've just found is that _any_ module
+(even the empty module) seems to require Pervasives.  Thus it seems to
+be impossible to create any OCaml code which could be loaded by
+Dynlink where Dynlink.allow_only does not specify "Pervasives".
+
+rich@arctor:/tmp$ rm test_module.ml 
+rich@arctor:/tmp$ touch test_module.ml
+rich@arctor:/tmp$ ocamlc -c test_module.ml 
+rich@arctor:/tmp$ ocamlobjinfo test_module.cmo 
+File test_module.cmo
+  Unit name: Test_module
+  Interfaces imported:
+        71f888453b0f26895819460a72f07493        Pervasives
+        f7db4d58568a6e5a2cfe62ef59a52df1        Test_module
+  Uses unsafe features: no
+rich@arctor:/tmp$ ./test
+Dynlink: no implementation available for Pervasives
+    
+** Jacques Garrigue answered:
+
+This is why there is a compiler option named -nopervasives.
+Basically your approach is right. If you compile the .ml files
+yourself, this is safe, as long as there is no bug in the compiler.
+Since there are certainly some, you have to follow messages on the
+list and upgrade the compiler when needed, as for any security
+issue...
+    
+========================================================================
+3) CFP: The Second MetaOCaml Workshop
+Archive: <http://caml.inria.fr/pub/ml-archives/caml-list/2005/04/fc2a755eda4251ec9988801c2500c8dc.en.html>
+------------------------------------------------------------------------
+** Kedar Swadi announced:
+
+                            CALL FOR PAPERS
+                            ===============
+
+                      The Second MetaOCaml Workshop
+
+                    <http://www.metaocaml.org/workshop05>
+
+                          To be held at GPCE'05 
+                (Wednesday Sep 28, 2005, Tallinn, Estonia)
+
+
+   MetaOCaml is a multi-stage extension of the widely used functional
+   programming language OCaml. It provides a generic core for expressing
+   macros, staging, and partial evaluation. As such, it also provides
+   unique support for building aspect weavers in a statically typed
+   setting. The workshop is a forum for discussing experience with
+   using MetaOCaml as well as possible future developments for the
+   language. The scope of the workshop includes all aspects of the
+   design, semantics, theory, application, and implementation of
+   MetaOCaml. The workshop welcomes reports on
+
+    * novel applications (especially interpreters and aspect weavers),
+    * extensions (macros, new language constructs, offshoring translations),
+    * implementation techniques (compilation, RTCG), 
+          support (debugging, profiling),
+    * educational use,
+    * basic theory (staging annotations, static typing, static analysis, 
+          environment classifiers, etc).
+
+   Each submission will be reviewed by at least three members of the
+   Program Committee (PC). The PC will work to provide detailed and
+   constructive comments to the authors. The workshop will only have
+   informal proceedings, and is intended to be close in spirit to the
+   Haskell, ML, and Scheme workshops.
+
+   Based on author requests and PC decisions, authors will be given
+   either 25-minute or 15-minute slots to present their ideas,
+   either of which will be followed by 15 minutes of questions and
+   discussion. At the end of the workshop, one hour will be allocated
+   to an open discussion to review the outcomes of the meeting, and
+   to discuss future challenges and directions for MetaOCaml.
+
+Submission:
+   For uniformity, authors are encouraged to use the latest ACM SIGS
+   conference style file (option 1). We also request that submissions be
+   limited to 12 pages in this style. We ask that papers be submitted
+   in PDF or Postscript forms through the online submission page at 
+          <http://metaocaml.cs.rice.edu/submit.html> .
+
+Important Dates:
+    Submission deadline: June 13, 2005 until midnight GMT 
+         (Please use online form at <http://www.metaocaml.org/workshop05>)
+    Notification of acceptance: July 11, 2005
+    Final versions posted at the workshop sites: October 20, 2005
+
+Related Tutorial:
+   A tutorial on Multi-stage Programming in MetaOCaml is also co-located 
+   at GPCE '05, and will be held one day before the workshop, on
+   Tuesday, 27 September, 2005, details of which will be found at
+   <http://www.metaocaml.org/tutorial05>
+
+Registration:
+   Registration for the workshop is part of registering for GPCE'05. The
+   event is co-located with TFP 2005 and ICFP 2005, which already provides 
+   housing and transportation information. 
+
+Program Committee:
+    Cristiano Calcagno             Imperial College    
+    Rowan Davies                   University of Western Australia
+    Ralf Hinze                     Universitat Bonn    
+    Oleg Kiselyov                  FNMOC, Monterey, CA, USA
+    Xavier Leroy                   INRIA, Paris 
+    Emir Pasalic                   Rice University 
+    Jeremy Siek                    Indiana University, Bloomington
+    Yannis Smaragdakis             Georgia Tech
+    Kedar Swadi                    Rice University (Chair)
+    Walid Taha                     Rice University
+    Stephanie Weirich              University of Pennsylvania
+    Hongwei Xi                     Boston University
+    
+========================================================================
+4) Dynamic linking with Cygwin
+Archive: <http://caml.inria.fr/pub/ml-archives/caml-list/2005/04/b665f15ebfad4af129ffc756517c3b58.en.html>
+------------------------------------------------------------------------
+** Emir Pasalic asked and Igor Pechtchanski answered:
+
+> We are writing a program that generates a C file, compiles it to a
+> dynamic library, and uses dlopen (and such) to load it, execute it and
+> bring its value into ocaml (bytecode) runtime. To do this, we need to
+> use some of the functionality of the ocaml runtime (e.g., caml_alloc,
+> caml_update) so we can marshall values from the C world into the world
+> of ocaml. Our solution works on linux and macos platforms, but we have a
+> problem trying to make it run on windows with Cygwin.
+>
+> So, we're trying to create a shared library on Cygwin that contains
+> symbols such as "caml_alloc" and "caml_update".
+> We do not know of a way to easily incorporate these symbols in the
+> linking process, and so they remain undefined when we try to create a
+> library, and undefined symbols are not allowed in Cygwin shared
+> libraries.
+
+The curent version of O'Caml under Cygwin doesn't support dynamic linking
+in any structured way.  I was able to build an ad-hoc set of dynamic
+libraries for standard modules, but I'm still in the process of modifying
+O'Caml tools to do this seamlessly.
+
+That said, there is still a limitation in Windows that any unresolved
+symbols in a DLL have to have a *statically* known target, i.e., the
+loader has to know what DLL to load the symbols from.  The two possible
+workarounds are to a) extract the unresolved symbols from the executable
+into a helper DLL that both the executable and the library are linked
+with, or b) use dlopen/dlsym, as you did.
+
+> Therefore we tried to resort to another method, where the calls to
+> caml_alloc and caml_update are replaced by calls to dlopen and dlsym
+> functions, i.e., we were trying to do this:
+>
+>        h = dlopen ("<the library name>", RLTD_NOW);
+>        /* process error */
+>        s = dlsym (h, "caml_alloc");
+>        /* process error */
+>        my_alloc = /* proper casting */ s;
+>        result = my_alloc ( /* arguments */ );
+>
+> Assuming that this is possible, what is the name that should be given to
+> the library?
+
+Any name will do, as long as LD_LIBRARY_PATH contains the directory of
+your library (yes, it *is* used on Cygwin for dlopen calls).  It doesn't
+even have to end in ".dll".
+
+> Else, is it possible to build a shared library on Cygwin that contains
+> references to these symbols?
+
+It is.  You'll need to create a helper DLL and an import library for it.
+Then link your executable and the library DLL with the helper.  I would
+have referred you to the (experimental) ocaml-3.08.1-2 cygwin package, but
+it apparently wasn't uploaded to the main Cygwin package repository.  I
+can send you the source/patches if interested.
+
+> Note that all this works perfectly fine on MacOS and linux which allow
+> unresolved symbols in dynamic libraries, but Cygwin simply dies. Any
+> Windows/Cygwin experts out there who can help us?
+
+I would be willing to help you build a small example app to get you
+started.  Let me know where to get the source.
+
+Igor Pechtchanski, the volunteer O'Caml maintainer for Cygwin
+    
+========================================================================
+5) GODI news
+Archive: <http://caml.inria.fr/pub/ml-archives/caml-list/2005/04/35da9993dd3b2ca31f243f9c6bd3bd32.en.html>
+------------------------------------------------------------------------
+** Gerd Stolpmann announced:
+
+Welcome to GODI news, the newsletter that informs you about updates of
+GODI, the source-based O'Caml distribution.
+
+------------------------------------------------------------
+TABLE OF CONTENTS:
+
+1. GODI upgrades to O'Caml 3.08.3
+2. Bootstrap problems for NetBSD and Cygwin solved
+3. Progress of the GODI package management system
+4. Where to find more information about GODI
+------------------------------------------------------------
+
+1. GODI UPGRADES TO O'CAML 3.08.3
+
+The GODI project recently upgraded to O'Caml 3.08.3. This means that the
+"3.08" branch of the distribution now bases on this O'Caml version
+instead of the formerly used version 3.08.1. The old version is
+discontinued at the same moment.
+
+Existing installations of GODI can be easily upgraded using the standard
+mechanism. This works in an almost fully automatic way, GODI takes care
+not to only build the new O'Caml base but also rebuilds all dependent
+libraries. Although well tested, it is recommended to save a copy of the
+old installation before trying the update.
+
+To start the update, invoke godi_console in interactive mode, and do:
+
+- Update the list of packages
+- Go into the menu where one can select the packages. Press 'u'
+  to upgrade the packages, and confirm with 'o'. Start the installation
+  as usual. There is one special point that requires manual 
+  intervention: Because godi_console updates itself, the user is
+  warned about potential problems, and another confirmation ('o')
+  is required. You will see a describing message at that point.
+- Enjoy the updated installation
+
+It is also possible to do the same from the command-line:
+
+$ godi_console update
+$ godi_console wish -rebuild
+$ godi_console perform -wishes -newer
+$ godi_console wish -reset
+
+2. BOOTSTRAP PROBLEMS FOR NETBSD AND CYGWIN SOLVED
+
+Recent versions of NetBSD (I think version 2.0), and Cygwin (from some
+point in the 1.5 series of DLLs) could not be bootstrapped with the
+bootstrap tarball 20041002. It turned out that the reasons were two
+configuration problems. There is now a new bootstrap tarball 20050404
+solving this issue. You can download it from the GODI homepage (see
+below).
+
+3. PROGRESS OF THE GODI PACKAGE MANAGEMENT SYSTEM
+
+In the past months, the GODI package management system made some
+progress. Besides a lot of bugfixes (e.g. the names of the Sourceforge
+mirrors were updated), there is one major change. The binary package
+management is now done by an O'Caml library, and no longer by the
+ancient C programs coming originally from the BSD ports system.
+
+There is almost no user-visible change, this library is designed as a
+replacement with the same functions. Package builders will notice,
+however, that the handling of directories changed. It is no longer
+required to put @dirrm directives into the packing list files to ensure
+that directories are removed when a package is deinstalled. The new way
+of handling directories is to remove empty directories automatically.
+This is thought to be adequate for a system like GODI that needs not to
+take care of directory permissions.
+
+The command-line version of godi_console has been extended, and it is
+now possible to add and remove binary packages with it.
+
+The real benefits of this change will be seen in the future. It is one
+step in getting rid of all these C helper programs GODI currently uses.
+These programs were a major source of portability problems in the past,
+and it is also difficult to maintain them. Especially, this makes it
+possible to port GODI to Windows.
+
+4. WHERE TO FIND MORE INFORMATION ABOUT GODI
+
+GODI is a source-based O'Caml distribution. It consists of a framework
+that automatically builds the O'Caml core system, and additionally
+installs a growing number of pre-packaged libraries. GODI is available
+for O'Caml-3.07 and 3.08. It runs on Linux, Solaris, FreeBSD, NetBSD,
+Cygwin, HP-UX, MacOS X.
+
+Advantages of using GODI:
+
+      * Automatic installation of new libraries: GODI knows where a
+        library can be downloaded, which prerequisites are needed to
+        build it, and which commands must be invoked to compile and
+        install it
+      * Complete package management of the installation: A library is
+        installed as a package (a managed set of files), so it is
+        possible to remove it later without any hassle.
+      * GODI implements the necessary logic to upgrade installations:
+        Because of the way O'Caml works, all dependent libraries must be
+        recompiled if a library is upgraded to a newer version. GODI
+        automates this process.
+      * Integration with the operating system: If additional C libraries
+        are needed to build an O'Caml library, and the operating system
+        includes them, they will usually be automatically found and
+        used. Non-standard locations can be configured (there is only
+        one configuration file for the whole installation).
+      * GODI has a menu-based user interface that makes it simple to use
+        even for beginners.
+      * GODI tries to standardize the directory layout of library
+        installations, so it becomes simpler to find files of interest.
+
+GODI currently supports 54 add-on libraries and 11 applications written
+in O'Caml.
+
+Read more on the GODI homepage: <http://godi.ocaml-programming.de>
+    
+========================================================================
+6) Post-Doctoral position at Inria
+Archive: <http://caml.inria.fr/pub/ml-archives/caml-list/2005/04/b70f8acecbcdb72442faabfa12788bf8.en.html>
+------------------------------------------------------------------------
+** Luc Maranget announced:
+
+Hello, our team (Moscova) offers post-doctoral position.
+Both positions (especially the first one) are caml-related.
+
+Candidates should hold a doctorate or Ph.D. for less than one year or
+be about to obtain one (ie, before September 1, 2005)
+Aplication deadline is April 22 (position starting in September).
+
+
+More information on the adminsitrative nature of the offer is available at
+<http://www.inria.fr/travailler/opportunites/postdoc/postdoc.en.html>
+
+
+As regards scientific matters, we offer two subjects.
+Interested candidates are invited to consult the web pages specified in
+the following abstracts for additional information, and to contact us.
+
+--Luc Maranget
+
+
+First subject: Jocaml3
+**********************
+
+Jocaml is an extension of Ocaml based on the Join-calculus,
+see <http://join.inria.fr> . There are already two releases of the
+Join-calculus and Jocaml. A third version, simplified and better
+integrated to the Ocaml compiler, is under development. It remains to
+implement remote communication in distributed settings, which
+represents a good third of the whole Jocaml implementation. As a final
+result, we want to get a release of Jocaml, accessible on the web and
+compatible with successive releases of Ocaml.
+
+See
+<http://www-rocq.inria.fr/fr/actualites/recrutement/post-doc/moscova.htm>
+
+
+Second subject: Pattern Matching Warnings for Haskell
+*****************************************************           
+
+Since Ocaml 1.05, Ocaml features an efficient
+and complete detection algorithm for pattern-matching anomalies such
+as useless match clauses and non-exhautive matchings. The
+corresponding theory is described in
+<http://pauillac.inria.fr/~maranget/papers/warn.ps> It also handles
+disjunctive patterns, without exponential explosion in practice.
+
+The post-doctorant will implement the detection algorithm in, for
+instance, GHC. She or he will demonstrate and document the work in
+order to make it available in a standard Haskell release.
+
+
+See
+<http://www-rocq.inria.fr/fr/actualites/recrutement/post-doc/moscova2.htm>
+    
+========================================================================
+7) Haskell workshop 2005: call for papers
+Archive: <http://caml.inria.fr/pub/ml-archives/caml-list/2005/04/708521fa9ed6ffeca0d4bf23d986a463.en.html>
+------------------------------------------------------------------------
+** Daan Leijen announced:
+
+                     2005 Haskell Workshop
+          Tallinn, Estonia, 30 September, 2005
+           <http://www.cs.uu.nl/~daan/hw2005>
+
+                       Call for papers
+
+
+ -- Important Dates ---------------------------------------------------
+
+Submission deadline    : June 10
+Acceptance notification: July  5
+Final version due      : July 19
+Haskell workshop       : September 30
+
+
+-- The Haskell Workshop ----------------------------------------------
+
+The Haskell Workshop 2005 is an ACM SIGPLAN sponsored workshop affiliated with
+the 2005 International Conference on Functional Programming (ICFP). Previous
+Haskell Workshops have been held in La Jolla (1995), Amsterdam (1997), Paris
+(1999), Montreal (2000), Firenze (2001), Pittsburgh (2002), Uppsala (2003), and
+Snowbird (2004).
+
+
+-- Scope -------------------------------------------------------------
+
+The purpose of the Haskell Workshop is to discuss experience with Haskell, and
+future developments for the language.  The scope of the workshop includes all
+aspects of the design, semantics, theory, application, implementation, and
+teaching of Haskell. Topics of interest include, but are not limited to, the
+following:
+
+* Language Design,
+    with a focus on possible extensions and modifications of Haskell as well as
+    critical discussions of the status quo;
+* Theory,
+    in the form of a formal treatment of the semantics of the present language
+    or future extensions, type systems, and foundations for program analysis
+    and transformation;
+* Implementations,
+    including program analysis and transformation, static and dynamic
+    compilation for sequential, parallel, and distributed architectures, memory
+    management as well as foreign function and component interfaces;
+* Tools,
+    in the form of profilers, tracers, debuggers, pre-processors, and so forth;
+* Applications, Practice, and Experience,
+    with Haskell for scientific and symbolic computing, database, multimedia
+    and Web applications, and so forth as well as general experience with
+    Haskell in education and industry;
+* Functional Pearls,
+    being elegant, instructive examples of using Haskell.
+
+Papers in the latter two categories need not necessarily report original
+research results; they may instead, for example, report practical experience
+that will be useful to others, re-usable programming idioms, or elegant new
+ways of approaching a problem. The key criterion for such a paper is that it
+makes a contribution from which other practitioners can benefit. It is not
+enough simply to describe a program!
+
+If there is sufficient demand, we will try to organise a time slot for system
+or tool demonstrations.  If you are interested in demonstrating a Haskell
+related tool or application, please send a brief demo proposal to the program
+chair (daan@cs.uu.nl).
+
+
+-- Submissions -------------------------------------------------------
+
+Authors should submit papers in postscript or portable document format (pdf),
+formatted for A4 paper, to Daan Leijen (daan@cs.uu.nl). The length should be
+restricted to 12 pages in standard ACM SIG proceedings format. In particular,
+LaTeX users should use the most recent sigplan proceedings style available from
+the Haskell workshop web-site. Furthermore, the "abbrv" style should be used
+for the bibliography. Accepted papers are published by the ACM and appear in
+the ACM digital library.
+
+Each paper should explain its contributions in both general and technical
+terms, clearly identifying what has been accomplished, explaining why it is
+significant, and comparing it with previous work. Authors should strive to make
+the technical content of their papers understandable to a broad audience.
+
+
+-- Program committee -------------------------------------------------
+
+Martin Erwig     Oregon State University
+John Hughes      Chalmers University of Technology
+Mark Jones       OGI School of Science and Engineering at OHSU
+Ralf Lämmel      Microsoft Corp.
+Daan Leijen      Universiteit Utrecht (Program Chair)
+Andres Löh       Universiteit Utrecht
+Andrew Moran     Galois Connections Inc.
+Simon Thompson   University of Kent
+Malcolm Wallace  University of York
+    
+========================================================================
+8) 64 bit SPARC code generator updated for ocaml 3.08.3
+Archive: <http://caml.inria.fr/pub/ml-archives/caml-list/2005/04/471eea17142e68d97d253dcfc2b5050f.en.html>
+------------------------------------------------------------------------
+** John Carr announced:
+
+I updated my patches for 64 bit SPARC code to work with ocaml 3.08.3:
+<http://www.mit.edu/~jfc/ocaml-3.08.3-sparc64.tar.gz>
+
+There are two changes from the 3.08.1 version:
+1. The 64 bit startup code did not allocate a large enough stack
+   frame, causing crashes in garbage collection in some programs
+   due to register window saves overwriting of the zero word that
+   terminates the chain of stack frames.  If you want to fix this
+   without upgrading, change 176 to 208 in the save statement at
+   asmrun/sparc-sparc64.S line 319.
+2. ocaml does not compile on Solaris because otherlibs/graph/.depend
+   contains references to /usr/X11R6; the install script deletes
+   these dependencies.
+
+As before:
+
+This only affects native code, ocamlopt.
+
+Although the patched ocaml recognizes other 64 bit SPARC operating
+systems, I only have access to Solaris 9.
+
+Floats are still boxed in 64 bit code but are properly aligned,
+potentially improving performance.
+
+
+Here are run times for three of the microbenchmarks we discussed on
+the list recently, from left to right lorentzian 200, sieve 10000000,
+sort 10000:
+
+      lore siev sort
+ML 32 6.78 1.52 2.87
+ML 64 7.41 1.18 2.72
+C  32 2.81 1.93 2.54*
+C  64 2.92 3.50 
+
+ML 32 = ocamlopt 3.08.3 32 bit version with -march=v8
+ML 64 = ocamlopt 3.08.3 64 bit version
+C 32 = Sun C++ 5.5 -xO3 -xarch=v8plus except * = gcc 3.3.2
+C 64 = Sun C++ 5.5 -xO3 -xarch=v9
+    
+========================================================================
+9) Syntactic inclusion of a.ml in b.ml ?
+Archive: <http://caml.inria.fr/pub/ml-archives/caml-list/2005/04/c28d5fbfe2b1880e54773e3b39482631.en.html>
+------------------------------------------------------------------------
+** Sébastien Hinderer asked:
+
+(How) is it possible to include syntactically a file a.ml in a file
+b.ml ?
+
+One method that seems to w)rk is to rename b.ml to b.ml.c,
+and then have in b.ml.c a line saying
+#include "a.ml"
+And with this, gcc -E b.ml.c > b.ml
+produces a file that ocamlc can apparently handle.
+
+But is this considered a good solution, or is some better solution
+available ?
+    
+** Richard Jones answered:
+
+I'm not 100% clear on what you want to do.
+
+A common requirement is to split a large module into a number of
+smaller files, which is then compiled back into a single large module.
+This can be done using a preprocessor (such as cpp) - see the -pp
+option to the compiler.  Often it's better just to use a single large
+file and a capable editor, with "folding"[1] capabilities.
+
+Another one is to include the symbols from one module in another.
+This can be done using the 'include' directive in OCaml, eg:
+
+-- a.ml ----
+let foo = 1
+------------
+
+-- b.ml ----
+include A
+let bar = 2
+------------
+
+Now, if compiled in the correct order, module B will export symbols
+'foo' and 'bar'.
+
+'include' and 'open' are very similar.  The difference is that
+'include' causes the symbols imported to be (re-)exported.  'open A'
+on the other hand makes the symbols in A available inside B, but they
+are not exported in B's interface.
+
+Another option is to use the -pack argument when linking [not
+supported on all platforms].  This causes modules to be nested inside
+a "super-module".
+
+For example,
+
+  ocamlc -pack -o c.cmo a.cmo b.cmo
+
+(IIRC) creates a module called C containing C.A and C.B modules.
+
+Rich.
+
+[1] <http://www.moria.de/~michael/fe/folding.html>
+    
+** Sejourne Kevin also answered:
+
+If you want to use a pre-processor, you can do things like that:
+(* ocamlc -pp /lib/cpp test.ml *)
+#define P(x) (fst x) (snd x) (fst x)
+#define S(x) (snd x)
+let x = ("world","hello");;
+Printf.printf "%s %s %s %s\n" S(x) P(x);;
+
+or use camlp4
+for the use of include :
+<http://caml.inria.fr/pub/docs/manual-ocaml/manual019.html#@manual.kwd167>
+    
+** Olivier Andrieu also answered:
+
+> But is this considered a good solution, 
+
+not really : IIRC ocaml doesn't follow the same syntactic conventions
+as C and the C preprocessor could report errors on valid caml code
+
+> or is some better solution available ?
+
+you could use camlp4 : the attached syntax extension does this. (Mind
+that it works only for parsing, the printer apparently gets confused).
+
+-- 
+   Olivier
+#load "pa_extend.cmo";;
+
+let include_file file =
+  let ic = open_in file in
+  let (implem, _) = !Pcaml.parse_implem (Stream.of_channel ic) in
+  close_in ic ;
+  (implem, true)
+
+EXTEND
+  GLOBAL: Pcaml.implem ;
+
+  Pcaml.implem:
+    [ [ "INCLUDE" ; file = STRING ; ";;" -> include_file file
+    ] ];
+END
+
+(* Local Variables: *)
+(* compile-command: "ocamlc -pp camlp4o -I +camlp4 -c pa_inc.ml" *)
+(* End: *)
+    
+** Martin Jambon also answered:
+
+You can maybe use camlmix:
+  <http://martin.jambon.free.fr/toolbox.html#ppocaml>
+  <http://martin.jambon.free.fr/camlmix>
+    
+========================================================================
+10) Links and slides from ETAPS meeting
+Archive: <http://caml.inria.fr/pub/ml-archives/caml-list/2005/04/7349e621d7f272fd7313c84e88b13074.en.html>
+------------------------------------------------------------------------
+** Richard Jones announced:
+
+(originally from the 'lambda-the-ultimate' site)
+
+<http://homepages.inf.ed.ac.uk/wadler/linksetaps/>
+    
+========================================================================
+11) Impact of GC on memoized algorithm
+Archive: <http://caml.inria.fr/pub/ml-archives/caml-list/2005/04/408d0d837d153cb041f37707b662be02.en.html>
+------------------------------------------------------------------------
+** Alex Baretta asked and Damien Doligez answered:
+
+> And, then again, how does the Gc.full_major scale as the "cache" for 
+> the algorithm fills up with millions of key-value pairs? Is the GC 
+> linear on the number of *reclaimed* blocks, or is it linear in the 
+> *total* number of allocated blocks?
+
+Why did you have to ask this question on the first day of my vacation? 
+:-)
+
+Anyway, the total cost of a major collection cycle is proportional to
+the heap size, but the frequency of these cycles is inversely 
+proportional
+to the heap size.  Hence, under reasonable assumptions, average GC cost 
+is
+constant for each word that you allocate.
+
+Of course, the picture becomes entirely different if you have lots of
+explicit calls to Gc.major, Gc.full_major, or Gc.compact.
+    
+========================================================================
+12) ocaml, int32/64, bigarray and unsigned values ...
+Archive: <http://caml.inria.fr/pub/ml-archives/caml-list/2005/04/f707d022b14efc479d8d5ff1f89950cf.en.html>
+------------------------------------------------------------------------
+** Sven Luther asked:
+
+I had plans to do a rewrite of GNU parted, a project which i am involved with,
+in ocaml, and am being blocked by a few issues. 
+
+I know i can read disk sectors easily with the large-file support, which would
+mean that i could support all underlying files that the ocaml standard library
+supports, as opposed to parted which has some special code for linux, hurd,
+and a couple of others. This would probably mean that if i did it right, i
+could even use said library on windows, haven't investigated though.
+
+Now to my problems, which are basically two.
+
+  1) most disk partition tables and filesystem have a mapping from a given
+  disk 512 byte sector to a descriptive structure. In C you simply define the
+  structure which corresponds to it, and you cast the sector to it, and then
+  test if some magic numbers and checksums are or not enough to identify the
+  sector as of the given type. The nearest to that would be either trying to
+  use the bigarray infrastructure and mmap capability, but it only makes
+  provision for mapping arrays and not structures. The other possibilities is
+  to either have some C bindings which do the proper cast, or to have access
+  functions which transform parts of a byte array into values. The first one
+  is ugly, as i was aiming for a purely ocaml solution (so i can build and
+  arch/plateform independent bytecode tool), and the second would probably be
+  a disaster speed wise, and also somewhat ugly unless properly encapsulated
+  in an abstract module.
+
+Which brings me to the second problem.
+
+  2) Disk descriptors like partition table and filesystems, need to have exact
+  values, and the values are mostly unsigned 8, 16, 32 or 64 bit integers,
+  strings and bit fields. The int64 and int32 offer these kind of values, but
+  only the signed version. Is it save to make calculation on a signed number
+  and ignoring the sign bit ? Does this not cause risk of overflow ? I am not
+  particularly knowledgeable of the different signed/unsigned implementations
+  on the different architectures and plateform that i would need to support.
+  Also, i believe that bit fields are not easily available, altough there is
+  some support in the Int32 and int64 bit-wise operators, but again we have
+  the signed vs unsigned problem, altough it is maybe ignored for bit
+  operations ?
+
+These two questions also are of importance if you want to write chip drivers
+in ocaml, since you have to mmap the mmio registers of the chips, and have a
+similar exact access to the registers used, altough the registers should fall
+better in the bigarray mapping, since you mostly access those as 8, 16, 32, 64
+or even 128 bit values.
+
+But maybe ocaml 3.09 could have direct support for these kind of operations,
+opening a new field of usage for ocaml ?
+    
+** Eric Cooper answered and Sven Luther said:
+
+Eric Cooper wrote:
+> Sven Luther wrote:
+> >   1) most disk partition tables and filesystem have a mapping from a
+> >   given disk 512 byte sector to a descriptive structure.
+> >   [...]
+> >   or to have access functions which transform parts of
+> >   a byte array into values. The first one is ugly, as i was aiming
+> >   for a purely ocaml solution (so i can build and arch/plateform
+> >   independent bytecode tool), and the second would probably be a
+> >   disaster speed wise, and also somewhat ugly unless properly
+> >   encapsulated in an abstract module.
+> 
+> I would use the second approach.  I would define a logically
+> equivalent OCaml record or class, and conversion functions between
+> that object and a string + offset (or Bigarray of bytes, plus
+> offset).  Passing around an offset into a larger byte array can save a
+> lot of copying.
+> 
+> You can probably structure your code so that you only convert to/from
+> bytes in a few places, not likely to be performance-critical.
+
+Mmm, one could imagine a generic set of access function inside a byte array
+(would have to handle endianess and such though), and then a structure defined
+as a set of lazy values corresponding to the access functions in question, so
+only values actually accessed get computed.
+
+That said, 
+
+> > Which brings me to the second problem.
+> > 
+> >   2) Disk descriptors like partition table and filesystems, need to
+> >   have exact values, and the values are mostly unsigned 8, 16, 32 or
+> >   64 bit integers, strings and bit fields. The int64 and int32 offer
+> >   these kind of values, but only the signed version. Is it save to
+> >   make calculation on a signed number and ignoring the sign bit ?
+> >   Does this not cause risk of overflow ?
+> 
+> That's the beauty of 2's-complement representation of signed numbers.
+> The sign bit is just a consequence of which half of the values encode
+> negative numbers, from -1 (0xFF...FF) to min_int (0x80...00), so the
+> leading bit is the sign bit.  You can just do arithmetic and interpret
+> the results as unsigned.
+
+Ok, but it would be nice to tell this black on white in the manual. I was
+half-guessing that something such was the case, but wasn't entirely sure about
+the fact, and as well, partitioning is very sensitive stuff, i wanted to be
+sure.
+
+Now, what about conversion to Int32 or Int64 ? Would an unsigned Int32 which
+is represented as a negative signed Int32 not get broken when used to
+calculate Int64 values ? And what about comparisons ? Obviously max_int + 1 >
+max_int will be wrong since max_int + 1 would be considered a negative number
+(-0 maybe ?).
+
+> >   Also, i believe that bit fields are not easily available, altough
+> >   there is some support in the Int32 and int64 bit-wise operators,
+> >   but again we have the signed vs unsigned problem, altough it is
+> >   maybe ignored for bit operations ?
+> 
+> You can do anything you need with shifting and masking.  That should
+> probably also be hidden in the bytearray-to-record conversion
+> routines.
+
+Yeah, bit shifting should be ok, since the sign is ignored for those.
+
+> It would be very cool to have such a "hard core" utility as a
+> disk partition editor in OCaml!
+
+Yep, altough having to do ugly hacks in the first part to map the sectors to
+ocaml structures is not a good advertizement once you want to convince C users
+that it is a better implementation.
+
+Also, the next difficulty is providing C callbacks which are compatible with
+libparted.
+    
+** Eric Cooper then answered:
+
+> Now, what about conversion to Int32 or Int64 ? Would an unsigned
+> Int32 which is represented as a negative signed Int32 not get broken
+> when used to calculate Int64 values ?
+
+You'll have to watch out for sign-extension: when a signed integer is
+widened, the leading bits get filled with 1s to preserve the sign.
+That's the wrong behavior if you want to widen an unsigned integer.
+The Int{32,64} modules don't seem to have of_unsigned_int functions,
+but you can simulate them by checking if the result is negative and
+adjusting it (by adding 2^n).
+
+> And what about comparisons ?
+
+Right, you'll have to define your own, because for example -1 < 0,
+but you want 0 < 0xFF...FF.  You can just test for negative numbers to
+simulate it yourself (since any negative int is greater than any
+positive int when treating them as unsigned, otherwise the native int
+comparison works).
+
+> Obviously max_int + 1 > max_int will be wrong since max_int + 1
+> would be considered a negative number (-0 maybe ?).
+
+Well, max_int + 1 = min_int, but that's what you want when that bit pattern is
+interpreted as unsigned.  The only incorrect results will come from
+overflow, which silently "wraps around" just like in C.
+    
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

@@ -1,0 +1,664 @@
+			  ━━━━━━━━━━━━━━━━━━━
+			   OCAML WEEKLY NEWS
+			  ━━━━━━━━━━━━━━━━━━━
+
+
+[Previous Week] [Up] [Next Week]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of October 23 to
+November 06, 2018.
+
+Sorry for the hiatus, I was offline last week.
+
+Table of Contents
+─────────────────
+
+(Non-protocol-specific) binary serialization library?
+opam 2.0.1
+Documentation about the ocaml compiler?
+Packaging process
+OCaml and LZMA - decompression based on xz-utils and 7zip
+New release of odepack
+NYC OCaml Meetup
+Don't panic that your opam switches recompile from today!
+Annoucement of an OCaml book in Chinese
+Destructive module substitution: changed in 4.07
+First release of bwrap
+Ocaml Github Pull Requests
+Other OCaml News
+Old CWN
+
+
+[Previous Week] http://alan.petitepomme.net/cwn/2018.10.23.html
+
+[Up] http://alan.petitepomme.net/cwn/index.html
+
+[Next Week] http://alan.petitepomme.net/cwn/2018.11.13.html
+
+
+(Non-protocol-specific) binary serialization library?
+═════════════════════════════════════════════════════
+
+  Archive:
+  [https://discuss.ocaml.org/t/non-protocol-specific-binary-serialization-library/2768/1]
+
+
+Brendan Long asked
+──────────────────
+
+  I've been working on several libraries that need to send and receive
+  packets in specific binary formats ([PGX], [TDS]). Right now they both
+  have extremely-low-level code to convert ints to bytes with the right
+  endianness, but it seems excessively low level to put in every library
+  I write that deals with a binary protocol.
+
+  I know there are a bunch of libraries for parsing text, or for working
+  with defined protocols like msgpack, but is there anything for
+  arbitrary binary encoding? I'm thinking something like [struct] in
+  Python, although I'm not married to that particular implementation.
+
+  (As a side note: Another reason I'd like something like this is that
+  all of my current implementations handle one byte at a time, and it
+  would be nice if we could do this more efficiently).
+
+
+[PGX] https://github.com/arenadotio/pgx
+
+[TDS] https://github.com/brendanlong/ocaml-tds
+
+[struct] https://docs.python.org/3/library/struct.html
+
+
+Brendan Long then added
+───────────────────────
+
+  My current implementation of this in TDS involves adding a
+  `fold_bytes' function to every type, like:
+
+  [https://github.com/brendanlong/ocaml-tds/blob/master/src/uint32.ml]
+
+  ┌────
+  │ let fold_bytes ~init ~f t order =
+  │   order
+  │   |> List.fold_left ~init ~f:(fun acc shift_bytes ->
+  │     shift_right t (shift_bytes * 8)
+  │     |> Uint8.of_uint32
+  │     |> Uint8.fold_bytes ~f ~init:acc)
+  │ 
+  │ let fold_bytes_be ~init ~f t =
+  │   [ 3 ; 2 ; 1 ; 0 ]
+  │   |> fold_bytes ~init ~f t
+  │ 
+  │ let fold_bytes_le ~init ~f t =
+  │   [ 0 ; 1 ; 2 ; 3 ]
+  │   |> fold_bytes ~init ~f t
+  └────
+
+  Although this makes things readable at the expense of most-likely
+  being even slower than the usual implementations. Having something
+  somwhat readable and also not horribly slow would be nice.
+
+
+Matthieu Dubuget suggested
+──────────────────────────
+
+  I used to use bitstring for such things. But it's a long time since i
+  last had a look at it. I found it easy to use.
+
+
+Brendan Long then replied
+─────────────────────────
+
+  Ooo nice. That looks like exactly what I was looking for:
+
+  [https://bitstring.software/examples/]
+
+
+Hezekiah Carty also suggested
+─────────────────────────────
+
+  You can also check out [angstrom] which provides a nice parsing API
+  and [cstruct] which includes a ppx somewhat similar to bitstring.
+
+
+[angstrom] https://github.com/inhabitedtype/angstrom
+
+[cstruct] https://github.com/mirage/ocaml-cstruct
+
+
+James Woodyatt added
+────────────────────
+
+  The usual companion to the [angstrom] parser combinator library is
+  [faraday] binary serialization library. These libraries are both
+  fairly mature and they can work in combination or separately. Alas, we
+  don't have anything quite as comprehensive as [serde] in the Rust
+  language world.
+
+
+[angstrom] https://opam.ocaml.org/packages/angstrom/
+
+[faraday] https://opam.ocaml.org/packages/faraday/
+
+[serde] https://serde.rs
+
+
+opam 2.0.1
+══════════
+
+  Archive: [https://discuss.ocaml.org/t/ann-opam-2-0-1/2775/1]
+
+
+R. Boujbel announced
+────────────────────
+
+  We are pleased to announce the release of [opam 2.0.1].
+
+  This new version contains mainly backported fixes, some
+  platform-specific and some opam specific. You can find more
+  information in this [blog post].
+
+  opam is a source-based package manager for OCaml. It supports multiple
+  simultaneous compiler installations, flexible package constraints, and
+  a Git-friendly development workflow.
+
+
+[opam 2.0.1] https://github.com/ocaml/opam/releases/tag/2.0.1
+
+[blog post] https://opam.ocaml.org/blog/opam-2-0-1
+
+
+Marek Kubica then said
+──────────────────────
+
+  FYI: `brew' users just have to [run upgrade], it was added a few hours
+  ago.
+
+
+[run upgrade] https://github.com/Homebrew/homebrew-core/pull/33355
+
+
+Perry E. Metzger said
+─────────────────────
+
+  Sadly, I haven't updated MacPorts yet because I'm getting a bizarre
+  error with the result…
+
+  ┌────
+  │ $ opam --version
+  │ 2.0.1
+  │ $ opam upgrade
+  │ opam(44003,0x112e675c0) malloc: can't allocate region
+  │ *** mach_vm_map(size=259407338536550400) failed (error code=3)
+  │ opam(44003,0x112e675c0) malloc: *** set a breakpoint in malloc_error_break to debug
+  │ Fatal error: out of memory.
+  └────
+
+  Help fixing this is actively solicited. I've never seen anything like
+  it.
+
+
+Perry E. Metzger later added
+────────────────────────────
+
+  The problem proves to be hard to reproduce, so for now, MacPorts has
+  also been updated to supply opam 2.0.1; updating as usual will get you
+  the new version.
+
+  If anyone else manages to reproduce the failure above, please get in
+  touch!
+
+
+Documentation about the ocaml compiler?
+═══════════════════════════════════════
+
+  Archive:
+  [https://discuss.ocaml.org/t/documentation-about-the-ocaml-compiler/2777/1]
+
+
+Sean Talts asked
+────────────────
+
+  I'm looking to get to know the ocaml compiler a bit better and I was
+  wondering if there's any documentation about it at a high level? I'm
+  imagining something like [Rust's guide to rustc].
+
+
+[Rust's guide to rustc] https://rust-lang-nursery.github.io/rustc-guide/
+
+
+Gabriel Radanne replied
+───────────────────────
+
+  [https://github.com/ocaml/ocaml/blob/trunk/HACKING.adoc]
+
+
+Yotam Barnoy also replied
+─────────────────────────
+
+  [ocamlverse] also has a page on the [compiler], though it's mostly
+  incomplete.
+
+
+[ocamlverse] https://ocamlverse.github.io/
+
+[compiler] https://ocamlverse.github.io/content/compiler.html
+
+
+Packaging process
+═════════════════
+
+  Archive: [https://discuss.ocaml.org/t/packaging-process/2782/1]
+
+
+David Chemouil asked
+────────────────────
+
+  Although the state of build and release tools has contiuously improved
+  over the years (and I deeply thank all people involved in this
+  transition), in particular regarding the simplification of steps to
+  perform, I still find myself having trouble releasing software in
+  Opam. So I'd like to ask here what is the current suggested process
+  for "basic" projects relying on Dune (like [my own pet project]). I
+  was even thinking a post that would permanently be updated would be
+  cool. I know [this post] by @mmottl but now we have dune-release (BTW
+  can it work across a proxy?) so I'd love to see an update, gather
+  hints…
+
+
+[my own pet project] https://github.com/grayswandyr/electrod/
+
+[this post]
+https://discuss.ocaml.org/t/experience-report-switching-to-jbuilder-and-topkg/993?u=grayswandyr
+
+
+Markus Mottl replied
+────────────────────
+
+  Incidentally, I finished rewriting my packages using `dune',
+  `dune-release', and OPAM 2.0 just yesterday.  `dune-release' behaves
+  pretty much exactly like `topkg' on the command line.  You can thus
+  follow the usual process as outlined in my mentioned post and replace
+  every occurence of `topkg' with `dune-release'.  I did not need the
+  `CONDUIT_TLS=native' environment setting anymore.
+
+  The only problem right now is that documentation generation does not
+  work due to an apparent bug in `dune-release', which will hopefully be
+  fixed soon.  This means that for the while being you can't just
+  execute `dune-release bistro'.  You should instead follow the
+  individual steps as outlined in the previous post and skip the
+  `dune-release publish doc' step.
+
+  Another small difference is that `dune-release' is more picky about
+  your OPAM files and may fail during lint steps.  The best way to fix
+  this is by addressing any problems raised by `dune-release lint'.  It
+  seems like a small bug, but this linting process does not currently
+  account for `*.descr' files.  Though this may likely be fixed soon,
+  just remove the file and put its contents into the `synopsis' and
+  `description' fields in the OPAM file instead.  I actually prefer
+  having one less file in the source tree anyway.  Note that the current
+  OPAM repository does not have any `descr' files anymore.  I'm not sure
+  whether they are discouraged now, but OPAM, too, obviously prefers the
+  package documentation inside the specification file.
+
+  OPAM 2.0 also introduced some specification changes, e.g. when it
+  comes to external dependencies.  You may need to update your package
+  specifications if this affects you.  Other than that the package
+  release process should work fine.
+
+  I'd suggest you just grab one of my recently updated and merged
+  packages to have a template to follow.  E.g. [Lacaml] is one of the
+  more complex ones that have been through the process.  If you need an
+  example for how to specify external library dependencies with OPAM
+  2.0, you may also take a look at the still unmerged [Postgresql].
+
+  The above small bugs and kinks will probably be solved soon.
+  Specifying, building, and releasing new OCaml software is certainly
+  substantially easier, safer, and more efficient now than ever before.
+  I doubt you can squeeze out much more goodness at this point for the
+  vast majority of use cases.  The combination of `dune',
+  `dune-release', and OPAM is at least on par if not superior to
+  anything other languages can offer.
+
+
+[Lacaml] https://github.com/mmottl/lacaml
+
+[Postgresql] https://github.com/mmottl/postgresql-ocaml
+
+
+Markus Mottl later added
+────────────────────────
+
+  I've just been contacted by the Thomas Gazagnaire (the `dune-release'
+  maintainer) to discuss the recent problems.  Strangely, when trying to
+  replicate the problems to provide more details, it turned out that
+  both the `*.descr' linting issue as well as the documentation
+  publication issue have disappeared.  Since even older `dune-release'
+  versions don't exhibit the issues anymore, I suspect that either used
+  libraries or tools may have been responsible.
+
+  Anyway, the gist is that you can apparently follow the simpler release
+  process outlined in
+  [https://discuss.ocaml.org/t/experience-report-switching-to-jbuilder-and-topkg/993],
+  replacing `topkg' with `dune-release'.  Just keep the above hints in
+  mind in case the mentioned problems still bubble up with your
+  installation.
+
+
+Thomas Gazagnaire said
+──────────────────────
+
+  Also, the expected workflow is supposed to be:
+
+  1. add a tag in your Git repo. This should be done via `dune-release
+     tag [tag-name]' and/or manually. If you don't supply a tag name, it
+     will look into your change file to guess something.
+
+  2. run `dune-release'. This is very similar to `topkg bistro' but it
+     should handle properly repositories with multiple packages.
+
+  There are still a few fragile things in the release process, and I
+  would be very happy to review patches and contributions :-) For
+  instance, we start to have a few unit/regressions tests, but we
+  definitely need more.
+
+
+OCaml and LZMA - decompression based on xz-utils and 7zip
+═════════════════════════════════════════════════════════
+
+  Archive:
+  [https://discuss.ocaml.org/t/ocaml-and-lzma-decompression-based-on-xz-utils-and-7zip/2802/1]
+
+
+Anton Kochkov announced
+───────────────────────
+
+  Recently I needed to process a bunch of data that can be valid LZMA
+  stream, can be invalid (e.g. damaged) LZMA stream, or just can look
+  like it. I searched pure OCaml implementations and found none. Then I
+  found [the old library], but after a while decided to implement my own
+  bindings. At first I tried to use liblzma from xz-utils, and created
+  [Ctypes-based bindings]. But after working with them I found out that
+  xz-utils implementation is not thread-safe, thus causing a heap
+  corruption/segfaults when ran in many threads. So I switched to 7zip
+  implementation of LZMA algorithm, and implemented bindings around them
+  [ocaml-lzma_7z].
+
+  Feel free to reuse the code any way you like, or complain in issues
+  (or even send pull requests).
+
+
+[the old library] https://forge.ocamlcore.org/projects/ocaml-lzma/
+
+[Ctypes-based bindings] https://github.com/XVilka/ocaml-lzma/
+
+[ocaml-lzma_7z] https://github.com/XVilka/ocaml-lzma_7z
+
+
+New release of odepack
+══════════════════════
+
+  Archive:
+  [https://discuss.ocaml.org/t/ann-new-release-of-odepack/2799/1]
+
+
+Christophe announced
+────────────────────
+
+  I am happy to announce the release of version 0.6.9 of [odepack].
+  `Odepack' is a library to solve Cauchy problems, that is ordinary
+  differential equations (ODE) of the form ∂ₜy(t) = f(t,y(t)) with
+  initial conditions y(t₀) = y₀.  It has root searching capabilities for
+  quantities depending on the solution t ↦ y(t).  The OCaml version is a
+  binding to the [FORTRAN code].
+
+
+[odepack] https://github.com/Chris00/ocaml-odepack
+
+[FORTRAN code] http://netlib.sandia.gov/odepack/
+
+
+NYC OCaml Meetup
+════════════════
+
+  Archive: [https://discuss.ocaml.org/t/nyc-ocaml-meetup/2743/3]
+
+
+Continuing this thread, Brendan Long announced
+──────────────────────────────────────────────
+
+  Here's the video:
+
+  [https://www.youtube.com/watch?v=pItUfo6Xjj0]
+
+  And the slides (note: I stopped at the Questions slide):
+
+  [https://drive.google.com/file/d/1ZKtkVUEaVTB857MniEPnaNgGgz9xf0iV/view?usp=sharing]
+
+
+Don't panic that your opam switches recompile from today!
+═════════════════════════════════════════════════════════
+
+  Archive:
+  [https://discuss.ocaml.org/t/dont-panic-that-your-opam-switches-recompile-from-today/2816/1]
+
+
+David Allsopp announced
+───────────────────────
+
+  The `ocaml' package has been updated in opam-repository in
+  [PR12832]. Since all other packages depend on it, when you next run
+  `opam update', opam is going to want to rebuild all the packages in
+  your switches. _The compiler itself will not be rebuilt as part of
+  this, "just" packages._
+
+  The `ocaml' package is a virtual package which probes the
+  configuration of the underlying OCaml compiler (either a system
+  compiler, an opam-compiled OCaml, or an opam-compiled patched
+  compiler).
+
+  The reason for the change is to fix the creation of switches for
+  compilers which don't support shared libraries. The problem was that a
+  script in the `ocaml' package depended on the `Unix' library to probe
+  the output of `ocamlc -where'.
+
+  Sorry for the CPU-hogging inconvenience this will cause - it's a
+  package we aim to leave alone most of the time!
+
+
+[PR12832] https://github.com/ocaml/opam-repository/pull/12832
+
+
+Annoucement of an OCaml book in Chinese
+═══════════════════════════════════════
+
+  Archive:
+  [https://sympa.inria.fr/sympa/arc/caml-list/2018-11/msg00002.html]
+
+
+陈钢 announced
+──────────────
+
+  I am happy to announce my book, "An Introduction to OCaml Language
+  Programming" in Chinese "OCaml语言编程基础教程", published in June
+  1st, 2018. The amazon website for the book is
+  [https://www.amazon.cn/dp/B07CXBXR67/ref=sr_1_1?ie=UTF8&qid=1541156503&sr=8-1&keywords=ocaml]
+
+  ISBN: 9787115471215 The publisher: 人民邮电出版社 (Posts & Telecom
+  Press)
+
+  I would like to take this chance to given my sincere thanks to my
+  OCaml language teachers : Guy Cousineau & Micheal Mauny.
+
+
+Destructive module substitution: changed in 4.07
+════════════════════════════════════════════════
+
+  Archive:
+  [https://discuss.ocaml.org/t/destructive-module-substitution-changed-in-4-07/2824/1]
+
+
+Vincent Jacques asked
+─────────────────────
+
+  The following code fragment compiles with OCaml 4.02.3 to 4.06.0 but
+  not with 4.07:
+
+  ┌────
+  │ module Original = struct
+  │   module X = struct
+  │     let x = 42
+  │   end
+  │ end
+  │ 
+  │ module Intermediate = struct
+  │   include Original
+  │ end
+  │ 
+  │ module Final = struct
+  │   module X = struct
+  │     let x = 43
+  │   end
+  │ 
+  │   include (Intermediate: module type of Intermediate with module X := X)
+  │ end
+  └────
+
+  With 4.07, it fails with this error message:
+
+  ┌────
+  │ Error: In this `with' constraint, the new definition of X
+  │        does not match its original definition in the constrained signature:
+  │        Modules do not match:
+  │          (module X)
+  │        is not included in
+  │          (module Original.X)
+  └────
+
+  If you remove the `Intermediate' module (and `include (Original:
+  module type of Original with module X := X)', it does compile with all
+  versions I tried.
+
+  Questions:
+  • is it expected to compile? (i.e. was it a bug in previous versions
+    or is it a regression in 4.07?)
+  • is there a workaround to make it work with 4.07
+
+
+octachron replied
+─────────────────
+
+  This is an intended changes in 4.07, `module type of' does no longer
+  remove module aliases information. You can get back the old behavior
+  by adding a `[@remove_aliases]' attribute:
+  ┌────
+  │ module type of Intermediate[@remove_aliases]
+  └────
+
+
+First release of bwrap
+══════════════════════
+
+  Archive:
+  [https://discuss.ocaml.org/t/ann-first-release-of-bwrap/2835/1]
+
+
+Christophe announced
+────────────────────
+
+  I'm pleased to announce the first release of [bwrap], a simple library
+  to fork executables in a sandboxed environment — with an interface
+  similar to `Unix.open_process' — thanks to [bubblewrap] (Linux only).
+
+  Enjoy and do not hesitate to report issues!
+
+
+[bwrap] https://github.com/Chris00/ocaml-bwrap
+
+[bubblewrap] https://github.com/projectatomic/bubblewrap
+
+
+Ocaml Github Pull Requests
+══════════════════════════
+
+Gabriel Scherer and the editor compiled this list
+─────────────────────────────────────────────────
+
+  Here is a sneak peek at some potential future features of the Ocaml
+  compiler, discussed by their implementers in these Github Pull
+  Requests.
+
+  • [Deprecate the deprecated functions]
+  • [Filename.chop_suffix_opt]
+  • [Signature local bindings]
+  • [Stdlib: add Fun module]
+
+
+[Deprecate the deprecated functions]
+https://github.com/ocaml/ocaml/pull/2121
+
+[Filename.chop_suffix_opt] https://github.com/ocaml/ocaml/pull/2125
+
+[Signature local bindings] https://github.com/ocaml/ocaml/pull/2122
+
+[Stdlib: add Fun module] https://github.com/ocaml/ocaml/pull/2129
+
+
+Other OCaml News
+════════════════
+
+From the ocamlcore planet blog
+──────────────────────────────
+
+  Here are links from many OCaml blogs aggregated at [OCaml Planet].
+
+  • [forge.ocamlcore.org expected downtime on 2018-11-01]
+  • [forge.ocamlcore.org expected downtime on 2018-10-30]
+  • [Full Time: Compiler Engineer at Jane Street in New York & London]
+  • [Full Time: Software Developer (Functional Programming) at Jane
+    Street in New York, NY; London, UK; Hong Kong]
+  • [opam 2.0.1 is out!]
+
+
+[OCaml Planet] http://ocaml.org/community/planet/
+
+[forge.ocamlcore.org expected downtime on 2018-11-01]
+http://forge.ocamlcore.org/forum/forum.php?forum_id=964
+
+[forge.ocamlcore.org expected downtime on 2018-10-30]
+http://forge.ocamlcore.org/forum/forum.php?forum_id=963
+
+[Full Time: Compiler Engineer at Jane Street in New York & London]
+http://jobs.github.com/positions/9e8ba450-e72e-11e7-926f-6ce07b7015c8
+
+[Full Time: Software Developer (Functional Programming) at Jane Street
+in New York, NY; London, UK; Hong Kong]
+http://jobs.github.com/positions/0a9333c4-71da-11e0-9ac7-692793c00b45
+
+[opam 2.0.1 is out!] https://opam.ocaml.org/blog/opam-2-0-1/
+
+
+Old CWN
+═══════
+
+  If you happen to miss a CWN, you can [send me a message] and I'll mail
+  it to you, or go take a look at [the archive] or the [RSS feed of the
+  archives].
+
+  If you also wish to receive it every week by mail, you may subscribe
+  [online].
+
+  [Alan Schmitt]
+
+
+[send me a message] mailto:alan.schmitt@polytechnique.org
+
+[the archive] http://alan.petitepomme.net/cwn/
+
+[RSS feed of the archives] http://alan.petitepomme.net/cwn/cwn.rss
+
+[online] http://lists.idyll.org/listinfo/caml-news-weekly/
+
+[Alan Schmitt] http://alan.petitepomme.net/

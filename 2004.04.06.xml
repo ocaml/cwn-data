@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="ISO-8859-15"?>
+<cwn>
+<cwn_head>
+  <cwn_date>2004.04.06</cwn_date>
+  <cwn_prev>2004.03.30</cwn_prev>
+  <cwn_next>2004.04.13</cwn_next>
+  <cwn_date_text>30 March to 06 April, 2004</cwn_date_text>
+</cwn_head>
+<cwn_body>
+  <cwn_entry>
+    <cwn_title>What's wrong with win32?</cwn_title>
+    <cwn_who>Christophe Troestler asked, Loïc Correnson added, and Xavier Leroy answered</cwn_who>
+    <cwn_what>
+&gt; &gt;   let (ic, oc) = Unix.open_connection (Unix.ADDR_INET(addr, port)) in
+&gt; &gt;
+&gt; &gt; However, when I try to run it under windows 98 [...]
+&gt; &gt;   Fatal error: exception Sys_error(&quot;Bad file descriptor&quot;)
+&gt;
+&gt; Ok, the trouble comes from the fact that Unix.open_connection uses
+&gt; in_channel_of_descr of which the manual says
+&gt;
+&gt;   in_channel_of_descr  does not work on sockets under Windows 95, 98, ME;
+&gt;                        works fine under NT and 2000
+&gt;
+&gt; Well, I tried the program under Win 2000 Professional and got the same
+&gt; error...
+
+As Loïc Correnson said, Unix.open_connection is broken under Windows
+(all versions) in OCaml 3.07, while it works under NT/2000/XP in
+earlier versions of 3.06.  This is a stupid coding error while fixing
+another bug :-(  The patch against 3.07 sources is simply:
+
+Index: csl/otherlibs/win32unix/unixsupport.c
+diff -c csl/otherlibs/win32unix/unixsupport.c:1.18 csl/otherlibs/win32unix/unixsupport.c:1.19
+*** csl/otherlibs/win32unix/unixsupport.c:1.18  Mon Jan  6 15:52:57 2003
+--- csl/otherlibs/win32unix/unixsupport.c       Thu Apr  1 15:12:36 2004
+***************
+*** 61,66 ****
+--- 61,67 ----
+    value res = alloc_custom(&amp;win_handle_ops, sizeof(struct filedescr), 0, 1);
+    Socket_val(res) = s;
+    Descr_kind_val(res) = KIND_SOCKET;
++   CRT_fd_val(res) = NO_CRT_FD;
+    return res;
+  }
+
+&gt; Anyway, it would be nice that (1) open_connection be
+&gt; mentionend in the manual as not working under win 9*
+
+Will do.
+
+&gt; or, even much better, to make that (2) Unix.open_connection actually
+&gt; works under win32!  IMHO it is quite unfortunate that
+&gt; in_channel_of_descr does not work under windows for sockets since it
+&gt; basically forces the programmer to reimplement input/output
+&gt; functions for these.
+
+It does work (modulo the 3.07 bug) for the NT/2000/XP lineage of Windows.
+Making it work under Windows 9x as well would require significant work
+(see below), and I don&apos;t think it is worth it given that 9x is at
+end-of-line.
+
+&gt; Is the current situation made for efficiency reasons (it is costly for
+&gt; in/out channels to carry their type with them) or is there a deeper
+&gt; problem with Win$ platforms?
+
+It&apos;s not a question of efficiency, but rather of not reimplementing a
+chunk of the C standard library.  More precisely:
+
+- The buffered I/O channels of OCaml are implemented on top of the
+Unix &quot;file descriptor&quot; abstraction and the Unix system calls open(),
+read(), write(), lseek(), close().
+
+- Under Windows, the C library provides an emulation of these Unix
+idioms that encapsulate Win32 file handles as a Unix-style file
+descriptor.  This emulation handles CRLF &lt;-&gt; LF conversion for files
+opened in text modes, so it&apos;s not 100% trivial.
+
+- In Windows NT/2000/XP, just like under Unix, socket handles (type
+SOCKET) are compatible with file handles (type HANDLE), and basic
+system calls that operate on the latter (ReadFile, etc) also work on
+sockets.  Hence, wrapping a socket as a Unix-style file descriptor
+(through the C lib API), then as a buffered I/O channel just works fine.
+
+- In Windows 9x, socket handles are *not* compatible with file handles,
+and ReadFile on a socket handle fails.  Therefore, the wrapping of
+socket handles described above doesn&apos;t work.
+
+- The Win32 implementation of the Unix library already maintains the
+information &quot;socket or file&quot; on its file descriptors (type
+Unix.filedescr), and arranges so that e.g. Unix.read calls ReadFile()
+or recv() as appropriate.  However, to exploit this information at the
+level of buffered I/O channels obtained with in_channel_of_descr
+would require to throw away the C library emulation of read() et al,
+and implement our own.  That&apos;s not completely trivial due to text mode
+handling, and is in my opinion too much work for the purpose of
+supporting Windows 9x, which is an horrible piece of software that
+should die as quickly as possible.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>ocaml-xmlr 0.3 (bindings for libxml&apos;s xmlreader)</cwn_title>
+    <cwn_who>Evan Martin announced</cwn_who>
+    <cwn_what>
+I&apos;ve released version 0.3 of my bindings for libxml[1]&apos;s
+XmlTextReader[2] API for OCaml.  This API is modelled on the XmlReader
+classes found originally in C# (I think?) and is both fast and
+convenient.
+
+Major changes since the last announcement:
+ - License changed to MIT, to match libxml.
+ - Many more functions wrapped (now covers most of the API).
+ - Lots of documentation added.
+ - Bug/typo fixes.
+
+Special thanks to Matt Gushee for his feedback on the previous release.
+
+This site has the download:
+http://neugierig.org/software/ocaml/xmlr/
+
+[1] http://xmlsoft.org/
+[2] http://xmlsoft.org/xmlreader.html
+    </cwn_what>
+  </cwn_entry>
+</cwn_body>
+</cwn>

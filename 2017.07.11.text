@@ -1,0 +1,364 @@
+Hello,
+
+Here is the latest OCaml Weekly News, for the week of July 04 to 11, 2017.
+
+1) parany: a minimalistic library to parallelize any kind of computation
+2) first release of cpm: the Classification Performance Metrics library
+3) OCaml code style and syntax checking
+4) Intel Skylake / Kaby Lake hardware bug affects OCaml programs
+5) Prose v1 - a collaborative text editor
+6) opam v2.0.0 pre-release testing on macOS
+7) ML languages hacking session on July 13th in Pittsburgh, PA, USA
+8) From the OCaml discourse
+9) Ocaml Github Pull Requests
+10) Other OCaml News
+
+========================================================================
+1) parany: a minimalistic library to parallelize any kind of computation
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2017-07/msg00007.html>
+------------------------------------------------------------------------
+** Francois BERENGER announced:
+
+I am pleased to announce parany, a kind of minimalistic and more generic version
+of parmap.
+
+Yes, a minimalistic version of parmap is possible! :D
+
+Parany can be found here:
+
+<https://github.com/UnixJunkie/parany>
+
+The super simple interface is:
+---
+(* the demux function must throw End_of_input once it's done *)
+exception End_of_input
+
+val run: nprocs:int ->
+         demux:(unit -> 'a) ->
+         work:('a -> 'b) ->
+         mux:('b -> unit) -> unit
+---
+
+This is a beta release, so please don't expect excellent performance and rock
+stability. Also, maybe it can crash in some cases (tell me).
+
+The difference with parmap is that parany is supposed to be able
+to work with very large files (that you cannot load in memory at once)
+or infinite streams of things to process.
+
+Managing such cases is doable with parmap but requires some programming
+and is not optimal in terms of parallelization performance (you have to stop all
+work when loading in memory a part of your file and
+fork all your workers again after that).
+
+Parany relies on the shared data structure Netmcore_queue from
+Gerd Stolpmann's excellent ocamlnet library to take care of all the magic.
+
+Contributions are welcome to improve performance and stability, while not
+degrading code quality.
+
+Also, since this is a minimalistic library, I am not sure
+new features will be accepted. ;)
+
+If there is some interest, I can put it into opam, let me know.
+      
+========================================================================
+2) first release of cpm: the Classification Performance Metrics library
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2017-07/msg00032.html>
+------------------------------------------------------------------------
+** Francois BERENGER announced:
+
+It is my pleasure to announce the first release of cpm.
+
+cpm allows to compute various classification performance metrics, like:
+- area under the ROC curve (AUC)
+- BEDROC (Bolzmann Enhanced Discrimination of the ROC curve)
+- Power Metric (PM) at given threshold
+- Enrichment Factor (EF) at given percentage
+
+Here is an example use:
+---
+(* first, define your score_label module *)
+module SL = struct
+  type t = string * float * int * bool
+  let get_score (_, s, _, _) = s
+  let get_label (_, _, _, l) = l
+end
+
+(* second, instantiate the ROC functor for your score_label module *)
+module ROC = MakeROC.Make (SL)
+
+(* third, call any classification performance metric you need *)
+[...]
+let auc = ROC.auc scores in
+[...]
+---
+
+The score is the output of your predictor.
+For a true positive, the label must be 1.
+For a true negative, the label must be 0.
+Your predictor is supposed to give high scores to true positives
+and low scores to true negatives.
+
+The code is here:
+<https://github.com/UnixJunkie/cpmlib>
+
+The library should be available shortly in opam under the name cpm.
+
+For those who like to read, here are some interesting reads on related subjects:
+- <https://jcheminf.springeropen.com/articles/10.1186/s13321-016-0189-4>
+- <https://academic.oup.com/bioinformatics/article-lookup/doi/10.1093/bioinformatics/btq140>
+- <http://pubs.acs.org/doi/abs/10.1021/ci600426e>
+
+Have fun classifying,
+F.
+      
+========================================================================
+3) OCaml code style and syntax checking
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2017-07/msg00010.html>
+------------------------------------------------------------------------
+** Richard Jones asked:
+
+I have a need to make automated stylistic and syntax checks to
+a large amount of OCaml code.  The sort of rules would be:
+
+ - Check that indentation is used, and used consistently.
+
+ - Excessive use of parentheses where not needed.
+
+ - Use ( .. ) instead of begin .. end.
+
+ - Flag uses of various Obj.* and unsafe_* functions.
+
+It seems to me that some of these could be tested with either camlp4
+or ppx.  I think if we allowed the checker to go back to the original
+code (eg to see if the parser parsed as block as '(' or 'begin'),
+it might be able to check all of these things.
+
+Anyway, before I start on it I'm wondering if anyone has ever
+looked at doing this kind of thing?
+      
+** Richard Jones later added:
+
+Now that I actually formulate the right search terms, I see
+that ocp-lint exists :-/
+      
+** Mark Bradley replied:
+
+Another idea that will get you part of the way there is to use refmt to
+automatically format the OCaml files to standard layout.
+
+This would cover 3 out of the 4 criteria because:
+
+1. it automatically indents
+2. it always reduces parentheses where it can
+3. it automatically converts begin and end to parentheses.
+
+The 4th criteria could potentially be caught using grep.
+
+It's worth an experiment to see if you like the style of code generated by
+refmt for OCaml. It certainly does a better job at formatting reason code
+from my limited experiments (it doesn't seem to like vertical white space
+when generating OCaml, whereas it will include it if you covert the file to
+reason, testing version 1.13.5 as of writing).
+      
+** Sébastien Hinderer also replied:
+
+You may also be interested in Xavier Clerc's Mascot tool:
+<http://mascot.x9c.fr/>
+      
+========================================================================
+4) Intel Skylake / Kaby Lake hardware bug affects OCaml programs
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2017-07/msg00013.html>
+------------------------------------------------------------------------
+** Johannes Kanig continued this thread from last week:
+
+> Here is my list of affected OCaml projects known so far (it seems
+> surprisingly less rare than I thought at first):
+
+To add to the list, we at AdaCore have seen random crashes of long-running Why3
+processes, that only happen on the Skylake machine of one of our developers.
+      
+========================================================================
+5) Prose v1 - a collaborative text editor
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2017-07/msg00024.html>
+------------------------------------------------------------------------
+** Adrien Nader announced:
+
+I am happy to announce the first release of Prose, a collaborative text
+editor started after being both frustrated and horrified by Etherpad
+Lite.
+Etherpad Lite is heavily used in groups I am involved in or close to:
+FFDN, DIY ISPs, Éxégètes Amateurs, Framasoft, ... (all being horrible
+leftists and libre-ists). It occurred to me that its bugs,
+administration costs and limitations were hampering us.
+
+It realistically aims at replacing Etherpad Lite with something better
+on every aspect for both clients and servers: lower CPU, memory and
+network usage, more features, fewer bugs and an active development.
+
+The code is hosted on <https://gitlab.com/adrien-n/prose> and can be
+downloaded either through git or through tarballs on
+<https://gitlab.com/adrien-n/prose/tags> .
+A demo is available on <http://prose.yaxm.org/pads/caml-announce> . Any
+document name can be used and the website root is an alias for
+"default".
+
+Its development has been in line with the vision of the new French
+President to make France a « Startup Nation ».
+As such, the current release works, has an UI that shouldn't change too
+much but also has a few caveats that aren't immediately visible. It is a
+« minimum viable product », i.e. « a product with just enough features
+to satisfy early customers, and to provide feedback for future
+development. » [1]. It is believed the AGPLv3 license will scare
+absolutely no angel investor.
+
+I haven't conducted thorough benchmarks because performance is very
+clearly in favor of Prose:
+- lower network usage for cold and hot browser caches, almost optimal,
+- much much lower CPU usage
+- > 4 times lower server-side memory
+- > 5 times lower page load time
+
+Installation is not documented through an Ansible role which is stored
+under ansible/ in the sources. Ansible code is not very fun to write but
+reading it shouldn't be an issue and it guarantees the procedure is
+always up-to-date.
+
+The project wouldn't exist without Ocsigen and QuillJS.
+QuillJS [ <https://quilljs.com/> ] is a rich-text editing widget which
+features Operational Transform [2] for edition deltas.
+Ocsigen [ <https://ocsigen.org/> ] is already well-known in the OCaml
+world; it does most of the hard work an everything else is based on it.
+
+The code has been quite heavily documented and its entrypoint is
+prose.eliom.
+One of the project goal has been to make an ocsigen project that could
+be used by others to learn. Maybe it has now grown too much for that but
+it should still be possible to extract interesting blocks and make a
+nice tutorial using it.
+
+Besides general improvements, future version will introduce client-side
+storage, session-handling and encryption along with more export formats.
+Tests, bug reports and contributions are warmly welcome. Development is
+carried on gitlab which handles oauth2 and authentication using accounts
+from twitter, facebook, github and bitbucket is possible.
+
+[1] <https://en.wikipedia.org/wiki/Minimum_viable_product>
+[2] <https://en.wikipedia.org/wiki/Operational_transformation>
+      
+========================================================================
+6) opam v2.0.0 pre-release testing on macOS
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2017-07/msg00027.html>
+------------------------------------------------------------------------
+** Daniel Bünzli announced:
+
+In order to make it easier to use opam v2.0.0's pre-releases on macOS, there is
+now a homebrew-based, quick and foolproof workflow that makes it safe and easy
+for you to switch from 1.2.2 to 2.0.0, and back with your previous setup if
+needed.
+
+The instructions are available here:
+
+<https://github.com/ocaml/homebrew-ocaml/wiki/From-opam-1.2.2-to-2.0.0-and-back-with-the-OCaml-tap>
+
+You can now try to live day to day on opam 2.0.0 with the peace of mind of being
+able to come back in a breeze to the solid and reliable opam 1.2.2 you know if
+you hit any wall.
+      
+========================================================================
+7) ML languages hacking session on July 13th in Pittsburgh, PA, USA
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2017-07/msg00038.html>
+------------------------------------------------------------------------
+** Gabriel Scherer announced:
+
+We are happy to announce a hacking session for languages of the ML
+family in the evening of July 13th in Pittsburgh, PA, US. The event
+will take place at CMU, between 16:30 and 22:30. Access instructions
+can be found at:
+
+  <http://www.ccs.neu.edu/home/gasche/tmp/ml-languages-hacking-session-july-13-2017/announce.html>
+
+This event, organized by Anton Bachin, Adrien Guatto, Ram Raghunathan,
+Gabriel Scherer and Jon Sterling, is open to all programmers in
+a ML-family language, advanced or beginners. Attendees will be
+encouraged and assisted in making a contribution to an open source
+project, including in particular the OCaml and MLton (SML) compiler
+implementations -- we will propose a list of tasks and project ideas,
+and try to help in providing technical advice, feedback and guidance
+for contribution.
+
+Coming with a project in mind is also welcome. There are other
+impactful contribution than code: documentation contributions are
+warmly welcome. If you were waiting for an opportunity to scratch an
+ML-y itch in a friendly place, there it is!
+
+Event implementation details are still being arranged, but we are not
+planning on having food at the event itself. We may go out in groups
+around dinner time, but feel free to eat beforehand or bring your own
+food.
+
+Apologies for the last-minute announcement, and happy hacking!
+      
+========================================================================
+8) From the OCaml discourse
+------------------------------------------------------------------------
+** The editor compiled this list:
+
+Here are some links to messages at <http://discuss.ocaml.org> that may
+be of interest to the readers.
+
+- Calascibetta Romain talks about "Digestif 0.2 - Hashes functions"
+  <https://discuss.ocaml.org/t/ann-digestif-0-2-hashes-functions/504/1>
+- Lélio Brun talks about "Obelisk 0.1.0: a tool to pretty-print Menhir files"
+  <https://discuss.ocaml.org/t/ann-obelisk-0-1-0-a-tool-to-pretty-print-menhir-files/509/1>
+      
+========================================================================
+9) Ocaml Github Pull Requests
+------------------------------------------------------------------------
+** Gabriel Scherer and the editor compiled this list:
+
+Here is a sneak peek at some potential future features of the Ocaml
+compiler, discussed by their implementers in these Github Pull Requests.
+
+- stdlib: Added fold, filter, exists, for_all to string/bytes
+  <https://github.com/ocaml/ocaml/pull/882>
+- Compiler drivers: make -keep-locs the default
+  <https://github.com/ocaml/ocaml/pull/1219>
+- tweak GCC options to try to work around the Skylake/Kaby lake bug
+  <https://github.com/ocaml/ocaml/pull/1228>
+- unique names for weak type variables
+  <https://github.com/ocaml/ocaml/pull/1225>
+- Toplevel: only escapes bytes and not strings
+  <https://github.com/ocaml/ocaml/pull/1231>
+- Add Unicode character escape \u{H} to OCaml string literals
+  <https://github.com/ocaml/ocaml/pull/1232>
+      
+========================================================================
+10) Other OCaml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Here are links from many OCaml blogs aggregated at OCaml Planet,
+<http://ocaml.org/community/planet/>.
+
+Full Time: Software Developer (Functional Programming) at Jane Street in New York, NY; London, UK; Hong Kong
+ <http://jobs.github.com/positions/0a9333c4-71da-11e0-9ac7-692793c00b45>
+
+Provisioning, deploying, and managing virtual machines
+ <https://hannes.nqsb.io/Posts/VMM>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

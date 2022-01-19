@@ -1,0 +1,642 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>OCaml Weekly News</title>
+  </head>
+  <body>
+    <a href="2014.02.04.html">Previous week</a> <a href="index.html">Up</a> <a href="2014.02.18.html">Next week</a><p>Hello</p><p>Here is the latest OCaml Weekly News, for the week of February 04 to 11, 2014.</p><ol><li><a href="#1">OCamlPro Highlights: Dec 2013 &amp; Jan 2014</a></li><li><a href="#2">Cmdliner 0.9.4</a></li><li><a href="#3">Core Suite 110.01.00</a></li><li><a href="#4">OCaml 2014 - Call for Presentations</a></li><li><a href="#5">ocaml.org licensing</a></li><li><a href="#6">Silicon Valley OCaml programmers</a></li><li><a href="#7">Higher-order, Typed, Inferred, Strict: ACM SIGPLAN ML Family Workshop</a></li><li><a href="#8">Other OCaml News</a></li></ol><a name="1" /><hr /><h3>OCamlPro Highlights: Dec 2013 &amp; Jan 2014</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2014-02/msg00041.html">https://sympa.inria.fr/sympa/arc/caml-list/2014-02/msg00041.html</a></p><i>Fabrice Le Fessant announced:</i><br /><pre>
+Here is the link to OCamlPro's report on its activities in January
+2014 on OCaml:
+
+<a href="http://www.ocamlpro.com/blog/2014/02/05/monthly-2014-01.html">http://www.ocamlpro.com/blog/2014/02/05/monthly-2014-01.html</a>
+      </pre><i>Romain Bardou said and Benjamin Canou replied:</i><br /><pre>
+&gt; Regarding OCamlRes...
+&gt;
+&gt; - It like the idea. I already have one use case: images for my GTK icons.
+&gt;
+&gt; - There is no .mli in your src directory, it makes your code less
+&gt; readable (even empty .mli files are interesting, they tell the reader
+&gt; that the module is the main module).
+&gt;
+&gt; - Because of the above I was not able to find out what ocplib-ocamlres
+&gt; provided.
+&gt;
+&gt; - Maybe this is handled by ocplib-ocamlres, but it would be nice if
+&gt; there was a way to include resources in the executable at first, and
+&gt; then, if the project becomes bigger, have a way to externalize (some of)
+&gt; those resources without changing the code. So we would have some
+&gt; function such as:
+&gt;
+&gt;    val load_resource: string -&gt; string
+&gt;
+&gt; taking the resource path (e.g. "res/a/x/test.int") and returning the
+&gt; contents of the file, either by actually reading an external file, or
+&gt; just by returning a string which was included at compile-time. It could
+&gt; be as simple as:
+&gt;
+&gt; let load_resource path =
+&gt;    try
+&gt;      Hashtbl.find included_resources path
+&gt;    with Not_found -&gt;
+&gt;      let ch = open_in path in
+&gt;      ...
+&gt;
+&gt; where included_resources is a hash table filled by ocp-ocamlres. (I
+&gt; don't think it is very interesting to keep the directory hierarchy, but
+&gt; maybe it is for some use cases.)
+&gt;
+&gt; - I would probably write a file containing the list of resource files I
+&gt; want to include (one per line), and in my build system, add a rule
+&gt; saying how to obtain an .ml file from it using ocp-ocamlres. It would
+&gt; protect the user from including trash such as Emacs autosaves (~ files —
+&gt; although mines are in a different directory :) ) or Windows Thumbs.db
+&gt; files or whatever. You can't be sure what's inside your "res" directory!
+&gt; Maybe your tool could read such a file itself to make it easier and more
+&gt; unified.
+
+Thanks for your reactive input. OCamlRes is still in design stage (cf.
+the version number) and I published it for gathering potential usages
+and users so it is very welcome. About the lack of mli, the
+implementation is actually ocamldoc'ed, so a `make doc` and a good
+browser should make for a reasonable substitute until the interface is
+well frozen in an mli.
+
+For your filesystem overlay use case, this can already be done with a :
+
+let load_resource base rpath =
+  try
+    OCamlRes.(Res.find Path.(of_string rpath) MyResources.root)
+  with Not_found -&gt;
+    let fp = open_in (base ^ rpath) in
+    (* read fp *)
+
+But I agree that it could be generated automatically in a specific format.
+
+Your idea of a master file makes sense. I'm more in favor of polishing
+the CLI for filtering files, but I think both approaches can coexist.
+
+I will put a todo / ideas list on github and I invite you (as well as
+everyone else) to contribute :)
+      </pre><i>Malcolm Matalka asked and Anil Madhavapeddy replied:</i><br /><pre>
+&gt; I haven't use either, but what is the important differences between
+&gt; crunch and ocamlres?
+
+OCamlRes is a much more principled library than crunch -- which
+just prettyprints a giant pattern match of strings from a
+filesystem tree.
+
+One differentiator of crunch is that it exposes a more system-like
+interface, to match the other "real" backends in Mirage (i.e. a
+Lwt_cstruct iterator based on Bigarrays, rather than a string).
+
+I have no problem migrating to ocplib-res eventually, except for
+a query I've raised on their bugtracker about the licensing:
+<a href="https://github.com/OCamlPro/ocp-ocamlres/issues/2">https://github.com/OCamlPro/ocp-ocamlres/issues/2</a>
+      </pre><i>Pierre-Étienne Meunier also asked, and Alain Frisch replied:</i><br /><pre>
+&gt; However, what is the difference between new backends, and using llvm?
+
+Since this work is done by OCamlPro on behalf of LexiFi, let me answer
+this one. This current project is much less ambitious than switching to
+llvm.
+
+Some context: ocamlopt generates machine code by producing some textual
+assembly code and calling an external assembler (gas or masm) to produce
+object files.  The assembly code is produced directly from an
+higher-level intermediate representation defined in
+asmcomp/linearize.mli (which represents a list of pseudo-instructions).
+The mapping from this representation to assembly language contains some
+logic such as picking concrete opcodes (including special cases such as
+a simplified jump for a self tail-call), maintaining the current stack
+offset, taking into account various compilation mode (debug mode,
+fast/compact mode, pic mode), expanding complex pseudo-instructions into
+several actual assembly opcodes (e.g. to compile switches using jump
+tables), sharing floating point literals, etc.
+
+Since two concrete syntaxes of assembly languages (gas/masm) have to be
+supported, this mapping has to be implemented twice for each CPU
+(amd64/emit.mlp + amd64/emit_nt.mlp, and same for i386/), which adds
+burden when this code evolves (and it still does quite often).
+
+So the project is to add an extra intermediate language between
+linearize.mli and textual assembly language.  This new representation
+can be seen as a symbolic representation of machine code or an AST of
+the generated assembly language.  This will allow to share most code
+from emit.mlp and emit_nt.mlp.  Two "printers" from this new
+representation to source assembly language will be implemented.  In
+addition to reducing the maintenance overhead and reducing the risk of
+having the Windows port lagging behind, this will bring a few more
+advantages:
+
+ - It will be quite easy to have a third "printer", which generates
+direct binary machine code instead of source assembly language.  LexiFi
+already uses such binary backends for x86 and amd64, which (together
+with a COFF object emitter) make it possible to have a version of
+ocamlopt under Windows that does not require an external assembler. (And
+this allows our end-user application to compile source OCaml code and
+dynlink it on the fly, without forcing our customers to install any
+toolchain.)  The new project will greatly facilitate the maintenance of
+these direct binary backends (and this is actually LexiFi's primary
+reason for funding this project).  The same backends would actually be
+of interest to other projects, such as the native toplevel or MetaOCaml.
+
+ - Some low-level optimizations could be performed on the new
+representation (typically, peep-hole optimizations).
+
+ - The project will probably make it easier to maintain or experiment
+with new variants of the backends (I'm thinking about the ia32 port from
+the sse2 branch, i.e. a variant of x86 using sse2 instructions for
+floating point arithmetic instead of x87 instructions).
+      </pre><a name="2" /><hr /><h3>Cmdliner 0.9.4</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2014-02/msg00079.html">https://sympa.inria.fr/sympa/arc/caml-list/2014-02/msg00079.html</a></p><i>Daniel Bünzli announced:</i><br /><pre>
+I'd like to announce the release of Cmdliner 0.9.4 which should be
+available shortly in opam. This is mostly a cosmetic release that
+slightly improves Cmdliner's behaviour on unix systems. See the release
+notes for details:
+
+  <a href="https://github.com/dbuenzli/cmdliner/blob/master/CHANGES.md">https://github.com/dbuenzli/cmdliner/blob/master/CHANGES.md</a>
+
+Cmdliner is an OCaml module for the declarative definition of command line interfaces.
+Home page: <a href="http://erratique.ch/software/cmdliner">http://erratique.ch/software/cmdliner</a>
+      </pre><a name="3" /><hr /><h3>Core Suite 110.01.00</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2014-02/msg00083.html">https://sympa.inria.fr/sympa/arc/caml-list/2014-02/msg00083.html</a></p><i>Jeremie Dimino announced:</i><br /><pre>
+I am pleased to announce the 110.01.00 release of the Core suite.
+
+The following packages were upgraded:
+
+- async
+- async_extra
+- async_kernel
+- async_unix
+- core
+- core_extended
+- core_kernel
+- ocaml_plugin
+- pa_test
+- pipebang
+- sexplib
+
+Files and documentation for this release are available on our
+website and all packages are in opam:
+
+<a href="https://ocaml.janestreet.com/ocaml-core/110.01.00/individual/">https://ocaml.janestreet.com/ocaml-core/110.01.00/individual/</a>
+<a href="https://ocaml.janestreet.com/ocaml-core/110.01.00/doc/">https://ocaml.janestreet.com/ocaml-core/110.01.00/doc/</a>
+
+Here is list of changes for this version:
+
+# 110.01.00
+
+## async_extra
+
+- Added `Cpu_usage.Sampler` for directly sampling CPU usage.
+- Fixed `Log.rotate` to never raise.
+- Fixed two bugs in `Log` rotation.
+* Log rotation had used the wrong date when checking whether it
+should rotate.
+* Made `Rotation.keep = \`At_least` delete the oldest, rather than
+the newest, logs.
+
+## async_kernel
+
+- Added `Deferred.Result.map_error`.
+
+## core
+
+- Fixed `Time` unit tests that failed in London because of timezone
+dependence.
+- Added `Iobuf.protect_window_and_bounds`, which calls a user function
+and restores the iobuf's bounds afterwards.
+- Fixed compilation on OpenBSD, which doesn't support
+`Unix.mcast_join`'s `?source : Inet_addr.t` argument.
+
+## core_kernel
+
+- Changed `Queue` from a linked to an array-backed implementation.
+
+Renamed the previous implementation to `Linked_queue`.
+
+Renamed `transfer`, which was constant time, as `blit_transfer`,
+which is linear time.
+
+Removed `partial_iter`. One can use `with_return`.
+
+Added `singleton`, `filter`, `get`, `set`.
+- For `Error` and `Info`, changed `to_string_hum` to use `sexp_of_t`
+and `Sexp.to_string_hum`, rather than a custom string format.
+- Changed the output format of `Validate.errors` to be a sexp.
+- Added `Hashtbl.of_alist_or_error` and `Map.of_alist_or_error`.
+- Added `String_id.Make` functor, which includes a module name for
+better error messages.
+- Exposed `Bucket.size`.
+- Changed the default for `Debug.should_print_backtrace` to be `false`
+rather than `true`.
+
+Usually the backtraces are noise.
+- Removed the tuning of gc parameters built in to Core, so that the
+default is now the stock OCaml settings.
+
+Such tuning doesn't belong in Core, but rather done per application.
+Also, the Core settings had fallen way out of date, and not kept up
+with changes in the OCaml runtime settings. We have one example
+(lwt on async) where the Core settings significantly slowed down a
+program.
+- Added `Exn.raise_without_backtrace`, to raise without building a
+backtrace.
+
+`raise_without_backtrace` never builds a backtrace, even when
+`Backtrace.am_recording ()`.
+- Made `with_return` faster by using `Exn.raise_without_backtrace`.
+- Improved `with_return` to detect usage of a `return` after its
+creating `with_return` has returned.
+
+## ocaml_plugin
+
+- Added `cmi`'s so that plugins can use `lazy`, recursive modules, and
+objects.
+
+## pa_test
+
+- For `&lt;:test_result&lt; &gt;&gt;`, renamed `~expected` to `~expect`
+
+## sexplib
+
+- Added `with sexp` support for mutually recursive types with common
+fields.
+
+For instance:
+
+```ocaml
+type a = { fl : float } and b = { fl : int } with sexp
+```
+
+Closes #3
+- Fixed the behavior of sexplib on `private` types.
+
+sexplib used to ignore the `private` modifier, which means generated
+functions had the wrong type. Now, it generates a function with the
+right type for `sexp_of` and refuses to generate anything for
+`of_sexp`.
+- Added `Macro.expand_local_macros`, which macro expands sexps,
+failing on `:include` macros.
+- Fixed `Macro`'s handling of nested `:include`'s which was broken
+with respect to paths.
+
+Prior to this fix, `:include`'s were broken with respect to the path
+used to resolve the filename. Including a file outside the current
+directory which included another file relative to that one would
+break.
+      </pre><a name="4" /><hr /><h3>OCaml 2014 - Call for Presentations</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2014-02/msg00085.html">https://sympa.inria.fr/sympa/arc/caml-list/2014-02/msg00085.html</a></p><i>Jacques Garrigue announced:</i><br /><pre>
+==============================================================================
+
+                              OCAML 2014
+               The  OCaml Users and Developers Workshop
+                <a href="http://ocaml.org/meetings/ocaml/2014/">http://ocaml.org/meetings/ocaml/2014/</a>
+                         Gothenburg, Sweden
+                         September 5, 2014
+
+                        CALL FOR PRESENTATIONS
+
+                      Co-located with ICFP 2014
+                         Sponsored by SIGPLAN
+           Talk Proposal Submission Deadline: May 19, 2014
+
+==============================================================================
+
+The OCaml Users and Developers Workshop brings together industrial users of
+OCaml with academics and hackers who are working on extending the language,
+type system and tools.
+Previous editions have been colocated with ICFP 2012 in Copenhagen, and
+ICFP 2013 in Boston, following the OCaml Meetings in Paris in 2010 and
+2011. OCaml 2014 will be held on September 5, 2014, in Gothenburg,
+colocated with ICFP 2014.
+
+Scope
+=====
+
+Discussions will focus on the practical aspects of OCaml programming and
+the nitty gritty of the tool-chain and upcoming improvements and changes.
+Thus, we aim to solicit talks on all aspects related to improving the use
+or development of the language and of its programming environment,
+including, for example:
+
+- compiler developments, new backends, runtime and architectures
+
+- practical type system improvements, such as (but not limited to) 
+ GADTs, first-class modules, generic programming, or dependent types
+
+- new library or application releases, and their design rationales
+
+- tools and infrastructure services, and their enhancements
+
+- prominent industrial uses of OCaml, or deployments in unusual
+ situations.
+
+Submission
+==========
+
+It will be an informal meeting, with an online scribe report of the
+meeting, but no formal proceedings. Slides of presentations will be
+available online from the workshop homepage. The presentations will
+likely be recorded, and made available at a later time.
+
+To submit a talk, please register a description of the talk (about 2 pages
+long) at <a href="https://www.easychair.org/conferences/?conf=ocaml2014">https://www.easychair.org/conferences/?conf=ocaml2014</a>, providing a
+clear statement of what will be brought by the talk: the problems that are
+addressed, the technical solutions or methods that are proposed. If you
+wish to perform a demo or require any special setup, we will do our best to
+accommodate you.
+
+Schedule
+========
+
+Abstract Submission Deadline: Monday, May 19, 2014
+Notification to Speakers: Monday, June 30, 2014
+Workshop: Friday, September 5, 2014
+
+ML family workshop and post-proceedings
+=======================================
+
+The ML family workshop, held on the previous day, deals with general issues
+of the ML-style programming and type systems, and is seen as more research
+oriented. Yet there is an overlap with the OCaml workshop, which we are
+keen to explore, for instance by having a common session.  The authors who
+feel their submission fits both workshops are encouraged to mention it at
+submission time and/or contact the Program Chairs.
+
+As another form of cooperation, we are considering combined post-conference
+proceedings of selected papers from the two workshops. The Program
+Committees shall invite interested authors of selected presentations to
+expand their abstract for inclusion in the proceedings. The submissions
+would be reviewed according to the standards of the publication.
+
+Program Committee
+=================
+
+* Esther Baruk, LexiFi, France
+* Jacques Garrigue, Nagoya University, Japan (chair)
+* Oleg Kyseliov, Monterey, CA, USA
+* Pierre Letouzey, Universite Paris 7, France
+* Luc Maranget, INRIA Paris-Rocquencourt, France
+* Keisuke Nakano, University of Electro-Communications, Japan
+* Yoan Padioleau, Facebook, USA
+* Andreas Rossberg, Max Planck Institute for Software Systems, Germany
+* Julien Signoles, CEA LIST, France
+* Leo White, University of Cambridge, UK
+
+If you have any questions, please e-mail:
+Jacques Garrigue &lt;ocaml2014 AT easychair DOT org&gt;
+      </pre><a name="5" /><hr /><h3>ocaml.org licensing</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2014-02/msg00086.html">https://sympa.inria.fr/sympa/arc/caml-list/2014-02/msg00086.html</a></p><i>Ashish Agarwal said:</i><br /><pre>
+The content and implementation of the OCaml.org website do not have
+licenses specified, which should be fixed. Our goal is to encourage
+contributions, give appropriate credit to contributors, and maximize the
+utility of the website for the entire OCaml community. We would like the
+community’s feedback on the following proposal:
+
+(A) Content is released under CC BY-SA 4.0 [1].
+(B) Code that implements the site is released under the ISC license [2].
+(C) Code examples within content are released under the UNLICENSE [3].
+(D) Design of the site. All rights reserved by the OCaml.org project.
+(E) OCaml logo is released under the UNLICENSE [3].
+(F) Abstracts, slides from meetings. Rights retained by contributor.
+
+Here is our reasoning for each of the above:
+
+(A) Content refers to text that is visible by readers at
+<a href="http://ocaml.org">http://ocaml.org</a> (except for code; see (C) below). We'd like others to
+be able to use these materials but we don't want to create a situation
+where content that is freely given to the community (which amounts to a
+substantive volume of work) is then taken and monetized without giving
+back.
+
+The CC BY-SA 4.0 license [1] allows anyone to share and adapt the work,
+including for commercial gain, as long as that work is also released
+under the same (or compatible) license. This means that commercial works
+could be produced but free versions would also have to be made
+available. Thus, the community wouldn't lose out on any derivative work.
+
+(B) Code that implements ocaml.org. We want the code implementing the
+site to be open source and available for others to use as they wish.
+Examples of this include the files found under the 'script' folder of
+the repository [6]. The ISC licence [2] has already been chosen for OMD
+and MPP, two libraries that OCaml.org relies on substantially.
+Additional scripts are not particularly complex in nature, and we feel
+their use should not be restricted.
+
+(C) Code examples within content. For example, you can see many of these
+on the 99 problems page [5]. These are typically small pieces of useful
+code and we want people to be able to use them however they see fit. We
+want to do this without the burden of attribution that an open source
+license (e.g. ISC) would require, so placing them in the public domain
+seems like the sensible thing to do. The UNLICENSE [3] is one way of
+putting works in the public domain and is how code examples in Real
+World OCaml are released [4].
+
+(D) Design of the site. This is essentially the CSS, banner image, and
+custom logos (except the OCaml logo, see (E) below). The design uniquely
+identifies ocaml.org, and it would be awkward if another site looked
+similar. It seems sensible to reserve all rights over the design and
+disallow copying it in any form.
+
+(E) The new OCaml logo [7], which you see in the top-left of ocaml.org,
+should be encouraged. We hope this can be a unifying symbol of all
+things related to OCaml. Everyone should use this logo in their OCaml
+blogs, websites, documentation, presentations, T-shirts, stickers, etc.
+Thus, it should be usable freely by all, which can be achieved by
+releasing it under the UNLICENSE.
+
+(F) OCaml.org also hosts abstracts and slides for various meetings, such
+as the OCaml Users and Developers Workshop. Contributors should retain
+all rights over those works or be subject to whatever agreement they
+have with the respective meeting. They are not considered part of the
+Content as defined in (A).
+
+[1] <a href="http://creativecommons.org/licenses/by-sa/4.0/">http://creativecommons.org/licenses/by-sa/4.0/</a>
+[2] <a href="http://opensource.org/licenses/ISC">http://opensource.org/licenses/ISC</a>
+[3] <a href="http://unlicense.org">http://unlicense.org</a>
+[4] <a href="https://github.com/realworldocaml/examples/blob/master/UNLICENSE">https://github.com/realworldocaml/examples/blob/master/UNLICENSE</a>
+[5] <a href="http://ocaml.org/learn/tutorials/99problems.html">http://ocaml.org/learn/tutorials/99problems.html</a>
+[6] <a href="https://github.com/ocaml/ocaml.org">https://github.com/ocaml/ocaml.org</a>
+[7] <a href="http://ocaml.org/img/ocaml.png">http://ocaml.org/img/ocaml.png</a>
+      </pre><i>Amir Chaudhry then added:</i><br /><pre>
+To all, In the interests of keeping things manageable, I'd be grateful
+if we could keep any discussions on the Infrastructure list
+(infrastructure@lists.ocaml.org). It's public and archived [1] and we're
+happy to summarise the main points for the caml-list in due course.
+
+Best wishes,
+Amir
+
+[1] <a href="http://lists.ocaml.org/listinfo/infrastructure">http://lists.ocaml.org/listinfo/infrastructure</a>
+      </pre><a name="6" /><hr /><h3>Silicon Valley OCaml programmers</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2014-02/msg00090.html">https://sympa.inria.fr/sympa/arc/caml-list/2014-02/msg00090.html</a></p><i>Martin Jambon announced:</i><br /><pre>
+We just created a new meetup.com group for managing OCaml user meetings
+around Palo Alto and Mountain View. We're having one next week, but
+please sign up if you want to hear about future meetups:
+
+  <a href="http://www.meetup.com/Silicon-Valley-OCaml-Meetup/">http://www.meetup.com/Silicon-Valley-OCaml-Meetup/</a>
+      </pre><a name="7" /><hr /><h3>Higher-order, Typed, Inferred, Strict: ACM SIGPLAN ML Family Workshop</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2014-02/msg00091.html">https://sympa.inria.fr/sympa/arc/caml-list/2014-02/msg00091.html</a></p><i>oleg announced:</i><br /><pre>
+Higher-order, Typed, Inferred, Strict: ACM SIGPLAN ML Family Workshop
+Thursday September 4, 2014, Gothenburg, Sweden
+(immediately following ICFP and preceding OCaml Users and Developers Workshop)
+
+Call For Papers         <a href="http://okmij.org/ftp/ML/ML14.html">http://okmij.org/ftp/ML/ML14.html</a>
+
+ML is a very large family of programming languages that includes Standard ML,
+OCaml, F#, SML#, Manticore, MetaOCaml, JoCaml, Alice ML, Dependent ML, Flow
+Caml, and many others. All ML languages, beside the great deal of syntax, share
+several fundamental traits. They are all higher-order, strict, mostly pure, and
+typed, with algebraic and other data types. Their type systems inherit from
+Hindley-Milner. The development of these languages has inspired a significant
+amount of computer science research and influenced a number of programming
+languages, including Haskell, Scala and Clojure, as well as Rust, ATS and many
+others.
+
+ML workshops have been held in affiliation with ICFP continuously since 2005.
+This workshop specifically aims to recognize the entire extended ML family and
+to provide the forum to present and discuss common issues, both practical
+(compilation techniques, implementations of concurrency and parallelism,
+programming for the Web) and theoretical (fancy types, module systems,
+metaprogramming). The scope of the workshop includes all aspects of the design,
+semantics, theory, application, implementation, and teaching of the members of
+the ML family. We also encourage presentations from related languages (such as
+Scala, Rust, Nemerle, ATS, etc.), to exchange experience of further developing
+ML ideas.
+
+The ML family workshop will be held in close coordination with the OCaml Users
+and Developers Workshop.
+
+Format
+
+Since 2010, the ML workshop has adopted an informal model. Presentations are
+selected from submitted abstracts. There are no published proceedings, so any
+contributions may be submitted for publication elsewhere. We hope that this
+format encourages the presentation of exciting (if unpolished) research and
+deliver a lively workshop atmosphere.
+
+Each presentation should take 20-25 minutes, except demos, which should take
+10-15 minutes. The exact time will be decided based on the number of accepted
+submissions. The presentations will likely be recorded.
+
+Post-conference proceedings
+
+We are considering post-conference proceedings of selected papers. The Program
+Committee shall invite interested authors of selected presentations to expand
+their abstract for inclusion in the proceedings. The submissions are to be
+reviewed according to the standards of the publication.
+
+Coordination with the OCaml Users and Developers Workshop
+
+The OCaml workshop is seen as more practical and is dedicated in significant
+part to the OCaml community building and the evolution of the OCaml system. In
+contrast, the ML family workshop is not focused on any language in particular,
+is more research oriented, and deals with general issues of the ML-style
+programming and type systems. Yet there is an overlap, which we are keen to
+explore in various ways. The authors who feel their submission fits both
+workshops are encouraged to mention it at submission time or contact the
+Program Chairs.
+
+Scope
+
+We acknowledge the whole breadth of the ML family and aim to include languages
+that are closely related (although not by blood), such as Rust, ATS, Scala,
+Typed Clojure. Those languages have implemented and investigated run-time and
+type system choices that may be worth considering for OCaml, F# and other ML
+languages. We also hope that the exposure to the state of the art ML might
+favorably influence those related languages. Specifically, we seek research
+presentations on topics including but not limited to
+
+  * Design: concurrency, distribution and mobility, programming for the web and
+    embedded systems, handling semi-structured data, facilitating interactive
+    programming, higher forms of polymorphism, generic programming, objects
+  * Implementation: compilation techniques, interpreters, type checkers,
+    partial evaluators, runtime systems, garbage collectors, etc.
+  * Type systems: fancy types, inference, effects, overloading, modules,
+    contracts, specifications and assertions, dynamic typing, error reporting,
+    etc.
+  * Applications: case studies, experience reports, pearls, etc.
+  * Environments: libraries, tools, editors, debuggers, cross-language
+    interoperability, functional data structures, etc.
+  * Education: ML and ML-like languages in college or high-school, in general
+    or computer science curriculum.
+
+Four kinds of submissions will be accepted: Informed Positions, Research
+Presentations, Experience Reports and Demos.
+
+  * Informed Positions: A justified argument for or against a language feature.
+    The argument must be substantiated, either theoretically (e.g., by a
+    demonstration of (un)soundness, an inference algorithm, a complexity
+    analysis), empirically or by a substantial experience. Personal experience
+    is accepted as justification so long as it is extensive and illustrated
+    with concrete examples.
+  * Research Presentations: Research presentations should describe new ideas,
+    experimental results, or significant advances in ML-related projects. We
+    especially encourage presentations that describe work in progress, that
+    outline a future research agenda, or that encourage lively discussion.
+    These presentations should be structured in a way which can be, at least in
+    part, of interest to (advanced) users.
+  * Experience Reports: Users are invited to submit Experience Reports about
+    their use of ML and related languages. These presentations do not need to
+    contain original research but they should tell an interesting story to
+    researchers or other advanced users, such as an innovative or unexpected
+    use of advanced features or a description of the challenges they are facing
+    or attempting to solve.
+  * Demos: Live demonstrations or short tutorials should show new developments,
+    interesting prototypes, or work in progress, in the form of tools,
+    libraries, or applications built on or related to ML. (You will need to
+    provide all the hardware and software required for your demo; the workshop
+    organizers are only able to provide a projector.)
+
+
+Important dates
+
+Monday May 19 (any time zone):   Abstract submission
+Monday June 30:                  Author notification
+Thursday September 4, 2014:      ML Family Workshop
+
+Submission
+
+Submissions should be at most two pages, in PDF format, and printable on US
+Letter or A4 sized paper. A submission should have a synopsis (2-3 lines) and a
+body between 1 and 2 pages, in one- or two-column layout. The synopsis should
+be suitable for inclusion in the workshop program.
+
+Submissions must be uploaded to the workshop submission website before the
+submission deadline (Monday May 19, 2014).
+For any question concerning the scope of the workshop or the submission
+process, please contact the program chair.
+
+
+Program Committee
+
+Kenichi Asai             Ochanomizu University, Japan
+Matthew Fluet            Rochester Institute of Technology, USA
+Jacques Garrigue         Nagoya University, Japan
+Dave Herman              Mozilla, USA
+Stefan Holdermans        Vector Fabrics, Netherlands
+Oleg Kiselyov (Chair)    Monterey, CA, USA
+Keiko Nakata             Tallinn University of Technology, Estonia
+Didier Rémy             INRIA Paris-Rocquencourt, France
+Zhong Shao               Yale University, USA
+Hongwei Xi               Boston University, USA
+      </pre><a name="8" /><hr /><h3>Other OCaml News</h3><i>From the ocamlcore planet blog:</i><br /><pre>
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <a href="http://planet.ocaml.org/">http://planet.ocaml.org/</a>.
+
+Cmdliner 0.9.4:
+  <a href="http://erratique.ch/software/cmdliner">http://erratique.ch/software/cmdliner</a>
+
+Extending OCaml in C++ - Boost.Date Time example:
+  <a href="http://shayne-fletcher.blogspot.com/2014/02/extending-ocaml-in-c-boostdate-time.html">http://shayne-fletcher.blogspot.com/2014/02/extending-ocaml-in-c-boostdate-time.html</a>
+
+OCaml EFL 1.8.1 released:
+  <a href="https://forge.ocamlcore.org/forum/forum.php?forum_id=896">https://forge.ocamlcore.org/forum/forum.php?forum_id=896</a>
+
+OCamlPro Highlights: Dec 2013 &amp; Jan 2014:
+  <a href="http://www.ocamlpro.com/blog/2014/02/05/monthly-2014-01.html">http://www.ocamlpro.com/blog/2014/02/05/monthly-2014-01.html</a>
+
+How to handle success:
+  <a href="http://ocamllabs.github.com/compiler-hacking/2014/02/04/handler-case.html">http://ocamllabs.github.com/compiler-hacking/2014/02/04/handler-case.html</a>
+      </pre><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

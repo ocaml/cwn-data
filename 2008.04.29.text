@@ -1,0 +1,221 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of April 22 to 29, 2008.
+
+1) pa_bitmatch 0.5
+2) GODI News: The library browser
+3) Persistent twice-delimited continuations and CGI programming
+
+========================================================================
+1) pa_bitmatch 0.5
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/ee0139c2c610af9d#>
+------------------------------------------------------------------------
+** Richard Jones announced:
+
+I'm pleased to announce the (experimental) version 0.5 of pa_bitmatch,
+the syntax extension that adds Erlang-style bit strings and bit string
+matching to OCaml.
+
+<http://et.redhat.com/~rjones/bitmatch/>
+
+In this release:
+
+- The "bitmatch" operator has been rewritten to use patterns
+  properly (before it was using a hack involving expressions).
+  One consequence of this is that you can now use all the
+  features of OCaml patterns, eg:
+
+  bitmatch packet with
+  | { ((4|6) as ip_version) : 4 } ->
+    printf "I understand IPv4 or v6, this is version %d\n" ip_version
+
+- You can now match and construct using plain strings:
+
+  bitmatch file with
+  | { "MAGIC" : 40 : string } -> ...
+
+- Error messages are now localized all the way down to individual
+  fields in the pattern, which makes it a lot easier to chase
+  errors.
+
+- You need to put { ... } around all fields.  Sorry, this breaks
+  the syntax, but (a) it makes it much easier to use the extension
+  with common editors, and (b) it's a very simple mechanical change
+  to existing code.  I'll try not to change the syntax again if
+  I can avoid it.
+			
+========================================================================
+2) GODI News: The library browser
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/948dfe5f2e89ad63#>
+------------------------------------------------------------------------
+** Gerd Stolpmann announced:
+
+I've again enhanced the service on camlcity.org. This time I've added a
+browser for all GODI libraries. Look here, it's impressive how many
+libraries are available:
+
+<http://docs.camlcity.org/docs/godilib/3.10>
+
+So the next time somebody doubts that ocaml has enough support, just
+point to this list. The package browser is also available:
+
+<http://docs.camlcity.org/docs/godipkg/3.10>
+
+These pages are also reachable over docs.camlcity.org.
+
+Comments are very welcome.
+
+Gerd
+
+P.S. I've also fixed today about 10 GODI packages that did not build. If
+you've also run into this problem, you should try again now. Only 2
+packages are not installable right now due to missing ports.
+			
+========================================================================
+3) Persistent twice-delimited continuations and CGI programming
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/cac8628ae8ef191d#>
+------------------------------------------------------------------------
+** Oleg announced:
+
+The new version of the delimcc library of first-class delimited
+continuations for byte-code OCaml now supports serializing and storing
+captured continuations. The stored continuation can be invoked in the
+same or a different process running the same executable. The
+persistence feature supports process checkpointing, migration -- and
+specifically CGI programming. We can write CGI scripts using the
+*unmodified* OCaml system as if they were interactive ordinary
+_console_ applications. We can then execute these scripts on *any*,
+*unmodified* web server (e.g., Apache). The serialized continuations
+are twice delimited -- both in `control' and in `data'; the latter
+makes them compact and possible.
+
+The delimcc library is a pure library and makes _no_ changes to the
+OCaml system -- neither to the compiler nor to the bytecode
+VM. Therefore the library is perfectly compatible with any OCaml
+program and any (compiled) OCaml library. The delimcc library has no
+effect on the code that does not capture delimited continuations. The
+library has been tested on OCaml systems 3.09.x and 3.10.2 on Linux
+and FreeBSD.
+
+
+One may think that making captured continuations persistent is
+trivial: after all, OCaml already supports marshaling values
+including closures. If one actually tries to marshal a captured
+delimited continuation, one quickly discovers that the naive
+marshaling fails with the error on attempting to serialize an
+abstract data type. One may even discover that the troublesome
+abstract data type is _chan. The captured delimited continuation (a
+piece of stack along with administrative data) refers to heap data
+structures created by delimcc and other OCaml libraries; some of these
+data structures are closures, which contain module's environment and
+may refer to standard OCaml functions like prerr. This function is a
+closure over stderr, which is non-serializable. This points out the
+first problem: if we serialize all the data reachable from the
+captured continuation, we may end up serializing the (large) part of
+the heap and the global environment. Aside from inefficiency, that may
+preclude serialization as we are liable to encounter channels and
+other non-serializable data structures.
+
+There is a more serious problem however. If we serialize all data
+reachable from the captured delimited continuation, we also serialize
+two pieces of global state used by the delimcc library itself. When
+the stored continuation is deserialized, a fresh copy of these global
+data is created, referenced from within the restored
+continuation. Thus the whole program will have two copies of delimcc
+global data: one for use in the main program and one for use by the
+deserialized continuation. Although such an isolation may be desirable
+in many cases, it is precisely wrong in our case: the captured and the
+host continuations do not have the common view of the system and
+cannot work together. It may be instructive to contemplate process
+checkpointing offered by some operating systems (see also `undump'
+typically used by Emacs and TeX). When checkpointing a process, we
+wish to save the continuation of the process only (rather than the
+continuation of the scheduler that created the process, and the rest of
+the OS continuation). We also wish to save data associated with the
+process, for example, the process control block and the description of
+allocated memory and other resources. Control blocks of all processes
+are typically linked in; when saving the control block of one process,
+we definitely do not wish to save everything that is reachable from
+it.  When saving the state of a process in a checkpoint, we do not
+usually save the state of the file system -- or even of all files used
+by the process. First of all, that is impractical. Mainly, it is
+sometimes wrong. For example, a process might write records to a log
+file, e.g., syslog. We specifically do not wish to save the contents
+of the syslog along with the process image. We want the restored
+process append to the system log rather than replace it!
+
+Of course restoring a suspended process after modifying its input
+files may also be wrong. It is a hard question of what should be saved
+by value and what should be saved by reference only. It is clear
+however that both mechanisms are needed. The serialization code of the
+delimcc library does offer both mechanisms. The inspiration comes
+from the fact that OCaml's own serialization function serializes OCaml
+code pointed to from within closures by reference. The delimcc library
+extends this approach to data. The library supports registration of
+data (which currently must be closures in the old heap) in a global
+array. When serializing the continuation, the library traverses it and
+replaces all references to registered closures with indices in the
+global array; we then invoke OCaml's own serialization routine to
+marshal the result. After that, we undo the replacement of closures
+with indices. Such value mangling is not without precedent: to detect
+sharing, OCaml's own marshaling routine too mangles the value being
+serialized. The use of the global array is akin to the implementation
+of cross-staged persistence in MetaOCaml.
+
+The new version of the delimcc library is available at
+	<http://okmij.org/ftp/packages/caml-shift.tar.gz>
+
+The salient application is letting us write CGI scripts as if they
+were interactive console applications using read and printf. We write
+the scripts in the natural question-answer, storytelling style, with
+the full use of lexical scope, exceptions, mutable data and other
+imperative features (if necessary). The scripts can even be compiled
+and run as interactive console applications. With a different
+implementation of basic primitives for reading and writing, the
+console programs become CGI scripts. All that has been 
+demonstrated at the Continuation Fest 2008 two weeks ago:
+	<http://okmij.org/ftp/Computation/Fest2008-talk.pdf> 
+	<http://okmij.org/ftp/Computation/Fest2008-talk-notes.pdf>
+(the second file has notes of what I might say during the
+presentation). The corresponding code is available at
+	<http://okmij.org/ftp/ML/caml-web.tar.gz>
+
+The code contains the minimal library for writing CGI applications with
+form validation. The code supports nested transactions. The captured
+continuations are relatively compact: the essentially empty captured
+continuation takes 491 bytes when serialized. The serialized
+continuations of the unoptimized blog application have the typical
+size of 10K or so (depending on the size of the posts); bzip can
+compress them to one third of the original size.
+
+The new version of the delimcc library implements abort as a
+primitive, which makes it essentially as efficient as raise. The
+library offers shift and control for convenience, and a useful
+debugging primitive show_val, to display the structure of any OCaml
+value.
+			
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

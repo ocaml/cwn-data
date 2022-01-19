@@ -1,0 +1,524 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of 18 to 25 May, 2004.
+
+1) Ocaml irc channel, open invite
+2) LocalCaml 0.2.0
+3) Format4 query
+4) Large projects in OCaml
+5) A problem with nan
+6) OCaml fileutils v0.2.1
+7) Camomile 0.5.2
+8) Common IO classes
+9) MLpcap 0.8
+10) Extlib Redux
+11) ExtLib 1.1
+
+========================================================================
+1) Ocaml irc channel, open invite
+------------------------------------------------------------------------
+** Eric Stokes said:
+
+Hello, I would like to invite you all into our Ocaml irc channel. We
+have a very small network
+mostly for work communication, however we've recently set aside a
+channel called #ocaml,
+just for Ocaml discussion. I was thinking this morning that it is a bit
+lonely with only 3 or 4 people in it,
+so I thought I'd extend an invite.
+
+irc.accela.net:6667
+#ocaml
+
+We run services, so you may register your nick if you please.
+    
+** John Goerzen replied:
+
+Not to be critical, but I don't really see the point in encouraging
+fragmentation.  There is already #ocaml on irc.freenode.net, and while
+it has around 40 people on at many times, still I don't think that
+fragmentation serves anybody's interests.
+    
+========================================================================
+2) LocalCaml 0.2.0
+------------------------------------------------------------------------
+** Benjamin Geer announced:
+
+Since no one complained about LocalCaml, the i18n message catalog
+library I tentatively announced a few days ago, I've released version
+0.2.0; I've cleaned it up a bit, added a few features and given it a web
+site:
+
+<http://saucecode.org/localcaml/>
+
+Future releases will be announced on the OCaml-i18n list:
+
+<http://www.orcaware.com/mailman/listinfo/ocaml-i18n>
+    
+========================================================================
+3) Format4 query
+------------------------------------------------------------------------
+** David Trombley asked and Olivier Andrieu answered:
+
+> Suppose I have
+>
+> type listener = string -> unit
+>
+> which is intended to receive a string type as a value.
+>
+> Could someone demonstrate a function that takes a listener
+> and a format as arguments, and uses sprintf to obtain a
+> string, and then calls the listener with the string
+> argument?
+
+That is precisely what kprintf does.
+
+# type listener = string -> unit;;
+type listener = string -> unit
+# let f (l : listener) fmt = Printf.kprintf l fmt ;;
+val f : listener -> ('a, unit, string, unit) format4 -> 'a = <fun>
+# f print_endline "%s %d" "abc" 23 ;;
+abc 23
+- : unit = ()
+    
+** David Trombley then said:
+
+Right, as I said I can get simple examples to work.   But I
+can't get syntax such as
+
+ # let g (l : listener) (k : int) fmt =
+    match k with
+      0 -> 0
+    | x -> Printf.kprintf l fmt; k;;
+
+val g : listener -> int -> ('a, unit, string, unit)
+format4 -> int = <fun>
+
+to function, as you can see the format type has been
+inferred to a type that is not useful at all.
+
+I'd like to use kprintf as a side effect to a function which
+evaluates to some type, but I would not like that type or
+the unit type of a ; evaluation to affect the format type.
+    
+** Damien Doligez answered:
+
+Here is the trick: the call to kprintf must always be the last
+thing that your function does.  You get control back when kprintf
+calls your continuation function:
+
+  let g (l : listener) (k : int) fmt =
+    let cont s =
+      match k with
+      | 0 -> 0
+      | _ -> l s; k
+    in
+    Printf.kprintf cont fmt
+  ;;
+
+Note that kprintf will be called in all cases, but that's
+unavoidable because it has to consume the arguments that will
+be passed to g after the fmt argument.
+    
+========================================================================
+4) Large projects in OCaml
+------------------------------------------------------------------------
+** Ramu Ramamurthy asked:
+
+We are a small group starting a project
+developing language tools.
+It appears to us that Ocaml is ideally suited
+for this purpose although none of us have
+good experience with functional languages
+(but we think we can learn fast and in the longer run
+choice of Ocaml will payoff -- as opposed to
+using C,C++).
+
+We would really appreciate feedback from folks who
+have worked on large projects with OCaml. If this
+has been answered earlier, we appreciate pointers
+to the thread(s).
+
+Specifically:
+
+a) Are there examples of
+commercial s/w developed in OCaml?
+b) Is the native compiler/runtime/tools mature for
+large commercial projects?
+c) Is OCaml support (for bugs etc) good?
+    
+** Jon Harrop answered:
+
+I have been using ocaml to write a vector graphics library over the past four
+months. I intend to commercialise it. However, I am not yet sure exactly how
+I can do that...
+
+From my experiences, I would say that you are likely to find programming in
+ocaml to be vastly more productive than programming in C++. In the case of my
+project, for example, I would say that development in ocaml is about 10 times
+faster than in C++ and code density is about 4 times greater. I would also
+say that your programming style (if you are used to imperative style) is
+likely to change significantly over the first month of using ocaml. It may be
+worth noting that I had already dabbled in functional programming as an
+undergrad.
+
+I think it is important to emphasise that the efficiency of developing in
+ocaml goes a long way to offsetting the (relatively minor) drop in
+performance. This is because a given project has a finite lifetime and, in
+that lifetime, you can try a much wider variety of approaches and algorithms
+using ocaml than you could in C++.
+
+If you want to see examples of good ocaml code to learn from then I'd
+recommend looking at the core library (in the ocaml distribution) and a
+select few third party libraries. However, you are unlikely to appreciate the
+way in which the code is written without some more intricate knowledge of the
+language itself.
+
+> a) Are there examples of
+> commercial s/w developed in OCaml?
+
+I am not aware of any existing commercial software written in ocaml.
+
+> b) Is the native compiler/runtime/tools mature for
+> large commercial projects?
+
+Primarily due to the clean design of the language itself (I believe) the tools
+are already of extremely high quality. I have found several bugs in gcc but
+none in the ocaml compilers, for example. Having said that, I pushed gcc to
+its limits (e.g. gratuitous template partial specialisation) but I have never
+used the more risque features in ocaml.
+
+However, if you are planning on using external libraries in other languages
+then, I think, it is highly likely that you will need to develop your own
+interfaces to them (which you could then productively distribute for free!).
+This is mildly tricky as (I would say) there is relatively little
+documentation and it involves the use of several magic C macros. You could
+also try some of the automated tools (SOAP, camlidl).
+
+> We would really appreciate feedback from folks who
+> have worked on large projects with OCaml. If this
+> has been answered earlier, we appreciate pointers
+> to the thread(s).
+
+There are some other, important aspects which you haven't covered:
+
+The type-safe linking offered by ocaml makes for a very brittle interface
+between objects (see Xavier Leroy's post to this list on 17 May 2004 entitled
+"Ocaml shared libraries"). Therefore, I don't believe it is feasible to
+distribute commercial code in object form. If you intend to sell your code to
+programmers and you don't want them to have your source (like me!) then
+you're a bit stuck. I suspect that selling executables for the end-user would
+be comparatively trouble-free.
+
+There are some issues with libraries too. The compiler comes with a "core"
+library which the compiler itself uses. Although these are extremely well
+written, they can be a little quirky and their functionality is quite limited
+(e.g. data structures). Although there are other libraries, such as Extlib
+and "the library formerly known as Extlib":
+
+<http://sourceforge.net/projects/ocaml-lib>
+<http://raevnos.pennmush.org/code/annexlib/index.html>
+
+for example, there is no "Standard library". Part of this problem stems from
+the fact that, the INRIA team is intended for research and not for the
+development of such (mundane) code and although they may recieve great code
+snippets for contribution to the "core" library, they cannot accept them due
+to copyright issues:
+
+<http://caml.inria.fr/archives/200403/msg00171.html>
+
+Additionally, people who know about external libraries often aren't very good
+at designing/writing ocaml code and vice-versa.
+
+Finally, I am not sure how well ocaml runs under Windows.
+    
+** David Trombley added:
+
+Check <http://caml.inria.fr/users_programs-eng.html> for
+"significant" projects reported to the OCaml website.
+    
+** Richard Jones answered the OP:
+
+> a) Are there examples of
+> commercial s/w developed in OCaml?
+
+I'll leave that to others to answer fully.  Last summer we developed
+some large commercial software in OCaml, but it was a private
+contract.
+
+> b) Is the native compiler/runtime/tools mature for
+> large commercial projects?
+
+Yes, very much so.
+
+> c) Is OCaml support (for bugs etc) good?
+
+There are very few bugs in the core compiler, so I can't comment on
+support!  We encountered a few bugs in the Gtk bindings, which were
+fixed rapidly, either by ourselves or with help from people on the
+lablgtk list.
+
+The main bugs we found were with the lamentable Microsoft development
+tools that we had to use, eg. we found a massive (and quite scary) bug
+in the MS assembler/linker.  I would avoid Windows as much as possible
+if I were you.
+    
+** David Monniaux answered as well:
+
+> We would really appreciate feedback from folks who
+> have worked on large projects with OCaml.
+
+It depends on what you call "large project". OCaml code tends to be
+quite terse compared to C (the difference may be significantly smaller
+compared to highly templated C++ using the STL). For instance, typically
+a C programmer would write a loop over linked lists manually, while a
+Caml programmer would simply use a List.map combinator.
+
+Our group currently develop and maintains a 40000-line Caml program,
+half-commercial (i.e. the industry funds the development but it's not
+really a full-fledged commercial product): <http://www.astree.ens.fr>
+
+> b) Is the native compiler/runtime/tools mature for
+> large commercial projects?
+
+My experience is that the native compiler and runtime system are
+remarkably reliable. I don't think we ever had a serious compiler bug,
+and for the runtime system we only had some obscure garbage collection
+issue when serializing large data structures.
+
+The quality of generated code seems quite good, it seems, and I have the
+impression that it is excellent on the AMD64 architecture. Of course,
+you'd often lose by a constant factor compared to optimized C code, but
+you have to factor in the development hassles of C, and also the fact
+that the difficulties of using advanced data structures in C often
+results in C programmers using poor, but simpler ones. Where a Caml
+programmer or a good C programmer would use balanced trees with log(n)
+access, an average C programmer would use a linked list with n access.
+
+> c) Is OCaml support (for bugs etc) good?
+
+OCaml is free software developed by a half-academic institution with
+limited resources. As such, you cannot expect the same kind of support
+as you would expect of software packages costing several thousand
+dollars. Nevertheless, my perception is that support is quite good.
+There is a bug reporting system, and if you file in a precise
+description of the bug, INRIA responds in a timely manner and fixes the
+problems.
+
+The exception is support for rare systems and configurations:
+understandably, given its limited resources, INRIA cannot support all
+architectures/C compilers/target submodels. This is not an issue if
+you're working with a major kind of system (x86 / AMD64 / PowerPC under
+Linux / Windows / MacOS X); my only problem in that respect was with
+64-bit support on the UltraSparc (a dying architecture).
+    
+========================================================================
+5) A problem with nan
+------------------------------------------------------------------------
+** Jon Harrop asked and Damien Doligez answered:
+
+> # 2.=nan;;
+> - : bool = false
+> # [2.]=[nan];;
+> - : bool = true
+>
+> when "=" compares structures recursively so you'd expect it to give
+> the same answer in both cases?
+
+We have contradictory requirements here:
+1. We want "=" on floats to be IEEE754 equality.
+2. We want "=" on structures to be compatible with "=" on their
+elements.
+3. We want "=" on structures to be based on "compare".
+4. We want "compare" to be a total ordering.
+
+Since IEEE754 equality is not a reflexive relation, there is no way
+to get all four properties.
+
+In the current version of O'Caml, we have 1, 3, and 4.  In the next
+version we will have 1, 2, and 4: "compare" and "=" will have slightly
+different behaviour, but "=" will be compatible with itself.  This
+will make "compare" a valid comparison function for List.sort, for
+all types of data (currently it doesn't work for floats).
+
+But "compare nan nan" will return 0, while "nan = nan" will
+return false (as mandated by IEEE754).\
+    
+========================================================================
+6) OCaml fileutils v0.2.1
+------------------------------------------------------------------------
+** Sylvain Le Gall announced:
+
+I have been working for some times on a collection of utils to
+manipulate files following some UNIX convention. I provide for now those
+function :
+- cp : copy
+- mv : move/rename
+- ls : list ( pretty dummy )
+- find : find a set of file according to a predicate ( is directory, is
+  readable... )
+- rm : delete file/directory ( can prompt, can delete children )
+- mkdir : create a directory ( and optionnaly it's parent )
+- test : do some test regarding a file ( is directory... )
+- touch : update the mtime of a file
+- which : find an exec in a path
+
+This module is FileUtil
+
+All those function are based for now on the Unix module or the core
+ocaml ( mostly Sys ). There is no C stub at all.
+
+I provide by the same way a library for manipulating filename. It allows
+to compute some intersting things :
+- make_relative : make a path relative to a root path
+- make_absolute : make an absolute path out of a relative path and a
+  root
+- compare : hierachical + lexicographic order
+- reduce : remove any a/../b, a/./b ...
+
+This module is FilePath
+
+FilePath is abstract and doesn't need to have a real filesystem*.
+FileUtil rely on the existence of a filesystem.
+
+Theorically it should be platform independent ( FilePath comes with four
+parser/lexer for each platform supported by ocaml : MacOS, Win32,
+Cygwin, Unix ). This should also imply that FileUtil is platform
+independent ( but it needs to be tested ).
+
+You can find the source and documentation here :
+<http://www.carva.org/sylvain.le-gall/ocaml-fileutils.html>
+<http://sylvain.le-gall.net/ocaml-fileutils.html>
+
+( webpages are in french, but documentation is in english -- sorry )
+    
+========================================================================
+7) Camomile 0.5.2
+------------------------------------------------------------------------
+** Yamagata Yoriyuki announced:
+
+Camomile 0.5.2 is released.  This is a bug fix release.
+
+Camomile is a comprehensive Unicode library for OCaml.  Camomile
+provides Unicode character type, UTF-8, UTF-16, UTF-32 strings,
+conversion to/from about 200 encodings, collation and locale-sensitive
+case mappings, and more.  The library is currently designed for
+Unicode Standard 3.2.
+
+Download:
+<http://prdownloads.sourceforge.net/camomile/camomile-0.5.2.tar.bz2>
+
+Changes:
+<http://camomile.sourceforge.net/Changes.txt>
+
+Homepage:
+<http://camomile.sourceforge.net>
+    
+========================================================================
+8) Common IO classes
+------------------------------------------------------------------------
+** Gerd Stolpmann announced:
+
+Maybe you remember the discussion about common I/O classes. We (Nicolas
+Cannasse, Yamagata Yoriyuki and I) continued the thread privately, and
+agreed upon the following draft:
+
+<http://www.ocaml-programming.de/tmp/IO-Classes.html>
+
+Maybe other library implementors are interested in a common standard,
+and follow this draft (our hope).
+    
+** Nicolas Cannasse added:
+
+The ExtLib support for this draft is now available into ExtLib (watch the
+IOO module).
+    
+========================================================================
+9) MLpcap 0.8
+------------------------------------------------------------------------
+** Jonathan Heusser announced:
+
+MLpcap 0.8 released.
+
+MLpcap provides libpcap 0.7.x bindings for ocaml.
+This release includes autoconf support, various bugfixes, example codes
+and debian packages.
+
+Project page:
+   <http://www.drugphish.ch/~jonny/mlpcap.html>
+
+Download:
+   <http://www.drugphish.ch/~jonny/code/mlpcap/MLpcap-0.8.tgz>
+    
+========================================================================
+10) Extlib Redux
+------------------------------------------------------------------------
+** Shawn Wagner announced:
+
+Neither myself nor the people who work on the other library named extlib are
+terribly interested in changing the name of our respective packages.
+However, conflicts keep coming up when people want to use both libraries in
+a project. Arguments start, but nothing gets settled. Then a few months
+later, it repeats. I'm sure I'm not the only one sick of it. I have better
+things to waste my time with. So, I've decided to be the responsible one and
+rename my extlib. It's now An Extensions Library, not the Extensions Library.
+aka annexlib. It, and new releases of my other public projects that use
+extlib that updated to reflect the name change, are available at
+<http://raevnos.pennmush.org/code/ocaml.html>
+    
+========================================================================
+11) ExtLib 1.1
+------------------------------------------------------------------------
+** Nicolas Cannasse announced:
+
+I'm please to announce the 1.1 Release of ExtLib, now available :
+- on Sourceforge : <http://ocaml-lib.sourceforge.net>
+- as a debian package
+- as a GODI package
+
+"ExtLib is a project aiming at providing a complete - yet small - standard
+library for the OCaml programming langage. The purpose of this library is to
+add new functions to OCaml Standard Library modules, to modify some
+functions in order to get better performances or more safety
+(tail-recursive) but also to provide new modules which should be useful for
+the average OCaml programmer."
+
+This new release contains :
+- a Base64 codec
+- a BitSet module, for efficient bitsets
+- the OcamlDBI common wrappers
+- DynArray, a dynamic auto-resizable array
+- Enum , a concept similar to STL iterators, in a lazy fashion
+- IO , an abstract io module that can handle polymorphic streams (as well as
+CommonIO objects wrappers)
+- UChar and UTF8 for unicode characters and strings
+- PMap : a polymorphic, defunctorized Map
+- an implementation of the List module were all functions are
+tail-recursive.
+- ... and many other enhancements to the OCaml Stdlib
+    
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

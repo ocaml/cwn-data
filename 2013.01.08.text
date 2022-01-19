@@ -1,0 +1,389 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of January 01 to 08, 2013.
+
+1) new OPAM command-line interface
+2) Cmdliner / Uutf / Uunf / Uucd minor releases
+3) Building a GADT from an untyped representation
+4) ODT 2.3 released
+5) Other Caml News
+
+========================================================================
+1) new OPAM command-line interface
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-01/msg00002.html>
+------------------------------------------------------------------------
+** Continuing this old thread, Thomas Gazagnaire announced:
+
+Just to let people know that I've taken into account most of the remarks 
+(even if I still have few changes to do) so I've merged the cmdliner branch 
+into the main tree. Please use the master branch now for testing.
+Also, due to an unfortunate sequence of actions (see [1]) all previous 
+release of OPAM will likely not compile from source anymore because an url 
+change. To fix this, I've release 0.8.3, so packager should upgrade ASAP 
+(this is already available in homebrew for OSX users). 0.9.0 should also be 
+released quite soon, I'm fixing the few remaining blocker bugs that showed 
+off before christmas.
+
+Regards,
+Thomas
+
+[1] <https://github.com/OCamlPro/opam/issues/347>
+      
+========================================================================
+2) Cmdliner / Uutf / Uunf / Uucd minor releases
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-01/msg00009.html>
+------------------------------------------------------------------------
+** Daniel Bünzli announced:
+
+The following packages were updated. 
+
+# <http://erratique.ch/software/cmdliner> v0.9.3
+- Allow user specified SYNOPSIS sections.
+
+# <http://erratique.ch/software/uutf> v0.9.2
+- utftrip, better tool help. 
+- Fix Uutf.is_uchar always returning false. 
+Thanks to Edwin Török for reporting and providing the fix and test.
+
+# <http://erratique.ch/software/uunf> v0.9.1
+- Updated for Unicode 6.2.0. 
+- Fix Uunf.is_scalar_value always returning false. 
+- Make the module completely safe for the client. 
+- Change command line help of unftrip.
+
+# <http://erratique.ch/software/uucd> v0.9.2
+- Updated for Unicode 6.2.0.
+- Fix Uucd.is_scalar_value always returning false.
+      
+========================================================================
+3) Building a GADT from an untyped representation
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-01/msg00004.html>
+------------------------------------------------------------------------
+** Philippe Veber asked:
+
+Suppose I define a GADT for expressions:
+
+type _ expr = 
+| Int : int -> int expr 
+| Float : float -> float expr
+
+Now I want to write a parser, that will build an ['a expr] from a
+string. Without thinking much, I tried the following:
+
+let parse_expr : type s. string -> s expr = fun x -> 
+  try Int (int_of_string x) 
+  with _ -> 
+    Float (float_of_string x)
+;;
+
+Which fails with the following error message:
+
+Error: This _expression_ has type int expr but an _expression_ was
+expected of type s expr
+
+That makes sense, since [s] is a locally abstract type. I tried a
+couple of variants and finally realised that I could not even write
+the type of [parse_expr]: it should be [string -> 'a expr] for some
+['a], but I'm not sure that really means something.
+
+So to put it simple, how does one construct a GADT value from a string ?
+      
+** Later in the thread, Tiphaine Turpin suggested:
+
+I don't think that you can achieve what you are you are asking
+exactly, unless ressorting to an existential type. You can do it using
+GADT too, as described in the "existential types" section of
+
+<https://sites.google.com/site/ocamlgadt/>
+
+For your example, you can write:
+
+type any_expr =
+  | Expr : _ expr -> any_expr
+;;
+
+let parse_expr x =
+  try Expr (Int (int_of_string x))
+  with _ ->
+    Expr (Float (float_of_string x))
+;;
+      
+** Jeff Meister then said and Jeremy Yallop replied:
+
+> However, by using an existential type like that, you're losing the
+> additional type checking benefits of GADTs. The return type of parse_expr is
+> now any_expr, not 'a expr. You can write e.g. the function extract_int_value
+> : int expr -> int, where OCaml knows you don't need to match the Float case,
+> but you'll never have an int expr to pass to this function, at least not as
+> a result of parsing. Anything handling a parsed any_expr must match the Expr
+> case, which of course can have any expr inside. At this point, it seems like
+> just a cumbersome way to write the traditional expr type.
+>
+> I went through basically this same thought process while trying to
+> understand how I could apply the new OCaml GADT features, and I concluded
+> that GADTs weren't providing any extra utility in the case where they must
+> be constructed by parsing an input string. That's a shame since parsing and
+> transformation is such a canonical use of OCaml, so I would love to be
+> proven wrong here!
+
+The good news is that you can still enjoy the benefits of GADTs, even
+when you need to construct values at runtime whose types you don't
+know at compile time.  In fact, that's perhaps the situation where
+GADTs are of most benefit: well-typed evaluators (to take the
+canonical example) are much more useful when the set of input
+expressions can vary at runtime.
+
+Even the type string -> any_expr is sufficient to give a useful
+guarantee about parse_expr, namely that if it returns at all, it
+returns a well-typed AST, wrapped in an "Expr".  The actual type of
+the AST can't be written down in the program, since it isn't known
+until runtime, but you know nevertheless that it's a well-typed
+expression whose subexpressions are likewise well-typed.  Importantly,
+the compiler knows that too, and so you can pass your well-typed AST
+to all the usual GADT-processing functions like 'eval', and enjoy all
+the usual guarantees: if evaluation terminates then it produces a
+value of the correct type, and so on.
+
+Here's some code that demonstrates the idea.  It has all the pieces
+for a toy interpreter with pairs and booleans, and you get GADT-based
+guarantees all the way through: the parser either produces a
+well-typed AST or raises an exception, the evaluator takes a
+well-typed AST and produces a value of the same type, etc.  The types
+guarantee that ill-typed input is detected during parsing; there's no
+attempt to evaluate it.
+
+  # read_eval_print "((!!T,F),(!T,F))";;
+  - : string = "((T,F),(F,F))"
+  # read_eval_print "((!!T,F),!(!T,F))";;
+  Exception:
+  Failure
+   "Parsing failed at characters 10-16:
+    Expected an expression of type bool
+    but found (!T,F) of type (bool * bool)".
+
+(* A well-typed AST for an expression language of booleans and pairs.
+*)
+type _ expr =
+  | Fst  : ('a * 'b) expr -> 'a expr
+  | Snd  : ('a * 'b) expr -> 'b expr
+  | Pair : 'a expr * 'b expr -> ('a * 'b) expr
+  | True : bool expr
+  | False : bool expr
+  | Not  : bool expr -> bool expr
+
+(* A concrete representation for types that can encode all the types
+   for which we can build expressions.
+
+   A value of type 't typ represents the type 't. For example, TPair (TBool,
+   TBool) of type (bool * bool) typ represents the type bool * bool.
+*)
+type _ typ =
+  | TBool : bool typ
+  | TPair : 'a typ * 'b typ -> ('a * 'b) typ
+
+(* `printer' takes a representation for a type 't and gives you a
+printer for 't,
+   i.e. a function from 't to string
+*)
+let rec printer : 'a. 'a typ -> 'a -> string =
+  fun (type a) (t : a typ) ->
+    match t with
+      | TBool -> fun (b: a) -> if b then "T" else "F"
+      | TPair (l, r) -> let print_l = printer l
+                        and print_r = printer r in
+                        fun (l, r) -> "("^ print_l l ^","^ print_r r ^")"
+
+(* show_type formats type representations as strings
+*)
+let rec show_type : 'a. 'a typ -> string =
+  fun (type a) (e : a typ) ->
+    match e with
+      | TBool -> "bool"
+      | TPair (l, r) -> "( "^ show_type l ^" * "^ show_type r ^")"
+
+(* The famous well-typed evaluator
+*)
+let rec eval : 'a. 'a expr -> 'a  =
+  fun (type a) (e : a expr) ->
+    match e with
+      | Fst pair    -> fst (eval pair)
+      | Snd pair    -> snd (eval pair)
+      | Pair (l, r) -> (eval l, eval r)
+      | True        -> true
+      | False       -> false
+      | Not e       -> not (eval e)
+
+(* Construct a representation of the type of an expression
+*)
+let rec type_of : 'a. 'a expr -> 'a typ =
+  fun (type a) (e : a expr) ->
+    match e with
+      | Fst pair    -> (match type_of pair with TPair (l, _) -> l)
+      | Snd pair    -> (match type_of pair with TPair (_, r) -> r)
+      | Pair (l, r) -> TPair (type_of l, type_of r)
+      | True        -> TBool
+      | False       -> TBool
+      | Not _       -> TBool
+
+(* An existential to hide the type index of a well-typed AST, making
+   it possible to write functions that return constructed ASTs whose
+   type is not statically known.
+*)
+type any_expr =
+  | Expr : 'a expr -> any_expr
+
+(* Raise an error indicating that the parser encountered an unexpected
+   character.
+*)
+let parsing_failure pos expected s =
+  failwith (Printf.sprintf
+              "Parsing failed at character %d: expected to find %c,
+but found %c"
+              pos expected s.[pos])
+
+(* Raise an error indicating that the parser determined that part of
+   the input string contained an ill-typed expression.
+*)
+let typing_failure start_pos end_pos s expected_type found_type =
+  failwith (Printf.sprintf
+              "Parsing failed at characters %d-%d:
+Expected an expression of type %s
+but found %s of type %s"
+              start_pos end_pos (show_type expected_type) (String.sub
+s start_pos (end_pos - start_pos))
+              (show_type found_type))
+
+(* Well-typed parser.  Rather hairy due to continuation-passing style with
+   polymorphic continuation functions, represented as objects with polymorphic
+   methods.  Also incomplete -- it doesn't handle fst and snd -- and a bit
+   careless about error-checking.  Perhaps sufficient to give a flavour.
+*)
+let parse_expr : string -> any_expr =
+  let rec parse s pos (ret : < rn : 'a. int * 'a expr -> _>) =
+    match s.[pos] with
+      | 'T' -> ret#rn (pos + 1, True)
+      | 'F' -> ret#rn (pos + 1, False)
+      | '!' -> parse s (pos + 1) (object method rn : 'a. int * 'a expr -> _
+        = fun (type a) (pos', (e : a expr)) ->
+          (* Check that 'e' has boolean type before we can parse it to Not.
+             This is more than just good practice: without the type-checking
+             step the parser won't compile. *)
+          match type_of e with
+            | TBool -> ret#rn (pos', Not e)
+            | t    -> typing_failure (pos + 1) pos' s TBool t end)
+      | '(' -> parse s (pos + 1) (object method rn : 'a. int * 'a expr
+-> _ = fun (pos, l) ->
+        if s.[pos] <> ',' then parsing_failure pos ',' s
+        else parse s (pos + 1) (object method rn : 'a. int * 'a expr
+-> _ = fun (pos, r) ->
+          if s.[pos] <> ')' then parsing_failure pos ')' s
+          else ret#rn (pos + 1, Pair (l, r)) end) end)
+  in
+  fun s -> parse s 0 (object method rn : 'a. int * 'a expr -> _ =
+                               fun (_, l) -> Expr l end)
+
+(* read_eval_print "((!!T,F),(!T,F))" =>
+   "((T,F),(F,F))"
+*)
+let read_eval_print s =
+  let Expr e = parse_expr s in
+  let ty = type_of e in
+  let print_e = printer ty in
+  print_e (eval e)
+      
+** Philippe Veber then asked and Jeremy Yallop replied:
+
+> I still have a question though: what is the exact meaning of the _
+> character in the polymorphic type "< rn : 'a. int * 'a expr -> _>"
+> and how is it useful/necessary for your example to run?
+
+It's analogous to '_' in patterns: a kind of anonymous type variable
+that you can use to avoid giving a name to a type. (As with "_" in
+patterns, there"s no connection between occurrences of "_", so "_ *
+int -> _" means "'a * int -> 'b", not "'a * int -> 'a", for example.)
+
+It's not doing anything special here: you could equally give a name to
+the type without changing the meaning of the code.
+
+> Could your example be written without a record/object type using
+> polymorphic type annotations for functions?
+
+I don't believe it's possible to make function arguments polymorphic
+using annotations. However, the code can be significantly simplified
+to remove that bit of polymorphism altogether. As written it mixes
+two techniques for hiding the type index in the expression GADT during
+parsing: CPS (in the inner 'parse' function) and an existential type
+(in the return type of 'parse_expr'). In fact, either of these
+approaches in isolation is sufficient. Here's a more direct
+implementation using only the existential:
+
+(* Well-typed parser.  Incomplete -- it doesn't handle fst and snd -- and a
+   bit careless about error-checking.  Perhaps sufficient to give a flavour.
+*)
+let parse_expr : string -> any_expr =
+  let rec parse s pos =
+    match s.[pos] with
+      | 'T' -> pos + 1, Expr True
+      | 'F' -> pos + 1, Expr False
+      | '!' -> let pos', Expr e = parse s (pos + 1) in
+               (* Check that 'e' has boolean type before we can parse it to
+		  Not.  This is more than just good practice: without the
+		  type-checking step the parser won't compile. *)
+	       begin match type_of e with
+		 | TBool -> pos', Expr (Not e)
+		 | t -> typing_failure (pos + 1) pos' s TBool t
+	       end
+      | '(' -> let pos, Expr l = parse s (pos + 1) in
+               if s.[pos] <> ',' then parsing_failure pos ',' s else
+		 let pos, Expr r = parse s (pos + 1) in
+		 if s.[pos] <> ')' then parsing_failure pos ')' s else
+		   pos + 1, Expr (Pair (l, r))
+  in
+  fun s -> snd (parse s 0)
+      
+========================================================================
+4) ODT 2.3 released
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-01/msg00014.html>
+------------------------------------------------------------------------
+** Emmanuel Dieul announced:
+
+This mail announces the new release of ODT: 2.3. 
+ODT (OCaml Development Tools) is an Eclipse plug-in for OCaml.
+
+More information on this release is available at <http://ocamldt.free.fr/spip.php?breve30>.
+
+Don't hesitate to try ODT, even for fun. ODT can be installed as explained
+into the install notes (<http://ocamldt.free.fr/spip.php?article5>). 
+A tutorial and several screenshots are available on the ODT website.
+      
+========================================================================
+5) Other Caml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocaml.org/>.
+
+Winter distribution:
+  <http://erratique.ch/software>
+
+Experiences using Result.t vs Exceptions in Ocaml:
+  <http://functional-orbitz.blogspot.com/2013/01/experiences-using-resultt-vs-exceptions.html>
+
+Introduction to Result.t vs Exceptions in Ocaml:
+  <http://functional-orbitz.blogspot.com/2013/01/introduction-to-resultt-vs-exceptions.html>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

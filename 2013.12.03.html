@@ -1,0 +1,949 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2013.11.26.html">Previous week</a> <a href="index.html">Up</a> <a href="2013.12.10.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of November 26 to December 03, 2013.</p><ol><li><a href="#1">pfff 0.25, tools and APIs for program analysis of PHP/Java/JS/C/ML/PHP/...</a></li><li><a href="#2">improved BER MetaOCaml N101, for OCaml 4.01</a></li><li><a href="#3">how to create (format) directives that do not take any arguments?</a></li><li><a href="#4">Confusing behaviour of type inference for polymorphic classes</a></li><li><a href="#5">Main program in C - a script</a></li><li><a href="#6">Js_of_ocaml 1.4</a></li><li><a href="#7">Other Caml News</a></li></ol><a name="1" /><hr /><h3>pfff 0.25, tools and APIs for program analysis of PHP/Java/JS/C/ML/PHP/...</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2013-11/msg00199.html">https://sympa.inria.fr/sympa/arc/caml-list/2013-11/msg00199.html</a></p><i>Yoann Padioleau announced:</i><br /><pre>
+pfff is a set of tools and APIs to perform some static analysis,
+dynamic analysis, code visualizations, code navigations, or
+style-preserving source-to-source transformations such as refactorings
+on source code. For now the effort has focused mainly on PHP but there
+is also good support for C, C++, Java, HTML, JavaScript, and CSS.
+There is also very good support for OCaml and noweb (literate
+programming) so that pfff can be used on the code of pfff itself.
+
+For more information see the pfff wiki at:
+<a href="https://github.com/facebook/pfff/wiki/Main">https://github.com/facebook/pfff/wiki/Main</a>
+
+The current release source code is accessible from:
+<a href="https://github.com/facebook/pfff/releases/tag/v0.25.1">https://github.com/facebook/pfff/releases/tag/v0.25.1</a>
+
+There is now also an OPAM package for pfff. It contains though just
+the parsers, visitors, and AST dumpers (for C, Java, Javascript, PHP,
+ML, HTML and CSS). To install it just do:
+
+   $ opam install pfff
+
+Once installed you should have access to the different libraries
+in ~/.opam/.../lib/pfff-lang_yyy. 
+
+The AST dumpers are useful to get familiar with the constructors.
+Here is an example:
+
+   $ cd pfff
+   $ cat demos/foo.js
+    function foo() {
+      return 1;
+    }
+   $ ./pfff -dump_js demos/foo.js
+    [FunDecl(
+       {f_tok=Some(()); f_name=Some(("foo", ())); f_params=[]; 
+        f_return_type=None; 
+        f_body=[St(Return((), Some(L(Num(("1", ())))), Some(())))]; });
+        FinalDef(())]
+
+In the next few weeks I'll make OPAM packages for the other components
+of pfff: sgrep, spatch, stags, codemap, codegraph, the treemap
+library, etc.
+
+Thanks to:
+ - Eric Cooper for the initial version of the java parser
+ - Patrick Doane and Gerd Stolpmann for their html parser
+ - Dario Teixeira for his css parser
+ - Facebook
+      </pre><a name="2" /><hr /><h3>improved BER MetaOCaml N101, for OCaml 4.01</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2013-11/msg00200.html">https://sympa.inria.fr/sympa/arc/caml-list/2013-11/msg00200.html</a></p><i>oleg announced:</i><br /><pre>
+BER MetaOCaml N101 is now available. It is a strict superset of OCaml
+4.01, extending it with staging annotations to construct and run typed
+code values. Besides being compatible with the current version of
+OCaml, BER N101 has a number of improvements and significant changes
+compared to BER N100. The new API for running code will hopefully
+encourage the development of new ways to execute code values.
+
+The new BER N101 is not only source-compatible with OCaml 4.01 -- it
+is also binary compatible. Any 4.01-built OCaml library and plugin
+(including findlib) can be used with BER N101 in their binary form as
+they are.  The building of BER N101 no longer involves bootstrapping
+and is hence much faster.
+
+
+The staging annotations are: 
+    bracket: .&lt; e &gt;.  to delay computation (to the future stage)
+    escape:  .~ e     to perform a computation e and splice-in the result
+    run:     !. e     to run a future-stage computation, or code, now
+
+A special type constructor, called 'code' builds the type of
+future-stage computations, or code expressions:
+    # .&lt; 2 + 4 &gt;.;;
+    - : int code = .&lt;2 + 4&gt;. 
+The type constructor 'code' takes as its argument the type of the
+future-stage expression. Future-stage expressions are executed later,
+but are type-checked now. Therefore, the generated code is assuredly
+well-typed. Code fragments can be spliced into larger code contexts by 
+using the escape construct: 
+    # let x = .&lt; 2 + 4 &gt;. in .&lt; .~ x + .~ x &gt;. ;;
+    - : int code = .&lt;(2 + 4) + (2 + 4)&gt;. 
+The run construct takes a code value, executes it and returns its result. 
+It is actually an ordinary function Runcode.run, which is also bound 
+to the prefix operation (!.). These operations are in the module
+Runcode (which is not opened by default). For example: 
+    # Runcode.run .&lt; 2 + 3 &gt;.;;
+    - : int = 5
+    # open Runcode;;
+    # !. .&lt;fun x y -&gt; x + y &gt;. 2 3;;
+    - : int = 5
+The run construct only works on closed code values. Attempting to run
+open code leads to an exception in the generator (which can be traced
+as any other exception).
+
+
+To the user, the two major differences of BER N101 from the previous
+version are:
+
+   -- the absence of environment classifiers (see below for more detail).
+
+   -- The operation to run code is no longer a special form. It is an ordinary
+   function [run : 'a code -&gt; 'a] in the module Runcode.
+   For historical reasons, Runcode.run is also defined to be a prefix
+   operation (!.) (note the placement of the dot -- different from before).
+
+These two changes do require updating old MetaOCaml code. From experience,
+the updates are very light: essentially put "open Runcode"
+at the top of the file and globally replace all ".!" with "!.".
+
+The scope extrusion check first introduced in BER N100 made it
+possible to remove environment classifiers while still preserving the
+static guarantee: if the generator finishes successfully, the
+generated code is well-typed and well-scoped. Environment classifiers
+ensured well-scopedness when type-checking the generator -- but only
+for pure generators. The scope extrusion check is executed when the
+generator is run; however the check is comprehensive. Scope extrusion
+is always caught, and caught early, whether the generator is effectful
+or not.
+
+Another notable change is a new API for running code, with the special
+type closed_code and the operations
+   val close_code : 'a code -&gt; 'a closed_code
+   val open_code  : 'a closed_code -&gt; 'a code
+The latter is total, the former does a scope extrusion check. 
+There may be many way to 'run' closed_code. Currently, MetaOCaml provides
+   val run_bytecode : 'a closed_code -&gt; 'a
+to run closed code by bytecode compiling it and then executing. More such
+functions are possible. The function Runcode.run  : 'a code -&gt; 'a
+and its alias, the prefix operation (!.), are the composition of
+close_code and run_bytecode.
+
+BER N101 added a test for the well-formedness of recursive let:
+.&lt;let rec f = f in f&gt;.  and .&lt;let rec [] = [] in []&gt;. are now prohibited.
+They were allowed in all previous versions of MetaOCaml, which caused
+a problem: a well-typed generator will produce well-typed code which
+will nevertheless fail to compile.
+
+The new version builds code values faster, especially for functions
+and nonbinding functions. The speed of the generation has not been a
+problem.  Now it got even faster.
+
+
+BER MetaOCaml N101 is available:
+
+-- as a set of patches to the OCaml 4.01 distribution. 
+        <a href="http://okmij.org/ftp/ML/ber-metaocaml-101.tar.gz">http://okmij.org/ftp/ML/ber-metaocaml-101.tar.gz</a>
+See the INSTALL document in that archive. You need the source
+distribution of OCaml 4.01, see the following URL for details.
+        <a href="http://ocaml.org/install.html">http://ocaml.org/install.html</a>
+
+-- as a GIT bundle containing the changes relative to OCaml 4.01
+        <a href="http://okmij.org/ftp/ML/metaocaml.bundle">http://okmij.org/ftp/ML/metaocaml.bundle</a>
+First, you have to obtain the base
+       git clone <a href="https://github.com/ocaml/ocaml.git">https://github.com/ocaml/ocaml.git</a> -b 4.01 ometa4
+and then apply the bundle.
+
+The older, N100 version, is available via OPAM. The new version will
+come to OPAM, hopefully soon.
+
+For more explanation, please see
+        <a href="http://okmij.org/ftp/ML/MetaOCaml.html">http://okmij.org/ftp/ML/MetaOCaml.html</a>
+as well as NOTES.txt in the BER MetaOCaml distribution.  Hopefully the
+release of BER MetaOCaml N101 would further stimulate using and
+researching typed meta-programming.
+      </pre><i>Gabriel Kerneis then asked and oleg replied:</i><br /><pre>
+&gt; I'm not sure I understand correctly the difference between 
+&gt; open and close code,
+&gt; and what is the challenge with effects.  Could you please give examples of:
+&gt; (1) a pure generator for well-typed, well-scoped open code,
+&gt; (2) a pure generator for well-typed, ill-scoped open code,
+&gt; (3) an effectful generator for well-typed, ill-scoped open code.
+
+Let's consider the following function, often called 'the trick' in 
+partial evaluation community:
+
+        let eta f = .&lt;fun x -&gt; .~(f .&lt;x&gt;.)&gt;.;;
+          val eta : ('a code -&gt; 'b code) -&gt; ('a -&gt; 'b) code = &lt;fun&gt;
+
+The function 'f' is a generator transformer: it takes the _open_ code .&lt;x&gt;.
+(which is the `name' of a free variable, bound in context) and makes
+code, which typically contains that 'x' plus maybe more free
+variables. Here is an example:
+
+        let testeta = .&lt;fun x y -&gt; .~(eta (fun u -&gt; .&lt;.~u + x + y&gt;.))&gt;.;;
+          val testeta : (int -&gt; int -&gt; int -&gt; int) code = .&lt;
+             fun x_1  y_2  x_3  -&gt; (x_3 + x_1) + y_2&gt;. 
+
+The argument to eta is (fun u -&gt; .&lt;.~u + x + y&gt;.) that took an open
+code (bound to 'u') and incorporated it in the code with two other
+free variables. One of those free variables was also called
+'x'. However, it was bound differently and so MetaOCaml distinguished 
+them. These examples hopefully showed how we can program with
+well-typed open code, such as .&lt;x&gt; or .&lt;x + y&gt;. I think this is an
+example of (1) in your list.
+
+Although we can program with open code, we can run only closed
+code. For example,
+        !. testeta 1 2 3;;
+        - : int = 6
+
+If we attempt to run open code, we get an error:
+        .&lt;fun x -&gt; .~(!. .&lt;x&gt;.; .&lt;0&gt;.)&gt;.;;
+Exception:
+Failure
+ "The code built at Characters 14-15:
+          .&lt;fun x -&gt; .~(!. .&lt;x&gt;.; .&lt;0&gt;.)&gt;.;;
+                ^
+ is not closed: identifier x_4 bound at Characters 14-15:
+          .&lt;fun x -&gt; .~(!. .&lt;x&gt;.; .&lt;0&gt;.)&gt;.;;
+                ^
+ is free".
+
+In earlier versions of MetaOCaml (prior to N101), this was a type
+error. Now it is a run-time error in the generator. This is the
+example of (2) in your list.
+
+Here is how we can generate ill-scoped code, using a well-typed
+generator with effects, (3) on your list.
+
+        let r = ref .&lt;0&gt;. in
+        let _ = .&lt;fun x -&gt; .~(r := .&lt;x+1&gt;.; .&lt;x&gt;.)&gt;. in
+        .&lt;fun y -&gt; .~(!r)&gt;.;;
+
+Exception:
+Failure
+ "Scope extrusion detected at Characters 96-111:
+          .&lt;fun y -&gt; .~(!r)&gt;.;;
+            ^^^^^^^^^^^^^^^
+ for code built at Characters 67-70:
+          let _ = .&lt;fun x -&gt; .~(r := .&lt;x+1&gt;.; .&lt;x&gt;.)&gt;. in
+                                       ^^^
+ for the identifier x_5 bound at Characters 52-53:
+          let _ = .&lt;fun x -&gt; .~(r := .&lt;x+1&gt;.; .&lt;x&gt;.)&gt;. in
+                        ^
+".
+
+
+Versions of MetaOCaml prior to N100 had no problems with the above
+expression and happily generated .&lt;fun y -&gt; x + 1&gt;. with the unbound
+variable x. Thus in the presence of effects, a well-typed generator may
+generate ill-scoped code -- code with unbound variables. The
+problem could be worse: the generated code can be closed but the
+variables are bound in unexpected ways. For an example, see
+        <a href="http://okmij.org/ftp/ML/MetaOCaml.html#got-away">http://okmij.org/ftp/ML/MetaOCaml.html#got-away</a>
+
+
+Now, the generator stops before generating the bad code. It throws an
+exception with a fairly detailed and helpful error message, pointing
+out the variable that got away. Incidentally, since the error is an
+exception, we can obtain the exception stack backtrace and figure out
+exactly which generator caused that variable leak. Previously, you
+will discover the problem, in the best case, only when you compile the
+generated code and see that it fails to compile. It could be quite a
+challenge in figuring out which part of the generator caused the
+problem.
+
+Although it may seem that BER N101 is worse deal since it made the
+type error (emitted for the case (2) on your list) a run-time error, I
+should point out that such errors (attempting to run open code) are
+very rare. I haven't encountered them at all. Part of the reason is
+that previously the run operator had a really special type and was inconvenient
+to use. Essentially you would use it only at top level (and applied to
+a top-level bound identifier). Any code value produced by a pure
+generator and bound to a top-value identifier is closed by
+construction, so there is nothing to check. And in case of effects,
+the environment classifiers are of no help anyway. Therefore, N101 removed
+environment classifiers since they give good protection (a
+type error) against only an exceedingly rare error, while making life
+cumbersome in all other circumstances.
+      </pre><a name="3" /><hr /><h3>how to create (format) directives that do not take any arguments?</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2013-11/msg00186.html">https://sympa.inria.fr/sympa/arc/caml-list/2013-11/msg00186.html</a></p><i>Matej Kosik asked:</i><br /><pre>
+I would like to define custom directives, that would enable me to write
+code like e.g. this:
+
+Print.printf "regular %bold_on bold %bold_off regular %italic_on italic
+%italic_off";
+
+This might expand to (in HTML codes)
+
+              regular &lt;B&gt;bold&lt;/B&gt; regular &lt;I&gt;italic&lt;/I&gt;
+
+or in ANSI codes to something analogous.
+
+I am currently looking at:
+
+  <a href="http://ocaml-batteries-team.github.io/batteries-included/hdoc/BatPrint.html">http://ocaml-batteries-team.github.io/batteries-included/hdoc/BatPrint.html</a>
+
+It refers to:
+
+  <a href="https://github.com/ocaml-batteries-team/batteries-included/blob/master/examples/snippets/test_printf.ml">https://github.com/ocaml-batteries-team/batteries-included/blob/master/examples/snippets/test_printf.ml</a>
+
+Those things work, although there is no example for:
+
+  Print.literal
+
+which might be (?) what I need to employ.
+
+Can somebody give me some advice how to create simple "parameterless
+format directives" (like those above)?
+
+----
+
+Basically, I just want to refactor some weird markup out of the literal
+string while I do not want to reinsert the refactored stuff via %s
+because it is not maintainable.
+      </pre><i>Gabriel Scherer then said and Matej Kosik replied:</i><br /><pre>
+&gt; Adding custom printing directives requires a syntax extension to
+&gt; rewrite those directives into OCaml code. The built-in support for
+&gt; magicly-typed formats in the OCaml language is not extensible (it is
+&gt; complex enough as it is).
+&gt; Batteries 1 used to provide such a syntax extension, but we
+&gt; (re)discovered that users don't like syntax extensions: they make code
+&gt; harder to compile/deploy, are controversial, and in the long run often
+&gt; make our life harder instead of easier. Batteries 2 does not come with
+&gt; any syntax extension, and I think we're better off as is (of course
+&gt; you're free to add your own in your code).
+&gt; 
+&gt; Of course, such a natural idea is bound to be reused, and one of the
+&gt; first libraries released by Jérémie Dimino at Jane Street was
+&gt; precisely such a custom-printf camlp4 extension:
+&gt;   <a href="https://github.com/janestreet/custom_printf">https://github.com/janestreet/custom_printf</a>
+&gt; 
+&gt; Feel free to reuse it or extend it for any project where it makes
+&gt; sense. In particular, I don't think that using it implies any
+&gt; dependency of your preprocessed code on Core, though of course you'll
+&gt; need Sexplib to use the format-to-sexplib feature. My purely personal
+&gt; advice would be to seriously explore non-syntax-extension approaches
+&gt; (combinator library?) before making such a step.
+
+I may, unfortunatelly, need some more pointers to understand this suggestion.
+
+The problematic code looks somehow like this:
+
+
+        (* The following string is much longer than what is inlined here. *)
+
+        bold_on ^ "mdx" ^ bold_off ^ " " ^ underline_on ^ "command" ^ underline_off ^ "
+        Perform a given " ^ underline_on ^ "command" ^ underline_off ^ ".
+        Section COMMANDS describes all the supported commands."
+
+where:
+
+	bold_on
+	bold_off
+	underline_on
+	underline_off
+
+are some strings.
+
+It works, but it is ugly.
+
+That is why I asked about possibilities to make it more decent.
+
+Since Print module is available, I thought that that may be one of the
+ways how to achieve that. If only I were able to define (non-parametric
+control strings) that I could use in the following way:
+
+	"%Bmdx%B %Icommand%I
+
+	 Perform a given %Icommand%I.
+
+         Section COMMANDS describes all the supported commands."
+
+This looks, sort of, OK.
+
+I believe that the Print module in batteries 1.4 might enable me to do
+just that although I need some examples. I do not care too much that
+given feature disappeared in Batteries 2.0 (Batteries 2.0 is not yet
+available in Debian stable/testing/unstable and when in descends there,
+that time might be beyond the lifecycle of the program I am writing. If
+not, I will bother about it at right time. There might even be more
+solutions than there are now.).
+
+If you mean that it is not technically possible to do what I thought was
+possible, then I am not against "combinator library", although I am not
+sure, what do you mean.
+
+I would be grateful if you (or somebody) sent a few links to things that
+might be regarded as combinator libraries and perhaps, if given
+combinator library existed, that would solve my problem, how it would
+make my_life_easier &amp; my_code_more_compact than the (somewhat verbose)
+approach I am currently using (string concatenation).
+      </pre><i>oleg then suggested:</i><br /><pre>
+Enclosed is one example of a combinator library for formatting, in
+plain OCaml (even Caml-lite, probably), with no extensions, GADTs,
+type classes, etc. Here is a simple demo
+
+let ex1 = let open PrintComp in 
+  pr s"1" s"2" printf
+
+(* prints: 12 *)
+
+(* Look!  No string concatenation operations! We separate operations
+  with mere white space (and often even it is not needed
+*)
+
+let ex2 = let open PrintComp in 
+  pr s"1" s"2" b"3" i 4 
+  sprintf
+(*
+    val ex2 : string = "12&lt;bold&gt;3&lt;/bold&gt;4"
+*)
+
+
+(* The format is really typed *)
+let ex3 = let open PrintComp in 
+  pr s"1" s"2" i "x" b"3" i 4 
+  sprintf
+(*
+    Characters 50-53:
+    pr s"1" s"2" i "x" b"3" i 4 
+                   ^^^
+Error: This expression has type string but an expression was expected of type
+         int
+*)
+
+
+(* It is possible to avoid s" " below, so to insert interworld space
+   automatically
+*)
+
+let ex4 = let open PrintComp in pr
+  b"mdx" s" " it "command" br
+  s"Perform a given " it "command" br
+  s"Section COMMANDS describes all the supported commands."
+  sprintf
+
+(*
+val ex4 : string =
+  "&lt;bold&gt;mdx&lt;/bold&gt; &lt;i&gt;command&lt;/i&gt;\n\nPerform a given &lt;i&gt;command&lt;/i&gt;\n\nSection COMMANDS describes all the supported commands."
+*)
+
+(* The formatting sequence can be interrupted, e.g.,
+   to bind some common subexpressions or to perform some computations
+*)
+
+let ra = fun x f -&gt; f x
+
+let ex5 = let open PrintComp in pr
+  b"mdx" s" " 
+  (* interrupt the flow *)
+  begin let cmd st = ra st it "command" in 
+  fun st -&gt; ra st (* continue with the flow *)
+  cmd br
+  s"Perform a given " cmd br
+  s"Section COMMANDS describes all the supported commands." end
+  sprintf
+
+(*
+val ex5 : string =
+  "&lt;bold&gt;mdx&lt;/bold&gt; &lt;i&gt;command&lt;/i&gt;\n\nPerform a given &lt;i&gt;command&lt;/i&gt;\n\nSection COMMANDS describes all the supported commands."
+*)
+
+
+Here is the implementation, of a FORTH like language for formatting.
+Polyvariadic functions are possible even in plain OCaml. 
+
+module PrintComp = struct
+  (* Put this at the beginning *)
+  let pr k = k []
+
+  (* to format a string *)
+  let s = fun st (str:string) k -&gt; k (str :: st)
+
+  (* to format a string in bold *)
+  let b = fun st (str:string) k -&gt; k ("&lt;/bold&gt;" :: str :: "&lt;bold&gt;" :: st)
+
+  (* to format a string in italics *)
+  let it = fun st (str:string) k -&gt; k ("&lt;/i&gt;" :: str :: "&lt;i&gt;" :: st)
+
+  (* to format an integer *)
+  let i = fun st n k -&gt; k (string_of_int n :: st)
+
+  (* generate a line break *)
+  let br = fun st k -&gt; k ("\n\n" :: st)
+
+  (* To finally print as a string *)
+  let sprintf st = String.concat "" (List.rev st)
+
+  (* To finally print on stdout *)
+  let printf st = List.iter print_string (List.rev st)
+
+  (* To finally print on channel *)
+  (* similarly *)
+end;;
+      </pre><i>Matej Kosik then asked and oleg replied:</i><br /><pre>
+&gt; &gt; (* It is possible to avoid s" " below, so to insert interworld space
+&gt; &gt; automatically
+&gt; &gt; *)
+&gt;
+&gt; I do not understand what do you have in mind (above). (Sometimes
+&gt; spaces are desired, sometimes they are undesired. I do not see a
+&gt; general rule that could be embedded to `b' so that it could reliably
+&gt; decide in either way.)
+&gt;
+&gt; &gt;
+&gt; &gt; let ex4 = let open PrintComp in pr
+&gt; &gt; b"mdx" s" " it "command" br
+&gt; &gt; s"Perform a given " it "command" br
+&gt; &gt; s"Section COMMANDS describes all the supported commands."
+&gt; &gt; sprintf
+
+I think there is a rule, but it depends on the context. For example,
+in
+br b"xxx"
+the 'b' command should not insert the leading white space, but in
+s"yyy" b"xxx"
+it has to. It is not that difficult to implement such a
+context-sensitive rule since a formatting instruction like 'b' and
+'s' has access its the context: that's the 'st' parameter being passed
+around. So, a formatting command could check what has occurred before
+and insert a whitespace as needed. If we do mean that two strings
+should be typeset without an intervening space, we should define a
+special formatting instruction 'nosp'.
+
+I forgot to mention that the FORTH-like formatter in the previous
+message looks quite similar to the one used in BibTeX.
+      </pre><i>Jeremie Dimino also replied to the original question, and Matej Kosik then asked:</i><br /><pre>
+&gt; IIRC, this should work:
+&gt; 
+&gt;    let printer_bold_on k = k (fun oc -&gt; output_string oc "blah")
+&gt; 
+&gt; to define the format directive %bold_on.
+
+
+Thank you. This was what I was looking for.
+Now I can define something like this:
+
+        let bold_is_open = ref false
+        let printer_B k = k (fun oc -&gt; if !bold_is_open then
+                                         begin
+                                           output_string oc ANSI.bold_off;
+                                           bold_is_open := false
+                                         end
+                                       else
+                                         begin
+                                           output_string oc ANSI.bold_on;
+                                           bold_is_open := true
+                                         end
+                               )
+
+and then:
+
+	Print.printf p"foo %B%!bar%B baz"
+
+instead of
+
+	print_string ("foo " ^ bold_on ^ "bar" ^ bold_off ^ "baz")
+
+So this is a progress.
+The only thing that adds friction is that I cannot leave out
+
+	%!
+
+because if I did it, I would get
+a complain about unbound "print_Bbar" variable.
+
+Thus, where I non-identifier-character follows %B, I must put extra %! instruction.
+This is not too bad although still one step from ideal.
+      </pre><i>Jeremie Dimino finally replied:</i><br /><pre>
+&gt; Thus, where I non-identifier-character follows %B, I must put extra %!
+&gt; instruction.
+&gt; This is not too bad although still one step from ideal.
+
+You can also write %(B).
+      </pre><a name="4" /><hr /><h3>Confusing behaviour of type inference for polymorphic classes</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2013-12/msg00001.html">https://sympa.inria.fr/sympa/arc/caml-list/2013-12/msg00001.html</a></p><i>Dmitri Boulytchev asked:</i><br /><pre>
+I stumbled on the following confusing behaviour of the type 
+checker: given the definitions
+
+type ('a, 'b) t =
+   A of 'a * ('b, 'a) t
+ | B of 'a
+
+class ['a, 'b, 'ta, 'tb] m =
+ object
+   method t : ('a -&gt; 'ta) -&gt; ('b -&gt; 'tb) -&gt; ('a, 'b) t -&gt; ('ta, 'tb) t =
+     fun fa fb s -&gt;
+       match s with
+       | A (a, bat) -&gt; A (fa a, (new m)#t fb fa bat)
+       | B  a       -&gt; B (fa a)
+ end
+
+the following type is inferred for the class m:
+
+class ['a, 'b, 'ta, 'c] m :
+  object
+    constraint 'b = 'a  &lt;--- why?
+    constraint 'c = 'ta &lt;--- why?
+    method t : ('a -&gt; 'ta) -&gt; ('a -&gt; 'ta) -&gt; ('a, 'a) t -&gt; ('ta, 'ta) t
+  end
+
+Perhaps some explicit annotation is needed here (like that for the
+polymorphic recursion for functions).
+I found the following workaround: first we abstract the instance 
+creation ("new m") away:
+
+class ['a, 'b, 'ta, 'tb] m' f =
+ object
+   method t : ('a -&gt; 'ta) -&gt; ('b -&gt; 'tb) -&gt; ('a, 'b) t -&gt; ('ta, 'tb) t =
+     fun fa fb s -&gt;
+       match s with
+       | A (a, bat) -&gt; A (fa a, (f ())#t fb fa bat)
+       | B  a       -&gt; B (fa a)
+ end
+
+which gives us the unconstrained type
+
+class ['a, 'b, 'ta, 'tb] m' :
+(unit -&gt;
+ &lt; t : ('b -&gt; 'tb) -&gt; ('a -&gt; 'ta) -&gt; ('b, 'a) t -&gt; ('tb, 'ta) t; .. &gt;) -&gt;
+ object
+   method t : ('a -&gt; 'ta) -&gt; ('b -&gt; 'tb) -&gt; ('a, 'b) t -&gt; ('ta, 'tb) t
+ end
+
+Then we construct the instance creation explicitly polymorphic function:
+
+let rec f : 'a 'b 'ta 'tb . unit -&gt; &lt;t : ('a -&gt; 'ta) -&gt; ('b -&gt; 'tb) 
+-&gt; ('a, 'b) t -&gt; ('ta, 'tb) t&gt; =
+ fun () -&gt; new m' f
+
+and finally the class we're looking for:
+
+class ['a, 'b, 'ta, 'tb] m = ['a, 'b, 'ta, 'tb] m' f
+
+The complete annotated source file is attached.
+This workaround however does not solve everything: we cannot actually
+inherit from the m since it calls hardcoded "new m"; we should inherit
+from m' (with additional parameter) instead and "tie the knot" on the
+toplevel.
+Are there better solutions? Please help :)
+      </pre><i>Jeremy Yallop replied:</i><br /><pre>
+There's good news and bad news.  The good news is that the problem can
+be solved for your particular example.  The bad news is that the
+approach doesn't work in the general case.  On to the details...
+
+First, let's get some definitions out of the way.  A parameterised
+type definition "('a1, 'a2, ... 'an) t" is *regular* if all
+occurrences of "t" within its definition are instantiated with the
+parameters from the lhs of the '=' (i.e. it occurs exactly as "('a1,
+'a2, ... 'an) t").  Here are some regular data types definitions:
+
+   type 'a list = Nil | Cons of 'a * 'a listapproach
+
+   type ('a, 'b) altlist = Nil | Cons of 'a * 'b * ('a, 'b) altlist
+
+In each of these the type constructor being defined is only
+instantiated with the exact parameter list from the lhs of the '='.
+
+In contrast, here are some non-regular data type definitions:
+
+   type 'a nested = Empty | Branch of 'a * ('a * 'a) nested
+
+   type ('a, 'len) vec =
+     Nil : ('a, zero) vec
+   | Cons : 'a * ('a, 'n) vec -&gt; ('a, 'n succ) vec
+
+In each of these the type constructor being defined is instantiated
+with parameter lists that are different from the lhs of the
+definition: "('a * 'a) nested" is different from "'a nested" in the
+first case, and "('a, zero) vec" and "('a, 'n succ)" vec are different
+from "('a, 'len) vec" in the second case.
+
+The analogue of non-regular types for functions is polymorphic
+recursion.  A function is *polymorphic-recursive* if some calls to the
+function in its own definition instantiate the type variables
+differently from the definition itself.  Here's a polymorphic
+recursive function
+
+   let rec depth : 'a. 'a nested -&gt; int = function
+     | Empty -&gt; 0
+     | Branch (_, n) -&gt; 1 + depth n
+
+The call to "depth" on the last line uses it at type "('a * 'a) nested
+-&gt; int", which is different from the defined type "'a nested -&gt; int".
+If you call "depth" on a value of type "int nested" of depth 3 then
+the recursive calls will have the following types:
+
+   int nested -&gt; int
+   (int * int) nested -&gt; int
+   ((int * int) * (int * int)) nested -&gt; int
+   (((int * int) * (int * int)) * ((int * int) * (int * int))) nested -&gt; int
+
+It's also worth noting that the type annotation can't be omitted,
+since polymorphic-recursive types can't be inferred, although they can
+be checked.
+
+In contrast, here's a function that's polymorphic and recursive but
+not polymorphic-recursive:
+
+  let rec length : 'a. 'a list -&gt; int = function
+    | Nil -&gt; 0
+    | Cons (_, l) -&gt; 1 + length l
+
+In this case the call to "length" uses it at type "'a list -&gt; int" --
+just the same type as the definition.  If you call "length" on a value
+of type "int list" of length 3 then the recursive calls will have the
+following types:
+
+  int list -&gt; int
+  int list -&gt; int
+  int list -&gt; int
+  int list -&gt; int
+
+In this case the type annotation is unnecessary, and if you omit it
+then OCaml will infer the same type, "'a list -&gt; int".
+
+It'll probably come as no surprise that non-regular types and
+polymorphic recursion are closely related: traversals over non-regular
+types generally involve polymorphic recursion.
+
+In your example the type 't' is non-regular: it's defined to take
+parameters "('a, 'b)", but used in its definition as "('b, 'a) t":
+
+&gt;   type ('a, 'b) t =
+&gt;      A of 'a * ('b, 'a) t
+&gt;    | B of 'a
+
+Traversals over values of type "t" therefore need to be
+polymorphic-recursive.  Since you've exposed the type parameters as
+class parameters you need the class type to be non-regular as well:
+you've defining "m" with parameters "['a, 'b, 'ta, 'tb]", but trying
+to instantiate it with parameters "['b, 'a, 'tb, 'ta]".  This isn't
+possible in OCaml: class and object types (like other structural types
+such as polymorphic variants) can only be regular.  The approach
+you're trying therefore won't work in general for defining traversals
+over non-regular types.  As you've noted, you can work around the
+problem using open recursion and typing the knot yourself, but you
+lose the ability to subtype in the process.
+
+On to the good news.  Unlike "nested" and "vec", your type "t" is only
+a little bit non-regular.  The non-regularity is a simple flip of the
+type parameters, so a recursive traversal of a value of "t" involves
+calling the traversal function at the following types
+
+   ('a, 'b) t -&gt; 'result
+   ('b, 'a) t -&gt; 'result
+   ('a, 'b) t -&gt; 'result
+   ('b, 'a) t -&gt; 'result
+   ...
+
+This gives us a clue as to how we might attack the typing problem.
+Unfolding the traversal methods one level gives us a pair of
+mutually-recursive methods, neither of which is polymorphic-recursive,
+and neither of which instantiates the class with different parameters:
+
+   class ['a, 'b, 'ta, 'tb] m =
+     object
+       method t : ('a -&gt; 'ta) -&gt; ('b -&gt; 'tb) -&gt; ('a, 'b) t -&gt; ('ta, 'tb) t =
+         fun fa fb s -&gt;
+           match s with
+           | A (a, bat) -&gt;
+             A (fa a, (new m)#t' fb fa bat)
+           | B  a       -&gt; B (fa a)
+       method t' :  ('b -&gt; 'tb) -&gt; ('a -&gt; 'ta) -&gt; ('b, 'a) t -&gt; ('tb, 'ta) t =
+         fun fa fb s -&gt;
+           match s with
+           | A (a, bat) -&gt;
+             A (fa a, (new m)#t fb fa bat)
+           | B  a       -&gt; B (fa a)
+     end
+
+In fact, instead of repeatedly creating new instances you can now use
+a "self" binding, which will give you more scope for overriding
+behaviour with subtyping:
+
+   class ['a, 'b, 'ta, 'tb] m =
+     object (self)
+       method t : ('a -&gt; 'ta) -&gt; ('b -&gt; 'tb) -&gt; ('a, 'b) t -&gt; ('ta, 'tb) t =
+         fun fa fb s -&gt;
+           match s with
+           | A (a, bat) -&gt;
+             A (fa a, self#t' fb fa bat)
+           | B  a       -&gt; B (fa a)
+       method t' :  ('b -&gt; 'tb) -&gt; ('a -&gt; 'ta) -&gt; ('b, 'a) t -&gt; ('tb, 'ta) t =
+         fun fa fb s -&gt;
+           match s with
+           | A (a, bat) -&gt;
+             A (fa a, self#t fb fa bat)
+           | B  a       -&gt; B (fa a)
+     end
+
+Of course, unfolding in this way doesn't work for general non-regular
+types, since unfolding "nested" or "vec" would go on forever.
+
+You might also consider unfolding the type "t" itself, at which point
+traversals become more straightforward.  If you can expand the
+definition of "t" to a pair of mutually recursive (and regular!)
+types:
+
+    type ('a, 'b) t =
+       A of 'a * ('a, 'b) s
+     | B of 'a
+    and ('a, 'b) s =
+       C of 'b * ('a, 'b) t
+     | D of 'b
+
+then you can use your current approach without any changes.
+      </pre><i>Alain Frisch then suggested:</i><br /><pre>
+A more general solution is based on recursive modules:
+
+=======================================================================
+type ('a, 'b) t =
+     A of 'a * ('b, 'a) t
+   | B of 'a
+
+module rec X : sig
+   class ['a, 'b, 'ta, 'tb] m : object
+     method t : ('a -&gt; 'ta) -&gt; ('b -&gt; 'tb) -&gt; ('a, 'b) t -&gt; ('ta, 'tb) t
+   end
+end = struct
+   class ['a, 'b, 'ta, 'tb] m =
+     object
+       method t : ('a -&gt; 'ta) -&gt; ('b -&gt; 'tb) -&gt; ('a, 'b) t -&gt; ('ta, 'tb) t =
+         fun fa fb s -&gt;
+           match s with
+           | A (a, bat) -&gt; A (fa a, (new X.m)#t fb fa bat)
+           | B  a       -&gt; B (fa a)
+     end
+end
+=======================================================================
+
+
+This technique also works e.g. for defining mutually recursive classes 
+and nominal types.
+      </pre><i>Jeremy and Alain then had the following conversation:</i><br /><pre>
+&gt; Jeremy Yallop wrote:
+&gt;&gt; Using recursive modules certainly makes it possible to write a class
+&gt;&gt; with the correct type, but unless I'm mistaken you lose the ability to
+&gt;&gt; override the behaviour on recursive calls -- i.e. the call to (new
+&gt;&gt; X.m)#t can no longer be replaced with a call through a self variable.
+&gt;
+&gt; The instance on which the method is called cannot be "self", since it
+&gt; corresponds to different type parameters for the class.
+
+That's true for the approach based on recursive modules, but not for
+the unfolding approach outlined in my earlier message, which does
+support recursive calls through self.
+
+&gt; I don't know what Dmitri is exactly looking for, but maybe a polymorphic
+&gt; method (instead of a parametrized class) would do the job as well.
+
+Agreed. For straightforward polymorphic recursion either your
+recursive module approach or a simple recursive method or function is
+sufficient. Classes are better for open recursion, but only work
+either for regular types or for types with finite irregularity (i.e.
+where a finite number of unfoldings bring you back to the original
+parameter list).
+      </pre><a name="5" /><hr /><h3>Main program in C - a script</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2013-12/msg00010.html">https://sympa.inria.fr/sympa/arc/caml-list/2013-12/msg00010.html</a></p><i>John Whitington announced:</i><br /><pre>
+There has been some confusion on this topic over the years, since plenty 
+of OCaml programmers aren't au fait with archive managers and linkers 
+and so on. Certainly I wasn't.
+
+Anyway, here's a script which might help:
+
+<a href="http://github.com/johnwhitington/ocaml-main-program-in-c">http://github.com/johnwhitington/ocaml-main-program-in-c</a>
+
+On Linux / OS X it builds a static library from C and OCaml sources, 
+ocamlfind packages, and ocaml libraries like unix and bigarray and then 
+tests it by linking an example.
+
+On Windows, it does the same, linking the example with flexlink. 
+Additionally, it builds a DLL, and test links that with the system C linker.
+
+Here's an example config, for building the libcpdf.(a|dll) version of my 
+CPDF tools:
+
+cfiles=(cpdflibwrapper)
+finalcfile=cpdflibtest
+libname=cpdf
+mlfiles=(cpdflib)
+mlifiles=(cpdflib)
+mllibs=(unix bigarray)
+ocamlfind=ocamlfind
+ocamlfind_packs=(camlpdf cpdf)
+stubs=(camlpdf)
+
+Unfortunately, I've been unable to work out a way to roll ocaml 
+libraries like unix and bigarray into the .a so that only a single 
+linker flag -lcpdf would be needed when the .a is shipped to a customer. 
+If anyone does know, do tell.
+
+In addition, it's native code only for now. But this stuff should all be 
+possible with bytecode too.
+
+The original idea for this script was from Gerd's article here:
+
+<a href="http://www.camlcity.org/knowledge/kb_002_shared_library.html">http://www.camlcity.org/knowledge/kb_002_shared_library.html</a>
+
+This is not an area of my expertise, and has only been tested on the 
+sample project and libcpdf, so pull requests and bug reports are most 
+welcome!
+      </pre><i>Mykola then added:</i><br /><pre>
+JFYI: there is absolutely amazing page about using C and OCaml together.
+<a href="http://www.linux-nantes.org/~fmonnier/OCaml/ocaml-wrapping-c.html">http://www.linux-nantes.org/~fmonnier/OCaml/ocaml-wrapping-c.html</a> 
+      </pre><a name="6" /><hr /><h3>Js_of_ocaml 1.4</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2013-12/msg00018.html">https://sympa.inria.fr/sympa/arc/caml-list/2013-12/msg00018.html</a></p><i>Jérôme Vouillon announced:</i><br /><pre>
+I'm happy to announce release 1.4 of Js_of_ocaml, a compiler from
+OCaml bytecode to Javascript. This release brings compatibility with 
+OCaml 4.01, provides improved Dom bindings and fixes a number of bugs.
+
+LINKS
+
+Project home page  <a href="http://ocsigen.org/js_of_ocaml/">http://ocsigen.org/js_of_ocaml/</a>
+Download           <a href="http://ocsigen.org/download/js_of_ocaml-1.4.tar.gz">http://ocsigen.org/download/js_of_ocaml-1.4.tar.gz</a>
+Get source code    git clone <a href="https://github.com/ocsigen/js_of_ocaml.git">https://github.com/ocsigen/js_of_ocaml.git</a>
+Documentation      <a href="http://ocsigen.org/js_of_ocaml/manual/">http://ocsigen.org/js_of_ocaml/manual/</a>
+
+DETAILED CHANGES
+
+* Features/Changes
+** Add missing primitives for OCaml 4.01
+** Improved Dom bindings (Hugo Heuzard and many other contributors)
+** Add -linkall option to keep all provided primitives (Pierre Chambard)
+** Improved tail-call optimization (Hugo Heuzard)
+** Added optimization levels: -o {1,2,3} (Hugo Heuzard)
+
+* Bugfixes
+** Fixed some incorrect Dom bindings
+** Fixed hypot primitive (Pierre Chambard)
+** Fixed tail call optimization bug (some incorrect code was
+    generated when the number of arguments did not match the number of
+    function parameters)
+** Fixed a bug with empty strings
+** Fixed weak.js (primitives for Weak module)
+      </pre><a name="7" /><hr /><h3>Other Caml News</h3><i>From the ocamlcore planet blog:</i><br /><pre>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <a href="http://planet.ocaml.org/">http://planet.ocaml.org/</a>.
+
+dblib, a de Bruijn index library:
+  <a href="http://gallium.inria.fr/blog/announcing-dblib">http://gallium.inria.fr/blog/announcing-dblib</a>
+
+RWO tidbits: Benign effects:
+  <a href="https://ocaml.janestreet.com/?q=node/118">https://ocaml.janestreet.com/?q=node/118</a>
+
+Asynchronous Python vs OCaml:
+  <a href="http://roscidus.com/blog/blog/2013/11/28/asynchronous-python-vs-ocaml/">http://roscidus.com/blog/blog/2013/11/28/asynchronous-python-vs-ocaml/</a>
+
+Switching from Bootstrap to Zurb Foundation:
+  <a href="http://amirchaudhry.com/switching-from-bootstrap-to-zurb-foundation">http://amirchaudhry.com/switching-from-bootstrap-to-zurb-foundation</a>
+      </pre><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="ISO-8859-15"?>
+<cwn>
+<cwn_head>
+  <cwn_date>2005.01.25</cwn_date>
+  <cwn_prev>2005.01.18</cwn_prev>
+  <cwn_next>2005.02.01</cwn_next>
+  <cwn_date_text>18 to 25 January, 2005</cwn_date_text>
+</cwn_head>
+<cwn_body>
+  <cwn_entry>
+    <cwn_title>C-threads &amp; callbacks</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200501/msg00173.html</cwn_url>
+    <cwn_who>Markus Mottl asked</cwn_who>
+    <cwn_what>
+I&apos;m currently interfacing a 3rd-party library that spawns threads
+to execute callbacks.  I would like those callbacks to be handled by
+OCaml-code, but have run into some issues here.
+
+As it seems, it is not possible to run OCaml-code linked with thread
+support while letting C-threads perform callbacks.  This has already
+been a topic on the list a while ago.
+
+I have two solutions in mind: the first one would involve pre-spawning
+an OCaml-thread and pass data from C to OCaml through an OCaml-reference
+exposed to C, protected by mutexes and condition variables.  This seems
+pretty ugly, because it&apos;s error-prone and also involves a considerable
+amount of context-switching, which is bad for my application (very high
+volume realtime data).
+
+The second solution would require setting up an OCaml thread descriptor
+for the currently executing C-thread.  However, AFAIK this solution
+cannot be implemented without fiddling with the implementation of the
+OCaml-runtime, because some global variables for thread-handling are not
+exposed to user code (i.e. &quot;static&quot;).  It would be great if the thread
+implementation offered functions allowing users to have their C-threads
+&quot;migrate&quot; to OCaml.
+
+Does anybody know of another elegant and efficient solution for this
+problem that does not require hacking the OCaml-runtime?
+    </cwn_what>
+    <cwn_who>Daniel Bünzli suggested and Markus Mottl said</cwn_who>
+    <cwn_what>
+&gt; I don&apos;t understand what you are refering to. I don&apos;t think there&apos;s a 
+&gt; problem as long as you take care to acquire ocaml&apos;s global lock to 
+&gt; exectue the callbacks.
+&gt; 
+&gt; #include &lt;caml/signals.h&gt;
+&gt; ...
+&gt; caml_leave_blocking_section();
+&gt; callback(*caml_named_value(&quot;myfun&quot;), Val_unit);
+&gt; caml_enter_blocking_section();
+&gt; ...
+&gt; 
+&gt; This ensures that callbacks into caml are properly serialized.
+
+This only works if the callback is performed by a thread that was
+spawned by OCaml (i.e. OCaml -&gt; C -&gt; OCaml).  In this case the runtime
+knows what the &quot;current thread&quot; is.  But if a C-thread executes
+&quot;caml_leave_blocking_section&quot; (C -&gt; OCaml), it can segfault there,
+because there may be no &quot;current thread&quot;.  And if there is, it is not
+the C-thread but another currently executing OCaml-thread, which will
+mess things up later.
+
+That&apos;s why there should be some way to register a C-thread with the
+OCaml-runtime.  Currently this does not seem to be possible without
+hacking the OCaml-implementation.
+    </cwn_what>
+    <cwn_who>Alex Baretta suggested and Markus Mottl answered</cwn_who>
+    <cwn_what>
+&gt; Just a thought: how about running two different processes which share 
+&gt; relevant data through an mmapped file? The C-threads could communicate 
+&gt; with the Ocaml world through this shared memory segment. I am not sure 
+&gt; how much mileage you&apos;ll get out of this, but at least you would not have 
+&gt; to rewrite the runtime system...
+
+We have also thought about this.  It would surely be a working solution
+and much faster than our current cruel hack of reading data from the
+tail of a file.  But a solution involving only one process would be
+preferable in the long run.
+    </cwn_what>
+    <cwn_who>Markus Mottl finally said</cwn_who>
+    <cwn_what>
+Thanks for all the replies.  I have just implemented a solution, which
+seems to be very satisfactory for our purposes.
+
+SooHyoung Oh wrote:
+&gt; I&apos;ve resolved the same problem using TCP/IP communication between Ocaml
+&gt; thread and C thread.
+
+This would unfortunately have been way too much overhead.
+
+Alex Baretta wrote:
+&gt; What exactly are you doing, Markus? I&apos;m interested because we, too, here 
+&gt; at DE&amp;IT, use Ocaml for realtime applications.
+
+We are logging financial realtime data (trades) with enormously high
+data volume (tens of thousands of ticks/trades per second at peak times).
+
+Andrieu wrote:
+&gt; What about using a pipe ? the C callback stuffs its data in the pipe
+&gt; (perhaps converted to marshalled caml values) and on the other end,
+&gt; the caml callback is waiting with a blocking read.
+
+This would still require marshalling overhead.
+
+My solution now looks as follows:
+
+I prespawn an OCaml-thread, which immediately goes into C-land.
+There it waits on a condition variable (within a blocking section to
+let other OCaml-threads run) until some C-thread makes data available
+and notifies it.  Then the OCaml-thread converts the available data to
+OCaml-values and performs the callback.  In the meanwhile the C-thread
+blocks on a condition variable until the result is available.  Once the
+OCaml-thread returns, it notifies the C-thread and waits for more data
+again.  The C-thread continues as desired (terminates or does something
+else, etc.).
+
+The only overhead is context switching, everything else is negligible.
+
+It would still be nice if there were an easy way to let C-threads safely
+migrate to OCaml-land without all this thread-coordination...
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Shallow copy of a record</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200501/msg00182.html</cwn_url>
+    <cwn_who>Chris King asked and Jacques Garrigue answered</cwn_who>
+    <cwn_what>
+&gt; Maybe I missed it in the docs, but is there a way to create a shallow
+&gt; copy of a record without modifying any of its contents?  I know
+&gt; there&apos;s the {foo with a=b} construct, but this only works with at
+&gt; least one assignment; I want to create an unmodified copy of the
+&gt; record (akin to the {&lt; &gt;} construct for objects).
+
+This does not exist, and with good reason: there is no way in the type
+system to define a function which works on all records, but only
+records. So to do the copy you need to know at least one of the labels
+of the record, which in turn gives you its type.
+
+Another approach, which is potentially unsafe, is to use the Obj.dup
+function. You can make it a bit safer by ensuring (dynamically) that
+you only copy caml blocks or values:
+
+  let copy (v : &apos;a) : &apos;a =
+    let obj = Obj.repr v in
+    if Obj.is_int obj then v
+    else if Obj.is_block obj &amp;&amp; let tag = Obj.tag obj in
+            tag &lt; Obj.lazy_tag || tag = Obj.double_array_tag
+    then Obj.obj (Obj.dup obj)
+    else invalid_arg &quot;shallow copy&quot;
+    </cwn_what>
+    <cwn_who>Kurt Welgehausen also suggested</cwn_who>
+    <cwn_what>
+It&apos;s not clear whether you require a general polymorphic
+copy function or you just need to make a copy of a
+particular record. In the latter case, something like
+
+  let y = {x with a = x.a}
+
+will do what you want (even though it&apos;s not very pretty).
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Timeouts in Event module</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200501/msg00195.html</cwn_url>
+    <cwn_who>Yaron Minsky asked and SooHyoung Oh suggested</cwn_who>
+    <cwn_what>
+&gt; Does anyone know of a way of achieving timeouts using OCaml&apos;s Event
+&gt; module?  Reppy&apos;s Concurrent ML has timeout and attime events which
+&gt; cover for that need.  I&apos;m wondering if there is some other way of
+&gt; implementing this using Event, or if this is just a missing feature.
+
+I implemented a timer library.
+Look http://pllab.kaist.ac.kr/~shoh/ocaml/libs/timer/
+This library uses Sys module and unix, thread library.
+    </cwn_what>
+    <cwn_who>Yaron Minsky replied and Markus Mottl said</cwn_who>
+    <cwn_what>
+&gt; Thanks.  That looks quite useful.    I suppose one could create a
+&gt; timed event by creating a channel and scheduling a callback to send on
+&gt; that channel.  It seems like a bit of a hack (not your library, but
+&gt; the need to use such a mechanism to simulate timeouts), but it should
+&gt; do the job.
+
+I remember having found the following solution, which I use in my projects
+now, on the list a while ago:
+
+  let watchdog s v =
+    let ch = Event.new_channel () in
+    let watchdog_thread () =
+      Thread.delay s;
+      Event.sync (Event.send ch v) in
+    ignore (Thread.create watchdog_thread ());
+    Event.receive ch
+
+  let timed_sync s v event = Event.sync (Event.choose [event; watchdog s v])
+
+You can use it e.g. as follows:
+
+  let thread_fun ch =
+    (* ... do something long ... *)
+    Event.sync (Event.send result) in
+  let ch = Event.new_channel () in
+  let tid = Thread.create thread_fun ch in
+  timed_sync 3.14 default_value (Event.receive ch)
+
+If &quot;thread_fun&quot; doesn&apos;t send + synchronize a result within 3.14 seconds
+on event channel &quot;ch&quot;, then &quot;default_value&quot; will be returned, the result
+otherwise.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>GNU id-utils with SML (and lisp) support added</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200501/msg00207.html</cwn_url>
+    <cwn_who>Cynbe ru Taren announced</cwn_who>
+    <cwn_what>
+I&apos;ve tweaked  the GNU id-utils to also support SML and lisp.
+(Should work equally well for Ocaml, I think.  Let me know if not.)
+
+The source tarball (and a Debian binary .deb) are up at:
+  http://muq.org/~cynbe/ml/smlnj-hacking-idutils.html
+
+Synopsis for anyone unfamiliar with the id-utils:
+
+    A keystroke or two in emacs or vi gives lightning-fast access to all
+    occurrences of a given identifier in the codebase.  Great for looking
+    up definitions, checking all uses after a redefinition, finding a
+    typical invocation, and so forth.  Valuable for reading any codebase
+    over ten kilolines, and indispensable for multi-megaline codebases
+    (where etags simply halts and catches fire).
+
+    I&apos;m a frank addict.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Cross-compiling for arm</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200501/msg00209.html</cwn_url>
+    <cwn_who>Koenraad Lelong asked and Eric C. Cooper answered</cwn_who>
+    <cwn_what>
+&gt; I&apos;m looking for information how to cross-compile for strong-arm. I did 
+&gt; find some references stating it is possible, but I&apos;m not finding 
+&gt; anything on how to do this. I just missed a thread about &apos;minimum system 
+&gt; requirements&apos; where Eric C. Cooper says he&apos;s running OCaml-applications 
+&gt; on his Zaurus. I would like to do the same.
+
+You can find patches to the OCaml distribution tarball and a how-to document at
+     http://www.cs.cmu.edu/~ecc/caml-crossing.tar.gz
+I&apos;ve build x86-hosted cross-compilers for PowerPC and ARM this way.
+    </cwn_what>
+  </cwn_entry>
+</cwn_body>
+</cwn>

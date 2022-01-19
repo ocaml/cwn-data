@@ -1,0 +1,173 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2011.02.22.html">Previous week</a> <a href="index.html">Up</a> <a href="2011.03.08.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of February 22 to March 01, 2011.</p><ol><li><a href="#1">Calling the toplevel from the toplevel</a></li><li><a href="#2">[OCaml Meeting 2011] inscription is opened</a></li><li><a href="#3">Other Caml News</a></li></ol><a name="1" /><hr /><h3>Calling the toplevel from the toplevel</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2011-02/msg00166.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2011-02/msg00166.html</a></p><i>rixed asked and Guillaume Yziquel suggested:</i><br /><pre>
+&gt; I'm trying to build an application that's run from the toplevel, using
+&gt; the toplevel to customize the application from itself (for instance,
+&gt; setting some global parameters using the toplevel to configure the
+&gt; application behavior while it's running).
+&gt; 
+&gt; But I cannot allow the toplevel to read directly from stdin nor to
+&gt; write anything into stdout (since my application uses ncurses).
+&gt; 
+&gt; I've looked for various ways to do this, and the simpler I found to
+&gt; prevent the toplevel to use stdout is to call myself
+&gt; Toploop.execute_phrase with a custom formatter (so that I can display
+&gt; the output where and how I want).
+&gt; 
+&gt; Up to now all seams to work except for minor annoyances :
+&gt; 
+&gt; - I cannot start the application directly by linking the custom toplevel
+&gt;   with something like "let _ = start_application ()" but I have to call
+&gt;   "start_application();;" from the toplevel manually (or from the
+&gt;   .ocamlinit file), otherwise the application bindings are not
+&gt;   available.
+
+For this, you can change the Toploop.read_interactive_input reference to
+what you want to control what you input to the toplevel. You therefore
+do not need to consider workarounds such as calling evaluation functions
+from code evaluated from the toplevel itself.
+
+But it's a bit surprising that application bindings are not available
+when calling start_application from some code that is being loaded. If
+you insist on loading a .cmo instead of a .cma, the .cmo code is
+executed when loaded, while code in the .cma often seems to be executed
+only when required. That may solve your issue. Dunno.
+
+You've also got a Toplevel.toplevel_startup_hook ref that may be useful.
+
+&gt; - I cannot let the user uses the toplevel directives "use" and "load"
+&gt;   because both writes into stdout whatever the formatter passed to
+&gt;   Toploop.execute_phrase (for "use" this is easily solvable by shadowing
+&gt;   the toplevel implementation by another one that call Toploop.use_file
+&gt;   with my own formatter, but for "load" I would have to copy a lot of
+&gt;   code from topdirs.ml
+&gt; 
+&gt; I'd like to know if it is safe to call the Toploop evaluation functions
+&gt; from code evaluated from the toplevel itself ? Or if someone can suggest
+&gt; a better way to prevent the toplevel from using stdout ?
+
+Well, the Toploop module provides some interesting values to control
+output:
+
+val parse_toplevel_phrase : (Lexing.lexbuf -&gt; Parsetree.toplevel_phrase)
+ref
+val parse_use_file : (Lexing.lexbuf -&gt; Parsetree.toplevel_phrase list)
+ref
+val print_location : formatter -&gt; Location.t -&gt; unit
+val print_error : formatter -&gt; Location.t -&gt; unit
+val print_warning : Location.t -&gt; formatter -&gt; Warnings.t -&gt; unit
+val input_name : string ref
+
+val print_out_value :
+  (formatter -&gt; Outcometree.out_value -&gt; unit) ref
+val print_out_type :
+  (formatter -&gt; Outcometree.out_type -&gt; unit) ref
+val print_out_class_type :
+  (formatter -&gt; Outcometree.out_class_type -&gt; unit) ref
+val print_out_module_type :
+  (formatter -&gt; Outcometree.out_module_type -&gt; unit) ref
+val print_out_sig_item :
+  (formatter -&gt; Outcometree.out_sig_item -&gt; unit) ref
+val print_out_signature :
+  (formatter -&gt; Outcometree.out_sig_item list -&gt; unit) ref
+val print_out_phrase :
+  (formatter -&gt; Outcometree.out_phrase -&gt; unit) ref
+
+I'd also look in the toplevel code of lwt, specifically in the source
+code of lwt.top package. Contains quite a lot of interesting toplevel
+tricks that would likely be of use to you. I'm not so sure, but it seems
+to have some amount of control over toplevel output.
+      </pre><i>Jérémie Dimino also replied:</i><br /><pre>
+&gt; - I cannot let the user uses the toplevel directives "use" and "load"
+&gt;   because both writes into stdout whatever the formatter passed to
+&gt;   Toploop.execute_phrase (for "use" this is easily solvable by shadowing
+&gt;   the toplevel implementation by another one that call Toploop.use_file
+&gt;   with my own formatter, but for "load" I would have to copy a lot of
+&gt;   code from topdirs.ml
+
+Why not use Topdirs.dir_load with a custom formatter ?
+
+If you are interested, i started some time ago an emacs-like editor
+which can run in both curses and gtk mode and which integrates a
+toplevel. I add to face the same problems. I solved them by using
+Toploop.execute_phrase directly and redefining all directives.
+
+The code is available here:
+
+  <a href="http://solaria.dimino.org/cgi-bin/darcsweb.cgi?r=peps;a=summary">http://solaria.dimino.org/cgi-bin/darcsweb.cgi?r=peps;a=summary</a>
+
+The file that may interest you is src/core/peps_top.ml
+
+Also another problem i had is that Toploop.execute_phrase does not
+prints errors on the given formatter but raises an exception instead,
+and the printer used in Toploop.loop (Errors.report_error) is in the
+module Errors for which the cmi is not available. I used a hack which
+consists on parsing the output of Toploop.use_silently (file
+peps_top.ml, function eval_command).
+      </pre><a name="2" /><hr /><h3>[OCaml Meeting 2011] inscription is opened</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2011-03/msg00008.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2011-03/msg00008.html</a></p><i>Sylvain Le Gall announced:</i><br /><pre>
+This mail is a copy of a post you can find here:
+<a href="https://forge.ocamlcore.org/forum/forum.php?forum_id=774">https://forge.ocamlcore.org/forum/forum.php?forum_id=774</a>
+
+===
+
+For the fourth time, I am proud to invite all OCaml enthusiasts to join
+us at OCaml Meeting 2011 in Paris.
+
+This year event takes place in Paris on Friday 15th April 2011.
+Subscription is opened now and will be closed on Friday 8th April 2011.
+
+As last year, participants are invited to give a talk on what they are
+doing with OCaml, submit a description of your talk on the wiki or
+contact me.
+
+The meeting is sponsored by INRIA CAML Consortium and organized
+by OCamlCore. Participation for lunch is covered by the Consortium, you
+just need to subscribe. The facility can only host 70 people, so we will
+have to filter the list of participants if there are more people. We
+will give priority to people giving a talk and coming from abroad.
+
+For people who need further information, you can contact me (see the
+wiki for contact details).
+
+Further information:
+<a href="https://forge.ocamlcore.org/plugins/mediawiki/wiki/ocaml-meeting/index.php/OCamlMeeting2011">https://forge.ocamlcore.org/plugins/mediawiki/wiki/ocaml-meeting/index.php/OCamlMeeting2011</a>
+Registration:
+<a href="http://ocaml-meeting.forge.ocamlcore.org/2011-paris/reg_add">http://ocaml-meeting.forge.ocamlcore.org/2011-paris/reg_add</a>
+
+Hope to see a lot of you
+Regards
+Sylvain Le Gall on behalf of the OCaml Meeting organization team
+
+p.s. the registration website is made with Ocsigen and connected to the
+forge, so you need to be logged in the OCaml Forge to be able to
+subscribe.
+      </pre><a name="3" /><hr /><h3>Other Caml News</h3><i>From the ocamlcore planet blog:</i><br /><pre>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <a href="http://planet.ocamlcore.org/">http://planet.ocamlcore.org/</a>.
+
+OCaml Meeting 2011, inscription is opened:
+  <a href="https://forge.ocamlcore.org/forum/forum.php?forum_id=774">https://forge.ocamlcore.org/forum/forum.php?forum_id=774</a>
+
+ocsigen-bundler:
+  <a href="https://forge.ocamlcore.org/projects/ocsigen-bundler/">https://forge.ocamlcore.org/projects/ocsigen-bundler/</a>
+
+OCaml Debian News:
+  <a href="http://le-gall.net/sylvain+violaine/blog/index.php?post/2011/02/26/OCaml-Debian-News">http://le-gall.net/sylvain+violaine/blog/index.php?post/2011/02/26/OCaml-Debian-News</a>
+
+OCamlCore.org API:
+  <a href="https://forge.ocamlcore.org/projects/ocamlcore-api/">https://forge.ocamlcore.org/projects/ocamlcore-api/</a>
+
+Video tutorials for the Coq proof assistant:
+  <a href="http://math.andrej.com/2011/02/22/video-tutorials-for-the-coq-proof-assistant/">http://math.andrej.com/2011/02/22/video-tutorials-for-the-coq-proof-assistant/</a>
+      </pre><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

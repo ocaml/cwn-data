@@ -1,0 +1,750 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of 22 to 29 June, 2004.
+
+1) ocamldap 1.5.0
+2) file copy
+3) Factor 5 speed increase for natively compiled camlp4 parsers
+4) Why must types be always defined at the top level?
+5) Thread and kernel 2.6 pb still there in CVS
+6) Seattle ML SIG meeting
+7) Writing a JIT compiler
+
+========================================================================
+1) ocamldap 1.5.0
+------------------------------------------------------------------------
+** Eric Stokes announced:
+
+Hello all, its time for another release of Ocamldap. This release
+includes a few bug fixes
+in the high level code, and some pragmatic additions to various
+components.
+
+LDIF parser
+- added methods to write as well as read LDIF
+- added base64 encoding support (for read and write), the parser
+should now be fully compliant with the LDIF standard
+- added methods to read and write LDIF to and from strings
+
+High level stuff
+- dependancy generation (for generators) in ldapaccount has been fixed
+so that it doesn't
+pollute the object with strange objectclasses. It will not add
+objectclasses in order to satisfy
+generator dependancies anymore.
+- added two new methods, service_exists, and services_present to
+ldapaccount, which will allow
+listing of the services on the account, and querying individual ones.
+Most of this code was moved
+in from rmwd.
+
+Low level stuff
+- added some very preliminary handling of referrals (don't raise an
+exception when you hit one :P).
+There is much work to do in this area. Currently openldap's C library
+is transparently following referrals,
+and there are a lot of cases where that isn't good at all. I would like
+to add the ability for the library user
+to control with great detail what is done with referrals.
+
+as always, the Ocaml link database contains the authoritative link to
+the code
+<http://www.npc.de/ocaml/linkdb/>
+     
+however you can download binaries for version 1.5.0 from here
+<http://www.csun.edu/~eric/ocamldap-1.5.0.tar.bz2>
+    
+========================================================================
+2) file copy
+------------------------------------------------------------------------
+** Sebastien Ferre asked:
+
+Is there any function in OCaml for copying a file
+like with the Unix command 'cp' ? I wish to avoid
+using the function Sys.command to keep platform
+independency.
+I could not find any neither in the standard library,
+nor in the Unix library.
+    
+** Maxence Guesdon answered:
+
+You can find it in Didier Remy's course about system programming :
+<http://pauillac.inria.fr/~remy/poly/system/camlunix/fich.html#toc13>
+    
+** Sylvain Le Gall answered as well:
+
+You can use the library i am developping : ocaml-fileutils.
+
+It allows you to do 'cp' and a lot of other operation ( 'mv', 'ls', 'find', 'rm'... )
+
+Moreover, you can do cp ~recurse:true to copy whole directory.
+
+Least but not last, all the function should be platform independent,
+regarding filename, because it use filePath which is a wrapper for
+filename of the platform ( support : Unix, MacOs, Win32, Cygwin style ).
+
+Actually, i am writing unitary test in order to release version 0.3,
+which comes with operation on file size ( 'du', + test for find ), loop
+prevention ( if you have a symlink from 'x' to '.', it won't recurse ).
+It also changes some prototype : rm, cp will now use list as argument.
+
+It also fixes some bugs. This new version will be available friday or
+saturday.
+
+Anyway, the current version should be enough for your usage ( and for
+two days ).
+
+ps : <http://www.carva.org/sylvain.le-gall/>
+    
+========================================================================
+3) Factor 5 speed increase for natively compiled camlp4 parsers
+------------------------------------------------------------------------
+** Hendrik Tews said:
+
+Yesterday I managed to natively compile a custom camlp4
+application. The speed increase was dramatic: from 10 seconds
+down to 1.9 seconds for 1.4 MB of Ocaml code in 121 files. Below
+I describe howto compile your camlp4 parser to native-code.
+Further below there are some questions for the camlp4
+maintainers.
+
+
+HOW TO GET ``camlp4 pa_o.cmo pa_op.cmo foo.cmo'' DOWN TO NATIVE-CODE?
+
+1. Prerequisites: 
+
+   Some of the files you need are not installed in the standard
+   ocaml distribution. Therefore you need a fully configured
+   ocaml source tree. Say its located at ${ocamlsource}. Do a
+   ``make world.opt'' there. (But don't clean!)
+
+2. Compile the camlp4 extensible grammars for ocaml to native-code.
+
+   cp ${ocamlsource}/camlp4/etc/pa_o.ml .
+   ocamlopt -c -I `camlp4 -where` -pp "camlp4r pa_extend.cmo q_MLast.cmo" \
+	-o pa_o.cmx pa_o.ml
+   cp ${ocamlsource}/camlp4/etc/pa_op.ml .
+   ocamlopt -c -I `camlp4 -where` -pp "camlp4r pa_extend.cmo q_MLast.cmo" \
+	-o pa_op.cmx pa_op.ml
+
+   You might want to copy the two cmx files to some ${lib}
+   directory. If this differs from ``ocamlc -where'' you have to
+   add ``-I ${lib}'' in step 4 below.
+
+3. foo.cmx: Compile all the modules you want to load to camlp4 to
+   native-code.
+
+4. Do
+
+   ocamlopt -linkall -I `camlp4 -where` \
+      odyl.cmxa camlp4.cmxa \
+      pa_o.cmx pa_op.cmx \
+      pr_dump.cmx \
+      foo.cmx \
+      ${ocamlsource}/camlp4/odyl/odyl.cmx
+
+   Note the -linkall! The second line is for the camlp4 runtime
+   system. The third line is for standard ocaml syntax (with
+   optimized parsers). The fourth line contains the standard
+   printer (leave it out if you use your own printer). The fivth
+   line is your camlp4 extension. The last line is for the main
+   program.
+
+   If you get wired errors about non-matching interfaces: Make
+   sure your ocaml source tree is in sync with our ocaml
+   installation!
+
+
+4. Try it! I tried it on Otags, the TAGS generator from
+   Jean-Francois Monin. Otags just uses camlp4 parsers and some
+   customized printers (_not_ the usual camlp4 preprocessor to
+   ocamlc approach). My biggest ocaml repository contains 51000
+   lines of code in 121 files (1.4 MB). TAGS generation time
+   drops from 10.4 seconds to 1.9 seconds. (I'll post an Otags
+   patch in a separate email in the near future.)
+
+
+WHAT IF YOU DON'T NEED EXTENSIBLE GRAMMARS?
+
+   Substitute ``${ocamlsource}/camlp4/compile/pa_o_fast.cmx'' for
+   ``pa_o.cmx pa_op.cmx'' in line 3 in step 4 above. 
+
+   Apparently there exists some way to compile camlp4 EXTEND
+   expressions to plain stream parser source code. This is used
+   during the ocaml build to generate pa_o_fast.ml from pa_o.ml
+   and pa_op.ml. camlp4o.opt contains pa_o_fast.cmx.
+
+   Applied to Otags this increases its speed by another factor 
+   of 2. Now it takes mearly 1.2 second to generate the TAGS.
+   This is almost 10 times faster than the original!
+
+
+WHAT ABOUT THE REVISED SYNTAX?
+
+   Leave out step two and substiture ``pa_r.cmx pa_rp.cmx'' in
+   line 3 in step 4 above. 
+
+   There is no pa_r_fast.ml. camlp4r.opt contains extensible
+   grammars. 
+
+
+QUESTIONS TO EXPERTS AND CAMLP4 MAINTAINERS:
+
+1. Why is the -linkall neccessary? Its clear to me that one needs
+   the -linkall when building camlp4o. However, I don't
+   understand why camlp4o.opt needs the -linkall.
+
+2. Is the process that generates pa_o_fast.ml applicable to all
+   camlp4 grammars? Why is it not used for the revised syntax?
+   What is the option -meta_action of pa_extend.cmo doing?
+
+3. Would it be possible to include a ``mknativecamlp4'' script
+   that automates the described procedure in the next
+   distribution? 
+
+   Would it be possible to build and install pa_o.cmx, pa_op.cmx,
+   pa_o_fast.cmx, and odyl.cmx? 
+    
+** Michel Mauny answered:
+
+> 1. Why is the -linkall neccessary? Its clear to me that one needs
+>    the -linkall when building camlp4o. However, I don't
+>    understand why camlp4o.opt needs the -linkall.
+
+It is because of the programming style used in the modules to be
+linked: some of them are not referenced (and therefore not linked in
+without -linkall), but have useful actions in their initialisation
+code, such as fill in an external reference with a function they've
+just defined. The -linkall option makes sure that all initialisation
+codes are executed.
+
+Now I agree with you that it looks strange. What I did (in the CVS)
+is to use -linkall for building camlp4.cmxa: this way your recipe
+works even without -linkall.
+
+> 2. Is the process that generates pa_o_fast.ml applicable to all
+>    camlp4 grammars?
+
+No: it relies on the particular structure of files pa_o.ml and
+pa_op.ml.
+
+>    Why is it not used for the revised syntax?
+
+I suspect the revised syntax is meant to stay extensible, and this
+extensibility would be lost if the parser was compiled `as much as'
+the one obtained in pa_o_fast. This is just a guess: I don't master all
+Camlp4 secrets (yet) ;-)
+
+>    What is the option -meta_action of pa_extend.cmo doing?
+
+It decides wether actions are to be interpreted as expressions or
+meta-expressions (expressions at the meta-level). In short, it decides
+wether "2+3" is parsed as the expression 2+3 or the expression
+<:expr<2+3>>.
+
+> 3. Would it be possible to include a ``mknativecamlp4'' script
+>    that automates the described procedure in the next
+>    distribution?
+
+I'll see what I can do, but note that this not a top priority right now.
+
+>    Would it be possible to build and install pa_o.cmx, pa_op.cmx,
+>    pa_o_fast.cmx, and odyl.cmx?
+
+Done in the CVS.
+    
+** Hendrik Tews asked and Michel Mauny answered:
+
+> > > Why is it not used for the revised syntax?
+> >
+> > I suspect the revised syntax is meant to stay extensible, and this
+> > extensibility would be lost if the parser was compiled `as much as'
+> > the one obtained in pa_o_fast.
+>
+> No, this cannot be the reason. You can never extend the natively
+> compiled version because you cannot load any modules.
+
+Yes, you're right. Then, I don't know. It might be possible, if
+pa_r.ml and pa_rp.ml have the right structure (to be processed in the
+same way, producing a pa_r_fast.ml).
+    
+========================================================================
+4) Why must types be always defined at the top level?
+------------------------------------------------------------------------
+** John Hughes asked:
+
+As I revise my course notes from SML/NJ to OCaml, I find myself asking
+some design questions --- "Why did they do it THIS way?". I should
+probably ask "Why is this way the right way to do it, regardless of
+the original motivation?," but let's assume the answers are the same.
+
+1. Why no eqtypes? The idea of having the type-checker verify that you
+weren't doing equality testing on non-equality-testable types seemed
+like GOOD thing in SML, and I was surprised to see it gone.
+
+2. Why no "end" on "let" expressions, i.e.,
+
+ let a = 3 and b = 2 in a + b;;
+
+rather than
+
+ let a = 3 and b = 2 in a + b end; ?
+
+3. Why semicolons for separating list items, so that
+
+  [2,3] is interpreted as [(2,3)] ?
+
+4. Why expose the hardware with float (and make it have equality
+testing) rather than continue with "real" (which was not an eqtype, if
+I recally correctly)?
+
+------------
+
+I'm sure these were all good decisions, but I'd like to better
+understand them.
+    
+** Xavier Leroy answered:
+
+> 1. Why no eqtypes? The idea of having the type-checker verify that you
+> weren't doing equality testing on non-equality-testable types seemed
+> like GOOD thing in SML, and I was surprised to see it gone.
+
+Eqtypes have been hotly debated even among the SML designers.  My
+feeling is that it's not worthwhile to have a special, hard-wired
+mechanism in the type checker just for the sake of equality.  There is
+a general need to have polymorphic operations that are 1- not defined on
+all instantiations of their types, and 2- can be defined differently
+on different instantiations.  Haskell type classes are an example of a
+*general* mechanism that addresses this need; GCaml's "extentional
+polymorphism" is another.  But SML's eqtypes are just not general at all.
+
+> 2. Why no "end" on "let" expressions, i.e.,
+>
+>  let a = 3 and b = 2 in a + b;;
+>
+> rather than
+>
+>  let a = 3 and b = 2 in a + b end; ?
+
+Ah, syntax...  Without entering in a debate on which syntax is "better",
+let me just give an historical reason: there was no "end" on "let"
+expressions in the original LCF ML, from which Le_ML, then the first
+Caml, then Caml Light, then OCaml derive.  We don't like gratuitous
+syntax changes :-)
+
+> 3. Why semicolons for separating list items, so that
+>
+>   [2,3] is interpreted as [(2,3)] ?
+
+Why not?  Again, I guess this is historical.  Both SML and the various
+Camls use two symbols "," and ";" to denote three different things
+(tuples, lists and arrays, and sequence).  SML "overloads" the comma
+to mean two of these things, Caml overloads the semicolon.
+
+> 4. Why expose the hardware with float (and make it have equality
+> testing) rather than continue with "real" (which was not an eqtype, if
+> I recally correctly)?
+
+Unless a language offers exact-precision arithmetic on computable
+reals, I strongly object to the use of the word "real" to refer to
+what's merely floating-point numbers.  Floats aren't reals by any
+stretch of the imagination, and the earlier the programmer realizes
+this, the better.
+
+As to whether equality should be defined on floats, there are pros and
+cons.  My standpoint is that it's eventually better to stick to
+established standards (that is, IEEE float arithmetic) rather than try
+to reinvent a wheel likely to be even squarer than these standards.
+Prof. Kahan found it worthwhile to fully define equality over floats;
+I'll abide by his wisdom.
+    
+** John Hughes asked another question:
+
+I have one more question, though:
+
+5. Why can I no longer type-annotate things I've written, so that
+
+let f x y z = (x = y) & (y = z)
+
+defines a function applicable to ALL types? I actually *liked*
+being able to say something like
+
+let f x y z:int = (x = y) && (y = z)
+
+so that it would be restricted to ints. (It frequently helped me to
+untangle cryptic error messages that ML produced, AND to document
+my intent as I wrote code). I can still
+trick it into doing that, by something like
+
+let f = function
+  | (x,y,z) -> (x==y) && (y == z)
+  | (a,b,_) -> (a-b) = 0;;
+
+which will turn out to never invoke the second case, but still
+restrict the
+type. But surely this is not more readable/maintainable code...(Yes, I
+know
+it has a slightly different signature, but I didn't have the heart to
+work around that just now).
+
+Thanks again for the informative answers.
+    
+** David Brown and  Olivier Andrieu answered:
+
+David Brown:
+      
+You can, you just need parens:
+
+  # let f x y (z:int) = (x = y) && (y = z)
+  val f : int -> int -> int -> bool = <fun>
+
+Olivier Andrieu:
+
+Actually, it's annotating the return value of f (ie the right hand
+side of the =). To annotate f, you have to use this syntax :
+
+# let f x y z : bool = (x = y) & (y = z) ;;
+val f : 'a -> 'a -> 'a -> bool = <fun>
+# let f : int -> int -> int -> bool = fun x y z -> (x = y) & (y = z) ;;
+val f : int -> int -> int -> bool = <fun>
+    
+========================================================================
+5) Thread and kernel 2.6 pb still there in CVS
+------------------------------------------------------------------------
+** Christophe Raffalli asked and Xavier Leroy answered:
+
+> In the latest CVS of ocaml there is still the periodic call Thread.yield
+> (through a sigalarm) in thread_posix.ml
+
+Yes, and that is necessary to get preemptive scheduling.  Without this
+periodic Thread.yield, a thread that performs no I/O and no
+inter-thread communications would prevent all other Caml threads from
+running at all.
+
+> This implies that a threaded OCaml program ON A LINUX KERNEL 2.6 (at
+> least 2.6.3 on Mandrake 10, but probaby all 2.6) gets very little CPU
+> when another process is running (the usual figure is 10% CPU for the
+> threaded OCaml program against 90% for another program)
+
+Thread.yield does three things:
+   - release the global Caml mutex, giving other Caml threads a chance
+     to grab it and run;
+   - call sched_yield() to suggest the kernel scheduler that now is
+     a good time to schedule another thread;
+   - re-acquire the global Caml mutex before returning to the caller.
+
+The 2.6 Linux kernels changed the behavior of sched_yield() in a way
+that causes the unfairness you observed.  Other threaded applications
+are affected, including Open Office (!).  My belief is that it's
+really a bug in 2.6 kernels and that the new behavior of sched_yield(),
+while technically conformant to the POSIX specs, lowers the quality of
+implementation quite a lot.
+
+(I seem to remember from my LinuxThreads development days that this
+isn't the first time the kernel developers broke sched_yield(), then
+realized their error.)
+
+The question I'm currently investigating is whether the call to
+sched_yield() can be omitted, as it's just a scheduling hint.  Initial
+experiments suggested that this would hurt fairness (in Caml thread
+scheduling) quite a lot on all platforms other than Linux 2.6.
+More careful experiments that I'm currently conducting suggest that it
+might not be so bad.  One can also play games where sched_yield()
+isn't called if there are no other Caml threads waiting for the global
+Caml mutex.
+
+In summary, a solution will eventually be found, but please be
+patient, and submit a bug report next time.
+    
+** Benjamin Geer added:
+
+> The question I'm currently investigating is whether the call to
+> sched_yield() can be omitted
+
+Ingo Molnar has suggested calling nanosleep() or sem_timedwait(sem,
+abs_timeout) instead:
+
+<http://www.uwsg.iu.edu/hypermail/linux/kernel/0312.2/1127.html>
+    
+========================================================================
+6) Seattle ML SIG meeting
+------------------------------------------------------------------------
+** Brandon J. Van Every said:
+
+On Monday, June 14 we had a meeting of the (first ever?) Seattle OCaml
+Special Interest Group. It was 3 people, the beer was good, and the
+discussion was lively. I now want to broaden the mission statement to
+include all ML'ers. I think we might get a few more people that way.
+
+We agreed that The Stumbling Monk, a Belgian pub in Capitol Hill, was
+a good venue for beer. We also thought that meetings at roughly 3 week
+intervals is the right pace. Yes that's a funny number to remember,
+but 2 weeks is too quick and once a month is too slow. So we
+think. Anyways, I would like to organize the next meeting for the week
+of july 5th, at The Monk again. Day and time to be decided.
+
+Please e-mail me if interested.
+    
+========================================================================
+7) Writing a JIT compiler
+------------------------------------------------------------------------
+** Jon Harrop asked:
+
+I'm trying to convert an interpreter written in OCaml into a JIT compiler.
+Generating OCaml code from host code seems to be the best way to do this as
+the generated code can then use the interpreter's data structures and
+functions.
+
+However, I'm currently creating temporary source files, calling ocamlopt and
+using marshalling to another temporary file in order to get the data back and
+forth.
+
+Is there a better way of doing this?
+    
+** Benjamin Geer answered, Jon Harrop asked, and Basile Starynkevitch answered:
+
+Jon Harrop wrote:
+> Benjamin Geer wrote:
+> > There's already a JIT compiler for OCaml code:
+> >
+> > <http://cristal.inria.fr/~starynke/ocamljit.html>
+>
+> So maybe I could get ocamljitrun to execute my interpreter and write my
+> interpreter to dynamically convert host code into OCaml bytecode which can
+> then be JIT compiled into native code and dynamically linked back in with the
+
+Ocamljitrun is a plugin replacement for ocamlrun (and libcamlrun.a,
+renamed as libcamljitrun.a) - it executes Ocaml bytecode (by
+translating them transparently into native code). It works with
+dynamically linked ocaml modules and toplevels.
+
+So your interpreter might generate Ocaml bytecode (perhaps reusing the
+"lambda" representation of Ocamlc) - and ocamljitrun will, when
+interpreting it, translate the bytecode to machine code.
+
+Ocamljitrun requires latest Ocaml CVS or future Ocaml 3.08. (the
+current 3.07 release won't work with it).
+
+Feel free to ask me additional questions about it.
+
+As I told in my previous posting, you might have a look into MetaOcaml
+(see <http://metaocaml.org/> for more).
+    
+** Basile Starynkevitch answered the original post:
+
+Definitely have a look at <http://cristal.inria.fr/~starynke/ocamljit.html>
+
+You did not explain why are you writing a JIT (speed issues?) and what
+is the target language (x86 machine code, assembler, C, Ocaml?)  of
+your JIT.
+
+You might generate "lambda" representation (see
+ocaml/bytecomp/lambda.mli) of the compiler, or at least typed trees
+(see ocaml/typedtree.mli).
+
+You might use MetaOcaml see <http://metaocaml.org/>
+
+Some of their papers might help:
+<http://www.cs.rice.edu/%7Etaha/publications/conference/gpce03b.ps>
+<http://www.cs.rice.edu/%7Etaha/publications/preprints/2004-02-16.ps>
+<http://www.cs.rice.edu/%7Etaha/publications/journal/tcs00.pdf>
+
+You might generate C-- code: see <http://cminusminus.org/>
+    
+** Jon Harrop then asked and Basile Starynkevitch answered:
+
+> If ocamljitrun is based upon a GNU library then it must be GPL, is
+> that right?
+
+Ocamljitrun & GNU lightning - the library used by Ocamljitrun - are
+under LGPL = GNU *lesser* general public license. Also, ocamljitrun is
+slower (on running your Ocaml source code) than code compiled with
+ocamlopt, but faster than bytecode interpreted by
+ocamlrun. Ocamljitrun has the usual LGPL exception common in Ocaml
+INRIA code. (I don't know if it apply to the GNU lightning itself).
+
+Because of a bug in GNU lightning, ocamljitrun currently crashes on
+PowerPC.
+
+I am definitely not a lawyer (and the constitution, laws and contracts
+I am under - french law and INRIA temporary work contract - are
+probably not the laws and contracts which govern you - probably US
+laws) - but as far as I know ocamjitrun is under GNU LGPL - ie Lesser
+GPL licence, like GNU lightning which it is using.
+
+However, the usual meta-advice is that for legal advice, you should
+ask professional lawyers. Never take any word I am telling on legal
+stuff seriously - I AM NOT A LAWYER!
+
+> > You did not explain why are you writing a JIT (speed issues?)
+>
+> Yes, purely for speed.
+
+J-M.Eber also have similar concerns (he is writing a commercial
+product in and with Ocaml). I think that his company (Lexifi) is
+member of the Ocaml consortium.... His concern is to accelerate a
+function doing many floating point operations and a few Ocaml function
+application. The function is dynamically generated at runtime by his
+complex product. I suggested him to generate C code (calling the
+appropriate OCaml caml_callback* when needed to apply functions) and
+then compile it (by forking a gcc command) as a shared library, and
+then dlopen it and using dlsym to get the function pointer and at last
+call it. You'll have to dlclose the library after using it. In
+principle, it is like using the Dynlink module, but ugly details
+differ.
+
+> > and what is the target language (x86 machine code, assembler, C,
+> > Ocaml?) of your JIT.
+>
+> Anything which can be efficiently compiled into x86 and PPC machine
+> code using tools which are free for commercial use. Currently, I'm
+> outputting OCaml and using ocamlopt which produces great code but
+> isn't free (enough) and can't dynamically link the JIT compiled code
+> back in. I should probably investigate more efficient ways to
+> marshal data between two programs.
+
+I believe that existing marshalling routines are quite fast. I'm not
+sure you'll easily recode equivalent functionality (in particular
+polymorphism) running much faster.
+
+> I think that the bits which I want to compile are quite simple -
+> just functions to do tree manipulations which I want to partially
+> specialise over the manipulations which they perform.
+
+> > You might generate "lambda" representation (see
+> > ocaml/bytecomp/lambda.mli) of the compiler, or at least typed trees
+> > (see ocaml/typedtree.mli).
+>
+> I'll check these out, thank you.
+>
+> > You might use MetaOcaml see <http://metaocaml.org/>
+>
+> AFAIK there still isn't a native-code version.
+
+I suppose that next version of MetaOcaml should be compatible with
+Ocamljitrun (because it is compatible with next release of Ocaml).
+
+> > You might generate C-- code: see <http://cminusminus.org/>
+
+> This seems to be my best bet so far. How easy would be it to retarget
+> ocamljitrun to use C-- (it's totally free)?
+
+It is not worth doing it (and it should be boring). My suggestion was
+to generate C-- code independently of ocamljitrun. But details are
+probably clever. Regarding licensing issues of C--, go the C-- web
+page or mailing list.
+
+> > So your interpreter might generate Ocaml bytecode (perhaps reusing
+> > the "lambda" representation of Ocamlc) - and ocamljitrun will, when
+> > interpreting it, translate the bytecode to machine code.
+
+> The two main problems with that are the speed hit that my
+> interpreter would take (because it could no longer be from ocamlopt)
+> and, I assume, the GPL on GNU lightning.
+
+You should be aware that GNU lightning is LGPL not GPL and that there
+are big licensing differences between both. Also, ocamljitrun is a
+standalone executable - which you can run in many ways, much like you
+can use GNU emacs (which is under GPL, not LGPL) to edit whatever
+material you want.
+
+Ask your lawyer about LGPL licensing issues - from my "academic" point
+of view, I see none. but I am not a lawyer!
+
+Also note that ocamljitrun is a binary which is a plugin replacement
+for ocamlrun, this means that (as far as I understand your needs) you
+don't need to link it with your program. This means that the
+hypothetical linking issues of the LGPL is not a concern. In my
+non-lawyer opinion, ocamljitrun is like ocamlrun so can run any
+program you like, including commercial ones.
+
+But I tend to believe that asking a lawyer or a legal expert is the
+best solution to legal problems. Before going to your lawyer, read
+careful the many materials on GPL & LGPL available on the Web.
+
+All opinions here are mine only....
+    
+** Daniel Bünzli said:
+
+> I suggested him to generate C code (calling the
+> appropriate OCaml caml_callback* when needed to apply functions) and
+> then compile it (by forking a gcc command) as a shared library, and
+> then dlopen it and using dlsym to get the function pointer and at last
+> call it. You'll have to dlclose the library after using it. In
+> principle, it is like using the Dynlink module, but ugly details
+> differ.
+
+If I remember well, Christophe Raffalli adopts a similar technique in
+his program GlSurf. You may want to have a look to his (LGPL'd) code
+[1].
+
+Daniel
+
+[1] <http://www.lama.univ-savoie.fr/~raffalli/glsurf>
+    
+** Julian Brown asked and Basile Starynkevitch answered:
+
+Julian Brown wrote:
+> Basile Starynkevitch wrote:
+> > Also note that ocamljitrun is a binary which is a plugin replacement
+> > for ocamlrun, this means that (as far as I understand your needs) you
+> > don't need to link it with your program. This means that the
+> > hypothetical linking issues of the LGPL is not a concern. In my
+> > non-lawyer opinion, ocamljitrun is like ocamlrun so can run any
+> > program you like, including commercial ones.
+
+My feeling is that custom linking is nearly obsolete - better use dll
+libraries which are well supported in ocaml now.
+
+> Sorry for changing the subject, but can ocamljitrun be used with
+> "ocamlc -custom"? I have a program which uses some small C modules,
+> and I couldn't find an obvious way to make it compile or run using
+> ocamljitrun. AFAIK, -custom links the bytecode interpreter with the
+> binary as part of its magic.
+
+It is doable by linking the libcamljitrun.a instead of
+libcamlrun.a. Since -lcamlrun is a builtin library name (in ocamlc
+-custom), the trick (suggested by Xavier Leroy) is to copy
+libcamljitrun.a into a unique directory like
+/usr/local/lib/ocamljitdir/ and pass -cclib
+-L/usr/local/lib/ocamljitdir/ to your ocamlc command.
+
+> On topic, does that affect licencing? It doesn't really matter to me,
+> but it might for some people I guess...
+
+Ocamljitrun is under LGPL as is GNU lightning. I believe that the
+special exception applying to Ocaml like software like ocamljitrun do
+not apply to the GNU lightning library, which is LGPL, but as I said
+many times, I AM NOT A LAWYER.
+
+the Ocamljit library should be buildable as a shared library - just
+edit the GNUUmakefile of ocamljit appropriately to add -fPIC to the
+compilation command, and build a shared library instead of a static
+one. As usual on x86 there is a small penalty (because of register
+shortage for global offset table access) in shared libraries.
+    
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

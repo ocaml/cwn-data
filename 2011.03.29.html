@@ -1,0 +1,522 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2011.03.22.html">Previous week</a> <a href="index.html">Up</a> <a href="2011.04.05.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of March 22 to 29, 2011.</p><ol><li><a href="#1">fighting the type system</a></li><li><a href="#2">Ocaml and cryptography</a></li><li><a href="#3">Core{,extended} 0.7.0 and support libraries now out of beta.</a></li><li><a href="#4">Efficient OCaml multicore -- roadmap?</a></li><li><a href="#5">What are "Language extensions"?</a></li><li><a href="#6">Netamqp, a client for AMQP-0-9-1</a></li><li><a href="#7">Other Caml News</a></li></ol><a name="1" /><hr /><h3>fighting the type system</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2011-03/msg00165.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2011-03/msg00165.html</a></p><i>Joel Reymont asked and Jacques Garrigue replied:</i><br /><pre>
+&gt; How do I do this?
+&gt; 
+&gt;       Thanks in advance, Joel
+
+Well, you don't because this is clearly unsound.
+
+&gt; --- Util.ml
+&gt; 
+&gt; type 'a writable = &lt; write : Protocol.t -&gt; unit; .. &gt; as 'a
+&gt; 
+&gt; module type Endpoint = 
+&gt; sig 
+&gt;  val request : unit -&gt; 'a writable
+&gt;  val response : 'a writable -&gt; 'b writable
+&gt;  val read_request : Protocol.t -&gt; 'a writable
+&gt;  val read_response : Protocol.t -&gt; 'a writable
+&gt; end
+
+Your definition of 'a writable is actually equivalent to writing
+
+  class type writable = object method write : Protocol.t -&gt; unit end
+
+and replacing uses of 'a writable by #writable.
+The trouble is that returning a value of type #writable is unsound,
+since it means that this value has any possible method, including write.
+So you would be able to write:
+     (request ())#foo
+and have the type checker happily comply.
+
+I'm not sure of what you're trying to do.
+If you just want the Endpoint interface to specify an object type
+containing at least write, you could use a private row type:
+
+module type Endpoint = 
+sig
+ type writable = private &lt;write : Protocol.t -&gt; unit; .. &gt;
+ val request : unit -&gt; writable
+ val response : writable -&gt; writable
+ val read_request : Protocol.t -&gt; writable
+ val read_response : Protocol.t -&gt; writable
+end
+
+You can then instantiate it with a concrete type, using
+   Endpoint with type writable := mywriter
+      </pre><i>Joel Reymont then asked and Jacques Garrigue replied:</i><br /><pre>
+&gt; The private row type is what I was clearly missing.
+&gt; 
+&gt; Why does it work with the private row type, though? 
+
+Because if you just define a constrained type every occurrence is
+going to be a different instance of this type, while a private row type
+ensures that this is the same type throughout the module.
+
+&gt; Are there other uses for 'private' in a module?
+&gt; 
+&gt; Is the use of private row types described somewhere?
+
+They are described described in section 7.9.3 of the manual:
+<a href="http://caml.inria.fr/pub/docs/manual-ocaml/manual021.html#toc76">http://caml.inria.fr/pub/docs/manual-ocaml/manual021.html#toc76</a>
+
+You can find more examples in my paper:
+<a href="http://www.math.nagoya-u.ac.jp/~garrigue/papers/privaterows-aplas2006.pdf">http://www.math.nagoya-u.ac.jp/~garrigue/papers/privaterows-aplas2006.pdf</a>
+      </pre><a name="2" /><hr /><h3>Ocaml and cryptography</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2011-03/msg00171.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2011-03/msg00171.html</a></p><i>Jehan Pagès announced:</i><br /><pre>
+I was just having a few thoughts/questions.
+
+I have developed, in the context of another project, a Sha1
+implementation (also a HMAC implementation and above this all a SASL
+implementation with SCRAM-SHA1 mechanism support). That's not a
+binding to any existent library and is fully native Ocaml. No C in
+particular.
+
+That's all working fine and is fast enough for being comfortable. But
+that's definitely not as fast as a C implementation.
+I made a small benchmark with OpenSSL's SHA1 functions and mine. Both
+tests are loops running 10.000 Sha1 of the same string, then exiting.
+Basically C goes around 6-10 times faster.
+
+Note: my machine is a small notebook which is not powerful enough to
+play most video games, nor even watch videos when they have a little
+too high quality (and I am not talking of HD)! So on common desktop
+machines, the test should go much faster for both version, but I guess
+keep the same speed proportions. You might want to raise the loop to
+100.000 though in order to see the difference.
+
+Here are examples of such a run checked with time (there is some
+variance between 2 runs, but the Ocaml version usually computes the
+10.000 hashes in around 0.4 seconds while the C version computes them
+in about 0.06 seconds):
+
+~/SHA1$ time ./obench
+
+real    0m0.416s
+user    0m0.400s
+sys     0m0.000s
+~/SHA1$ time ./cbench
+
+real    0m0.069s
+user    0m0.060s
+sys     0m0.004s
+
+I checked the standard lib code and the MD5 code has been written in C
+over there. Apparently the cryptokit library as well is writing core
+cryptography in C.
+
+I still think my code is pretty clean. I have made as much
+optimization as I saw possible and though maybe other may be able to
+still optimize it, I wonder up to which point now.
+
+I am doing all computations over Int32 because the Sha1 algorithm
+works over 4 octets words. At first, I was doing the "naive" approach
+and was working on strings directly (going back and forth from a
+character code to the character) but that was like extremely slow
+(really). Still it allowed me to get the first working implementation.
+
+Implementing with int, which is supposed to be much faster than int32,
+would be nice (even though integers can be 64 bits on a 64 bits
+platform, I can just mask the 4 higher octets in such case), but int
+in OCaml is actually 31/63 bits because of the flag bit so I cannot
+represent SHA1 words with int.
+
+For those interested, you can download the benchmark (which includes
+the code of Sha1) here:
+<a href="http://download.tuxfamily.org/ocamlxmpp/sha1_benchmark.tar.gz">http://download.tuxfamily.org/ocamlxmpp/sha1_benchmark.tar.gz</a> ;(just
+3ko).
+Just run make in the SHA1 directory which will be uncompressed, it
+will create cbench and obench (a SSL library is needed for the C
+benchmark, likely OpenSSL or other with the same API. Nothing external
+is needed for the Ocaml one).
+
+Maybe anyone has suggestions to improve?
+Or Ocaml simply cannot compete with C here? (I don't mean to do
+better, but getting closer would be already nice)
+      </pre><i>Jehan and Gerd Stolpmann then continued the conversation:</i><br /><pre>
+&gt; &gt; (Gerd)
+&gt; &gt; Funnily I did a SCRAM implementation for GSS-API a few weeks ago:
+&gt; &gt; <a href="https://godirepo.camlcity.org/svn/lib-ocamlnet2/trunk/code/src/netmech-scram/">https://godirepo.camlcity.org/svn/lib-ocamlnet2/trunk/code/src/netmech-scram/</a>
+&gt; (Jehan)
+&gt; Nice. What will be the use? (if there is any upper level project
+&gt; unless adding a feature for the library was the only goal right now?)
+
+(Gerd)
+The motivation is that I currently develop a map/reduce platform (Plasma
+- plasma.camlcity.org), and I was looking for a way to secure the
+communication channels between the various components. Plasma uses
+ONC-RPC, and hence a GSS-API mechanism fits best. I chose SCRAM because
+of its simplicity - the alternatives would have been Kerberos, or
+SPNEGO. However, these alternatives would have complicated the
+deployment of the platform.
+
+For GSS-API, SCRAM also supports encryption and integrity, so it is a
+full-featured solution.
+
+&gt; &gt; (Gerd)
+&gt; &gt; It does not implement the crypto primitives in Ocaml, though, but simply
+&gt; &gt; uses XL's cryptokit package - which is a quite complete C
+&gt; &gt; implementation.
+&gt; &gt;
+&gt; &gt; &gt; That's all working fine and is fast enough for being comfortable. But
+&gt; &gt; &gt; that's definitely not as fast as a C implementation.
+&gt; &gt; &gt; I made a small benchmark with OpenSSL's SHA1 functions and mine. Both
+&gt; &gt; &gt; tests are loops running 10.000 Sha1 of the same string, then exiting.
+&gt; &gt; &gt; Basically C goes around 6-10 times faster.
+&gt; &gt;
+&gt; &gt; This is something I observed already earlier for my cryptgps package
+&gt; &gt; (which implements Blowfish and DES -
+&gt; &gt; <a href="https://godirepo.camlcity.org/svn/lib-cryptgps/trunk/">https://godirepo.camlcity.org/svn/lib-cryptgps/trunk/</a>). Ocaml is not a
+&gt; &gt; good compiler for this kind of code. I tried it both with int32 and with
+&gt; &gt; normal ints (i.e. a 32 bit word is represented as two ints, where each
+&gt; &gt; int gets 16 bits). Both approaches achieve about the same speed (on 32
+&gt; &gt; bit platforms), and are a small factor slower than C (I think it was
+&gt; &gt; around 4-5 times slower after endless optimizations).
+&gt;
+&gt; (Jehan)
+&gt; Indeed. About these endless optimization... I had another response
+&gt; (not made it to the list) with a link to uuidm code (also
+&gt; implementation a native Ocaml SHA1). I saw it uses Char.unsafe_chr
+&gt; instead of Char.chr. I didn't know this function, checked the source
+&gt; of ocaml, saw it is indeed in the interface but hidden behind (**/**)
+&gt; (so it did not appear in the doc).
+&gt; 
+&gt; In my benchmark, I think it improves a little, but barely (enough so
+&gt; that I am not fully sure if the improvement I see is the randomness of
+&gt; consecutive benchmark tests). Still I keep it (as you say, endless
+&gt; optimizations: that's mostly when you don't know what else to do) as
+&gt; my code already makes sure that the code I pass to make a char is
+&gt; valid. But I wonder if this hidden function is meant to disappear some
+&gt; day... Is there some official status about this function?
+
+I don't think so, but such functions tend not to disappear from the
+Ocaml runtime (and I'm watching this for more than 10 years).
+
+&gt; &gt; One of the problems seems to be that you cannot enforce to keep the
+&gt; &gt; int32 values in registers all the time (at least in the inner loops). So
+&gt; &gt; there are constantly boxing and unboxing operations. Even worse, this
+&gt; &gt; also causes that memory is allocated all the time, and is of course also
+&gt; &gt; cleaned up all the time.
+&gt; 
+&gt; I see. So that's a limitation of the Ocaml compiler or is it anyway
+&gt; very difficult to have control on this kind of thing?
+
+It's a representation issue. If an int32 value cannot remain in a
+register, it needs to be "boxed", i.e. it is stored in a small memory
+block that is specially allocated for this purpose. Although Ocaml is
+very good at managing short-living memory blocks, there is a measurable
+slowdown.
+
+There is also the analysis complexity in the compiler which has to find
+out when it is possible to keep a value in a register. The compiler
+seems not to be written for optimizing small imperative loops as they
+occur in cryptography. I guess this is just a matter of how much effort
+you put into this.
+
+&gt; &gt; I haven't checked on a 64 bit platform (at that time - ~10 years ago - I
+&gt; &gt; did not have access to one). 64 bit platforms have more registers, and
+&gt; &gt; there is no need to use int32.
+&gt; 
+&gt; Yes I was thinking for quite some time (I mean, some days as this code
+&gt; is a few days old anyway) to try a int implementation when the
+&gt; platform is 64 bits (masking over 4 bytes). I just decided to do so
+&gt; yesterday. And it divides the benchmark time by 2.
+&gt; 
+&gt; On the small 64 bits machine I have access (slow but slightly faster
+&gt; than my netbook), my Int32 implementation was running my benchmark in
+&gt; 0.25 seconds, and the int implementation of the same code otherwise in
+&gt; 0.12 seconds!
+
+This is the price tag for these boxing operations.
+
+&gt;  So now I make some conditional implementation with
+&gt; macros so that I use int on 64 bits platform and the generic Int32 on
+&gt; 32 bits (or if I can't detect for sure I am on 64 bits).
+&gt; 
+&gt; But the C implementation must have made some crazy optimization in
+&gt; assembly for 64 bits platform because they run in around 0.008
+&gt; seconds! So they are like 15 times faster now from my Ocaml
+&gt; implementation when it uses int!
+
+There are probably some more optimizations you can do. For example, CPUs
+have a feature called speculative execution - when a conditional jump is
+found, they cannot easily continue filling their execution pipeline,
+because they do not know whether the jump is done or not done. So what
+they do is that they guess (and they are good at guessing, but not
+perfect), and execute one of the outcomes of the condition speculatively
+(so that the effects can be undone). Although this is an interesting
+optimization in the CPU there is still some price to pay. The point is
+now that it is best to avoid such jumps at all, because the normal
+execution flow can then continue. If you write the assembly code
+directly, and know the runtime characteristics of the CPU well, one can
+greatly speedup the code by avoiding conditional jumps (e.g. by using
+conditional moves, or by bit shifting tricks). Compilers have a hard
+time generating such code.
+
+Gerd
+
+&gt; Oh and to come back to macros (using pa_macro with camlp4o), why is
+&gt; int validity checked by camlp4?!
+&gt; I had some tests like this:
+&gt; 
+&gt; IFNDEF ARCH_64 THEN
+&gt;         0x8F1BBCDCl
+&gt; ELSE
+&gt;         0x8F1BBCDC
+&gt; ENDIF
+&gt; 
+&gt; Then when on a 32 bits machine, this stupid camlp4 ends in error
+&gt; because 0x8F1BBCDC is over max_int! But that's why I do the IFDEF
+&gt; test! Why does it ever bother checking this? I thought camlp4 was only
+&gt; about syntax, not about code validation. If camlp4 was to only do its
+&gt; job and pass the code to the compiler, this one would tell me if I
+&gt; really made an int error (which was not the case).
+&gt; Anyway that's not nice, I had to pass these int values as additional
+&gt; macros instead which is not pretty in my opinion.
+&gt; 
+&gt; &gt; My recommendation would be to avoid Ocaml for this type of code. The
+&gt; &gt; compiler does not recognize that there is a loop it could completely
+&gt; &gt; translate in unboxed mode. As far as I understand, a lot of work would
+&gt; &gt; be required to make the compiler better here, and it would only affect a
+&gt; &gt; few types of code (cryptography, pixel graphics, inner loops of
+&gt; &gt; numerical algos).
+&gt; 
+&gt; I see. Still I am pretty happy of my code right now. It is not as good
+&gt; as OpenSSL, but that's still pretty good when you think of it. I am
+&gt; still doing 10.000 computations now in around 0.1 second on very weak
+&gt; machines (even my notebook which does not read most videos well, I
+&gt; have now optimized down to around 0.35 seconds).
+&gt; 
+&gt; I think I'll stop here for my sha1 implementation (unless someone
+&gt; points me to some really neat improvement I did not see). I am happy
+&gt; with it. :-)
+      </pre><a name="3" /><hr /><h3>Core{,extended} 0.7.0 and support libraries now out of beta.</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2011-03/msg00180.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2011-03/msg00180.html</a></p><i>Till Varoquaux announced:</i><br /><pre>
+We are proud to announce the release of core 0.7.0. This is the first
+non beta release that compiles on ocaml 3.12 and also the first to be
+packaged with oasis. The code has been battle tested a bit more and
+should be more stable/better than the 0.7.0~beta1 release. Unlike the
+beta, this release also compiles on OSx.
+
+all the packages are available on:
+<a href="http://www.janestreet.com/ocaml">http://www.janestreet.com/ocaml</a>
+
+One notable change is that the signature of some of the functions in
+type-conv has been changed a little (they don't take a location
+argument anymore when they can infer from another one of their
+arguments). This is more consistent with the camlp4 library and will
+often encourage syntax extension writers to have more precise error
+positions in their generated code whilst writing more readable
+code. The existing extensions that use type-conv might need to be
+ported; this should be a very easy task. If you have any questions
+please reply to this mail or write to opensource AT janestreet.com
+
+Till
+
+P.S.: Here's a small script that was used internally to get/compile
+all the packages.
+
+------------------------------------------------------------------------------
+
+#!/bin/bash
+set -e -u -o pipefail
+
+PKG_ROOT="<a href="http://www.janestreet.com/ocaml">http://www.janestreet.com/ocaml</a>";
+
+if [[ "${RUN_IN:-notset}" = "notset" ]]; then
+ MY_TMP="$(mktemp -d '/tmp/get_jsc_package.XXXXX')"
+ trap "{ rm -rf ${MY_TMP} ; exit 0; }" EXIT
+else
+ MY_TMP="$RUN_IN"
+fi
+
+#Call this script with TEST=yes if you wan to test compilation and linking
+#but not to really install pakages on your machine...
+if [[ "${TEST:-no}" = "yes" ]]; then
+ dst_dir="$MY_TMP/dst"
+ mkdir -p "$dst_dir"
+ ldconf="$dst_dir/ld.conf"
+ cat "$(ocamlfind -printconf ldconf)"  &gt; "$ldconf"
+ export OCAMLFIND_DESTDIR="$dst_dir"
+ export OCAMLFIND_METADIR="$dst_dir"
+ export OCAMLPATH="$dst_dir"
+ export OCAMLFIND_LDCONF="$ldconf"
+fi
+
+if which wget &gt; /dev/null; then
+   DL_METHOD="wget"
+else
+   DL_METHOD="curl"
+fi
+
+function dle () {
+ url="$1"
+ arch="${url##*/}"
+ dl="$MY_TMP/${arch}"
+ WD="$MY_TMP/${arch}.build"
+ rm -rf "$WD"
+ mkdir -p "$WD"
+ case "${url}" in
+     http*)
+         if [[ "$DL_METHOD" = "curl" ]]; then
+             curl -L "$url" -o "$dl"
+         else
+             wget "$url" -O "$dl"
+         fi;;
+     *) cp "$url" "$dl";;
+ esac
+ tar -xvf "$dl" -C "$WD"
+ rm "$dl"
+ FILE_COUNT=`ls "$WD"|wc -l|sed -e 's| *||g'`
+ if [[ "$FILE_COUNT" != "1" ]]; then
+     echo "FILE_COUNT on $(basename "$arch") is $FILE_COUNT" &gt;&amp;2
+     exit 1;
+ fi;
+ pushd "$WD"/* ;
+
+ if [[ -f configure ]]; then
+    chmod +x configure
+   ./configure
+ fi
+
+ #Build script
+ if [[ -f setup.ml ]]; then
+     ocaml setup.ml -build -classic-display
+ else
+     make
+ fi
+ make install
+ popd
+}
+
+dle '<a href="http://forge.ocamlcore.org/frs/download.php/495/ounit-1.1.0.tar.gz">http://forge.ocamlcore.org/frs/download.php/495/ounit-1.1.0.tar.gz</a>'
+dle '<a href="https://launchpad.net/ubuntu/lucid/+source/ocaml-res/3.2.0-2build1/+files/ocaml-res_3.2.0.orig.tar.gz">https://launchpad.net/ubuntu/lucid/+source/ocaml-res/3.2.0-2build1/+files/ocaml-res_3.2.0.orig.tar.gz</a>' 
+#dle '<a href="http://hg.ocaml.info/release/res/archive/release-3.2.0.tar.bz2">http://hg.ocaml.info/release/res/archive/release-3.2.0.tar.bz2</a>'
+for i in type-conv-2.3.0.tar.gz bin_prot-1.3.1.tar.gz fieldslib-0.1.2.tar.gz sexplib-5.2.1.tar.gz core-0.7.0.tar.gz core_extended-0.7.0.tar.gz; do 
+ dle "$PKG_ROOT/$i"
+done
+      </pre><a name="4" /><hr /><h3>Efficient OCaml multicore -- roadmap?</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2011-03/msg00173.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2011-03/msg00173.html</a></p><i>The editor says:</i><br /><pre>
+The yearly multicore discussion has arrived. As usual, it spawned many
+messages (please see the archive link if you want to know more). Next
+are the original message from Alexy Khrabrov and a reply from Fabrice
+Le Fessant with some information from the mothership.
+      </pre><i>Alexy Khrabrov asked and Fabrice Le Fessant replied:</i><br /><pre>
+&gt; Where does the OCaml team stand on the multicore issues?  A year or so ago, 
+&gt; when there was a prototype parallel GC implementation, IIRC, Xavier said it 
+&gt; has to be done right.  So what are the official plans and the status of 
+&gt; integrating what volunteers had done?
+&gt; 
+&gt; WIth Scala having a robust actors model and AKKA kernel, and Clojure built 
+&gt; around efficient shared memory concurrency with agents and references and 
+&gt; STM, and Haskell also really parallel, OCaml is lacking behind.  
+&gt; Furthermore, F# builds on strongly parallel .NET, overcoming granddaddy.  
+&gt; With multicores common even in laptops and iPads, we need an efficient  
+&gt; multicore OCaml!  Due to the model different from Haskell or Scala and 
+&gt; Clojure, now all on github, OCaml is both more stable and also is slower to 
+&gt; advance -- what do folks think about this situation?  How do you do shared 
+&gt; memory parallelism now?
+
+  Actually, I had a discussion two weeks ago with Xavier and Damien
+about this issue. There is some kind of agreement that the ocaml way of
+supporting multicore would be to have several runtimes running in the
+same process, in different threads. That way, the GC would still be
+mono-threaded, so almost no speed loss for mono-threaded programs (i.e.
+currently all OCaml programs ;-) ). There would be some kind of "fork"
+function, that would create a new thread running a function in a new
+heap, probably generated by a copy-on-need algorithm. The different
+threads would not share heap memory, but would be allowed to share
+structures outside of their heaps, probably for simple types like
+strings and int/float arrays (or using the Ancient library).
+
+  Now, there are still two problems:
+(1) We don't know yet how to implement that in a portable way. TLS
+(Thread-local storage) is only available on a few architectures. And not
+using TLS implies non-backward compatible changes to the FFI
+(Foreign-Functions Interface), i.e. all stub libraries would have to be
+rewritten.
+(2) As Gerd pointed it, there are not so many programs that would
+benefit from that. So it is not currently on the top of our priority
+list, although I am planning to give it a try in the next months, at
+least for the TLS version.
+      </pre><a name="5" /><hr /><h3>What are "Language extensions"?</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2011-03/msg00222.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2011-03/msg00222.html</a></p><i>Lauri Alanko asked and Xavier Leroy replied:</i><br /><pre>
+&gt; In the O'Caml reference manual, the actual language specification is
+&gt; split into two parts, "The Objective Caml language" and "Language
+&gt; extensions". I'm curious as to what this division indicates about the
+&gt; status of different features of the language.
+
+Don't put too much meaning in this distinction.  Basically, the
+"language extensions" chapter describes most of the features that were
+added since OCaml 1.00 back in 1995 (!), or that were present in 1.00
+but considered a bit experimental then.
+
+This said, only one of those extensions went away in the past (stream
+pattern matching, as Martin Jambon recalled), and I don't see any of
+the remaining extensions going away in the short to medium term.
+
+However, some of those extensions are a little less "future-proof"
+than the core of the language and are more likely to change in
+slightly incompatible ways.  A prime example is recursive modules,
+whose type-checking has changed a couple of times in the past (because
+it walks a fine line between unsoundness and undecidability), breaking
+some Caml code that uses recursive modules.
+
+Perhaps, one day, the most stable "extensions" should be moved from
+the "language extensions" chapter to the "Objective Caml language"
+chapter, but this is just a matter of presentation.
+
+Hope this clarifies the issue.
+      </pre><a name="6" /><hr /><h3>Netamqp, a client for AMQP-0-9-1</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2011-03/msg00254.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2011-03/msg00254.html</a></p><i>Gerd Stolpmann announced:</i><br /><pre>
+the ocaml team at Mylife is proud to release another library to the
+public: Netamqp is a client of the AMQP-0-9-1 protocol which is used to
+talk to message queue servers. Netamqp is an independent implementation
+of such a client, and not simply a wrapper around a C library.  Netamqp
+has been tested against RabbitMQ.
+
+Message queues are another way of establishing communication paths
+between independent processes. The nice aspect about this architecture
+is that message queues form a store-and-forward network: Each
+participant is only a client of the central store, and is not required
+to permanently check for the arrival of input. Messages arriving when
+the client cannot pay attention are preserved in the queue. This makes
+message queue networks very robust and easy to operate. The downside is
+that there is a single point of failure, namely the queue server.
+
+Messages are just strings of any length. AMQP does not attempt to define
+a serialization format.
+
+The Netamqp client allows synchronous and asynchronous message
+processing, the latter with the help of Ocamlnet's event loop.
+
+The homepage is at: <a href="http://oss.wink.com/netamqp/">http://oss.wink.com/netamqp/</a>. See there for download
+links, and the online manual.
+
+There is a GODI package for Ocaml 3.12: godi-netamqp.
+      </pre><a name="7" /><hr /><h3>Other Caml News</h3><i>From the ocamlcore planet blog:</i><br /><pre>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <a href="http://planet.ocamlcore.org/">http://planet.ocamlcore.org/</a>.
+
+Effective ML Revisited (with videos):
+  <a href="http://ocaml.janestcapital.com/?q=node/88">http://ocaml.janestcapital.com/?q=node/88</a>
+
+Mesh 0.7:
+  <a href="https://forge.ocamlcore.org/forum/forum.php?forum_id=780">https://forge.ocamlcore.org/forum/forum.php?forum_id=780</a>
+
+Using Camlp4 for conditional compilation:
+  <a href="http://ox.tuxfamily.org/2011/03/27/using-camlp4-for-conditional-compilation/">http://ox.tuxfamily.org/2011/03/27/using-camlp4-for-conditional-compilation/</a>
+
+Core 0.7.0 is out!:
+  <a href="http://ocaml.janestcapital.com/?q=node/87">http://ocaml.janestcapital.com/?q=node/87</a>
+
+Calendar 2.03.1 released:
+  <a href="https://forge.ocamlcore.org/forum/forum.php?forum_id=778">https://forge.ocamlcore.org/forum/forum.php?forum_id=778</a>
+      </pre><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

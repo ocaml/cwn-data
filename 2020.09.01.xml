@@ -1,0 +1,295 @@
+<?xml version="1.0" encoding="utf-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2020.09.01</cwn_date>
+    <cwn_prev>2020.08.25</cwn_prev>
+    <cwn_next>2020.09.08</cwn_next>
+    <cwn_date_text>August 25 to September 01, 2020</cwn_date_text>
+    <cwn_extra_head></cwn_extra_head>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>Writing bindings for Google Apps Script (GAS)</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/writing-bindings-for-google-apps-script-gas/6293/1</cwn_url>
+      <cwn_who>Danielo Rodríguez announced</cwn_who>
+      <cwn_what>
+Thanks to the help of this community I successfully completed a crazy idea: To write some ocaml
+functions to use inside [Google Apps Script](https://developers.google.com/apps-script) for a small
+stupid spreadsheet that I had.
+
+The way it works now is by having a main index.js file that calls the Ocaml functions that are
+available under a global Lib namespace. Everything is bundled using parcel and the Idea was to use as
+few JS code as possible. Because it was easier than I expected I decided to go one step further and
+write some bindings for the GAS functions I was using and reduce the glue JS code even more.
+
+This are the bindings that I wrote so far. They work, but are not usable inside Ocaml yet.
+
+#+begin_src ocaml
+type spreadsheet
+type sheet
+type range
+external getActiveSpreadsheet : unit -> spreadsheet = "getActiveSpreadsheet" [@@bs.val][@@bs.scope
+"SpreadsheetApp"]
+external getSheets : spreadsheet -> sheet array = "getSheets" [@@bs.send]
+external getSheetByName : spreadsheet -> string -> sheet = "getSheetByName" [@@bs.send]
+external getDataRange : sheet -> range = "getDataRange"  [@@bs.send]
+external getValues : range -> 'a array array = "getValues"  [@@bs.send]
+#+end_src
+
+My doubt are on the edges. When it is just obscure GAS stuff I have no doubt, abstract types and
+functions to interact with them. Is when a GAS function returns data where I have doubts. Usually they
+are just arrays of arrays of Numbers or Strings. In the example above, the last definition says that
+you will get an array of arrays of ~'a~, but that is not true because it will be an array of "stuff"
+(strings, numbers, floats).
+How should I type it in a way that it's flexible but not cumbersome? For example, I don't think using a
+functor will help because you will need to create a functor for every possible return type, in my case
+if you have 3 sheets with 3 different shapes, you will need 3 functors.
+An alternative that I have used was to provide some helper functions to convert from JS to Ocaml types
+and then unwrap the Ocaml types, like the example I'm doing with Number_or_string.
+This is nothing serious and I will just add the bindings that I may need for now, but I want to hear
+what the community (and potential users) thinks.
+
+If anyone is interested in taking a look on the project, it is here:
+https://github.com/danielo515/ElectronicProjectsSpreadsheet
+      </cwn_what>
+      <cwn_who>Matthieu Dubuget said</cwn_who>
+      <cwn_what>
+Not answering directly to your question, sorry.
+
+But here is a binding I have been using for around 4 years:
+https://dubuget.fr/gitea/matthieu/ocaml-google-app.git.
+      </cwn_what>
+      <cwn_who>Hongbo Zhang also replied</cwn_who>
+      <cwn_what>
+For return type polymorphism, you can use GADT with bs.ignore, the rough idea:
+
+#+begin_src ocaml
+type 'a t =  Int : int t | String : string t
+external f : ('a t [@bs.ignore]) -> ... -> 'a = "xx"
+#+end_src
+I read discuss.ocaml.org from time to time, but checks https://forum.rescript-lang.org/ daily where you
+can get a quick answer
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>What the Jane Street interns have wrought</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/what-the-jane-street-interns-have-wrought/6294/1</cwn_url>
+      <cwn_who>Yaron Minsky announced</cwn_who>
+      <cwn_what>
+I thought folks here might find this interesting:
+
+https://blog.janestreet.com/what-the-interns-have-wrought-2020/
+
+The post summarizes three of the intern projects that happened this summer at Jane Street. It might be
+interesting if you're looking for an internship (or know someone who is), or if you're interested in
+any of the underlying tech. For example, if there's significant interest in a library for writing
+OCaml, we'd be more likely to open-source it.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>a small library for shell/AWK/Perl-like scripting</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2020-08/msg00021.html</cwn_url>
+      <cwn_who>Oleg announced</cwn_who>
+      <cwn_what>
+Some time ago Chet Murthy asked about writing shell-like scripts in
+OCaml. Prompted by it, I also want to report on my experience and
+announce a small library that made it pleasant to do
+shell/AWK/Perl-like scripting in OCaml.
+
+The library is available at\\
+        http://okmij.org/ftp/ML/myawk/0README.dr\\
+and consists of two small ML files, myawk.ml and strings.ml. The
+latter collects general-purpose string operations, more convenient
+than those in Stdlib.String. The rest of that web directory contains
+half a dozen sample scripts with comments.
+
+Here is the first example: a typical AWK script, but written in OCaml:
+
+#+begin_src ocaml
+    #!/bin/env -S ocaml
+
+    #load "myawk.cma"
+    open Myawk open Strings
+    let hash = string_of_int &lt;|&gt; Hashtbl.hash
+    ;;
+    (* Sanitize the files originally used by join1.ml and join2.ml
+       The files are made of space-separated fields; the first field is the
+       key. It is sensitive; but because it is a key it can't be replaced with
+       meaningless garbage. We obfuscate it beyond recognition. The third field
+       is obfuscated as well. The second and fourth can be left as they are,
+       and the fifth, if present, is replaced with XXX
+
+       The script is a proper filter: reads from stdin, writes to stdout
+     *)
+
+    for_each_line @@ map words @@ function (f1::f2::f3::f4::rest) ->
+      print [hash f1; f2; hash f3; f4; if rest = [] then "" else "XXX"]
+    ;;
+#+end_src
+
+Here &lt;|&gt; is a function composition. I wish it were in Stdlib. The real
+example, used in real life, was performing a database join
+
+#+begin_example
+   SELECT T2.* from Table1 as T1, Table2 as T2 where T1.f1 = T2.f1
+#+end_example
+
+where Table1 and Table2 are text files with space-separated column
+values. Table1 is supposed to be fed to stdin:
+
+#+begin_src ocaml
+let () =
+  for_each_line @@ map words @@
+  map_option (function (x::_) -> Some x | _ -> None) @@
+  (ignore &lt;|&gt; shell "grep %s table1.txt")
+#+end_src
+
+It is a typical rough-and-dirty script. Alas, it was too rough: I was
+so excited that it typechecked and worked the first time, that I didn't
+look carefully at the output and overlooked what I was looking for
+(resulting in an unneeded hassle and apology). I should have queried exactly
+for what I wanted:
+#+begin_example
+   SELECT T1.f1, T1.f4 FROM Table1 as T1, Table2 as T2
+   WHERE T1.f1 = T2.f1 AND T1.f3 &lt;&gt; "3"
+#+end_example
+
+which is actually easy to write in myawk (probably not so in AWK though)
+
+#+begin_src ocaml
+ let () =
+   for_each_line ~fname:"table2.txt" @@ map words @@
+   map_option (function (w::_) -> Some w | _ -> None) @@
+   fun w ->
+     for_each_line ~fname:"table1.txt" @@  map words @@
+     map_option (function
+      (x::f2::f3::f4::_) when x = w &amp;&amp; f4 &lt;&gt; "3" -&gt; Some [x;f4] | _ -&gt; None) @@
+     print
+#+end_src
+
+This is the classical nested loop join. Chet Murthy might be pleased to see
+the extensive use of the continuation-passing style. I was
+apprehensive at first, but it turned out not to be a hassle.
+
+The library has a few other examples, including case-branching and
+rewriting a real AWK script from the OCaml distribution.
+
+Finally, let's compare with shell scripts. The example below doesn't
+show off the library, but it does show the benefits of OCaml
+for scripting. The original shell script is a sample GIT commit hook,
+quoted in the comments:
+
+#+begin_src ocaml
+        (*
+        From GIT's sample hooks:
+          ANY-GIT-REPO/.git/hooks/commit-msg.sample
+
+          # Called by "git commit" with one argument, the name of the file
+          # that has the commit message.  The hook should exit with non-zero
+          # status after issuing an appropriate message if it wants to stop the
+          # commit.  The hook is allowed to edit the commit message file.
+
+          # This example catches duplicate Signed-off-by lines.
+
+        test "" = "$(grep '^Signed-off-by: ' "$1" |
+                 sort | uniq -c | sed -e '/^[ 	]*1[ 	]/d')" || {
+                echo &gt;&amp;2 Duplicate Signed-off-by lines.
+                exit 1
+        }
+
+        *)
+        module H = Hashtbl
+
+        let commit_msg = Sys.argv.(1)
+        let ht = H.create 5
+        let () =
+          for_each_line ~fname:commit_msg @@ fun l -&gt;
+          if is_prefix "Signed-off-by: " l &lt;&gt; None then begin
+            if H.find_opt ht l &lt;&gt; None then begin
+              prerr_endline "Duplicate Signed-off-by lines.";
+              exit 1
+            end else
+              H.add ht l ()
+          end
+#+end_src
+
+Although the OCaml script seems to have more characters, one doesn't
+need to type them all. Scripts like that are meant to be entered in an
+editor; even ancient editors have completion facilities.
+
+Looking at the original shell script brings despair, and drives me
+right towards Unix Haters. Not only the script is algorithmically
+ugly: if a duplicate signed-off line occurs near the beginning, we can
+report it right away and stop. We don't need to read the rest of the
+commit message, filter it, sort it, precisely count all duplicates and
+filter again. Not only the script gratuitously wastes system
+resources (read: the laptop battery) by launching many processes and
+allocating communication buffers. Mainly, the script isn't good at its
+primary purpose: it isn't easy to write and read. Pipeline composition
+of small stream processors is generally a good thing -- but not when each
+stream processor is written in its own idiosyncratic
+language. Incidentally, I have doubts about the script: I think that
+quotes around $1 are meant to be embedded; but why they are not
+escaped then? Probably it is some edge case of bash, out of several
+0thousands.
+
+In contrast, OCaml script does exactly what is required, with no extra
+work. Everything is written in only one language.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>letters 0.2.0</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-letters-0-2-0/6307/1</cwn_url>
+      <cwn_who>Miko announced</cwn_who>
+      <cwn_what>
+Getting this release done took a bit longer than expected due to some real life factors, but finally
+here it is.
+
+This one mainly focuses on the most requested features and improvements like simplifying configuration
+around CA certificates, provides some basic documentation and additionally adds support for
+~multipart/alternative~ emails with combined HTML and plain text content.
+      </cwn_what>
+      <cwn_who>jerben then added</cwn_who>
+      <cwn_what>
+Link to Github: https://github.com/oxidizing/letters
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>raylib-ocaml 0.1.0</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-raylib-ocaml-0-1-0/6313/1</cwn_url>
+      <cwn_who>Tobias Mock announced</cwn_who>
+      <cwn_what>
+I'd like to announce the first version of [raylib-ocaml](https://github.com/tjammer/raylib-ocaml), a
+binding to the awesome [raylib](https://www.raylib.com/) game development library. The release can be
+found on opam as ["raylib"](https://opam.ocaml.org/packages/raylib/).
+
+The bindings are nearly complete, as far as functions and types go, but only a subset was tested so
+far. I will work on bringing more of the numerous examples of the C version to OCaml in the future.
+
+Currently, raylib-ocaml only works on Linux, but I plan to support Windows (and possibly other targets)
+in the future.
+
+Feel free to give it a spin and please report any issues you run into.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OCaml Workshop 2020 Online Conference is live now</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ocaml-workshop-2020-online-conference-is-live-now/6287/30</cwn_url>
+      <cwn_who>Deep in this thread, Didier Wenzek announced</cwn_who>
+      <cwn_what>
+[OCaml 2020 All Videos](https://www.youtube.com/playlist?list=PLKO_ZowsIOu5fHjRj0ua7_QWE_L789K_f)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Here are links from many OCaml blogs aggregated at [[http://ocaml.org/community/planet/][OCaml Planet]].
+
+- [[http://psellos.com/2020/08/2020.08.east-van-girls.html][BuckleScript Good and Bad News]]
+- [[https://blog.janestreet.com/what-the-interns-have-wrought-2020/][What the interns have wrought, 2020 edition]]
+- [[https://coq.inria.fr/news/coq-8-12-0-is-out.html][Coq 8.12.0 is out]]
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

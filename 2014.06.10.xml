@@ -1,0 +1,422 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2014.06.10</cwn_date>
+    <cwn_prev>2014.06.03</cwn_prev>
+    <cwn_next>2014.06.17</cwn_next>
+    <cwn_date_text>June 03 to 10, 2014</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>Why AVL-tree?</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-06/msg00013.html</cwn_url>
+      <cwn_who>Continuing this thread from last week, Yaron Minsky said</cwn_who>
+      <cwn_what>
+The following summary of what we do with respect to Maps and Sets in
+Core was written by David Powers (who isn't yet subscribe to the list,
+so he asked me to forward it on.)
+
+In Core we use a slight modification of the AVL tree found in the
+standard library.  I think the biggest change (other than the
+interface) is that we add a specialized constructor (Leaf of 'key *
+'value) as a specialization of Node (left * key * value * right) to
+limit allocation.  It's a nice speed bump and doesn't do too much
+damage to the readability of the code.
+
+We also spent a bunch of time last summer working through the research
+papers of the last 10 years to see if we could find an implementation
+we liked better.  I'd have to pull up the full history of the project
+to give real details, but we tried at least all of the following:
+
+- red-black trees
+- left-leaning red-black trees
+- treaps (including a variant that stored entropy in the spare bits in
+the variant tag)
+- splay trees
+- weight balanced trees
+- AVL trees with GADT enforcement of the invariants
+- 1-2 brother trees
+
+I'll lead with the caveat that benchmarking is hard, and these
+structures shine in different ways depending on the type of workload
+you throw at them.  Each implementation below was also mostly a
+first-pass to understand the structure and do simple tests, so there
+may be more speed gold in the hills.  Your mileage may vary.
+
+That said, our conclusions at the end:
+
+- red black trees are hard to code and understand (mostly due to
+remove), and don't show a real performance win.
+
+- treaps are a wonderful structure in terms of code simplicity, but
+getting enough randomness quickly enough is too costly to make them a
+win over AVL trees (you need to allocate just as much and you need to
+generate randomness)
+
+- splay trees are in our tree, but are too special purpose to be a general win.
+
+- Weight balanced trees are a nice structure, and are used in other
+languages/libraries.  They were neither better or worse than AVL
+trees.
+
+- AVL trees with GADT enforcement work, but were actually slower than
+straightforward AVL trees at the time we tested them.  There is some
+extra matching due to the variant having more cases, so perhaps this
+isn't surprising.  It's also likely that we didn't carry the
+2-imbalance trick into the GADT version, which might have skewed the
+result.
+
+- 1-2 brother trees were the best of the lot, and we actually produced
+a version of the code that we felt was an overall win (or tie) for all
+workloads.  Unfortunately, the optimizations we needed to get us there
+made the code much longer and harder to understand than the AVL tree
+code.  We just couldn't convince ourselves that it was worth it.
+
+Probably the most important point is that nothing we did above gave a
+general win of more than 10-20% in the tight loop case.  Given that,
+we kept our tweaked AVL tree implementation.  If you want to be very
+very fast, you probably can't get away with a map, and if you just
+want to be "fast enough" the AVL tree we have is a nice set of
+tradeoffs for code complexity.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>How is Async implemented?</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-06/msg00018.html</cwn_url>
+      <cwn_who>Dan Stark asked</cwn_who>
+      <cwn_what>
+I am trying to get a rough overview of how Async is implemented (or
+the idea behind it) before I really dig into its source code.
+
+I have the following questions:
+
+Q1: Is Async event-loop like?
+
+From the API and some docs for Async's usage, I feel it is quite like
+a event-loop. 
+
+You create Deferred.t and it might be added to a queue and a scheduler
+behind might be adjusting the order of running for all Deferred.t in
+the queue. 
+
+Am I correct?
+
+Q2: Deferred.return and Deferred.bind
+
+If I say
+
+    Deferred.return 1
+
+It will returns me a Deferred.t, but inside the function return or
+bind somehow an "event" is implicitly added to the default queue for
+scheduling, right?
+
+If I am correct above, 
+
+Q3: Is Async depending on -thread? The queue or scheduler needs
+compiler support? 
+
+I just need to understand the whole picture in a rough way first.
+      </cwn_what>
+      <cwn_who>David House then replied</cwn_who>
+      <cwn_what>
+There is a queue of jobs in the scheduler. The scheduler runs the jobs
+one by one. Jobs may schedule other jobs. A job is a pair of
+['a * 'a -&gt; unit].
+
+There's a thing called a deferred. ['a Deferred.t] is an initially
+empty box that may become filled later with something of type ['a].
+There is a similar type called ['a Ivar.t] -- the difference is that
+ivars have a function to actually fill in the value, whereas deferreds
+do not: a deferred is a "read-only" view on an ivar.
+
+You can wait on a deferred using bind. Doing [x &gt;&gt;= f] mutates the
+deferred x to add f as a "handler". When a deferred is filled, it adds
+a job to the scheduler for each handler it has. 
+
+Doing [Deferred.return 1] allocates a deferred which is already filled
+and has no handlers. Binding on that will immediately schedule a job
+to run your function. (The job is still scheduled though, rather than
+being run immediately, to ensure that you don't have an immediate
+context switch -- in async, the only context switch points are the
+binds.)
+
+The primitive operations that block are replaced with functions that
+return deferreds, and go do their work in a separate thread. There's a
+thread pool to make sure you don't use infinity threads. (I think the
+default cap is 50 threads.) I think yes, async does depend on -thread.
+
+There is an important optimisation: if you want to read or write to
+certain file descriptors, that doesn't use a thread. Instead there's a
+central list of such file descriptors. There's also a central list of
+all "timer events" (e.g. deferreds that become deferred after some
+amount of time). The scheduler actually is based around a select loop:
+it does the following:
+
+run all the jobs
+if more jobs have been scheduled, run those too
+keep going until there are no more jobs, or we hit the
+maximum-jobs-per-cycle cap
+sleep using select until one read fd is read, or a write fd is ready,
+or a timer event is due to fire
+do that thing
+
+There's also a way to manually interrupt the scheduler. Blocking
+operations other than reading/writing to fds do this: they run in a
+thread, grab the async scheduler lock, fill in an ivar, then wake up
+the scheduler to ensure timely running of the jobs they just
+scheduled. The async scheduler lock is necessary because the scheduler
+itself is not re-entrant: you cannot have multiple threads modifying
+the scheduler's internals.
+      </cwn_what>
+      <cwn_who>Dan Stark then asked and Ashish Agarwal replied</cwn_who>
+      <cwn_what>
+&gt; Thank you very much for this comprehensive explanation.
+&gt; 
+&gt; Can I also know who is responsible for the queue and scheduler? 
+&gt; 
+&gt; Are they created and maintained by OCaml thread (OCaml internal) or
+&gt; Async (3rd party library, which means Async create the job queue and
+&gt; has its own scheduler)? 
+&gt; 
+&gt; In addition, will the compiler got involved in handling Deferred.t?
+&gt; 
+&gt; I ask above questions because I felt quite curious about what is
+&gt; happening in the followings:
+&gt; 
+&gt; Suppose we have a normal function:
+&gt; 
+&gt;     let f1 () = print_endline "hello"; whatever_result;;
+&gt; 
+&gt; Normally, no matter what whatever_result is, when I do let _ = f1
+&gt; ();;, print_endline "hello" will be executed, am I right? For example,
+&gt; finally returning an int or a record or a lazy.t, etc, "hello" would
+&gt; be printed out.
+&gt; 
+&gt; However, if I do
+&gt; 
+&gt;     let f2 () = print_endline "hello"; return 1;;
+&gt; 
+&gt; let _ = f2 ();; would do nothing unless I run the schedule let _ =
+&gt; ignore(Scheduler.go());; 
+&gt; 
+&gt; Since for f2 I am not using any other special creation function and
+&gt; the only special bit is return 1 after print_endline, if the compiler
+&gt; doesn't get involved, how can compiler know the whole application of
+&gt; f2() should be in future execution? 
+
+
+When you use Async, you must do `open Async.Std`, which overrides all
+blocking functions from the standard library. Thus, in f2, it's not
+that the "return 1" part somehow changes the behavior of the previous
+code. Rather, since you've written "return 1", you've presumably done
+`open Async.Std`, so the print_endline function is actually the one
+from Async. So no, the compiler doesn't get involved. Async is
+implemented purely as a library.
+      </cwn_what>
+      <cwn_who>Yaron Minsky also added</cwn_who>
+      <cwn_what>
+For what it's worth, this gives a decent overview of Async (if I do
+say so myself)
+
+https://realworldocaml.org/v1/en/html/concurrent-programming-with-async.html
+
+This isn't quite right, but a good mental model is to think of Async
+as being single threaded.  Scheduler.go starts up the async scheduler
+on the main thread, and you do indeed need to do that for any IO to
+actually happen.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Multicore runtime</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-06/msg00029.html</cwn_url>
+      <cwn_who>Jiten Pathy asked and Stephen Dolan replied</cwn_who>
+      <cwn_what>
+&gt; Is there any public available code corresponding [1] with some
+&gt; progress, if any? Thank you.
+&gt;
+&gt; 1. https://github.com/ocamllabs/compiler-hacking/wiki/Multicore-runtime
+
+There is, but "pre-alpha" does not begin to describe it.
+
+https://github.com/stedolan/ocaml
+
+The branch is frequently rebased, in order to present a sort-of
+readable patch series instead of accurately describing the convoluted
+development history. So, if you clone this, then a) it might not build
+without some makefile hacking, and b) git pull will break after the
+next rebase.
+
+Currently, there's a mostly-working parallel GC, but many features are
+broken (such as ocamlopt, weak pointers, finalisers, and a few
+others). Also, the runtime does not yet export enough primitives to
+OCaml code to do anything interesting, so it's not useful for more
+than GC development at the moment. Still, progressing nicely.
+
+So, feel free to look around, but don't get your hopes up too soon :)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>PG'OCaml 2.1</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-06/msg00031.html</cwn_url>
+      <cwn_who>Dario Teixeira announced</cwn_who>
+      <cwn_what>
+No earth-shattering news for this release.  Version 2.0 (released last
+week) relied on the List.iteri and List.mapi functions available since
+OCaml 4.00.0.  However, it turns out we have users still on OCaml
+3.12.1 (or maybe older).  This release simply adds those missing
+functions for compatibility with older OCaml releases.
+
+For more information, please visit the project's homepage:
+http://pgocaml.forge.ocamlcore.org/
+
+Also, the new package should be hitting OPAM soon.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Thoughts on targeting windows</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-06/msg00039.html</cwn_url>
+      <cwn_who>William asked</cwn_who>
+      <cwn_what>
+we are considering using OCaml for a rather large project, the bulk of
+which will be networking and encryption. OCaml seems to meet our needs
+with one exception: 
+we'd like to target windows (as well as linux &amp; mac) and we got the
+impression that this would be complicated -- we gathered that neither
+jane street's Core nor OPAM are windows compatible. 
+
+Would still recommend using OCaml? Are there workarounds, or other
+libraries that would replace Core?
+      </cwn_what>
+      <cwn_who>Virgile Prevosto suggested</cwn_who>
+      <cwn_what>
+regarding OCaml package management under Windows, you should have a
+look at wodi:
+http://wodi.forge.ocamlcore.org/
+The package page lists core_kernel, batteries and extlib, but as I use
+none of those I can't tell how well they work on Windows.
+      </cwn_what>
+      <cwn_who>John Whitington also suggested</cwn_who>
+      <cwn_what>
+Here is the Windows installer:
+
+http://protz.github.io/ocaml-installer/
+
+This also installs 'ocamlfind', which means that you can download
+source packages for libraries you're interested in, compile them,
+install them and use them relatively easily. Not as convenient as
+OPAM, of course.
+
+Here is a library for cryptography:
+
+https://forge.ocamlcore.org/projects/cryptokit/
+
+Here is a library for concurrency which runs on Windows:
+
+http://ocsigen.org/lwt/
+
+Here is a different Standard Library replacement/augmentation:
+
+https://github.com/ocaml-batteries-team/batteries-included
+
+(The software I build for Windows, whilst complex in terms of what it
+does, is just a single statically linked executable which reads
+a file, processes it and writes a file, so I can't tell you anything
+about networking under Windows.)
+      </cwn_what>
+      <cwn_who>David Allsopp also replied</cwn_who>
+      <cwn_what>
+I believe Core_kernel aims to be the platform-neutral parts of core?
+There are other Jane Street libs which compile just fine on
+Windows. Batteries, as others have noted, works out of the
+box. Usually, I find that the biggest problem in third party libs is
+in build systems (becoming less so with Oasis, OCamlbuild and so on)
+making naïve decisions about Windows but that doesn't usually take
+much patching.
+
+Most of what I do is Windows-oriented, but some of what I've done is
+Windows and Linux. My experience is that it's important to keep
+Windows in the picture early on to avoid pain later - so ensure that
+daily builds are working on Windows or perhaps that one of your
+developers is always working on Windows or something... that should
+avoid accidentally selecting a Unix-only library and only realising
+that a painfully long way down the road (or that the library you
+thought was cross-platform contains an assert false for the function
+you need when running on Windows!). If you write something which works
+on Windows in OCaml it will probably translate with little pain to
+Linux but the reverse isn't necessarily true.
+
+While OPAM is great, I personally find that downloading and compiling
+a library, even by hand, represents an insignificant amount of time
+compared with reading its documentation, evaluating its samples and so
+on in the overall process of working out whether I want to use
+a component... but apparently the pain of not having a package manager
+really, really, really hurts people coming from the Unix world ;o)
+      </cwn_what>
+      <cwn_who>Yaron Minsky, Sebastien Mondet, and Thomas Gazagnaire then had this exchange</cwn_who>
+      <cwn_what>
+(Yaron Minsky)
+
+&gt;&gt;&gt; Core_kernel is pure OCaml, and so should work fine on Windows (and Javascript!)
+
+(Sebastien Mondet)
+
+&gt;&gt; Actually some dependencies of core_kernel have C code, like bin_prot:
+&gt;&gt; https://github.com/janestreet/bin_prot/blob/master/lib/blit_stubs.c
+
+(Yaron Minsky)
+
+&gt; Indeed! I forgot about that last little bit.  We killed most of the C,
+&gt; but there's a bit left.  That said, those should be pretty portable,
+&gt; and can (and have been) stubbed out so it can work in a Javascript
+&gt; context.
+
+(Thomas Gazagnaire)
+
+Indeed, little changes are needed to compile core_kernel to
+javascript. See https://github.com/janestreet/core_kernel/pull/8
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>uCorelib 0.2.0</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-06/msg00044.html</cwn_url>
+      <cwn_who>Yoriyuki Yamagata announced</cwn_who>
+      <cwn_what>
+I'm pleased to announce uCorelib 0.2.0, a new and simple Unicode
+library for OCaml.
+
+https://github.com/yoriyuki/ucorelib/releases/tag/v0.2.0
+
+This release add 
+
+- Persistent set of Unicode characters. USet
+- Persistent map from Unicode characters to arbitrary types. UMap
+- Readonly, fast access, compact map from Unicode to any type, bool,
+and char. UCharTbl
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocaml.org/&gt;.
+
+PG'OCaml 2.1 released:
+  &lt;https://forge.ocamlcore.org/forum/forum.php?forum_id=902&gt;
+
+OCaml bindings to Tk:
+  &lt;https://forge.ocamlcore.org/projects/otk/&gt;
+
+Python to OCaml: retrospective:
+  &lt;http://roscidus.com/blog/blog/2014/06/06/python-to-ocaml-retrospective/&gt;
+
+The Minnesota Goodbye:
+  &lt;http://www.somerandomidiot.com/blog/2014/06/03/the-minnesota-goodbye/&gt;
+
+Sr. Software Engineer at Clutch Analytics (Full-time):
+  &lt;http://functionaljobs.com/jobs/8720-sr-software-engineer-at-clutch-analytics&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

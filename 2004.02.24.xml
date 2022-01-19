@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="ISO-8859-15"?>
+<cwn>
+<cwn_head>
+  <cwn_date>2004.02.24</cwn_date>
+  <cwn_prev>2004.02.17</cwn_prev>
+  <cwn_next>2004.03.02</cwn_next>
+  <cwn_date_text>17 to 24 February, 2004</cwn_date_text>
+</cwn_head>
+<cwn_body>
+  <cwn_entry>
+    <cwn_title>problems with caml-list</cwn_title>
+    <cwn_who>Xavier Leroy explained</cwn_who>
+    <cwn_what>
+This is a list administration message:
+
+Due to an incorrect mail filtering rule recently triggered by a
+software update on INRIA&apos;s mail exchangers, all messages posted to
+caml-list@inria.fr the last week or so were not distributed to the
+list, and were actually lost.  (For a while, I thought everyone was
+just unusually quiet :-)
+
+I hope this problem is now fixed.  Profuse apologies for the
+inconvenience.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>mod_caml question</cwn_title>
+    <cwn_who>Ranjan Bagchi asked and Richard Jones explained</cwn_who>
+    <cwn_what>
+&gt; So what&apos;s the role of the caml executable?  I read the apache handler
+&gt; code, and it looks like from the standpoint of the mod_caml c code, it&apos;s
+&gt; bytecode which is loaded by the caml interpreter.  But why&apos;s it
+&gt; executable?  Are there other usages?
+
+It&apos;s simply there to workaround a problem with Dynlink.
+
+In brief when you use Dynlink, it tries to read your current
+executable to find the symbol table in the bytecode.  This way it can
+find out what symbols are already part of the environment.
+
+Of course there are all sorts of problems with doing this in a Unix
+environment: eg. you might, quite legitimately, have unlink(2)ed the
+executable, so it no longer exists.  Or you might not have read
+permission on your own executable.  Or you might not be able to find
+the path to your own executable (think chroot(2), or being passed a
+non-standard argv or PATH).  etc.
+
+The problem with mod_caml is that there&apos;s no executable at all,
+because the module is dynamically linked (using dlopen(3)) into
+Apache.  Thus we have to go through some hoops to build a fake
+executable and tell Dynlink to use this to find its symbol table.
+This is the purpose of the code in mod_caml_c:init().
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Embedding OCaml</cwn_title>
+    <cwn_who>Vlad Seryakov asked and Richard Jones answered</cwn_who>
+    <cwn_what>
+&gt; Hello,
+&gt; 
+&gt; I am trying to embedd OCaml into Aolserver as second interpreter. 
+&gt; Aolserver is multithreaded web server which uses Tcl
+&gt; as scripting language. Requestes are processed concurrently by calling 
+&gt; Tcl scripts. My intention is to add OCaml
+&gt; to Aolserver so web pages written in Caml can be used for web programming.
+&gt; 
+&gt; My question is, is it safe to use OCaml in such environment where many 
+&gt; different OCaml scripts can be executed.
+
+Have a look at this posting:
+
+http://caml.inria.fr/archives/200308/msg00258.html
+
+&gt; I use Dynalink pacjage for dynamically loading object .cmo files.
+
+Dynlink is very fussy.  I had lots of problems with it.  You might
+like to look at mod_caml for ideas.
+    </cwn_what>
+    <cwn_who>Vlad Seryakov then said</cwn_who>
+    <cwn_what>
+Richard Jones wrote:
+&gt;On Fri, Feb 20, 2004 at 12:34:12PM -0500, Vlad Seryakov wrote:
+&gt;
+&gt;&gt;Thanks
+&gt;&gt;
+&gt;&gt;Actually i checked mod_caml and used many great ideas from it. I have my 
+&gt;&gt;module
+&gt;&gt;working fine and actually i do not use separate executable as mod_caml 
+&gt;&gt;does. i was able to put Caml bytecode
+&gt;&gt;runtime into shared library and give that shared library to caml_main on 
+&gt;&gt;startup, so Dynalink is happy as well.
+&gt;
+&gt;
+&gt;Can you show me how you did this?  I&apos;m very interested.
+&gt;
+&gt;Rich.
+
+Sure, sorry
+
+Module can be downloaded from http://www.crystalballinc.com/vlad/software/
+    </cwn_what>
+    <cwn_who>Clément Capel also answered</cwn_who>
+    <cwn_what>
+I have got another solution to possibly resolve this
+problem:
+I&apos;ve developed an embedded O&apos;Caml toplevel
+which integrates the runtime and the compiler of O&apos;Caml.
+Actually, it&apos;s a dynamic linked library (in C) builds using
+the &quot;ouput-obj&quot; option; i have solved the problem of
+the symbole table thanks to a modification of the
+compiler and the runtime.
+
+you can download the patch at this url:
+http://www.pps.jussieu.fr/~capel/eng/toplevel/toplevel.html
+
+you will find also an O&apos;Caml plugin for Excel and Netscape in this page.
+
+
+Just an example to show you how it works (in C):
+(you can also use the directives #use and #load)
+
+  toplevel_init(argv);
+
+  toplevel_exec(&quot;let rec ack m n =
+                 match m,n with 0,n -&gt; n+1
+               | m,0 -&gt; ack (m-1) 1
+               | m,n -&gt; (ack (m-1) ack m (n-1))&quot;);
+
+  val = toplevel_exec(&quot;ack 3 2;;&quot;);
+  res = 1+Long_val(val);
+
+  printf (&quot;1+ack(3,2)=%dn&quot;, res);
+
+
+I hope it will help you.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>ocamldbi 0.9.0 and mod_caml 1.1.0</cwn_title>
+    <cwn_who>Richard Jones announced</cwn_who>
+    <cwn_what>
+I&apos;m pleased to announce that the DBI (database layer) part of mod_caml
+has now been split into a separate library, so you can try it out
+independently of mod_caml itself.  You can find both packages in the
+mod_caml CVS repository:
+
+http://savannah.nongnu.org/cgi-bin/viewcvs/modcaml/
+
+Or you can check them out of CVS by following the instructions on this
+page, under the heading &quot;Anonymous CVS Access&quot;:
+
+https://savannah.nongnu.org/cvs/?group=modcaml
+
+(I haven&apos;t built tarballs at the moment, because it&apos;s all somewhat
+experimental)
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Request for more String functions</cwn_title>
+    <cwn_who>Dustin Sallings and Richard Jones asked (for some string functions), and Shawn Wagner announced</cwn_who>
+    <cwn_what>
+&gt; &gt; val split : string -&gt; char -&gt; int -&gt; string list
+&gt; &gt; val split_chars : string -&gt; char list -&gt; int -&gt; string list
+&gt; &gt; val strstr : string -&gt; string -&gt; int -&gt; int
+&gt; &gt; val ends_with : string -&gt; string -&gt; bool
+&gt; &gt; val begins_with : string -&gt; string -&gt; bool
+&gt; &gt; val string_of_chars : char list -&gt; string
+&gt;
+&gt; Yes, ends_with and begins_with - I keep copying those functions from
+&gt; file to file.  It&apos;d be great to have them in the std lib.
+
+&lt;Plug&gt; Many of these (And everything the OP asked for, though I had to add
+some of them just now) are in my extlib library
+(http://raevnos.pennmush.org/code/extlib/), though under different names.
+It&apos;s a collection of things that would be useful in the standard libraries
+that come with ocaml, but aren&apos;t there. I keep adding to it all the time
+(Also just added the getpgid/setpgid functions also just requested on the
+list).
+
+&gt;
+&gt; Along with:
+&gt;
+
+&gt; String.truncate  - truncate a string to a given length
+
+This one&apos;s in it too.
+
+&lt;/Plug&gt;
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>GtkSpell binding</cwn_title>
+    <cwn_who>Shawn Wagner announced</cwn_who>
+    <cwn_what>
+
+GtkSpell (http://gtkspell.sf.net) is a library for doing on-the-fly spell
+checking in gtk text widgets. I&apos;ve whipped up bindings to use it with
+lablgtk2.
+
+See http://raevnos.pennmush.org/code/lablgtkspell/ for source, docs, etc.
+
+It was interesting, because I&apos;ve never looked at how lablgtk2 works under
+the hood (Just using the high-level objects), and now had to get at the
+actual C pointers of things. Happily, it turned out to be easy to figure
+out from the source. :)
+    </cwn_what>
+  </cwn_entry>
+</cwn_body>
+</cwn>

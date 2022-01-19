@@ -1,0 +1,387 @@
+Hello,
+
+Here is the latest Caml Weekly News, week 28 January to 04 February, 2003.
+
+1) Wish: dynamic linking for Ocaml
+2) question: "autoconfiguration" of Ocaml code (checking for libraries)
+3) @, List.append, and tail recursion
+4) XML-RPC server for OCaml
+5) New release of Active-DVI
+6) Finding the sign of a float
+7) WDialog 2.00-test4 released
+
+======================================================================
+1) Wish: dynamic linking for Ocaml
+----------------------------------------------------------------------
+Basile Starynkevitch asked:
+
+I am still wishing full dynamic linking support for Ocaml (at least on
+the common x86/Linux plateform, which happens to be mine).
+
+I am delighted to read on comp.lang.ml that such a patch exist (at
+least for Ocaml 3.06 on x86) on http://algol.prosalg.no/~malc/scaml/
+
+A big thanks to Malcy for providing it. It is at least a proof of
+concept that it is doable!
+
+
+And a question to our great Ocaml team: do they consider adding
+dynamic linking to future Ocaml? As far as I am concerned, it is ok
+for me if such features are supported only on few native plateforms
+(provided they are available for the bytecode engine).
+
+======================================================================
+2) question: "autoconfiguration" of Ocaml code (checking for libraries)
+----------------------------------------------------------------------
+Basile Starynkevitch asked:
+
+(while working on Poesia - see http://www.poesia-filter.org for more)
+
+Does anyone have some tricks or code (usable in a GPL-ed opensource
+project) to facilitate configuration (more precisely checking of
+installed tools & libraries) of Ocaml code.
+
+I need something which checks that
+
+Ocaml is installed, with version >= 3.06
+
+ocamlfind is installed (both for bytecode & native)
+
+[actually my wish would be that ocamlfind is part of ocaml, like
+camlp4 is]
+
+xstr is installed (both bytecode & native)
+
+netstring is installed (both bytecode & native)
+
+ocamlnet is installed, at least version >= 0.92
+
+etc..
+
+(Unfortunately, I cannot do distribution specific stuff; I want a
+script usable on Linux Redhat, Mandrake, Debian, ....)
+
+Gerd Stolpmann answered:
+
+I am normally using self-written shell scripts for that purpose.
+They are simple to write, easy to understand, and work for all
+Unices.
+
+As an example, here is the configure script of wdialog.
+You can find code snippets for all the tests you have
+mentioned:
+
+http://cvs.sourceforge.net/cgi-bin/viewcvs.cgi/wdialog/wdialog/code/configure?rev=3.6&content-type=text/vnd.viewcvs-markup
+
+Maxence Guesdon added:
+
+You could create a script to launch the ocaml toplevel on a
+configuration script written in OCaml, like (without caring about the
+shell syntax) :
+
+if `ocaml my_conf_script.ml` then
+  echo Type make to compile
+else
+  echo Damn, the configure script failed !
+
+Then your my_conf_script.ml file could be something like :
+
+let config () =
+ let version = Sys.ocaml_version in
+ if float_of_string version < 3.06 then
+    (
+     prerr_endline "Your ocaml is too old !" ;   
+     exit 1
+    )  
+ else
+   (
+    Printf.printf "Using OCaml version %s is ok" version ;
+    print_newline ()
+   );
+;
+ (* other tests using Sys.command for example *)
+
+let _ = config ()
+
+
+If you change your mind and want to use autoconf, you can find
+configure.in examples on the caml humps.
+
+======================================================================
+3) @, List.append, and tail recursion
+----------------------------------------------------------------------
+A very very long thread about stack size and tail recursion started
+here: http://caml.inria.fr/archives/200301/msg00181.html
+Here is a very little part of it.
+
+Brian Hurt started the discussion:
+
+I hit a bug recently wiith @ and List.append.  Since they're recursive, 
+not tail-recursive, on long enough lists Ocaml thinks you've gone 
+infinitely recursive and aborts.  The code:
+
+
+let longlist len =
+    let rec longlist_int v c acc =
+        if (c == 0) then acc else longlist_int (v + 1) (c - 1) (v :: acc)
+    in
+    longlist_int 0 len []
+;;
+
+let x = longlist 65536 ;;
+
+List.append x [] ;;
+
+Exits with:
+
+Stack overflow during evaluation (looping recursion?).
+
+So does:
+x @ [] ;;
+
+You can work around this like:
+
+let append' a b =
+   List.rev_append (List.rev a) b
+;;
+
+Since both rev_append and rev are tail recursive (looping) and not 
+recursive, this works.  But some ad-hoc testing says that this method is 
+about 50% slower than normal append for lists short enough not to abort.
+
+Thinking about this, I realized that my code is doing stuff like this all
+over the place.  I'm basically doing sparse vector/matrix stuff, handling
+(effectively) (colno * value) list for vectors, and (rowno * vector) list
+for matrix.  And I may be hitting lists long enough to trip the problem.
+
+Which means I'm currently doing a lot of recursion of the form:
+
+let rec foo x = 
+   match x with
+       [] -> []
+       | head :: tail -> (expr head) :: (foo tail)
+;;
+
+for various complexities.  And it has occured to me that all of these 
+forms *should* be optimizable into loops.  The general case would work 
+something like this in C:
+
+struct list_t {
+    void * datum;
+    struct list_t * next_p;
+}
+
+struct list_t * foo (struct list_t * x) {
+    struct list_t * retval = NULL;
+    struct list_t ** ptr_pp = &retval;
+
+    while (x != NULL) {
+        struct list_t * temp = alloc(sizeof(struct list_t));
+        *ptr_pp = temp;
+        temp->datum = expr(x->datum);
+        temp->next_p = NULL; /* be nice to the GC */
+        ptr_pp = &(temp->next_p);
+        x = x->next_p;
+    }
+    return retval;
+}
+
+If expr() returned a list, the only change necessary would be to find the 
+end of the list before moving on, like:
+
+struct list_t * foo (struct list_t * x) {
+    struct list_t * retval = NULL;
+    struct list_t ** ptr_pp = &retval;
+
+    while (x != NULL) {
+        *ptr_p = expr(x->datum); /* expr allocates the list */
+        /* We assume the last element of the list expr() returned has
+         * NULL for next_p.
+         */
+        while (*ptr_p != NULL) {
+           ptr_p = &((*ptr_p)->next_p);
+        }
+        x = x->next_p;
+    }
+    return retval;
+}
+
+Rather than just looking at making @ an inline C function, I think we (the 
+Ocaml community) should be looking at adding this more general 
+optimization in.
+
+So now we get to my two questions:
+a) is anyone working on this/intending to work on this RSN?
+b) if the answer to (a) is no, can anyone give me some pointers on where 
+to start looking at code, so I can add it in?
+
+Andrew Kennedy said:
+
+The optimization you describe is sometimes known as
+"tail modulo cons", and is an example of "destination-passing
+style". In other words, the place to put the result (in
+this case, the address of the tail of a just-constructed 
+cons cell) is passed on in a tail-recursive call.
+
+See "A Functional Representation of Data Structures with a Hole"
+by Minamide in POPL'98.
+
+http://www.score.is.tsukuba.ac.jp/~minamide/index.html
+
+Although Minimide formalizes the problem in the context of
+a typed intermediate language, it's probably quite easy to 
+spot special cases quite far down the compiler pipeline.
+
+Mattias Waldau remarked:
+
+I agree that this is recurring problem, I myself often get bit by
+List.map.
+
+It makes it very easy to make non-scalable program, works for input less
+that 1000 elements, and the when applied to a large problem it fails
+without a trace. It is very difficult to find the location of the
+problem if you use the native compiler, and most of these programs
+doesn't even work using the byte-code compiler.
+
+So one of my coding guidelines is:
+- do not use List.map
+
+I would like a prefer other solutions.
+
+======================================================================
+4) XML-RPC server for OCaml
+----------------------------------------------------------------------
+Hans Ole Rafaelsen announced:
+
+I'm pleased to announce the release of the XmlRPCServer-0.1.0 package
+for OCaml.  The package and documentation can be fetched from:
+
+http://www.simula.no/~hans/ocaml/xmlrpc/
+
+XmlRPCServer is a server side implementation for the OCaml
+XML-RPC-0.1.0 package developed by Shawn Wagner.  The main motivation
+for writing this software was to be able to call services written in 
+OCaml from other languages.  Interoperability has been tested against 
+XML-RPC implementations in Python and Java, see documentation.  The   
+package has been developed and tested under Debian Linux, but will
+probably work for other distributions.
+
+XML-RPC and XmlRPCServer might serve as an RPC alternative between  
+OCaml applications, at least as long as performance is not an issue.  
+The xoridl tool provided with the package is able to create both
+client stubs and server skeletons, based on an interface description,
+shielding the application programmer from the details of marshaling
+and unmarshaling the RPC calls.
+
+If you find any bugs or have problems installing the package, please
+let me know, and I'll try to help.
+
+======================================================================
+5) New release of Active-DVI
+----------------------------------------------------------------------
+Pierre Weis announced:
+
+Active-DVI is a presenter and previewer for texts or slides written in LaTeX,
+hence the presentation tool of choice for the discriminating hacker.
+
+Version 1.4.0 is now available. As the release number shows, this is a
+major improvement w.r.t version 1.2.0 of Active-DVI.
+
+This new version has been developed by Jun Furuse, Didier Rémy and    
+Pierre Weis with also contributions by Didier Le Botlan, Roberto Di
+Cosmo, Xavier Leroy, and Alan Schmitt.
+
+In addition to the regular features of the Active-DVI previewer:    
+
+   * Encapsulated Postscript File inclusion
+     (using the graphics LaTeX package)
+
+   * Some effects for presentation (pause, delay, text color change)
+
+this release introduces a lot of new features
+
+   * Interactive demos, via launching of applications from within the slides
+
+   * Background colors and background images for slides
+
+   * Annotations of texts (visible when the mouse is on the annotated text)
+
+   * Hyper references within the same document or to other dvi files
+
+   * Animated transitions from slide to slide
+
+   * Text movements within the slide
+
+   * Recording of text and arbitrary playback of recorded elements
+
+   * Superposition effects for included images (alpha channels and blending)
+
+   * A manual
+
+   * A lot of examples, including talks using popular LaTeX packages seminar
+     and prosper (cf. http://prosper.sourceforge.net/).
+
+   * A new user's interface in the redesigned LaTeX package advi.sty.
+
+Play advi on the demonstration presentation demo.dvi that is in the test
+directory of the distribution. Look at source code of various talks in
+the directory ``examples''.
+
+The source code, RPM packages, and information are available at
+
+    http://pauillac.inria.fr/activedvi/
+
+Contributions and comments are warmly welcome.
+
+Mailing list advi-list-request@pauillac.inria.fr
+Bug reports to advi-bugs@pauillac.inria.fr
+
+======================================================================
+6) Finding the sign of a float
+----------------------------------------------------------------------
+Shawn Wagner asked:
+
+I'm looking for a way, in pure ocaml without having to bail out to C, to
+tell if a float is negative or not.
+
+Just using x < 0.0 won't work, as I need to be able to tell the difference
+between -0.0 and +0.0. This is for ocaml versions of the C copysign and
+signbit functions. Any suggestions?
+
+Chris Hecker answered:
+
+let is_neg v =
+(Int64.shift_right_logical (Int64.bits_of_float v) 63) = Int64.one
+
+Chris
+
+PS.  My kingdom for overloaded arithmetic operators and Int32/64 constants.   
+
+======================================================================
+7) WDialog 2.00-test4 released
+----------------------------------------------------------------------
+Gerd Stolpmann announced:
+
+I have just released the fourth test release of WDialog-2.00,
+the web application framework.
+
+The tarball is available on the sourceforge project page
+http://sourceforge.net/projects/wdialog
+
+This release improves features that were necessary to
+write the web application "wtimer" that will be released soon.
+Furthermore, it is now (again) possible to compile wdialog
+with the development version of pxp.
+
+======================================================================
+Old cwn
+----------------------------------------------------------------------
+
+If you happen to miss a cwn, you can send me a message
+(alan.schmitt@inria.fr) and I'll mail it to you, or go take a look at
+the archive (http://pauillac.inria.fr/~aschmitt/cwn/). If you also wish
+to receive it every week by mail, just tell me so.
+
+======================================================================
+
+Alan Schmitt

@@ -1,0 +1,608 @@
+			  ━━━━━━━━━━━━━━━━━━━
+			   OCAML WEEKLY NEWS
+			  ━━━━━━━━━━━━━━━━━━━
+
+
+[Previous Week] [Up] [Next Week]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of March 03 to 10,
+2020.
+
+Table of Contents
+─────────────────
+
+Non opam workflows
+First release of metapp
+OCaml 4.10 released
+Transept 0.1.0: Generalised Parser Combinators
+Multicore OCaml: Feb 2020 update
+owl 0.8.0 and 0.9.0 released
+Parser combinators vs. parser preprocessors?
+Dune 2.4.0
+Tyxml 4.4.0
+first release of oplsr: an OCaml wrapper to the pls R package - Partial Least Squares (PLS) regression
+Old CWN
+
+
+[Previous Week] <http://alan.petitepomme.net/cwn/2020.03.03.html>
+
+[Up] <http://alan.petitepomme.net/cwn/index.html>
+
+[Next Week] <http://alan.petitepomme.net/cwn/2020.03.17.html>
+
+
+Non opam workflows
+══════════════════
+
+  Archive: <https://discuss.ocaml.org/t/non-opam-workflows/5232/1>
+
+
+Manas asked
+───────────
+
+  Very recently, I learnt that there is a significant chunk of users in
+  the OCaml community that does not use opam to install packages. As a
+  small initiative to contribute to tooling, I want to ensure what I
+  build is compatible with these workflows - workflows I'm not familiar
+  with myself.
+
+  I'd love to learn more - what does it look like? How do you setup your
+  compiler, dune and merlin (and/or soon ocamllsp)? How do you configure
+  your editor to find them and what would make it easier to do so?
+
+  I'm told of Duniverse as one tool that being used in these non-opam
+  workflows. Are there any more popular ones out there?
+
+
+Théo Zimmermann replied
+───────────────────────
+
+  I am one of these people. I mostly rely on Nix, whose package
+  repository nixpkgs provides package sets for all (relatively recent)
+  versions of OCaml. These package sets are not generally as complete as
+  what you can find on opam, so it sometimes happens that I open a PR on
+  the nixpkgs repository to add a new package (and in the meantime I use
+  my local updated copy of the nixpkgs repo).
+
+  You can see the list of available OCaml packages at:
+  <https://nixos.org/nixos/packages.html?channel=nixpkgs-unstable&query=ocamlPackages>
+  (This is for the default OCaml version, currently 4.07 in
+  nixpkgs-unstable. Other package sets are called
+  `ocaml-ng.ocamlPackages_4_0X' but are not shown in this web search.)
+
+  Most OCaml packages are available at a single version in nixpkgs (even
+  though you can choose your version of OCaml). To gain more flexibility
+  on the exact version I use in one of my project, I am planning to test
+  Duniverse. At that point, I would rely on Duniverse for library
+  dependencies, but I would still rely on Nix to install OCaml, findlib,
+  Dune, Duniverse (I'll have to take care of packaging it), utop,
+  merlin, or ocamlformat.
+
+  Nix is pretty straightforward to use. You generally provide a
+  `default.nix' at the root of your repository, and it will list the
+  dependencies that you use.  When you want to go develop your project,
+  you just enter a special shell (with the `nix-shell' command) and you
+  are in an environment where the tools you need are in `PATH' and the
+  libraries you need are in `OCAMLPATH'.
+
+  There's just one tool that I needed special configuration for:
+  `ocamlformat' (especially because some projects use it and some do
+  not). When I use it, my `default.nix' contains:
+
+  ┌────
+  │ shellHook = ''
+  │   export OCAMLFORMAT_LOCATION=${ocamlformat}
+  │ '';
+  └────
+
+  which will export an environment variable when I enter the shell.
+
+  And my `.emacs' contains:
+
+  ┌────
+  │ (setq ocamlformat-location (getenv "OCAMLFORMAT_LOCATION"))
+  │ (when (> (length ocamlformat-location) 0)
+  │  (add-to-list 'load-path (concat ocamlformat-location "/share/emacs/site-lisp"))
+  │  (require 'ocamlformat)
+  │  (add-hook 'tuareg-mode-hook
+  │ 	   (lambda () (add-hook 'before-save-hook 'ocamlformat-before-save))))
+  └────
+
+        I want to ensure what I build is compatible with these
+        workflows
+
+  If you mean as a library author, then all you have to ensure is that
+  you use Dune as the build system (makes the Duniverse workflow better,
+  and makes it easier to package your library in nixpkgs,
+  cf. `buildDunePackage' documented at
+  <https://nixos.org/nixpkgs/manual/#sec-language-ocaml>).
+
+
+Rwmjones also replied
+─────────────────────
+
+  You might want to check out the Fedora OCaml packages.
+
+  Unfortunately I don't have a convenient way to link to the whole list,
+  but if you look at all the OCaml packages here:
+  <https://koji.fedoraproject.org/koji/search?match=glob&type=package&terms=ocaml>*
+  and then if you substitute the `ocaml-<packagename>' in two places in
+  this URL:
+  <https://src.fedoraproject.org/rpms/ocaml-re/blob/master/f/ocaml-re.spec>
+  (example showing `ocaml-re' package), you can see how we build and
+  package them in the `%prep', `%build' and `%install' sections.
+
+  And yes, please make sure your software doesn't depend on opam.
+  Building everything in your home directory is not suitable for
+  enterprise software distribution.
+
+
+First release of metapp
+═══════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-first-release-of-metapp/5250/1>
+
+
+Thierry Martinez announced
+──────────────────────────
+
+  I am happy to announce the first release of `metapp', yet another
+  preprocessor for OCaml.  Similarly to [`ppx_optcomp'], `metapp' is a
+  PPX rewriter.  But instead of introducing a specific DSL for
+  preprocessor directives, `metapp' provides a `[%meta ...]' extension,
+  where the dots `...' are arbitrary OCaml expressions that are
+  substituted at compile-time by the AST nodes they evaluate into. These
+  expressions build AST nodes either by (anti-)quoting some code
+  directly, or by using `compiler-libs' ([`Parsetree'], [`Ast_helper'],
+  …).
+
+  In particular, this preprocessor is easy to use for conditional
+  compilation, and is an alternative to [`cppo'] and [`ppx_optcomp'].
+
+  ┌────
+  │ let option_get o =
+  │   [%meta if Sys.ocaml_version >= "4.08.0" then
+  │      [%e Option.get o]
+  │   else
+  │      [%e match o with
+  │      | None -> invalid_arg "option_get"
+  │      | Some x -> x]]
+  └────
+
+  In this example, the code between `[%e ... ]' is "anti-quoted": it is
+  the code that is inserted (conditionally) in the rewritten module.  Of
+  course, the anti-quoted code can contain itself some `[%meta ...]'
+  code. `[%meta ...]' can even itself contain other levels of `[%meta
+  ...]' code for multi-stage programming.
+
+  An example of usage of `metapp' is the [`metaquot'] package, which
+  implements the same quoters as `ppx_tools.metaquot': `[%expr ...]',
+  `[%type: ...]', etc.  These quoters are implemented by
+  meta-programming: the meta-code introspects `Parsetree.cmi' from
+  `compiler-libs' to generate the code matching the current OCaml
+  version.
+
+
+[`ppx_optcomp'] <https://github.com/janestreet/ppx_optcomp>
+
+[`Parsetree']
+<https://caml.inria.fr/pub/docs/manual-ocaml/compilerlibref/Parsetree.html>
+
+[`Ast_helper']
+<https://caml.inria.fr/pub/docs/manual-ocaml/compilerlibref/Ast_helper.html>
+
+[`cppo'] <https://github.com/ocaml-community/cppo>
+
+[`metaquot'] <https://github.com/thierry-martinez/metaquot>
+
+
+Raphaël Proust added
+────────────────────
+
+  To potentially save a few second to the next readers:
+  <https://github.com/thierry-martinez/metapp> seems to be the repo
+  where it is hosted.
+
+
+Thierry Martinez then said
+──────────────────────────
+
+  Thanks, @raphael-proust! The package is also available via opam: `opam
+  install metapp' (and `metaquot' is available via opam as well).
+
+
+OCaml 4.10 released
+═══════════════════
+
+  Archive: <https://discuss.ocaml.org/t/ocaml-4-10-released/5194/5>
+
+
+octachron continued this thread
+───────────────────────────────
+
+  The Merlin team has just released a preview version of Merlin which is
+  compatible with 4.10.0 (Merlin is an editor service that provides
+  modern IDE features for OCaml) .
+
+  This is a preview version:
+
+  • the support for short-path is disabled
+  • only OCaml 4.10.0 is supported in this preview
+
+  It can be installed via opam with the usual
+  ┌────
+  │ opam install merlin
+  └────
+
+
+Transept 0.1.0: Generalised Parser Combinators
+══════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-transept-0-1-0-generalised-parser-combinators/5262/1>
+
+
+Didier Plaindoux announced
+──────────────────────────
+
+  I’m happy to announce the first release of Transept an OCaml
+  implementation of generalized parsers combinators.
+
+  This implementation has been inspired by a 19 years old paper -
+  written by Daan Leijen and Erik Meijer - titled “Parsec: Direct Style
+  Monadic Parser Combinators For The Real World” [1]. The current
+  implementation provides basic combinators dedicated to char, chars
+  recognition but also conjunction, sequence, repetition and more. Since
+  the current design relies on the abstract definition of manipulated
+  element most of the parsers are generic and can be used with streams
+  of chars or something else.
+
+  Finally, with this library, I wanted to share my love of OCaml modules
+  🤗
+
+  Opam: <https://opam.ocaml.org/packages/transept/transept.0.1.0/>
+
+  [1]
+  <https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/parsec-paper-letter.pdf>
+
+
+Didier Wenzek then said
+───────────────────────
+
+  It good to see yet another parser combinator for OCaml, even if this
+  makes more difficult the choice of one of them. I believe this
+  highlights how well OCaml shines for this kind of applications where
+  both high-level expressiveness and performance matter.
+
+  [`angstrom'] is one the alternatives and provides a comparison with
+  others. It would be good to position `transept' here.
+
+  There is also a more recent article with a radically new approach: [A
+  Typed, Algebraic Approach to Parsing] by Neelakantan R. Krishnaswami
+  and Jeremy Yallop - PLDI 2019. This paper proposes a [library of
+  parser combinators] for context-free expressions, an algebraic
+  presentation of the context-free languages. The key points are
+  • the use of types to statically reject any language which cannot be
+    parsed unambiguously and linearly;
+  • the use of staging, with OcamlBER, to produce parsers which
+    performance are close to those of hand-written code.
+
+
+[`angstrom'] <https://github.com/inhabitedtype/angstrom>
+
+[A Typed, Algebraic Approach to Parsing]
+<https://www.cl.cam.ac.uk/~nk480/parsing.pdf>
+
+[library of parser combinators] <https://github.com/yallop/ocaml-asp/>
+
+
+Multicore OCaml: Feb 2020 update
+════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/multicore-ocaml-feb-2020-update/5227/3>
+
+
+Continuing this thread, Rwmjones asked
+──────────────────────────────────────
+
+  Hi Anil (or anyone!).  Is there a place I can find more about breaking
+  changes that might be made to C extensions?  As you may know we have a
+  lot of C code which interfaces with OCaml, both as ordinary extensions
+  written in C, but also embedding OCaml in C programs (although that's
+  much more rare), and I'd like a heads up about what's likely to
+  change.
+
+
+Anil Madhavapeddy replied
+─────────────────────────
+
+  Hi @rwmjones! In a nutshell: no breaking C changes. The longer version
+  is that we implemented two different minor collectors in order to
+  evaluate various tradeoffs systematically:
+
+  • a concurrent minor collector that requires a read barrier and some C
+    API changes in order to create more safe points
+  • a stop-the-world minor collector that doesn't require a read barrier
+    and no extra C API changes, but would probably cause longer pauses
+
+  The good news is that our STW collector scales up much better than we
+  expected (tested to 24 cores), and so our first domains patchset will
+  almost certainly use that version now.  We expect to shift to a
+  concurrent (and possibly pauseless) collection algorithm at some
+  future point, but in terms of upstreaming it looks like we should be
+  able to delay any C API changes until after the first version of
+  multicore has landed.
+
+  Do you have any nice standalone candidate programs using the C FFI we
+  could add to Sandmark?
+
+
+owl 0.8.0 and 0.9.0 released
+════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-owl-0-8-0-and-0-9-0-released/5281/1>
+
+
+Marcello Seri announced
+───────────────────────
+
+  We are happy to announce *two* new releases of `owl': a dedicated
+  system for scientific and engineering computing in OCaml.
+
+  Since our previous announcement in July last year, there has been an
+  [enormous amount of work] going on to cleanup and extend owl's
+  internals and its interfaces.
+
+  In this period we have been trying to release often and keep
+  disruption to a minimum. Owl 0.8.0 and 0.9.0 are exceptional in this
+  respect:
+
+  • `owl.0.8.0':
+    • the discrepancy between `owl-base' (pure ocaml) and `owl' (links
+      cblas/lapacke) interfaces started becoming a problem in few
+      places. In this release many interfaces have been unified and
+      reused. The algodiff module has undergone a similar
+      refactoring. Although most users should be shielded from these
+      changes, they may break existing code, requiring an upper bound on
+      owl and some localized updates. This should mostly boil down to
+      changes like
+      ┌────
+      │ -module CGraph_D = Owl_computation_engine.Make_Graph (Owl_computation_cpu_device.Make (Dense.Ndarray.D))
+      │ +module CGraph_D = Owl_computation_engine.Make_Graph (Owl_computation_cpu_device.Make (Owl_algodiff_primal_ops.D))
+      └────
+    • this is the last edition supporting OCaml compiler versions <
+      4.10.0 (more on this later).
+  • `owl.0.9.0': the main difference between `0.8.0' and `0.9.0' is that
+    owl now requires OCaml 4.10.0. This release of OCaml introduces
+    *extended indexing operators*. With them we can now write things
+    like `x.%{0;3}' (for indexing) and `x.${[0:2];[2;4]}' (for slicing)
+    instead of the more cumbersome `x.%{[|0;3|]}' and
+    `x.${[[0:2];[2;4]]}'.
+
+  The project is thoroughly documented at [ocaml.xyz ] where you can
+  find multiple examples of use.
+
+  A lot of work has (and is) been going into improving the
+  documentation, you can find the results in the new [owl book]:
+  <https://ocaml.xyz/book/toc.html>. This is currently targeting the
+  development version of owl, so using `master' or `0.9.0' is the best
+  bet if you want to try the examples out.
+
+  One of the issue of the old documentation was that it was getting
+  stale very fast: the book is reusing some of the infrastructure of
+  RWO, so all examples get recompiled and retested continuously to
+  ensure their correctness.
+
+  As a final note, we would like to send a huge thank to the [OCaml
+  Software Foundation], see also the [announcement made on this forum],
+  which has given us some funding that will support a retreat of the
+  maintainers and a development sprint that will take place at the end
+  of March.
+
+  We meant to announce the retreat and sprint for some time now, but the
+  size and publicity of the event may depend on updates to the various
+  governmental and institutional recommendation in regards to COVID-19
+  spreading.  If a public event will be possible, we will make a
+  separate announce on this forum.
+
+  We want to also thank all the contributors for the increasing number
+  of comments, fixes and discussions that are helping us shape the next
+  releases of owl.
+
+  The Owl Dev Team
+
+
+[enormous amount of work]
+<https://github.com/owlbarn/owl/blob/master/CHANGES.md>
+
+[ocaml.xyz ] <http://ocaml.xyz>
+
+[owl book] <https://ocaml.xyz/book/toc.html>
+
+[OCaml Software Foundation] <http://ocaml-sf.org/>
+
+[announcement made on this forum]
+<https://discuss.ocaml.org/t/ann-the-ocaml-software-foundation/4476>
+
+
+Parser combinators vs. parser preprocessors?
+════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/parser-combinators-vs-parser-preprocessors/5263/4>
+
+
+Continuing this thread, yallop said
+───────────────────────────────────
+
+  Gasche said:
+        Combinators also describe a grammar; they can build a
+        representation that is then processed. I think it would be
+        perfectly reasonable to provide combinators to describe a
+        L(AL)R grammar, and then a function from such a grammar to
+        a parsing automaton, along with the result of various
+        analyses. This would solve the “additional tooling”
+        problem of typical parser generators, and also the “lack
+        of conflict analysis” problem of typical parser combinator
+        libraries. But it may require support for staging for
+        performance reasons.
+
+  Readers of this thread may be interested in the [asp] (*algebraic
+  staged parsing*) library (also described in the [Transept post] linked
+  above), which is built on an approach along the lines @gasche
+  describes:
+  • combinators that describe a grammar (using context-free expressions)
+  • an analysis (formulated as a type system) that ensures deterministic
+    parsing
+  • staging to eliminate performance overhead
+
+  The interface is pretty standard, with combinators for alternation,
+  sequencing, etc., and performance is quite good (better than
+  `ocamlyacc' on our benchmarks).
+
+  There's a paper, [A typed algebraic approach to parsing], that
+  describes the design in more detail.
+
+  Chet_Murthy said:
+        Also, I’m personally a massive LL(1) (over LALR) bigot
+
+  Grammars built using `asp' are essentially LL(1).  (The weasel word
+  "essentially" isn't hiding much here, but the paper has the details.)
+
+
+[asp] <https://github.com/yallop/ocaml-asp/>
+
+[Transept post]
+<https://discuss.ocaml.org/t/ann-transept-0-1-0-generalised-parser-combinators/5262>
+
+[A typed algebraic approach to parsing]
+<https://www.cl.cam.ac.uk/~jdy22/papers/a-typed-algebraic-approach-to-parsing.pdf>
+
+
+Dune 2.4.0
+══════════
+
+  Archive: <https://discuss.ocaml.org/t/ann-dune-2-4-0/5288/1>
+
+
+Rudi Grinberg announced
+───────────────────────
+
+  On behalf of the dune team, I'm pleased to announce the release of
+  dune 2.4.0. This releases features support for [mdx], an interesting
+  take on the notebook paradigm by the RWO team. This release also
+  includes a crucial fix to polling mode which makes it usable in
+  environments with finite memory :slight_smile:.
+
+  Happy hacking!
+
+
+[mdx] <https://github.com/realworldocaml/mdx>
+
+2.4.0 (06/03/2020)
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  • Add `mdx' extension and stanza version 0.1 (#3094, @NathanReb)
+
+  • Allow to make Odoc warnings fatal. This is configured from the `(env
+    ...)'  stanza. (#3029, @Julow)
+
+  • Fix separate compilation of JS when findlib is not
+    installed. (#3177, @nojb)
+
+  • Add a `dune describe' command to obtain the topology of a dune
+    workspace, for projects such as ROTOR. (#3128, @diml)
+
+  • Add `plugin' linking mode for executables and the
+      `(embed_in_plugin_libraries ...)' field. (#3141, @nojb)
+
+  • Add an `%{ext_plugin}' variable (#3141, @nojb)
+
+  • Dune will no longer build shared objects for stubs if
+    `supports_shared_libraries' is false (#3225, fixes #3222,
+    @rgrinberg)
+
+  • Fix a memory leak in the file-watching mode (`dune build -w')
+    (#3220, @snowleopard and @aalekseyev)
+
+
+Tyxml 4.4.0
+═══════════
+
+  Archive: <https://discuss.ocaml.org/t/ann-tyxml-4-4-0/5290/1>
+
+
+Gabriel Radanne announced
+─────────────────────────
+
+  I have the pleasure to announce the release of [TyXML 4.4.0], with
+  special Reason support!
+
+  [TyXML] is a library for building statically correct HTML and SVG
+  documents. TyXML provides a set of combinators which use the OCaml
+  type system to ensure the validity of the HTML. TyXML is now a stable
+  library and this release comes with a few newly supported elements and
+  attributes (such as ARIA elements) and associated bug fixes. However,
+  the main novelty of this release is a long awaited feature: the
+  support for [Reason’s JSX syntax] in the brand new `tyxml-jsx'
+  package.
+
+  See the complete announcement for code examples and details:
+  <https://drup.github.io/2020/03/06/tyxml440/>
+
+
+[TyXML 4.4.0] <https://github.com/ocsigen/tyxml/releases/tag/4.4.0>
+
+[TyXML] <https://github.com/ocsigen/tyxml>
+
+[Reason’s JSX syntax] <https://reasonml.github.io/docs/en/jsx.html>
+
+
+first release of oplsr: an OCaml wrapper to the pls R package - Partial Least Squares (PLS) regression
+══════════════════════════════════════════════════════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-first-release-of-oplsr-an-ocaml-wrapper-to-the-pls-r-package-partial-least-squares-pls-regression/5293/1>
+
+
+UnixJunkie announced
+────────────────────
+
+  It is my great pleasure to release one more hackish wrapper to use
+  some R package from within OCaml:
+
+  <https://github.com/UnixJunkie/oplsr>
+
+  For some background:
+  <https://en.wikipedia.org/wiki/Partial_least_squares_regression>
+
+  Cf. test.ml in the sources for a usage example.
+
+
+Old CWN
+═══════
+
+  If you happen to miss a CWN, you can [send me a message] and I'll mail
+  it to you, or go take a look at [the archive] or the [RSS feed of the
+  archives].
+
+  If you also wish to receive it every week by mail, you may subscribe
+  [online].
+
+  [Alan Schmitt]
+
+
+[send me a message] <mailto:alan.schmitt@polytechnique.org>
+
+[the archive] <http://alan.petitepomme.net/cwn/>
+
+[RSS feed of the archives] <http://alan.petitepomme.net/cwn/cwn.rss>
+
+[online] <http://lists.idyll.org/listinfo/caml-news-weekly/>
+
+[Alan Schmitt] <http://alan.petitepomme.net/>

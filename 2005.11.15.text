@@ -1,0 +1,203 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of 08 to 15 November, 2005.
+
+1) Get a page from the Web
+2) Sexplib - library for S-expression conversions
+3) The best way to circumvent the lack of Thread.kill ?
+4) Finalization and object dependencies
+5) IoXML by DDR no longer maintained?
+6) Sudoku solver
+
+========================================================================
+1) Get a page from the Web
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/31116>
+------------------------------------------------------------------------
+** Continuing the thread from last week, Richard Jones said:
+
+And yet another way is to use perl4caml[1] and WWW::Mechanize[2] which
+is wrapped by perl4caml.  This allows you to fairly easily navigate
+websites (click links, push buttons, fill in forms and so on).
+
+Rich.
+
+[1] <http://merjis.com/developers/perl4caml/>
+[2] <http://search.cpan.org/dist/WWW-Mechanize/lib/WWW/Mechanize.pm>
+    
+========================================================================
+2) Sexplib - library for S-expression conversions
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/31123>
+------------------------------------------------------------------------
+** Following last week's announcement by Markus Mottl, Owen Gunden said:
+
+> we'd like to announce the availability of "Sexplib"
+
+There is now a godi package: godi-sexplib
+    
+========================================================================
+3) The best way to circumvent the lack of Thread.kill ?
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/31022>
+------------------------------------------------------------------------
+** Continuing last week's thread, Jonathan Bryant asked and Richard Jones said:
+
+> First of all, what is going on in the Event module?  I can't exactly get
+> it to work an I fear I'm missing some important concept.  I can't find
+> any documentation other than the interface.  Does anybody know of any
+> further documeeentation or have a good explanation of exactly what's
+> going on.
+
+Yes, the Event module is quite confusing.  I have used it in this code
+(in the file adwords_mt.ml) to implement a simple command pipe between
+a parent thread and worker threads, so you might want to download and
+take a look at this code:
+
+<http://merjis.com/developers/adwords_api>
+<http://merjis.com/_file/adwords-api-1.0.6.tar.gz>
+    
+** Grégory Guyomarc'h also answered:
+
+I found these two references useful to understand the Event library:
+
+CML: A higher-order concurrent language 
+John H. Reppy, In ACM SGPLAN '91 Conference on Programming Language Design and Implementation, pages 293-305. ACM Press, 1991.
+<http://portal.acm.org/ft_gateway.cfm?id=113470&type=pdf>
+
+Higher-order Concurrency 
+John H. Reppy, Computer Science Technical Report 92-1285, Cornell University, June 1992. 
+<http://people.cs.uchicago.edu/~jhr/papers/1992/phd-thesis.html>
+
+I think there is also a short example on how to use this module in OCaml Oreilly book.
+    
+========================================================================
+4) Finalization and object dependencies
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/31196>
+------------------------------------------------------------------------
+** Florian Weimer asked and Damien Doligez answered:
+
+> I've got to different types of objects, say database tables and
+> cursors for one table.  Caml code is expected to access these objects
+> using some handle reference.
+>
+> 
+>   * If the GC detects that no handles for a particular cursor exist
+>     anymore, the underlying cursor object should be closed (which may
+>     free external resources such as locks).  At this time, all "equal"
+>     handles become invalid, subsequent operations will fail.
+> 
+>   * If the GC detects that no handles for some table object exist, and
+>     there are no handles for that table, this table is closed.
+>     Subsequent operations on "equal" table handles will fail.
+> 
+>   * The user may explicitly close a cursor handle.  In this case, the
+>     underlying object is closed, and the handle is marked invalid.
+>     (Same as above.)
+> 
+>   * The user may explicitly close a table handle.  In this case, all
+>     cursor which are still open are closed.  Future operations on
+>     them, or the table, will fail.
+>
+>   * When the program exits, all cursors and tables shall be closed,
+>     even if the program was termined by an exception.
+>
+> (Here, "to fail" means to raise an exception or some other kind of
+> deterministic error signaling mechanism.)
+
+This will be hard to do if you really want to be complete.  Some run- 
+time
+errors (most notably, "out of memory") are not exceptions, they stop the
+program immediately.  Moreover, under Unix there are signals that cannot
+be caught or ignored.
+
+> Usually, application code will gracefully close all cursors, and the
+> table, but I want my library to be as safe as possible to use, and
+> avoid random crashes or memory leaks.
+> 
+> There are a couple of approaches to implement the desired behavior:
+>
+>   (1) Just use weak arrays of tables and cursor, together with  
+> Gc.alarm.
+>
+>   (2) Use Gc.finalise for handler objects which contain an index into
+>       (plain) arrays of tables and cursors.  Use reference counting
+>       (or back pointers) to prevent premature finalization of table
+>       objects while there are still cursors around.
+
+A simple pointer from the cursor to the table should be enough.
+
+>   (3) Same as (2), but using custom blocks and C code.
+
+You'd need reference counts in this case.
+
+I can't see how (1) would work.  (2) is normal if your objects are
+implemented as OCaml data structures.  (3) if they are implemented by  
+some
+C library.
+
+>   (4) Some hybrid approach.
+
+> I'm not exactly happy with each appraoch because it seems I must
+> implement a simple memory manager on my own for managing the array
+> elements.  Perhaps I'm missing something?
+
+Maybe simply that when you implement a program, you have to do some of
+the work, the GC cannot do everything for you...
+
+> How is the performance of the three approaches?  Each one uses a
+> different GC mechanism to achieve its goals, so I'm a bit puzzled.
+
+Different mechanisms for solving different problems.
+    
+========================================================================
+5) IoXML by DDR no longer maintained?
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/31241>
+------------------------------------------------------------------------
+** Alessandro Baretta asked and Maxence Guesdon answered:
+
+> Is anyone still using the clever ioXML syntax extension by Daniel de Rauglaudre? 
+>   Has anyone updated it to ocaml 3.08.4? 3.09.0?
+> 
+> I believe Maxence's Cameleon used to depend on it. Is it still so?
+
+Hello Alex,
+
+I had to update it in cameleon, since I encountered errors with "loc" ids.
+I changed all "loc" variables in the code to "_loc" (file pa_ioXML.ml).
+
+Later, I was told that the -loc option of camlp4 was made for this usage.
+So a 'camlp4 -loc fooo' should work, but I did not test.
+    
+========================================================================
+6) Sudoku solver
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/31252>
+------------------------------------------------------------------------
+** Jon Harrop announced:
+
+Here is a little OCaml program to solve Sudoku puzzles:
+
+  <http://www.ffconsultancy.com/free/sudoku/>
+    
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

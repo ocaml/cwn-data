@@ -1,0 +1,218 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of June 19 to 26, 2007.
+
+1) pretty-printing, type-safe marshalling, dynamic typing for free.
+2) Caml code listing inside LaTeX
+3) graph
+
+========================================================================
+1) pretty-printing, type-safe marshalling, dynamic typing for free.
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/716788ed67b34890/9d8c11f5cef51832#9d8c11f5cef51832>
+------------------------------------------------------------------------
+** Jeremy Yallop announced:
+
+I'm pleased to announce an initial release of `deriving', a system for
+constructing functions automatically from type definitions.
+
+Deriving extends OCaml with two new operations: a syntax for calling
+an "overloaded" function at a particular type:
+
+   C.function<t> v
+
+and the `deriving' construct found in Haskell (and Clean) for
+requesting that the implementation generate an instance of an
+overloaded function from a type definition:
+
+   type t = r
+     deriving (C1, C2)
+
+Deriving provides functions for pretty-printing, dynamic typing,
+type-safe structure-sharing marshalling, SML-style equality,
+mapping, and more.  Functions can be generated for most OCaml types,
+including records, standard and polymorphic variants, tuples, mutually
+recursive types, and types that use abstract type constructors defined
+elsewhere.  A few more exotic constructs, such as private types and type
+replication, are supported.  Derived functions are also extensible: the
+user can choose to supply an implementation at a particular type if the
+generated version is not to his taste.
+
+You can find deriving (along with preliminary documentation and tests)
+at
+
+   <http://code.google.com/p/deriving/>
+
+Note: you'll need OCaml 3.10.
+
+Some examples of use follow.
+
+Pretty-printing:
+
+   Show.show<int> 3
+   =>
+   "3"
+
+   let factors = [(10,[2;5]); (11, []);  12, [2;3;4;6]]
+   Show.show<(int * int list) list> factors
+   =>
+   "[(10,[2; 5]); (11, []);  12, [2; 3; 4; 6]]"
+
+
+   type 'a tree = Leaf of 'a | Branch of 'a tree * 'a * 'a tree
+       deriving (Show, Typeable, Eq, Shelve)
+
+   type point = { x : float; y : float }
+       deriving (Show, Typeable, Eq, Shelve)
+
+   let points = Branch (Leaf {x=0.0;
+                              y=0.0;},
+                        {x=2.0; y=2.0},
+                        Branch (Leaf {x=1.0; y=1.0},
+                                {x=1.0; y=0.0},
+                                Leaf {x=0.0; y=1.0}))
+
+   Show.show<point tree> points
+   =>
+   "Branch
+      (Leaf {x =193.11; y =132.13}, {x =211.91; y =201.11},
+       Branch
+         (Leaf {x =113.12; y =1.}, {x =12.7; y =44.1}, Leaf {x =0.; y =13.41}))"
+
+Dynamic typing:
+
+   let items =
+      [Typeable.mk<int> 3;
+       Typeable.mk<float> 3.0;
+       Typeable.mk<string tree> (Leaf "three")]
+   =>
+   [<abstr>; <abstr>; <abstr>]
+
+   Typeable.cast<int> (List.hd items)
+   =>
+   Some 3
+
+   Typeable.cast<float> (List.hd items)
+   =>
+   None
+
+
+Dynamic typing again:
+
+   type 'a seq = [`Nil | `Cons of 'a * 'a seq]
+       deriving (Typeable)
+
+   let l = `Cons (3, `Cons (2, `Cons (1, `Nil)))
+
+   Typeable.cast<[`Cons of int * 'a|`Nil] as 'a>
+     (Typeable.mk<int seq> l)
+   =>
+   Some (`Cons (3, `Cons (2, `Cons (1, `Nil))))
+
+Serialisation (marshalling):
+
+   Shelve.shelveS<point tree> points
+   =>
+"\007\003\t\128\128\128\128\128\128\128\248?\t\128\128\128\128\128\128\128\128@\001\000\005\000\001\008\000\001\n\001\003\004\t\003\000\001\012\001\003\006\011\005\005\002\002\000\002\000\002\002\000\000\002\001\001\002\002\002"
+
+   Shelve.unshelveS<point tree> (Shelve.shelveS<point tree> points)
+   =>
+   Branch
+     (Leaf {x =193.11; y =132.13}, {x =211.91; y =201.11},
+      Branch
+        (Leaf {x =113.12; y =1.}, {x =12.7; y =44.1}, Leaf {x =0.;
+                                                            y =13.41}))
+
+
+   Shelve.unshelveS<int> (Shelve.shelveS<point tree> points)
+   =>
+   *** Exception
+
+For more see the documentation and test suite.
+
+Comments, bug reports, and other feedback will be most welcome.
+			
+========================================================================
+2) Caml code listing inside LaTeX
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/83bac8d06724bacb/49cdc7ff10c8dd76#49cdc7ff10c8dd76>
+------------------------------------------------------------------------
+** Philippe Wang announced:
+
+If ever you are interested in putting some caml code inside your latex 
+document, *without* using verbatim environment or listings package, 
+
+the online tool : 
+   <http://philippewang.info/cs.tools.camltotex.php>  (*) 
+
+takes some caml code and returns LaTeX code. 
+
+The applied treatments are : 
+- colors 
+- nested comments (even with strings such as "*)" inside) are detected 
+- based on LaTeX macros such as 
+     \DeclareTextSymbol{\BS}{T1}{92} % backslash 
+     \newcommand{\mlkeyword}[1]{\mbox{\color{red}{#1}}} 
+- the code is put in a tabular environment 
+
+Well, it's very small : 300 lines of code for the moment (about 230 
+lines of ocamllex and 30 lines of ocaml...). 
+
+It could have certainly been written in camlp4 or in latex, but well, 
+they are not (yet) my cup of tea. 
+
+Hopefully, it will be released under a free license next month (if you 
+are interested in this program, which license do you want ?) 
+
+The main goals are : 
+- no use of verbatim, so that it can be used with beamer without the 
+[fragile] option 
+- no use of the listings package (because it don't like it) 
+
+It certainly contains bugs, it was never proved or certified, and 
+probably never will be...
+
+Cheers, 
+
+-- 
+  Philippe Wang 
+    mail[at]philippewang.info 
+
+(*) I used php because cgi in pure caml is very complicated on the 
+hosting server
+			
+========================================================================
+3) graph
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/32239d9c8e40131b/5aa144488c91aa91#5aa144488c91aa91>
+------------------------------------------------------------------------
+** Eric Stokes announced:
+
+Announcing graph, a utility to print a pretty graph of a time series   
+in an ansi terminal. 
+<http://homepage.mac.com/letaris> 
+
+its in godi :-)
+			
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

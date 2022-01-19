@@ -1,0 +1,362 @@
+			  ━━━━━━━━━━━━━━━━━━━
+			   OCAML WEEKLY NEWS
+			  ━━━━━━━━━━━━━━━━━━━
+
+
+[Previous Week] [Up] [Next Week]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of September 22 to
+29, 2020.
+
+Table of Contents
+─────────────────
+
+Opam-repository: security and data integrity posture
+jsonoo 0.1.0
+Interesting OCaml Articles
+Rehabilitating Packs using Functors and Recursivity
+the OCaml Software Foundation
+dual 0.1.0
+Old CWN
+
+
+[Previous Week] <http://alan.petitepomme.net/cwn/2020.09.22.html>
+
+[Up] <http://alan.petitepomme.net/cwn/index.html>
+
+[Next Week] <http://alan.petitepomme.net/cwn/2020.10.06.html>
+
+
+Opam-repository: security and data integrity posture
+════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/opam-repository-security-and-data-integrity-posture/6478/1>
+
+
+Chas Emerick said, spawning a huge thread
+─────────────────────────────────────────
+
+  In connection with [another thread] discussing the fact that
+  Bitbucket's closure of mercurial support had affected the availability
+  of around 60+ projects' published versions, I learned of a number of
+  facts about how the opam repository is arranged, and how it is managed
+  that are concerning.
+
+  In summary, it seems that opam / opam-repository:
+
+  1. Never retains "published" artifacts, only links to them as provided
+     by library authors.
+  2. Allows very weak hashes (even md5).
+  3. Allows authors to _update_ artifact URLs and hashes of previously
+     "published" versions.
+  4. Offers scant support for individually signing artifacts or
+     metadata.
+
+  All of these are quite dangerous. As a point of reference, the
+  ecosystems I am most familiar with using prior to OCaml (JVM and
+  Javascript) each had very serious documented failures and exploits
+  (and many many more quiet ones) until their respective package
+  managers (Maven Central et al., and npm) plugged the above
+  vulnerabilities that opam-repository suffers from.
+
+  To make things concrete, without plugging the above (and especially
+  items 1-3):
+
+  • the availability and integrity of published libraries can be
+    impacted by third-party hosting services changing or going offline
+    (as in the case of the Bitbucket closure)
+  • the integrity of libraries can be impacted by authors
+    non-maliciously publishing updates to already-released versions,
+    affecting functionality, platform compatibility, build
+    reproducibility, or all of the above (anecdotes of which were shared
+    with me when talking about this issue earlier today)
+  • the integrity of libraries can be impacted by malicious authors
+    publishing updates to already-released versions
+  • the integrity of libraries can be impacted by malicious non-authors
+    changing the contents at tarball URLs to include changed code that
+    could e.g. exfiltrate sensitive data from within the organizations
+    that use those libraries. This is definitely the nuclear nightmare
+    scenario, and unfortunately opam is wide open to it thanks to
+    artifacts not being retained authoritatively and [essential
+    community libraries] continuing to use md5 in 2020.
+
+  Seeing that this has been well-established policy for years was
+  honestly quite shocking (again, in comparison to other languages'
+  package managers that have had these problems licked for a very very
+  long time). I understand that opam and its repository probably have
+  human-decades of work put into them, and that these topics have been
+  discussed here and there (in somewhat piecemeal fashion AFAICT), so
+  I'm certain I have not found (nevermind read) all of the prior art,
+  but I thought it reasonable to open a thread to gauge what the
+  projects' posture is in general.
+
+
+[another thread]
+<https://discuss.ocaml.org/t/bitbucket-stopped-supporting-mercurial-repositories/6324/3?u=cemerick>
+
+[essential community libraries]
+<https://github.com/ocaml/opam-repository/blob/master/packages/core/core.v0.14.0/opam>
+
+
+Hannes Mehnert replied
+──────────────────────
+
+  first of all thanks for your post raising this issue, which is
+  important for me as well.
+
+  I've been evaluating and working on improving the security of the
+  opam-repository over the years, including to not use `curl –insecure`
+  (i.e. properly validate TLS certificates) - the WIP result is [conex],
+  which aims at cryptographically signed community repositories without
+  single points of failures (threshold signatures for delegations,
+  built-in key rollover, …) - feel free to read the blog posts or OCaml
+  meeting presentations. Unfortunately it still has not enough traction
+  to be deployed and mandatory for the main opam repository. Without
+  cryptopgraphic signatures (and an established public key
+  infrastructure), the hashes used in opam-repository and opam are more
+  checksums (i.e. integrity protection) than for security. Threat models
+  - I recommend to read section [1.5.2 "goals to protect against
+  specific attacks"] - that's what conex above is based on and attempts
+  to mitigate. I'll most likely spend some time on improving conex over
+  the next year, and finally deploying it on non-toy repositories.
+
+  In the meantime, what you're mentioning:
+  1. "Never retains 'published' artifacts" <- this is not true, the
+     opam.ocaml.org host serves as an artifact cache, and is used by
+     opam when you use the default repository. This also means that the
+     checksums and the tarballs are usually taken from the same host ->
+     the one who has access there may change anything arbitrarily for
+     all opam users.
+  2. "Weak hashes" <- this is true, I'd appreciate if (a) opam would
+     warn (configurable to error out) if a package which uses weak
+     checksum algorithms, and (b) Camelus or some other CI step would
+     warn when md5/sha1 are used
+  3. "Authors can modify URLs and hashes" <- sometimes (when a
+     repository is renamed or moved on GitHub) the GitHub auto-generated
+     tarball has a different checksum. I'd appreciate to, instead of
+     updating that meta-data in the opam-repository to add new
+     patch-versions (1.2.3-1 etc.) with the new URL & hash - there could
+     as well be a CI job / Camelus check what is allowed to be modified
+     in an edit of a package (I think with the current state of the
+     opam-repository, "adding upper bounds" on dependencies needs to be
+     allowed, but not really anything else).
+  4. I'm not sure I understand what you mean - is it about cryptographic
+     signatures and setting up a public key infrastructure?
+
+
+[conex] <https://github.com/hannesm/conex>
+
+[1.5.2 "goals to protect against specific attacks"]
+<https://github.com/theupdateframework/specification/blob/master/tuf-spec.md#the-update-framework-specification>
+
+
+Anton Kochkov said
+──────────────────
+
+  Closely related issue is
+  <https://discuss.ocaml.org/t/how-to-setup-local-opam-mirror/4423>,
+  since the integrity checks and verification will become even more
+  important if there will be multiple mirrors in the future.
+
+
+jsonoo 0.1.0
+════════════
+
+  Archive: <https://discuss.ocaml.org/t/ann-jsonoo-0-1-0/6480/1>
+
+
+Max LANTAS announced
+────────────────────
+
+  Hello! I am announcing the first release of `jsonoo', a JSON library
+  for Js_of_ocaml.
+
+  <https://github.com/mnxn/jsonoo>
+  <https://opam.ocaml.org/packages/jsonoo>
+
+  This library provides a very similar API to the excellent BuckleScript
+  library, [bs-json] by [glennsl]. Unlike bs-json, this port of the
+  library tries to follow OCaml naming conventions and be easier to
+  interface with other OCaml types like `Hashtbl.t' . This library
+  passes a nearly equivalent test suite.
+
+  This project is part of ongoing work to port [vscode-ocaml-platform]
+  to Js_of_ocaml.
+
+  Generated documentation can be found [here].
+
+
+[bs-json] <https://github.com/glennsl/bs-json>
+
+[glennsl] <https://github.com/glennsl>
+
+[vscode-ocaml-platform]
+<https://github.com/ocamllabs/vscode-ocaml-platform>
+
+[here] <https://mnxn.github.io/jsonoo/jsonoo/Jsonoo/index.html>
+
+
+Interesting OCaml Articles
+══════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/interesting-ocaml-articles/1867/62>
+
+
+Ryan Slade announced
+────────────────────
+
+  <https://blog.darklang.com/fizzboom-benchmark/>
+
+
+Rehabilitating Packs using Functors and Recursivity
+═══════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/rehabilitating-packs-using-functors-and-recursivity/6497/1>
+
+
+OCamlPro announced
+──────────────────
+
+  Our new blogpost is about the redemption of packs in the OCaml
+  ecosystem. This first part shows our work to generate functor units
+  and functor packs : [Rehabilitating Packs using Functors and
+  Recursivity, part 1.]
+
+        Packs in the OCaml ecosystem are kind of an outdated
+        concept (options `-pack' and `-for-pack' the OCaml manual,
+        and their main utility has been overtaken by the
+        introduction of module aliases in OCaml 4.02. What if we
+        tried to redeem them and give them a new youth and utility
+        by adding the possibility to generate functors or
+        recursive packs?
+
+        This blog post covers the functor units and functor packs,
+        while the next one will be centered around recursive
+        packs. Both RFCs are currently developed by JaneStreet and
+        OCamlPro. This idea was initially introduced by functor
+        packs (Fabrice Le Fessant) and later generalized by
+        functorized namespaces (Pierrick Couderc /et al/.).
+
+
+[Rehabilitating Packs using Functors and Recursivity, part 1.]
+<https://www.ocamlpro.com/2020/09/24/rehabilitating-packs-using-functors-and-recursivity-part-1/>
+
+
+the OCaml Software Foundation
+═════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-the-ocaml-software-foundation/4476/19>
+
+
+gasche announced
+────────────────
+
+  We were all very busy during the last semester, and have been mostly
+  quiet on the foundation activities, but of course our actions were
+  running in the background. Some highlights:
+
+  • Kate @kit-ty-kate Deplaix has worked on opam-repository QA for the
+    OCaml 4.11 release, and the work and results are just as superb as
+    for 4.10. We will fund Kate to work again on the upcoming 4.12
+    release.
+
+  • We are funding ongoing maintenance work on [ocaml-rs] (a port of the
+    OCaml FFI library from C to Rust) by its author and maintainer, Zach
+    @zshipko Shipko. Zach did a big round of cleanup changes this
+    summer, improving the overall design of the library and completing
+    its feature set.
+
+  • We are funding @JohnWhitington (the author of [OCaml from the Very
+    Beginning]) to do some technical writing work for OCaml
+    documentation. His contributions so far have been very diverse, from
+    a script to harmonize the documentation of List and ListLabels (and
+    Array and ArrayLabels, etc.) in the standard library, to small
+    cleanups and improvement to ocaml.org web pages. One focus of his
+    work is the upcoming documentation page "Up and running with OCaml",
+    taking complete newcomers through the basic setup, using the
+    toplevel and building and running a Hello World. ([ocaml.org#1165],
+    [rendered current state])
+
+  • Two [Outreachy] internships were supervised this summer, focusing on
+    the compiler codebase. Florian @Octachron Angeletti (INRIA)
+    supervised an intern on adding a JSON format for some compiler
+    messages (we expect PRs to be submitted soon). Vincent @vlaviron
+    Laviron and Guillaume @zozozo Bury (OCamlPro) supervised an intern
+    on reducing mutable state in the internal implementation.
+
+  • Inspired by [this Discuss thread], we are funding experimental work
+    by @sanette on the HTML rendering of the OCaml manual. This work is
+    in the process of being reviewed for upstreaming in the OCaml
+    compiler distribution. ([#9755].) This is a better end-result than I
+    had initially expected.
+
+  (We also had a couple non-highlights. For example, we funded a sprint
+  (physical development meeting) for the [Owl] contributors, with
+  Marcello @mseri Seri doing all the organization work; it was planned
+  for the end of March, and had to be postponed due to the pandemic.)
+
+
+[ocaml-rs] <https://github.com/zshipko/ocaml-rs/>
+
+[OCaml from the Very Beginning] <http://ocaml-book.com/>
+
+[ocaml.org#1165] <https://github.com/ocaml/ocaml.org/pull/1165>
+
+[rendered current state]
+<https://github.com/johnwhitington/ocaml.org/blob/up-and-running/site/learn/tutorials/up_and_running.md>
+
+[Outreachy] <https://outreachy.org>
+
+[this Discuss thread]
+<https://discuss.ocaml.org/t/suggestions-for-ocaml-documentation/4504>
+
+[#9755] <https://github.com/ocaml/ocaml/pull/9755>
+
+[Owl] <https://github.com/owlbarn>
+
+
+dual 0.1.0
+══════════
+
+  Archive: <https://discuss.ocaml.org/t/ann-dual-0-1-0/6512/1>
+
+
+Jason Nielsen announced
+───────────────────────
+
+  I’ve released [dual] which is now up on opam.  It is a dual numbers
+  library which includes a one dimensional root finder (via Newton's
+  method).
+
+
+[dual] <https://github.com/drjdn/ocaml_dual>
+
+
+Old CWN
+═══════
+
+  If you happen to miss a CWN, you can [send me a message] and I'll mail
+  it to you, or go take a look at [the archive] or the [RSS feed of the
+  archives].
+
+  If you also wish to receive it every week by mail, you may subscribe
+  [online].
+
+  [Alan Schmitt]
+
+
+[send me a message] <mailto:alan.schmitt@polytechnique.org>
+
+[the archive] <http://alan.petitepomme.net/cwn/>
+
+[RSS feed of the archives] <http://alan.petitepomme.net/cwn/cwn.rss>
+
+[online] <http://lists.idyll.org/listinfo/caml-news-weekly/>
+
+[Alan Schmitt] <http://alan.petitepomme.net/>

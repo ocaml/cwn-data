@@ -1,0 +1,556 @@
+<html><head><meta http-equiv="Content-Type" content="text/html" charset=iso-8859-1"><title>Caml Weekly News</title></head><body>
+
+<a href="2003.06.10.html">Previous week</a> &nbsp; <a href="index.html">Up</a> &nbsp; <a href="2003.06.24.html">Next week</a>
+<pre>
+Hello,
+
+Here is the latest Caml Weekly News, week 10 to 17 June, 2003.
+
+1) <a href="#1">HTTP-server written in ocaml</a>
+2) <a href="#2">How to find out if a function is tail recursive?</a>
+3) <a href="#3">FP's and HyperThreading Processors</a>
+4) <a href="#4">Type safe affectation ?</a>
+5) <a href="#5">opteron query</a>
+6) <a href="#6">ICFP 2003 programming contest</a>
+7) <a href="#7">Programming required</a>
+
+<a name="1"/>==============================================================================
+1) HTTP-server written in ocaml
+------------------------------------------------------------------------------
+** Jurjen Stellingwerff announced:
+
+In the past few months I have written a web-server in ocaml. This
+resulted in a module library and a stand-alone web-server. This server
+has an internal scripting language that is basically just html with
+extra tags (like &lt;loop&gt; ... &lt;/loop&gt; and &lt;when test="a=3"&gt; ... &lt;/when&gt;)
+Yes I know... yet another scripting language.
+
+But there is hope... this server is also usable as a module so if you
+want to web enable your own application feel free to grab this
+project...
+
+The code should be stable (I have some remaining worries about SSL) and
+I hope to get some feedback on it... please send in all your
+encouragements, flames, patches and enhancement request.
+
+More info on: <a href="http://camlserv.sf.net">http://camlserv.sf.net</a>
+
+<a name="2"/>==============================================================================
+2) How to find out if a function is tail recursive?
+------------------------------------------------------------------------------
+** Richard Jones asked:
+
+I was writing the section on tail recursion in the OCaml tutorial, and
+was surprised to find out that the range function (below) isn't tail
+recursive. Or at least it causes a stack overflow on a
+large-but-not-unreasonable input value.
+
+let rec range a b =
+  if a &gt; b then []
+  else a :: range (a+1) b
+  ;;
+
+let list = range 1 1000000;;
+
+Printf.printf "length = %dn" (List.length list);;
+
+Can you tell me why this function isn't tail recursive, and share any
+useful tips on how to tell whether a function is or is not tail
+recursive?
+
+** Neel Krishnaswami answered:
+
+A function call is a tail call if it is the last thing that the
+function does before returning. In this example:
+
+ let rec range a b =
+   if a &gt; b then
+      []
+   else
+      a :: range (a+1) b
+
+The two expressions '[]' and 'a :: range (a+1) b' are in tail
+position. The recursive call to range is *not* in tail position,
+because you need to do the 'a :: &lt;value&gt;' before returning.
+
+You can identify 'tail position' as a purely syntactic criterion, and
+then a 'tail call' is any function call in tail position.
+
+With the function definition
+
+  let f x = &lt;expr&gt;
+
+&lt;expr&gt; is an expression in tail position.
+
+If you have an expression &lt;expr&gt; in tail position, then
+
+If &lt;expr&gt; = &lt;f&gt; &lt;x&gt;, then:
+
+  o neither subexpression &lt;f&gt; nor &lt;x&gt; is in tail position,
+  o the call '&lt;f&gt; &lt;x&gt;' is in tail position
+
+If &lt;expr&gt; = if &lt;test&gt;
+            then &lt;e_1&gt;
+            else &lt;e_2&gt;, then:
+
+  o &lt;test&gt; is not in tail position
+  o &lt;e_1&gt; and &lt;e_2&gt; are in tail position
+
+If &lt;expr&gt; = match &lt;m&gt; with
+            | pat -&gt; &lt;e_1&gt;
+            | ...
+            | pat -&gt; &lt;e_n&gt;, then:
+
+  o &lt;m&gt; is not in tail position
+  o &lt;e_1&gt; ... &lt;e_n&gt; are in tail position.
+
+If &lt;expr&gt; = begin
+              &lt;e_1&gt;;
+              ...
+              &lt;e_n-1&gt;;
+              &lt;e_n&gt;
+            end, then:
+
+  o &lt;e1&gt; ... &lt;e_n-1&gt; are not in tail position
+  o &lt;e_n&gt; is in tail position
+
+If &lt;expr&gt; = try &lt;body&gt; with exn -&gt; &lt;handler&gt;, then:
+
+  o &lt;body&gt; is not in tail position
+  o &lt;handler&gt; is in tail position
+
+** Brian Hurt also answered:
+
+A function is tail recursive if it fits both of the following criteria:
+
+1) It returns the value returned by calling itself *unmodified*.  And
+modification of the return value means the functions is not tail
+recursive.  This is where your example fails- it modifies the return value
+br list-prepending a new item to it.  Note that even the simplest
+"modifications" defeat tail recursion.  For example, the following code is
+*not* tail recursive:
+
+let rec sum x = if x &gt; 1 then x + (sum (x-1)) else x
+
+Trying to calculate sum 80000 overflows the stack.  The general pattern
+for how to fix this is to instead accumulate the modifications into a
+parameter, generally called 'accu' or 'accum' or similar.  Often times,
+the recursion is then hidden in an inner function.  So you might rewrite
+the above function like:
+
+let sum x =
+    let rec loop i accum =
+        if (i &gt; 1) then
+            loop (i-1) (i + accum) (* &lt;-- note this line! *)
+        else
+            i + accum
+    in
+    loop x 0
+
+So now sum 80000 correctly returns 1052556352.  With lists, we can only
+build lists backwards, not forwards.  So the general pattern is to build
+the list backwards, then reverse it at the last moment.  So you're example
+might be written like:
+    let range a b =
+        let rec loop i accum =
+            if i &gt; b then accum
+            else loop (i + 1) (i :: accum)
+        in
+        List.rev (loop a [])
+
+Note, we can put the list reversal either outside of the loop, or inside
+of the loop just before we exit, like:
+
+    let range a b =
+        let rec loop i accum =
+            if i &gt; b then (List.rev accum)
+            else loop (i + 1) (i :: accum)
+        in
+        loop a []
+
+There's really not any difference between the two.
+
+2) The recursive call is not within a try/with block.
+
+So, let's consider the "classic" problem- reading all the lines of a file
+into a list of strings.  The naive solution to this is:
+
+let rec read_file chan =
+    try
+        let line = input_line chan in
+        line :: (read_file chan)
+    with
+        End_of_file -&gt; []
+
+The line that reads "line :: (read_file chan)" is not tail recursive-
+we're modifying our return value (by prepending the current line onto it).
+This violates condition #1.  So we apply the normal pattern to it, and get
+try #2:
+
+let read_file chan =
+    let rec loop accum =
+        try
+            let line = input_line chan in
+            loop (line :: accum)
+        with
+            End_of_file -&gt; List.rev accum
+    in
+    loop []
+
+So now we're not modifying the return value.  Instead of prepending the
+new list element to the return value, we're prepending it to the
+accumulator.  So we're no longer violating condition #1.  But we're still
+violating condition #2- the recursion is still within a try/with block.
+
+The try/with block really only needs to surround the input_line call- but
+it also governs wether we exit the recursion or not.  So my normal pattern
+for solving this is to set a boolean variable as to wether we have data or
+not.  So the code now looks like:
+
+let read_file chan =
+    let rec loop accum =
+        let line, eof =
+            try
+                (input_line chan), false
+            with
+                End_of_file -&gt; "", true
+        in
+        if eof then
+            loop (line :: accum); (* &lt;-- note, recursion now outside *)
+        else
+            List.rev accum
+    in
+    loop []
+
+Now the recursive call is outside the try/with block.  *And*, as we're not
+modifying the return value at all, we're now tail recursive.
+
+I'm probably missing more constraints, but it's pre-caffeine.  I'll look
+at this again later.
+
+<a name="3"/>==============================================================================
+3) FP's and HyperThreading Processors
+------------------------------------------------------------------------------
+** David McClain asked and Xavier Leroy answered:
+
+&gt; I have a massive application that performs nonlinear fitting to 170+
+&gt; parameters; a phase retrieval problem for discerning the aberrations of an
+&gt; optical system. This program is written largely in compiled OCaml closures,
+&gt; along with a multithreaded vendor supplied FFT routine (presumably optimized
+&gt; for their processor).
+&gt; 
+&gt; On an old P2 single processor machine at 350 MHz, I am seeing almost 95%+
+&gt; CPU utilization. But on a new 3 GHz P4 with HyperThreading enabled (dual
+&gt; register banks for fast context switching and minimum cache coherence
+&gt; overhead), this same program provides much less than 5% CPU utilization. 
+
+How do you measure "CPU utilization"?  Different tools have different
+notions of CPU utilization.  For instance, OS-level tools such as
+"top", "ps" or "uptime" treat the time spent by the CPU while stalled
+by cache misses and the like as user CPU time, not as idle time.
+Only processor-level performance monitor counters can distinguish
+between active cycles and stalled cycles.
+
+&gt; The net result is that this program runs only twice as fast on the
+&gt; new 3 GHz P4 as it runs on the old 350 MHz P2.
+
+Some operations take more cycles on the P4 than on the PPro/P2/P3,
+e.g. shifts, integer multiplication and division.  I saw some programs
+run slightly slower on a 2 Ghz P4 than on a 1 Ghz P3.  But that
+doesn't suffice to explain the factor of 5 that you observed.
+
+&gt; I suspect, but have yet to prove, that the low utilization is due to a low
+&gt; CPU to memory bandwidth and to the failure of the L1 and L2 caches to supply
+&gt; needed operations and data to the CPU. This, I would hypothesize, is going
+&gt; to be demonstrated by any language that prefers fresh memory allocation for
+&gt; results, e.g., OCaml, ML, Lisp, Smalltalk, etc.
+&gt; 
+&gt; If I am correct, then it implies that our hardware friends are moving
+&gt; rapidly in the opposite direction to our advanced software systems. I
+&gt; mention this in order to tickle the imaginations of both camps.
+
+This was a concern in the early to mid 90s, when processor speed
+increased much more than the performances of the memory subsystems.
+(I remember Caml benchmarks on an early Alpha system where the processor
+was stalled 9 cycles out of 10.)
+
+But since then the hardware manufacturers have done a very good job at
+maintaining a decent balance between the memory subsystem and the ALU.
+In particular, out-of-order execution is quite effective at hiding
+cache miss latencies.
+
+My general feeling (although I have no proof of that) is that the
+memory usage patterns of Caml programs aren't radically different from
+those of more mainstream programs.
+
+** Ville-Pertti Keinonen also said:
+
+Does calling from OCaml affect the performance of the FFTs?   
+
+You presumably use your own C wrappers to access the vendor code from
+your OCaml code - do you align the stack?
+
+For floating point intensive code, lack of alignment can cause
+significant differences in performance.  I remember seeing 40%
+differences (worst case) in performance when I ran into this several
+years ago, and I don't think the situation has improved with more
+recent cpus.
+
+OCaml currently doesn't ensure more than word alignment for stack or
+allocations on i386, so you are going to have suboptimal performance
+for any floating point code written in OCaml (as well as float arrays
+allocated in OCaml but manipulated elsewhere).  However, if you're
+calling external code (presumably compiled in an alignment-preserving
+way), you should at least try ensuring that the stack is aligned to a
+64-bit boundary (or 128-bit boundary if SSE is used for anything) in
+case that affects performance.
+
+If you're actually making heavy use of hyperthreading, it may make
+memory access patterns less uniform and performance highly
+unpredictable.  Have you tried comparing performance with and without
+hyperthreading enabled?
+
+Anyway, it sounds like you might be running into several issues.  The
+only certain way to find out which are the most significant ones is to
+do large amounts of profiling and testing.
+
+<a name="4"/>==============================================================================
+4) Type safe affectation ?
+------------------------------------------------------------------------------
+** Christophe Raffalli asked and Xavier Leroy answered:
+
+&gt; Using the Obj module you can do affectation of cons cell of a list (or 
+&gt; any onther data type), which is usefull for instance to write a tail 
+&gt; recursive Map funtion ... (see a previous thread)
+&gt; But this is not typesafe !
+
+Like all uses of module Obj, you can make this type-safe via proper
+type constraints:
+
+let set_cdr (l: 'a list) (x: 'a list) =
+  match l with
+    [] -&gt; invalid_arg "set_cdr"
+  | _::_ -&gt; Obj.set_field (Obj.repr l) 1 (Obj.repr x)
+
+&gt; Why not allow a typesafe way to mute immutable data (sum, products, 
+&gt; immutable records and so on) ?
+
+Because that would make this data mutable :-)  Immutability isn't there
+just to annoy the programmer: it's a major improvement for software
+reliability and quality.  Proving the correctness of functions that
+manipulate lists or trees is feasible if the data is immutable, but
+becomes essentially impossible if arbitrary in-place modifications are
+allowed anywhere in the program.
+
+Even if you're not interested in proofs of programs, I'm ready to bet
+that there aren't 1 programmer in 100 who can write *fully correct*
+code that manipulate mutable balanced trees, for instance.  (I think I
+can't.)
+
+Also, keep in mind that the compiler can optimize based on
+immutability assumptions.  For instance, the OCaml compiler performs
+propagation of structured constants and code motion for accesses
+inside data structures that are immutable.  You might very well break
+something by using the set_cdr function above.
+
+&gt; By the way, another step would be to infer for each function if it mutes 
+&gt; its arguments instead of annotating record with "mutable" indication.
+&gt; 
+&gt; This is better because the same data may be considered as mutable by 
+&gt; some functions (for instance when you construct the data) but then be 
+&gt; used only by immutable functions and this way the type inference can 
+&gt; help you insure that you do not mute the data anymore.
+&gt; 
+&gt; But this is research topic ?
+
+This sounds reminiscent of effect systems.
+
+** The discussion then moved to "holes". Jacques Garrigue replied to Brian 
+   Hurt:
+
+There are safe ways to do that: when you build such a structure with a
+hole, first define a mutable type sharing the same representation with
+your intended immutable type, and cast to it after you're finished.
+Since ocaml doesn't do any fancy representation optimizations, this
+will work, and if it changes all C libraries are broken anyway.
+
+For instance, you can write for a list:
+
+type 'a mut_list = {hd: 'a; mutable tl: 'a list}
+external inj : 'a mut_list -&gt; 'a list = "%identity"
+
+Limitation: for sum types, this only works for the first parameterized
+constructor (the tag has to be 0). For records there is no problem.
+
+Also, you must be very careful about not letting a mut_list value leak
+out (respect the linearity), otherwise inferred information such as
+variance will be incorrect, and you can break the type system.
+
+By the way, the above limitation is yet one more reason I think it
+would be really cool to allow records inside sum-type definitions.
+
+&gt; If there is one thing I'm regretting with ExtLib, is that we've seemed to 
+&gt; make using Obj.magic "cool", or at least "common and useful".  Were holes 
+&gt; added to the standard Ocaml compiler, I'd be re-rewritting ExtList to take 
+&gt; those optimizations *out*.  There's other stuff in ExtLib which is useful 
+&gt; even without the new List code- Enum, for example.  So the project will 
+&gt; survive regardless.
+
+The problem is that holes at the type level are a difficult feature to
+offer: they require linear types in the compiler. As an optimization,
+it is a rather high-level one, and maybe not so easy to know when it
+will apply.
+
+&gt; Or maybe I'm overstating ExtLib's effect- and there has always been a lot 
+&gt; of Obj.magic going around.
+
+I certainly hope this is not the case. Obj.magic is EVIL.
+It is only acceptable in this case because we want to optimize some
+well-known structure, and we can check the correctness for sure.
+At the user level, it is certainly preferable to use a mutable
+structure to start with.
+
+&gt; &gt; On a related note, I'd like a way to make an immutable
+&gt; &gt; representation of the built in array by not exporting the
+&gt; &gt; mutators, *and then* making the type parameter covariant, say a
+&gt; &gt; signature like the following  
+&gt; &gt; 
+&gt; &gt; module type FUNCTIONAL_ARRAY = 
+&gt; &gt;   sig
+&gt; &gt;     type (+'a) t
+&gt; &gt;     val init : int -&gt; (int -&gt; 'a) -&gt; 'a t
+&gt; &gt;     val get : 'a t -&gt; int -&gt; 'a 
+&gt; &gt;     val length : 'a t -&gt; int 
+&gt; &gt;     val map : ('a -&gt; 'b) -&gt; 'a t -&gt; 'b t
+&gt; &gt;   end
+&gt; &gt; 
+&gt; &gt; The only safe ways to do this using array are to hide array in a class 
+&gt; &gt; definition or a function closure. It seems that I should be able to 
+&gt; &gt; just write 
+&gt; &gt; 
+&gt; &gt;     type 'a t = 'a array
+&gt; &gt; 
+&gt; &gt; and have the type system figure out if it's OK. Arrays are efficient,
+&gt; &gt; and there are quite a few cases in my coding where they are not
+&gt; &gt; mutable.
+
+This one is just a typing problem. Nothing magic here, and it should
+actually be possible to infer correctly the variance of an abstract
+type, independently of its representation. But this is high-level and
+potentially dangerous stuff, so don't hold your breath for this.
+
+&gt; All you have to do in this code is just not allow a mutation to occur in 
+&gt; your code.  As I understand things, to everyone outside of the module 'a t 
+&gt; is an abstract type- the only way to mutate it is to pass it to a function 
+&gt; in the module that mutates it.
+
+Here the problem is variance. Currently ocaml does not allow the
+above, because 'a array is not covariant.
+
+** Gregory Morrisett replied:
+
+&gt;The problem is that holes at the type level are a difficult feature to
+&gt;offer: they require linear types in the compiler. As an 
+&gt;optimization, it is a rather high-level one, and maybe not so 
+&gt;easy to know when it will apply.
+
+Perhaps, but it's easy for a compiler to offer support
+for "tail-allocation" (i.e., a tail-call except for a
+constructor application) which is what you need for
+a tail-recursive append or map.  Perry Cheng implemented it in
+the TIL compiler in about a week if memory serves and
+it was a tremendous improvement in performance without
+any magic.
+
+Yasuhiko Minamide wrote a paper on how to model this
+well (I think it appeared in ICFP).  The approach used
+in our Typed Assembly Language paper is yet another
+approach based on a simple subtyping trick with initialization
+flags.  It didn't require linear types at all and
+instead of implicit subtyping, you could accomplish
+the same thing with an explicit (type-safe) up-cast.
+
+So, all in all, it's quite possible to have the compiler
+implement this optimization for the common case of
+tail-allocation, and if you think it's more generally
+applicable, then you could move to something like TAL's
+initialization flags (though I would prefer the former
+option.)
+
+<a name="5"/>==============================================================================
+5) opteron query
+------------------------------------------------------------------------------
+** Kevin Lang asked and Xavier Leroy answered:
+
+&gt; Is an Opteron backend for ocamlopt in the works?
+
+Sort of.  I did a proof-of-concept x86_64 port of ocamlopt when the
+specs were published.  Since then, I've been waiting to get my hands
+on actual hardware.
+
+This promises to be a "good" port of ocamlopt: easy to do and
+generating code of decent quality.  Nothing like the IA64 port :-)
+
+&gt; BTW, we don't actually have an Opteron box yet, but it is
+&gt; quite likely that we will be getting one.
+
+If you (or any other reader of this list) are willing to give me an
+account accessible via ssh, I'll do the port.
+
+<a name="6"/>==============================================================================
+6) ICFP 2003 programming contest
+------------------------------------------------------------------------------
+** Xavier Leroy announced:
+
+For those who like wasting their week-ends on silly contests:
+
+The 2003 edition of the ICFP programming contest will take place soon:
+from Saturday June 28, 00:00 UTC/GMT to Monday June 30, 23:59 UTC/GMT.
+(These are the geekiest dates of the history of this contest :-)
+
+The Web site is
+        <a href="http://www.dtek.chalmers.se/groups/icfpcontest/">http://www.dtek.chalmers.se/groups/icfpcontest/</a>
+
+So, you have a little less than two weeks for cancelling your other
+commitments, assembling killer teams, and figuring out what the logo
+on the Web site could possibly mean...
+
+<a name="7"/>==============================================================================
+7) Programming required
+------------------------------------------------------------------------------
+** Jeff Tansley wrote:
+(<a href="http://caml.inria.fr/archives/200306/msg00269.html">http://caml.inria.fr/archives/200306/msg00269.html</a>)
+
+I am about to start (in the UK) a short socio-economic
+modeling and simulation project using OCAML. I am looking
+for additional CAML programming assistance.
+The project needs to be finished by the end of August and
+could involve 30 to 40 days payed work for two programmers.
+General modules will offered to the lib devel project.
+Any person interested please contact me off list.
+
+==============================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------------
+Here is a quick trick to help you read this cwn if you are viewing it using
+vim (at least version 6).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'&lt;1':1
+zM
+
+If you know of a better way, please let me know.
+
+==============================================================================
+Old cwn
+------------------------------------------------------------------------------
+
+If you happen to miss a cwn, you can send me a message
+(alan.schmitt@inria.fr) and I'll mail it to you, or go take a look at
+the archive (<a href="http://pauillac.inria.fr/~aschmitt/cwn/">http://pauillac.inria.fr/~aschmitt/cwn/</a>). If you also wish
+to receive it every week by mail, just tell me so.
+
+==============================================================================
+
+Alan Schmitt
+</pre></body></html>

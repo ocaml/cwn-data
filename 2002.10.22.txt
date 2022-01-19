@@ -1,0 +1,238 @@
+Hello,
+
+Here is the latest Caml Weekly News, week 15 to 22 October, 2002.
+
+1) AIFAD-1.0.2
+2) MLdonkey 2.00
+3) Operator overloading
+4) OCaml-SOAP library : bug fixed
+5) ICFP 2002 Programming Contest Write-up
+
+======================================================================
+1) AIFAD-1.0.2
+----------------------------------------------------------------------
+Markus Mottl announced:
+
+I am pleased to announce the first release of AIFAD (Automated Induction
+of Functions over Algebraic Datatypes), a novell kind of machine
+learning tool.
+
+You can find the distribution and more information here:
+
+  http://www.oefai.at/~markus/aifad
+
+AFAID improves decision tree learning by supporting significantly more
+complex kinds of data. This allows users to more conveniently describe the
+data they want to have learnt, which can improve accuracy and complexity
+of resulting models.
+
+======================================================================
+2) MLdonkey 2.00
+----------------------------------------------------------------------
+Fabrice Le Fessant announced:
+
+   MLdonkey 2.00 has been released. MLdonkey is a peer-to-peer  
+file-sharing client completely written in Objective-Caml, that can be
+used to access the eDonkey2000, Overnet, Gnutella, Direct Client and
+Soulseek networks. It supports downloads from multiple sources and
+corruption detection, complex search requests, chat with friends,
+internationalization, history of search results, etc...
+
+  MLdonkey is a (non-root) daemon, that can be run under Linux, Mac OS
+X and other Unix flavors with Objective-Caml support. The daemon can
+be controled through a command-line interface (via telnet), a WEB
+interface or a GTK GUI (using lablgtk).
+
+  As I have to move from INRIA, development on MLdonkey will slow down
+next month. If some Ocaml programmers are interested in working on
+this project, already used by several thousands of users, they are
+welcome to join our team, and to contribute to whatever thay want
+inside (GUI, network plugins, i18n, ...)
+
+MLdonkey WEB site:
+
+http://www.nongnu.org/mldonkey/
+
+MLdonkey mailing-list:
+
+mldonkey-users@mail.freesoftware.fsf.org
+
+======================================================================
+3) Operator overloading
+----------------------------------------------------------------------
+Here are some hilights of a discussion about operator overloading. The
+full thread is at: http://caml.inria.fr/archives/200210/msg00436.html
+
+Chris Hecker said and Shivkumar Chandrasekaran answered:
+
+>The biggest problem with making ocaml look nice and pretty for 
+>numerical code is that there is no overloading (of functions or 
+>operators),
+
+I have written thousands of lines of numerical linear algebra code in
+Clean (where such overloading is possible) and in OCaml. I don't miss
+it one bit. (Let me concentrate on matrix multiplication since that was
+what the post talked about.)
+
+The reason for not missing overloading is that in coding *efficient*
+matrix algorithms, matrix multiplications usually have a well-defined
+end-place for the result. This end-place is usually a sub-matrix of an
+existing matrix (canonical examples are classical factorizations: LU,
+QR). Hence I don't just need "a * b", I really need to say "c = a * b,
+but don't generate new space for a * b, just use the space allocated
+for c instead".
+
+Luckily in OCaml and Clean we can solve this by making a HOF of type
+
+( |*| ) : matrix * matrix -> (matrix -> unit)
+
+Then I can say (a |*| b) c, or, with one more definition,
+
+c =$ a |*| b
+
+Note, that even Clean will not allow you to replace |*| with *, since
+the only way to overload * in Clean is as (matrix matrix -> matrix)
+which is not what I want.
+
+Secondly I also need to say, in Matlab notation, a' * b. One cumbersome
+way around is to define a function called transpose that just flags its
+argument to be transposed without actually doing it. This creates its
+own nightmare. A better solution for me (in Clean and OCaml) has been
+to define a ~* b to mean a' * b, and variations thereof.
+
+However, for casual coding a la Matlab style, the lack of overloading
+could be seen as a problem. Of course one must then be prepared to live
+with unnecessary copying and memory accesses.
+
+To which Chris Hecker answered:
+
+Of course, that's why I said "look nice and pretty for numerical code" not
+"be efficient".  There are times when you want blas-style functions for
+efficiency, and times when you want to write d = (a + b) * (c - b).  Caml
+can't do the latter [very cleanly].  That was my point.
+
+Saying the latter isn't necessary or desired is the same type of argument
+people use against other high-level language features (gc, etc.).  When
+programming, most of my time is spent figuring out what I want to do and
+how, it is not spent optimizing (and I write games, which are notoriously
+prematurely optimized).  Once I figure something out, then I'll optimize it
+if necessary.  Blas-style functions inhibit rapid prototyping and
+experimentation, while expression-syntax-style operators inhibit
+efficiency.  I want to be able to use both, each at the appropriate time.
+
+That's why I wish Ocaml supported the latter better.
+
+Brian Hurt said:
+
+I'd like to ask a stupid question here: how important is operator
+overloading?  Remember, before you answer, that FORTRAN managed to be
+crowned king of numerical languages for decades (and may still hold the
+crown depending upon who you talk to), with no operator or function
+overloading.  You had to call functions with names like cgbmv() (pop quiz-
+what does that function do?) and dgesvd().
+
+I'm still an ocaml newbie, so I don't know how ocaml handles operator
+overloading.  I do know how C++ handles operator overloading.  Consider
+the 'innocent' statement:
+    a = b + c + d;
+What you want is for the compiler to produce code like:
+    a = b;
+    a += c;
+    a += d;
+Instead, what the compiler instead does is:
+    t1 = b + c;
+    t2 = t1 + d;
+    a = t2;
+generating two unnessecary temporaries.  If your objects are complex
+variables (2 floats) or even short 3D vectors (3 floats) this isn't too
+bad.  If your objects are 10,000 element vectors or matricies, creating
+two unnecessary temporaries (or even 1 unnecessary temporary) is bad.
+
+So why not just code it as:
+    a = b;
+    a += c;
+    a += d;
+?  Well, I ask- is that code all that much more understandable then:
+
+    matrix.assign a b ;
+    matrix.addto a c;
+    matrix.addto a d;
+?  The advantage of operator overloading is the ability to express complex
+equations "obviously"-
+    a = b + c + d;
+is way more understandable than the two examples above or:
+    matrix.assign a (matrix.add (matrix.add b c) d)
+which is the equivelent.  But if you can't optimize it, you're just asking
+to produce bad code.
+
+The other cent I'd like to throw into this discussion is a pointer at the
+OoLaLa project- which is attempting to build a whole new linear algebra
+library in Java with an OO design (instead of the thin wrappers around
+FORTRAN-era BLAS libraries and various operator overloading proposals):
+http://citeseer.nj.nec.com/luj00oolala.html
+Yes, I know this isn't a functional design.  But I'm throwing it out there
+as a springboard for ideas.
+
+Chris Hecker answered the initial question:
+
+>how important is operator overloading?
+
+I'm amazed that people who are interested in high level languages are
+asking these questions (not to attack you personally, just the overall
+attitude)!
+
+I replied to most of this issue in my previous post, but come on people,
+the job of a language is to make the programmer's life easier.  Software
+quality is horrible, for the most part, and we don't even get this horrible
+software on time.  Why?  Hint:  it's not because correct programs are
+running too slow and developers are spending that time optimizing.  It's
+because complex software is hard to write correctly.  The language should
+help with this.  Ocaml helps in a lot of ways with this problem, but when
+writing numerical code it doesn't help very much, or as much as it
+could.  That is what I'm complaining about.
+
+If I could write matlab-style syntax in ocaml, hundreds of lines of code in
+my game would just disappear.  That would be wonderful!  It would mean it
+was easier and faster to write, to debug, and that when I realize I didn't
+actually want to do a certain operation, I could change it quickly.  When I
+finally figure out what I want to do and how I want to do it, I'll optimize
+it.
+
+And besides, the entire idea behind a garbage collector is that it's fast
+at handling tons of small allocations!  I use tons of matrix -> matrix ->
+matrix operations (like add, mult, etc. in and attempt to make more
+readable code) and the performance is perfectly acceptable for
+development.  I will optimize things later, but LATER, and only if I need to.
+
+and the debate went on ... http://caml.inria.fr/archives/200210/msg00442.html
+
+======================================================================
+4) OCaml-SOAP library : bug fixed
+----------------------------------------------------------------------
+Maxence Guesdon announced:
+
+This was a bug in the configure script. It is now fixed and a new
+version 0.2 is available at http://caml.inria.fr/ocaml-soap/
+
+Thanks to Stefano Zacchiroli for his help on this problem.
+
+======================================================================
+5) ICFP 2002 Programming Contest Write-up
+----------------------------------------------------------------------
+Yutaka Oiwa announced:
+
+Now we have published the web page about the programming contest at
+
+http://www.taplas.org/~oiwa/icfp-contest-2002/
+
+======================================================================
+Old cwn
+----------------------------------------------------------------------
+
+If you happen to miss a cwn, you can send me a message
+(alan.schmitt@inria.fr) and I'll mail it to you. If you also wish to
+receive it every week by mail, just tell me so.
+
+======================================================================
+
+Alan Schmitt

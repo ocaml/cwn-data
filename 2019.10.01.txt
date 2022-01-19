@@ -1,0 +1,915 @@
+			  ━━━━━━━━━━━━━━━━━━━
+			   OCAML WEEKLY NEWS
+			  ━━━━━━━━━━━━━━━━━━━
+
+
+[Previous Week] [Up] [Next Week]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of September 24 to
+October 01, 2019.
+
+Table of Contents
+─────────────────
+
+How does one print any type?
+Category theory for Programmers book - OCaml flavor
+Today's trick : memory limits with Gc alarms
+Arch Linux installer written in OCaml
+First release of mrmime, parser and generator of emails
+First release of data-encoding, JSON and binary serialisation
+Release of Easy_logging v0.6
+soupault: a static website generator based on HTML rewriting
+Update on the big ppx refactoring project
+Simplify roman utf8
+Rfsm 1.6.0
+Ocaml-protoc-plugin 0.9: A protobuf compiler
+Old CWN
+
+
+[Previous Week] <http://alan.petitepomme.net/cwn/2019.09.24.html>
+
+[Up] <http://alan.petitepomme.net/cwn/index.html>
+
+[Next Week] <http://alan.petitepomme.net/cwn/2019.10.08.html>
+
+
+How does one print any type?
+════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/how-does-one-print-any-type/4362/9>
+
+
+Continuing this thread, Rwmjones announced
+──────────────────────────────────────────
+
+  One way to do this is to iterate over the runtime structure. You can
+  get quite good information out of this, although it's not a complete
+  view of the compile time types by any means. I wrote a utility to do
+  this called Dumper:
+  <https://web.archive.org/web/20101101234304/http://merjis.com/developers/dumper>
+
+  It's pure OCaml and doesn't require any libraries, weird syntax,
+  modifications to your source code or anything like that.
+
+
+Category theory for Programmers book - OCaml flavor
+═══════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/category-theory-for-programmers-book-ocaml-flavor/3905/2>
+
+
+Continuing this thread, Anton Kochkov said
+──────────────────────────────────────────
+
+  *Update* : work-in-progress [pull request - #201] to the main
+   repository - completely translated Parts 1 and 2. Only one, last,
+   part remained.
+
+
+[pull request - #201]
+<https://github.com/hmemcpy/milewski-ctfp-pdf/pull/201>
+
+
+Today's trick : memory limits with Gc alarms
+════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/todays-trick-memory-limits-with-gc-alarms/4431/1>
+
+
+Guillaume Munch-Maccagnoni announced
+────────────────────────────────────
+
+  Hello, today's little known OCaml feature we will learn about are
+  memory limits using Gc alarms.
+
+  Imagine you want to perform a memory-heavy computation, whose size of
+  data set is not known in advance. (This post is inspired by the
+  implementation of the SAT/SMT solver [mSAT].) You would like this
+  computation to fail gracefully if memory becomes insufficient. How can
+  you do it?
+
+
+[mSAT] <https://github.com/Gbury/mSAT>
+
+The `Out_of_memory' exception
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  The first thing you might think about is the `Out_of_memory'
+  exception. You simply run the computation inside an exception handler,
+  expecting to receive this exception if memory ever becomes
+  exhausted. However, for several reasons this is not reliable. First,
+  the program is not always notified of failing allocations and gets
+  killed instead much after, when it tries to access the memory for the
+  first time (this behaviour of the operating system is called
+  overcommitting). But this is the least problem, because you quickly
+  figure out how to get rid of overcommitting, for instance by setting a
+  hard memory limit to your process using `ulimit'.
+
+  However, you then encounter the second issue: in OCaml, if a minor
+  allocation fails, then the program will issue a fatal error instead of
+  raising `Out_of_memory'. That's it: `Out_of_memory' is only reliable
+  for allocations that are guaranteed to go directly on the major heap
+  (by default those bigger than 256 words, or those performed for
+  bigarrays or unmarshalling). Not for repeated small allocations on the
+  minor heap, which would represent most allocations in a functional
+  program. (There are bug reports about this, but making `Out_of_memory'
+  reliable is reported to be non-trivial.)
+
+
+GC alarms
+╌╌╌╌╌╌╌╌╌
+
+  GC alarms are callbacks which run at the end of major GC cycles. They
+  are registered with `Gc.create_alarm'. Now observe this cool trick:
+
+  ┌────
+  │ let run_with_memory_limit limit f =
+  │   let limit_memory () =
+  │     let mem = Gc.(quick_stat ()).heap_words in
+  │     if mem > limit / (Sys.word_size / 8) then raise Out_of_memory
+  │   in
+  │   let alarm = Gc.create_alarm limit_memory in
+  │   Fun.protect f ~finally:(fun () -> Gc.delete_alarm alarm ; Gc.compact ())
+  └────
+  That's it, we simply raise `Out_of_memory' from the Gc alarm. You can
+  try it in the toplevel on a memory-hungry function:
+  ┌────
+  │ let f () =
+  │   let x = ref [] in
+  │   let rec f () = x := ()::!x ; f () in
+  │   f ();;
+  │ run_with_memory_limit 1000000000 f;;
+  └────
+
+
+Caveat
+╌╌╌╌╌╌
+
+  This is not reliable with multi-threaded programs, because we do not
+  know in which thread the exception must be raised. This is fine for
+  programs like mSAT and many logic/language tools, because such tools
+  are rarely limited by blocking IO, so they do not lose much by
+  remaining single-threaded in the absence of true parallelism. (Haskell
+  proposes per-thread allocation limits as a built-in feature, which
+  manifests itself likewise as an asynchronous exception.)
+
+
+Implementation
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  Behind each Gc alarm, there is a finalised block. The finaliser calls
+  the callback, and sets itself to run again at the next cycle. Thus,
+  the memory limit (thus implemented) is an example of asynchronous
+  exception usefully arising from a finaliser. Was such a use of Gc
+  alarms expected when they were conceived? History did not tell.
+
+
+Guillaume Bury then said
+────────────────────────
+
+  As the author of mSAT, I'd just like to say the trick of using gc
+  alarms to implement a memory limit in mSAT was actually taken from the
+  theorem prover [zenon], where if I remember correctly it was written
+  by @damiendoligez , which might explain the subtle use of
+  alarms/finalisers ^^
+
+  Also, as a side note, for people who would like to implement a similar
+  limit but for computation time, I'd advise against using alarms (as is
+  done in the code of zenon iirc) as they have proven to be somewhat not
+  reliable, and I've found using Unix timers to raise an `Out_of_time'
+  exception much better:
+
+  ┌────
+  │ let run_with_time_limit limit f =
+  │   (* create a Unix timer timer *)
+  │   let _ = Unix.setitimer Unix.ITIMER_REAL Unix.{it_value = limit; it_interval = 0.01 } in
+  │   (* The Unix.timer works by sending a Sys.sigalrm, so in order to use it,
+  │      we catch it and raise the Out_of_time exception. *)
+  │   let () =
+  │     Sys.set_signal Sys.sigalrm (
+  │       Sys.Signal_handle (fun _ ->
+  │ 	  raise Out_of_time)
+  │       ) in
+  │   Fun.protect f ~finally:(fun () ->
+  │     Unix.setitimer Unix.ITIMER_REAL Unix.{it_value = 0.; it_interval = 0. }
+  │   )
+  └────
+
+
+[zenon] <http://zenon.inria.fr/>
+
+
+Arch Linux installer written in OCaml
+═════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/arch-linux-installer-written-in-ocaml/4388/11>
+
+
+Darren announced
+────────────────
+
+  Static binary builds are now available [here] (renamed repo as well).
+
+  They are built via Travis CI using the `ocaml/opam2:alpine' docker
+  image, so the binary should be fully static and run fine on the live
+  CD.
+
+  Added other stuff
+  • Added disk layout for system partition + USB key
+  • Code for installing hardened kernel
+
+  Note that it's not well tested at all, so don't use it for anything
+  too serious yet.
+
+
+[here] <https://github.com/darrenldl/ocaml-linux-installer/releases>
+
+
+First release of mrmime, parser and generator of emails
+═══════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-first-release-of-mrmime-parser-and-generator-of-emails/4436/1>
+
+
+Calascibetta Romain announced
+─────────────────────────────
+
+  We're glad to announce the first release of [`mrmime'], a parser and a
+  generator of emails. This library provides an _OCaml way_ to analyze
+  and craft an email. The eventual goal is to build an entire
+  _unikernel-compatible_ stack for email (such as SMTP or IMAP).
+
+  In this article, we will show what is currently possible with `mrmime'
+  and present a few of the useful libraries that we developed along the
+  way.
+
+
+[`mrmime'] <https://github.com/mirage/mrmime.git>
+
+An email parser
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  Some years ago, Romain gave [a talk] about what an email really
+  _is_. Behind the human-comprehensible format (or _rich-document_ as we
+  said a long time ago), there are several details of emails which
+  complicate the process of analyzing them (and can be prone to security
+  lapses). These details are mostly described by three RFCs:
+
+  • [RFC822]
+  • [RFC2822]
+  • [RFC5322]
+
+  Even though they are cross-compatible, providing full legacy email
+  parsing is an archaeological exercise: each RFC retains support for
+  the older design decisions (which were not recognized as bad or ugly
+  in 1970 when they were first standardized).
+
+  The latest email-related RFC (RFC5322) tried to fix the issue and
+  provide a better [formal specification] of the email format – but of
+  course, it comes with plenty of _obsolete_ rules which need to be
+  implemented. In the standard, you find both the current grammar rule
+  and its obsolete equivalent.
+
+
+[a talk] <https://www.youtube.com/watch?v=kQkRsNEo25k>
+
+[RFC822] <https://tools.ietf.org/html/rfc822>
+
+[RFC2822] <https://tools.ietf.org/html/rfc2822>
+
+[RFC5322] <https://tools.ietf.org/html/rfc5322>
+
+[formal specification] <https://tools.ietf.org/html/rfc5234>
+
+◊ An extended email parser
+
+  Even if the email format can defined by "only" 3 RFCs, you will miss
+  email internationalization ([RFC6532]), the MIME format ([RFC2045],
+  [RFC2046], [RFC2047], [RFC2049]), or certain details needed to be
+  interoperable with SMTP ([RFC5321]). There are still more RFCs which
+  add extra features to the email format such as S/MIME or the
+  Content-Disposition field.
+
+  Given this complexity, we took the most general RFCs and tried to
+  provide an easy way to deal with them. The main difficulty is the
+  _multipart_ parser, which deals with email attachments (anyone who has
+  tried to make an HTTP 1.1 parser knows about this).
+
+
+  [RFC6532] <https://tools.ietf.org/html/rfc6532>
+
+  [RFC2045] <https://tools.ietf.org/html/rfc2045>
+
+  [RFC2046] <https://tools.ietf.org/html/rfc2046>
+
+  [RFC2047] <https://tools.ietf.org/html/rfc2047>
+
+  [RFC2049] <https://tools.ietf.org/html/rfc2049>
+
+  [RFC5321] <https://tools.ietf.org/html/rfc5321>
+
+
+◊ A realistic email parser
+
+  Respecting the rules described by RFCs is not enough to be able to
+  analyze any email from the real world: existing email generators can,
+  and do, produce _non-compliant_ email. We stress-tested `mrmime' by
+  feeding it a batch of 2 billion emails taken from the wild, to see if
+  it could parse everything (even if it does not produce the expected
+  result). Whenever we noticed a recurring formatting mistake, we
+  updated the details of the [ABNF] to enable `mrmime' to parse it
+  anyway.
+
+
+  [ABNF] <https://tools.ietf.org/html/rfc5234>
+
+
+◊ A parser usable by others
+
+  One demonstration of the usability of `mrmime' is [`ocaml-dkim'],
+  which wants to extract a specific field from your mail and then verify
+  that the hash and signature are as expected.
+
+  `ocaml-dkim' is used by the latest implementation of [`ocaml-dns'] to
+  request public keys in order to verify email.
+
+  The most important question about `ocaml-dkim' is: is it able to
+  verify your email in one pass? Indeed, currently some implementations
+  of DKIM need 2 passes to verify your email (one to extract the DKIM
+  signature, the other to digest some fields and bodies). We focused on
+  verifying in a _single_ pass in order to provide a unikernel SMTP
+  _relay_ with no need to store your email between verification passes.
+
+
+  [`ocaml-dkim'] <https://github.com/dinosaure/ocaml-dkim.git>
+
+  [`ocaml-dns'] <https://github.com/mirage/ocaml-dns.git>
+
+
+An email generator
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  OCaml is a good language for making little DSLs for specialized
+  use-cases. In this case, we took advantage of OCaml to allow the user
+  to easily craft an email from nothing.
+
+  The idea is to build an OCaml value describing the desired email
+  header, and then let the Mr. MIME generator transform this into a
+  stream of characters that can be consumed by, for example, an SMTP
+  implementation. The description step is quite simple:
+
+  ┌────
+  │ #require "mrmime" ;;
+  │ #require "ptime.clock.os" ;;
+  │ 
+  │ open Mrmime
+  │ 
+  │ let romain_calascibetta =
+  │   let open Mailbox in
+  │   Local.[ w "romain"; w "calascibetta" ] @ Domain.(domain, [ a "gmail"; a "com" ])
+  │ 
+  │ let john_doe =
+  │   let open Mailbox in
+  │   Local.[ w "john" ] @ Domain.(domain, [ a "doe"; a "org" ])
+  │   |> with_name Phrase.(v [ w "John"; w "D." ])
+  │ 
+  │ let now () =
+  │   let open Date in
+  │   of_ptime ~zone:Zone.GMT (Ptime_clock.now ())
+  │ 
+  │ let subject =
+  │   Unstructured.[ v "A"; sp 1; v "Simple"; sp 1; v "Mail" ]
+  │ 
+  │ let header =
+  │   let open Header in
+  │   Field.(Subject $ subject)
+  │   & Field.(Sender $ romain_calascibetta)
+  │   & Field.(To $ Address.[ mailbox john_doe ])
+  │   & Field.(Date $ now ())
+  │   & empty
+  │ 
+  │ let stream = Header.to_stream header
+  │ 
+  │ let () =
+  │   let rec go () =
+  │     match stream () with
+  │     | Some buf -> print_string buf; go ()
+  │     | None -> ()
+  │   in
+  │   go ()
+  └────
+
+  This code produces the following header:
+
+  ┌────
+  │ Date: 2 Aug 2019 14:10:10 GMT
+  │ To: John "D." <john@doe.org>
+  │ Sender: romain.calascibetta@gmail.com
+  │ Subject: A Simple Mail
+  └────
+
+
+◊ 78-character rule
+
+  One aspect about email and SMTP is about some historical rules of how
+  to generate them. One of them is about the limitation of bytes per
+  line. Indeed, a generator of mail should emit at most 80 bytes per
+  line - and, of course, it should emits entirely the email line per
+  line.
+
+  So `mrmime' has his own encoder which tries to wrap your mail into
+  this limit. It was mostly inspired by [Faraday] and [Format] powered
+  with GADT to easily describe how to encode/generate parts of an email.
+
+
+  [Faraday] <https://github.com/inhabitedtype/faraday>
+
+  [Format]
+  <https://caml.inria.fr/pub/docs/manual-ocaml/libref/Format.html>
+
+
+◊ A multipart email generator
+
+  Of course, the main point about email is to be able to generate a
+  multipart email - just to be able to send file attachments. And, of
+  course, a deep work was done about that to make parts, compose them
+  into specific `Content-Type' fields and merge them into one email.
+
+  Eventually, you can easily make a stream from it, which respects rules
+  (78 bytes per line, stream line per line) and use it directly into an
+  SMTP implementation.
+
+  This is what we did with the project [`facteur']. It's a little
+  command-line tool to send with file attachement mails in pure OCaml -
+  but it works only on an UNIX operating system for instance.
+
+
+  [`facteur'] <https://github.com/dinosaure/facteur>
+
+
+Behind the forest
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  Even if you are able to parse and generate an email, more work is
+  needed to get the expected results.
+
+  Indeed, email is a exchange unit between people and the biggest deal
+  on that is to find a common way to ensure a understable communication
+  each others. About that, encoding is probably the most important piece
+  and when a French person wants to communicate with a _latin1_
+  encoding, an American person can still use ASCII.
+
+
+◊ Rosetta
+
+  So about this problem, the choice was made to unify any contents to
+  UTF-8 as the most general encoding of the world. So, we did some
+  libraries which map an encoding flow to Unicode code-point, and we use
+  [`uutf'] (thanks to [dbuenzli]) to normalize it to UTF-8.
+
+  The main goal is to avoid a headache to the user about that and even
+  if contents of the mail is encoded with _latin1_ we ensure to
+  translate it correctly (and according RFCs) to UTF-8.
+
+  This project is [`rosetta'] and it comes with:
+  • [`uuuu'] for ISO-8859 encoding
+  • [`coin'] for KOI8-{R,U} encoding
+  • [`yuscii'] for UTF-7 encoding
+
+
+  [`uutf'] <https://github.com/dbuenzli/uutf>
+
+  [dbuenzli] <https://github.com/dbuenzli>
+
+  [`rosetta'] <https://github.com/mirage/rosetta>
+
+  [`uuuu'] <https://github.com/mirage/uuuu>
+
+  [`coin'] <https://github.com/mirage/coin>
+
+  [`yuscii'] <https://github.com/mirage/yuscii>
+
+
+◊ Pecu and Base64
+
+  Then, bodies can be encoded in some ways, 2 precisely (if we took the
+  main standard):
+  • A base64 encoding, used to store your file
+  • A quoted-printable encoding
+
+  So, about the `base64' package, it comes with a sub-package
+  `base64.rfc2045' which respects the special case to encode a body
+  according RFC2045 and SMTP limitation.
+
+  Then, `pecu' was made to encode and decode _quoted-printable_
+  contents. It was tested and fuzzed of course like any others
+  MirageOS's libraries.
+
+  These libraries are needed for an other historical reason which is:
+  bytes used to store mail should use only 7 bits instead of 8
+  bits. This is the purpose of the base64 and the _quoted-printable_
+  encoding which uses only 127 possibilities of a byte. Again, this
+  limitation comes with SMTP protocol.
+
+
+Conclusion
+╌╌╌╌╌╌╌╌╌╌
+
+  `mrmime' is tackling the difficult task to parse and generate emails
+  according to 50 years of usability, several RFCs and legacy rules. So,
+  it still is an experimental project. We reach the first version of it
+  because we are currently able to parse many mails and then generate
+  them correctly.
+
+  Of course, a _bug_ (a malformed mail, a server which does not respect
+  standards or a bad use of our API) can appear easily where we did not
+  test everything. But we have the feeling it it was the time to release
+  it and let people to use it.
+
+  The best feedback about `mrmime' and the best improvement is yours. So
+  don't be afraid to use it and start to hack your emails with it.
+
+  *cross-post to [Tarides's blog]*
+
+
+[Tarides's blog]
+<https://tarides.com/blog/2019-09-25-mr-mime-parse-and-generate-emails.html>
+
+
+First release of data-encoding, JSON and binary serialisation
+═════════════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-first-release-of-data-encoding-json-and-binary-serialisation/4444/1>
+
+
+Raphaël Proust announced
+────────────────────────
+
+  On behalf of Nomadic Labs, I'm pleased to announce the first public
+  release of `data-encoding': a library to encode and decode values to
+  JSON or binary format. `data-encoding' provides fine grained control
+  over the representation of the data, documentation generation, and
+  detailed encoding/decoding errors.
+
+  In the [Tezos] project, we use `data-encoding' for binary
+  serialisation and deserialisation of data transported via the P2P
+  layer and for JSON serialisation and deserialisation of configuration
+  values stored on disk.
+
+  The library is available through opam (`opam install data-encoding'),
+  hosted on Gitlab (<https://gitlab.com/nomadic-labs/data-encoding>),
+  and distributed under MIT license.
+
+  This release was only possible following an effort to refactor our
+  internal tools and libraries. Most of the credit for this effort goes
+  to Pietro Abate and Pierre Boutillier. Additional thanks to Gabriel
+  Scherer who discovered multiple bugs and contributed the original
+  crowbar tests.
+
+  Planned future improvements of the library include:
+  • splitting the library into smaller components (to minimise
+    dependencies when using only a part of the library), and
+  • providing multiple endianness (currently the library only provides
+    big-endian binary encodings).
+
+
+[Tezos] <https://gitlab.com/tezos/tezos>
+
+
+Release of Easy_logging v0.6
+════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-release-of-easy-logging-v0-6/4461/1>
+
+
+Sapristi announced
+──────────────────
+
+  I'm glad to announce the release of Easy_logging v0.6.
+
+  [Easy_logging] is a logging library inspired from the python logging
+  module, which allows fine grained tuning of log levels and log output,
+  with relatively low configuration, and simple logger declaration and
+  usage.
+
+  The most important new features are
+
+  • auto-timestamp and/or versioning of file names when logging to a
+    file
+  • redefined handler type, so that custom handlers can easily be
+    defined.
+  • handlers support custom filters
+  • loggers have tag generators (tags generated from callback functions)
+  • log items now contain a timestamp
+
+  I also cleaned the API, so that the only exposed objects from opening
+  `Easy_logging' are the `Logging', `Handlers' and `Logging_internals'
+  modules.
+
+  The documentation is still lagging a bit behind, and will be updated
+  [insert a random date here].
+
+  *What comes next*
+  • I plan to drop entirely the support for the MakeLogging functor
+    (that creates a Logging module from a Handlers module), so if anyone
+    depends on it please tell me.
+  • Some still lacking options are file-rotation when logging to a
+    file. I guess the saner way to do so would be using Lwt, so I might
+    implement a Lwt version of the module.
+
+  PS: I try to maintain a relatively stable external API, but the
+  internals might (and will) change whenever I feel like it.
+
+
+[Easy_logging] <https://github.com/sapristi/easy_logging>
+
+
+soupault: a static website generator based on HTML rewriting
+════════════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-soupault-a-static-website-generator-based-on-html-rewriting/4126/9>
+
+
+Daniil Baturin announced
+────────────────────────
+
+  [1.3] release with some improvements.
+
+  • Invalid config options cause warnings now. There are also "did you
+    mean" suggestions for mistyped options, thanks to @c-cube's spelll
+    library.
+  • Footnotes now keep original id's for handy hotlinking, and you can
+    add suffix/prefix to footnote ids to make a separate "namespace" for
+    them.
+  • Some minor bugfixes.
+
+
+[1.3] <https://github.com/dmbaturin/soupault/releases/tag/1.3>
+
+
+Update on the big ppx refactoring project
+═════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/update-on-the-big-ppx-refactoring-project/4428/1>
+
+
+Jérémie Dimino announced
+────────────────────────
+
+  We wanted to give an update on the status of the big ppx refactoring
+  project. At this point, we have settled on a technical solution and
+  are working towards implementing it. In this post I'll describe
+  briefly how it works and what the plan is. This post directly follows
+  <https://discuss.ocaml.org/t/the-future-of-ppx/3766> which gives an
+  overview of the ppx history and the issues we want to solve.
+
+  We also gave a presentation explaining all this at the OCaml Users and
+  Developers workshop at ICFP this year with @NathanReb, so if you'd
+  like to see a live version of this post watch out for the video on
+  youtube! :)
+
+  And before diving in the technicalities, on the social side we welcome
+  @rgrinberg who joined the team! :dizzy:
+
+
+The solution
+╌╌╌╌╌╌╌╌╌╌╌╌
+
+  It wasn't easy to came up with this solution, but now that we have it
+  it is actually quite simple, which means that we can be confident it
+  will work.
+
+
+◊ Abstracting the AST
+
+  To solve the stability problem, we are not re-inventing the wheel. We
+  are simply making use of a very well established method in the
+  functional programming world: abstraction.
+
+  Instead of exposing the raw data-types of the OCaml AST to authors of
+  ppx rewriters, we are simply going to expose an API where all the
+  types are abstract. Authors of ppx rewriters will need to use
+  construction functions in order to construct the AST and one-level
+  deconstruction functions to deconstruct it.
+
+  Moreover, this API will follow closely the layout of the underlying
+  AST so that we can mechanically follow its evolution. More precisely,
+  there will be one module for every version of the AST with an API that
+  matches the AST at this version.
+
+  This is all still very fresh and experimental, but here is a sneaky
+  peak of what this will look like:
+  <https://github.com/ocaml-ppx/ppx/blob/70c0bfd3b7a3e8a27e5ad890801d7c93f7dc69a7/astlib/src/stable.mli>
+
+  One important detail that will ensure good interoperability between
+  ppx rewriters is that the types will be equal between
+  versions. i.e. `V4_07.Expression.t' will be exposed as equal to
+  `V4_08.Expression.t'.
+
+  The deconstruction API will be a bit raw and in particular won't allow
+  nested patterns. To help with this, we will provide view patterns
+  implemented via a ppx rewriter shipped with the `ppx' package. And of
+  course, meta-quotations will still be available.
+
+
+◊ Using dynamic types under the hood
+
+  The stable APIs are one thing, but we also want to keep the good
+  composition semantic of ppxlib. Trying to compose things using the
+  static types under these multiple APIs would be a bit of a
+  nightmare. So instead we are going full dynamic. During the
+  single-pass rewriting phase, the AST will be represented using dynamic
+  types. Downgrades/upgrades will happen lazily and only at the edges as
+  requested by individual ppx rewriters using a *history* of conversion
+  functions provided by the compiler. In essence, these conversion
+  functions will be very similar to the one we have in
+  ocaml-migrate-parsetree, except that since they operate on the dynamic
+  types they will be much smaller and focus on the interesting changes.
+
+  And because the conversions will happen only when needed, in many
+  cases we will be able to use new language features even if the various
+  ppx rewriters in use are written against older versions of the AST.
+
+
+The plan
+╌╌╌╌╌╌╌╌
+
+  The plan is to get all of this implemented, proof test it against a
+  bunch of existing older version of the AST and finally eat our own dog
+  food by porting a bunch of ppx rewriters to the new world, making sure
+  that the port is as smooth as possible.
+
+  Once this is all done, we will release the 1.0.0 version of the `ppx'
+  project for public consumption.
+
+  It will be possible to use ppx rewriter baseds on `ppx' in conjunction
+  with ppx rewriters based on `ppxlib' or `ocaml-migrate-parsetree',
+  just so that we don't need to port everything at once.
+
+  Our expectation is that the next time the parsetree changes and
+  authors of ppx rewriters need to update their code, they'll choose to
+  migrate to `ppx' at the same time given that it will give them long
+  term stability guarantees.
+
+
+Replying to some questions, Jérémie Dimino said
+───────────────────────────────────────────────
+
+  What we call astlib won't be a user facing library. It will live in
+  the compiler itself and be the smallest possible API that ensure that
+  the ppx world keeps working with new compilers and even trunk. It will
+  only contain:
+  • the definition of the dynamic AST
+  • functions to convert between the static and dynamic ASTs
+  • the history of upgrade/downgrade functions
+
+  The user facing package will be `ppx', which will be composed of
+  • the `ppx' library, which in particular will expose the versioned AST
+    interfaces, the view patterns, the driver and various modules ported
+    from `ppxlib'. It will be approximately the same size as `ppxlib'
+    except that it will have no dependency
+  • `ppx.metaquot' for metaquotations
+  • `ppx.view' for view patterns
+
+  If there is a need to have just the versioned AST interfaces on their
+  own without the rest, we could certainly imagine distributing them as
+  a separate library of even a separate package.
+
+  Regarding the driver, it will be similar to the ppxlib
+  driver. i.e. the standard way to register a transformation will be by
+  registering extension point expanders or derivers rather than whole
+  AST mappers, though the latter will still be allowed for special
+  cases. This is simply because such precise transformers have a better
+  composition semantic and lead to faster rewriting, so we want to
+  encourage ppx authors to use that.
+
+
+Simplify roman utf8
+═══════════════════
+
+  Archive: <https://discuss.ocaml.org/t/simplify-roman-utf8/4398/15>
+
+
+sanette announced
+─────────────────
+
+  If you are interested, I have released the library on github:
+
+  <https://github.com/sanette/basechar>
+
+  PR welcome!
+
+
+Rfsm 1.6.0
+══════════
+
+  Archive: <https://discuss.ocaml.org/t/ann-rfsm-1-6-0/4430/1>
+
+
+jserot announced
+────────────────
+
+  This is to announce the 1.6.0 release of `Rfsm', a package dedicated
+  to the description, simulation and synthesis of StateChart-like state
+  diagrams.
+
+  The `Rfsm' package includes both an OCaml library and a command-line
+  compiler.  Both take
+
+  • a description of a system as a set of StateChart-like state diagrams
+  • a description of stimuli to be used as input for this system
+
+  and can generate
+
+  • graphical representations of the system
+  • execution traces as `.vcd' files
+
+  Additionnaly, dedicated backends can generate system descriptions and
+  testbenches in
+
+  • `CTask' (a C dialect with primitives for describing tasks and
+    event-based synchronisation)
+  • `SystemC'
+  • `VHDL'
+
+  More informations are available on the [github page].
+
+  `Rfsm' is provided as a an [opam package].
+
+  Graphical User interfaces to the command line compiler are provided
+  separately.
+
+  Comments, feedback and bug reports welcome.
+
+
+[github page] <https://github.com/jserot/rfsm>
+
+[opam package] <https://opam.ocaml.org/packages/rfsm>
+
+
+Ocaml-protoc-plugin 0.9: A protobuf compiler
+════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ocaml-protoc-plugin-0-9-a-protobuf-compiler/4456/1>
+
+
+Anders Fugmann announced
+────────────────────────
+
+  I am happy to announce the first release of ocaml-protoc-plugin.
+
+  The library implements the full proto3 specification, and aims to
+  generate ocaml idiomatic bindings to protobuf types/mesages defined in
+  `.protoc' files:
+  • Messages are mapped to modules, with a type `t'
+  • Enums are mapped to ADT's
+  • Oneof types are mapped to polymorphic variants
+
+  All types are serialized using the proto3 specification (i.e. all
+  repeated scalar types are packed).
+
+  All parts (package, service definitions, includes etc.) are supported.
+
+  The library is available through opam: `opam install
+  ocaml-protoc-plugin'.
+
+  For more information, please visit the homepage of ocaml-protoc-plugin
+  at: <https://github.com/issuu/ocaml-protoc-plugin/>
+
+  Comments and suggestions are more than welcome.
+
+
+Old CWN
+═══════
+
+  If you happen to miss a CWN, you can [send me a message] and I'll mail
+  it to you, or go take a look at [the archive] or the [RSS feed of the
+  archives].
+
+  If you also wish to receive it every week by mail, you may subscribe
+  [online].
+
+  [Alan Schmitt]
+
+
+[send me a message] <mailto:alan.schmitt@polytechnique.org>
+
+[the archive] <http://alan.petitepomme.net/cwn/>
+
+[RSS feed of the archives] <http://alan.petitepomme.net/cwn/cwn.rss>
+
+[online] <http://lists.idyll.org/listinfo/caml-news-weekly/>
+
+[Alan Schmitt] <http://alan.petitepomme.net/>

@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2015.09.08</cwn_date>
+    <cwn_prev>2015.09.01</cwn_prev>
+    <cwn_next>2015.09.15</cwn_next>
+    <cwn_date_text>September 01 to 08, 2015</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>NaN representations</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-09/msg00009.html</cwn_url>
+      <cwn_who>Andreas Rossberg asked and Xavier Leroy replied</cwn_who>
+      <cwn_what>
+> Does the Ocaml implementation make guarantees about the stable
+> representation of floats? In particular, if I use Int64.float_of_bits to
+> create a particular NaN representation, am I guaranteed that its bit
+> pattern is maintained no matter where the value is stored or passed?
+
+It depends on the underlying hardware. For instance, with x86-32 bits, some FP
+moves go through the x87 FP stack, undergoing a double -> extended -> double
+conversion. These conversions turn signaling NaNs into quiet NaNs, and I'm not
+sure they preserve the other bits of the NaN payload.
+
+On other platforms, esp. x86-64 bits, I'm pretty confident that NaN bits are
+preserved by copying and parameter passing.
+
+> We are currently in the process of implementing a reference interpreter
+> for a little low-level language, and that tries to be as accurate as
+> possible about float representations.
+
+One possibility would be to represent your floats as int64 values (= their
+bit-level representation), and convert only when you operate over them, e.g.
+
+let fp_add x y = Int64.bits_of_float (Int64.float_of_bits x +.
+Int64.float_of_bits y)
+      </cwn_what>
+      <cwn_who>Daniel Bünzli also replied</cwn_who>
+      <cwn_what>
+I don't remember exactly but I think there may be issues with marshaling.
+A quick search with in the bt leads to:
+
+http://caml.inria.fr/mantis/view.php?id=5038
+
+But there may be other to look at.        
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>new mailing list for ocaml-containers users and developers</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-09/msg00015.html</cwn_url>
+      <cwn_who>Simon Cruanes announced</cwn_who>
+      <cwn_what>
+I have the pleasure to announce the creation of a new mailing list
+(thanks to the ocaml forge) dedicated to any discussion about
+ocaml-containers.
+
+Page of the mailing list: https://forge.ocamlcore.org/mail/?group_id=359
+Address of the mailing list: containers-users@lists.forge.ocamlcore.org
+
+Containers is a modular and lightweight complement to the standard
+library, featuring many data structures and helpers; its design is
+oriented toward minimizing inter-modules dependencies and link-time
+bloat. It does not depend on Unix or other C libraries. The license is
+BSD, and it is possible and easy to copy single modules into your
+projects if your boss doesn't like dependencies. The current version is
+0.12, and releases are done roughly every one or two months.
+
+Type `opam install containers` if you wish to install it.
+More info on: https://github.com/c-cube/ocaml-containers
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OCaml 2015 talks</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-09/msg00016.html</cwn_url>
+      <cwn_who>Yotam Barnoy announced asked and Runhang Li replied</cwn_who>
+      <cwn_what>
+&gt; Anybody know if the OCaml talks will be up on ICFP's youtube channel
+&gt; (&lt;https://www.youtube.com/channel/UCwRL68qZFfub1Ep1EScfmBw/videos&gt;)? 
+
+ML family workshop just finished yesterday and I believe videos will be
+shortly available. For OCaml workshop, it is going on right now. 
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>[PATCH+PPX] Curried constructor</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-09/msg00020.html</cwn_url>
+      <cwn_who>Jun Furuse announced</cwn_who>
+      <cwn_what>
+I wrote curried-constr patch for OCaml 4.02.3.  It makes variant
+constructors usable like functions.
+
+For the type definition
+
+  type t = Foo of int * float
+
+we can write
+
+    Foo   as    (fun (x,y) -&gt; Foo (x,y))
+
+and
+
+    !Foo  as   (fun x y -&gt; Foo (x,y))
+
+
+There are two ways to try this extension:  as a compiler modification,
+and as a PPX preprocessor:
+
+* opam switch 4.02.3+curried-constr   (as a patched compiler)
+* opam install ppx_curried_constr     (as a PPX preprocessor)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>POSIX time implementation</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-09/msg00022.html</cwn_url>
+      <cwn_who>Markus W. Weißmann announced</cwn_who>
+      <cwn_what>
+I was searching for an existing library implementing a clock_gettime(2)
+function that would deliver a ‘struct timespec’ [1] with the current time.
+I want it for my POSIX message queue implementation [2] for the timed
+functions that require an absolute ‘struct timespec’ for their timeout.
+So what a user of mqueue requires is a 1.) function to get the current time as
+‘struct timespec’ and 2.) to add seconds/nanoseconds to such a value to create
+a timeout.
+
+The existing solutions I found:
+* The Unix library [3] implements ‘struct timeval’ as float (only
+microseconds, imho the float conversion is a bit of a hack — a clever one
+though)
+* Netsys.clock_gettime from ocamlnet [4] implements ’struct timespec’ but has
+it as float/int for seconds/nanoseconds (whats with the float? All systems
+I found use either in32 or int64 for time_t)
+* Mtime [5] implements clock_gettime(2) but seems to only offers relative values
+* Ptime [6] appears to be the uber-POSIX time implementation but lacks
+clock_gettime (and probably always will)
+
+I’d like my library to be a good OCaml citizen and _not_ implement my own
+special purpose timing functions (which are incompatible to everyone else’s).
+Ptime looks like the ultimate solution for the datatype; ocamlnet gets the
+closest to my requirements — while being a gigantic library most of which has
+nothing to do with the domain of mqueue.
+
+I’m a bit stuck on this one and would like to get some advice — and/or
+corrections if I misinterpreted one of the above solutions.
+
+regards
+-Markus
+
+[1] http://pubs.opengroup.org/onlinepubs/9699919799/basedefs/time.h.html
+[2] http://mqueue.forge.ocamlcore.org/
+[3] http://caml.inria.fr/pub/docs/manual-ocaml/libref/Unix.html
+[4] http://projects.camlcity.org/projects/dl/ocamlnet-4.0.4/doc/html-main/Netsys_posix.html
+[5] http://erratique.ch/software/mtime
+[6] http://erratique.ch/software/ptime
+      </cwn_what>
+      <cwn_who>Gerd Stolpmann replied</cwn_who>
+      <cwn_what>
+&gt; * Netsys.clock_gettime from ocamlnet [4] implements ’struct timespec’ but
+&gt; has it as float/int for seconds/nanoseconds (whats with the float? All
+&gt; systems I found use either in32 or int64 for time_t)
+
+I picked float for ease of use, and better compatibility with the time
+functions in Unix (which all use floats for time_t). Only the integral
+part is put into the float which provides 52 bits for the mantissa, so
+it is really large enough.
+
+&gt; I’d like my library to be a good OCaml citizen and _not_ implement my own
+&gt; special purpose timing functions (which are incompatible to everyone
+&gt; else’s).
+&gt; Ptime looks like the ultimate solution for the datatype; ocamlnet gets the
+&gt; closest to my requirements — while being a gigantic library most of which
+&gt; has nothing to do with the domain of mqueue.
+
+You'd only need the netsys part, which is practically standalone. None
+of the other modules would get linked in. (I guess your are programming
+for embedded platforms as POSIX message queues are typically found
+there, and the size of executable probably matters.)
+
+Of course you could also just copy the C code. OCamlnet has a liberal
+license.
+      </cwn_what>
+      <cwn_who>Milan Stanojević also replied</cwn_who>
+      <cwn_what>
+Jane Street's Core_kernel has Time_ns module. Time is represented as an int,
+number of nanoseconds since unix epoch. Time_ns.now uses clock_gettime
+(CLOCK_REALTIME)
+There are also usual functions for operating on time and time spans. 
+Not sure if Core_kernel is too big for your project. 
+      </cwn_what>
+      <cwn_who>Markus Weißmann finally added</cwn_who>
+      <cwn_what>
+For the record:
+I found another OCaml implementation of clock_gettime(2): oclock [7] (also
+available via opam).
+Unfortunately oclock implements 'struct timespec { time_t, long }' as int64,
+making some conversion necessary, too.
+
+regards
+-Markus
+
+[7] http://micdel.fr/oclock.html
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocaml.org/&gt;.
+
+OCamlCore Forge Projects: ocaml-containers
+  &lt;https://forge.ocamlcore.org/projects/containers/&gt;
+
+Github OCaml jobs: Full Time: Software Developer (Functional Programming) at Jane Street in New York, NY; London, UK; Hong Kong
+  &lt;http://jobs.github.com/positions/0a9333c4-71da-11e0-9ac7-692793c00b45&gt;
+
+OCamlCore Forge Projects: OCaml Debian formats API
+  &lt;https://forge.ocamlcore.org/projects/debian-formats/&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

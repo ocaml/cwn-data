@@ -1,0 +1,522 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+	<cwn_head>
+		<cwn_date>2007.01.09</cwn_date>
+		<cwn_prev>2007.01.02</cwn_prev>
+		<cwn_next>2007.01.16</cwn_next>
+		<cwn_date_text>January 02 to 09, 2007</cwn_date_text>
+	</cwn_head>
+	<cwn_body>
+		<cwn_entry>
+			<cwn_title>Wrapping C++ in Ocaml?</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/46ef5380a8ac600b/4ecbb1353c456041#4ecbb1353c456041</cwn_url>
+			<cwn_who>Erik de Castro Lopo asked and micha answered</cwn_who>
+			<cwn_what>
+&gt; I have wrapped a C library for use with Ocaml and didn't find 
+&gt; the task too daunting. I have now found a C++ library that would 
+&gt; be useful, but the Ocaml ORA book makes no mention of wrapping 
+&gt; C++ libraries. 
+
+you can only wrapp via C - functions 
+
+&gt; Has anyone got any experience wrapping C++ libraries in Ocaml? 
+&gt; Is it possible? Painful but doable? Too painful to think about? 
+
+I have done it a few times, it's much typing :-) 
+you must write a c function for the methods of the class you want to 
+wrap and give them a pointer to the c++ class, so you can call the 
+method there. Often you define on the c++ side an adapter class which 
+delegates method calls to the ocaml side (f.e. when wrapping events from 
+and to c++/ocaml). For big libraries it's a neverending task without 
+more tools. 
+There is the platinum framework (on sourceforge), a c++ class lib with a 
+little gui. This lib compiles for win32, Linux, WinCE and qnx, I have 
+done some wrapping to the gui part, together with the event handling and 
+it works very nice (if you want to read it as an example). 
+
+&gt; Any pointers or advice appreciated. 
+
+Python, Ruby and Perl all have wrappers for QT and they use tools to 
+generate the C interface I think. Maybe worth to look at...
+			</cwn_what>
+			<cwn_who>Dmitry Bely also answered</cwn_who>
+			<cwn_what>
+Swig? 
+http://www.swig.org
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>symbol table containing symbol tables</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/0982973b5cc84581/45fd672b01304768#45fd672b01304768</cwn_url>
+			<cwn_who>William W Smith asked</cwn_who>
+			<cwn_what>
+In pidgin OCaml I'd like to write something like 
+
+type complicated = 
+    IVal of int 
+    | StrVa, of string 
+    | SymTableVal of symTable 
+and 
+    symTable = Map(string -&gt; complicated) 
+
+I tried many variations on using the Map module to implement a recursive data 
+structure like this.  I failed miserably.  (The above wasn't the syntax I ever 
+used, but it gets the idea across.)   
+
+However, when I create an object 
+class [ 'key, 'content ] table : ('key -&gt; 'key -&gt; int) -&gt; 
+object 
+,,, 
+end 
+
+I can successfully declare 
+type complicated = 
+    IVal of int   
+    | StrVal of string 
+    | SymTableVal of (string, complicated) table 
+that does what I want.   Ithis isn't the whole declaration of complicated, but 
+I believe once I get this declaration working, the more quirky variations work 
+too. 
+
+Do I need one of the more advanced features of OCaml that I don't currently 
+understand to use Map the way that I want without writing a whole table class?  
+I don't even see how I can use Map from inside the table class to do what I 
+want which would also be acceptable. 
+
+I don't want to have to break open the Map module to modify it and thus change 
+the licensing of my final program.
+			</cwn_what>
+			<cwn_who>Jon Harrop answered</cwn_who>
+			<cwn_what>
+You need recursive modules, something like this: 
+# module rec StringMap : Map.S = Map.Make(String) 
+  and Symbols : sig 
+    type t = 
+      | IVal of int 
+      | StrVal of string 
+      | SymTableVal of t StringMap.t 
+  end = struct 
+    type t = 
+      | IVal of int 
+      | StrVal of string 
+      | SymTableVal of t StringMap.t 
+  end;; 
+module rec StringMap : Map.S 
+and Symbols : 
+  sig 
+    type t = IVal of int | StrVal of string | SymTableVal of t StringMap.t 
+  end
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>Symbolic computation</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/0510d9ffb5361f0d/c042e3a723a2aff2#c042e3a723a2aff2</cwn_url>
+			<cwn_who>Jon Harrop announced</cwn_who>
+			<cwn_what>
+I've just updated our Benefits of OCaml page with a more elegant symbolic 
+computation example: 
+
+  http://www.ffconsultancy.com/free/ocaml/symbolic.html 
+
+In particular, results are composed using a pair of non-trivial constructors 
+that perform simple simplifications: 
+
+# let rec ( +: ) f g = match f, g with 
+    | Int n, Int m -&gt; Int (n + m) 
+    | Int 0, f | f, Int 0 -&gt; f 
+    | f, Add(g, h) -&gt; f +: g +: h 
+    | f, g when f &gt; g -&gt; g +: f 
+    | f, g -&gt; Add(f, g) 
+
+  and ( *: ) f g = match f, g with 
+    | Int n, Int m -&gt; Int (n * m) 
+    | Int 0, _ | _, Int 0 -&gt; Int 0 
+    | Int 1, f | f, Int 1 -&gt; f 
+    | f, Mul(g, h) -&gt; f *: g *: h 
+    | f, g when f &gt; g -&gt; g *: f 
+    | f, g -&gt; Mul(f, g);; 
+val ( +: ) : expr -&gt; expr -&gt; expr = &lt;fun&gt; 
+val ( *: ) : expr -&gt; expr -&gt; expr = &lt;fun&gt; 
+
+I'm also translating this into F# for my forthcoming book "F# for Scientists". 
+Even on an example as simple as this, F# has some significant benefits: 
+
+1. + and * can be overloaded for the expr type. 
+2. User-defined types can have their own comparison functions. 
+3. Set and Map are polymorphic (not functors). 
+
+Hopefully F#'s active patterns will also allow operators in patterns, allowing 
+code like: 
+
+  let d f x = match f with 
+    | Var v when x=v -&gt; Int 1 
+    | Int _ | Var _ -&gt; Int 0 
+    | f + g -&gt; d f x + d g x 
+    | f * g -&gt; f * d g x + g * d f x 
+
+and: 
+
+    | f + (g + h) -&gt; (f + g) + h 
+
+and so on.
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>Question on writing efficient Ocaml.</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/530b3c57e2aaddad/a01ed9f98f7daadf#a01ed9f98f7daadf</cwn_url>
+			<cwn_who>This thread spawned many interesting answers. Here are a few.
+Ian Oversby asked and Richard Jones answered</cwn_who>
+			<cwn_what>
+&gt; Does this mean that unboxing is inefficient in OCaml?  I've written an 
+&gt; alternative version of the C++ that returns NULL instead of out of bound 
+&gt; values which was close to the same speed so it would be a little 
+&gt; disappointing if I couldn't achieve something similar in OCaml with Some / 
+&gt; None. 
+
+It's not so much that boxing/unboxing is inefficient in OCaml, but 
+rather that ocamlopt compiles exactly what you ask it to.  If you ask 
+it to use a box, it uses a box!  (Well, mostly ...) 
+See: http://caml.inria.fr/pub/old_caml_site/ocaml/numerical.html 
+in particular the note about Gallium.
+			</cwn_what>
+			<cwn_who>Jon Harrop later answered the original post</cwn_who>
+			<cwn_what>
+&gt; I've written some Ocaml code to solve the problem of placing 8 queens on a 
+&gt; board so that none of them attack each-other. 
+
+Your program is very verbose: many times longer than is necessary. Most of 
+this verbosity can be attributed to performing various boxing, unboxing and 
+allocation tasks that are superfluous and simply slow the code down. However, 
+profiling suggests that you're also using a different algorithm in OCaml as 
+the core functions are called many more times in the OCaml than in the C++. 
+Contrast your code with a minimal program to solve the n-queens problem in 
+OCaml: 
+
+let rec unthreatened (x1, y1) (x2, y2) = 
+  x1 &lt;&gt; x2 &amp;&amp; y1 &lt;&gt; y2 &amp;&amp; x2 - x1 &lt;&gt; y2 - y1 &amp;&amp; x1 - y2 &lt;&gt; x2 - y1;; 
+
+let rec search n f qs ps = 
+  if length qs = n then f qs else 
+    iter (fun q -&gt; search n f (q::qs) (filter (unthreatened q) ps)) ps;; 
+
+let ps = rev (flatten (init n (fun i -&gt; init n (fun j -&gt; i, j)))) 
+search n f [] ps 
+
+This program starts with a list of all board positions "ps" and simply filters 
+out threatened positions as queens are added. Performance is poor compared to 
+your C++: 
+
+0.625s C++ (130 LOC) 
+4.466s OCaml (28 LOC) 
+
+My first solution is written for brevity and not performance so it is still 3x 
+slower than the C++: 
+
+The core of the program is just this: 
+
+open List;; 
+
+let print_board n queens = 
+  for y=0 to n-1 do 
+    for x=0 to n-1 do 
+      print_string (if mem (x, y) queens then "Q" else ".") 
+    done; 
+    print_newline() 
+  done; 
+  print_newline();; 
+
+let rec fold_n2 f accu x y n = 
+  if y=n then accu else 
+    if x=n then fold_n2 f accu 0 (y + 1) n else 
+      fold_n2 f (f accu x y) (x + 1) y n;; 
+
+let unthreatened (x1, y1) (x2, y2) = 
+  x1 &lt;&gt; x2 &amp;&amp; y1 &lt;&gt; y2 &amp;&amp; x2 - x1 &lt;&gt; y2 - y1 &amp;&amp; x1 - y2 &lt;&gt; x2 - y1;; 
+
+let rec search n f queens () x y = 
+  if for_all (unthreatened (x, y)) queens then 
+    if length queens = n - 1 then f ((x, y) :: queens) else 
+      fold_n2 (search n f ((x, y) :: queens)) () (x + 1) y n;; 
+
+then I wrote this to search once and print and then search a given number of 
+times (for benchmarking): 
+
+exception Queens of (int * int) list;; 
+
+let _ = 
+  let n = 8 in 
+  let f qs = raise (Queens qs) in 
+  (try search n f [] () 0 0 with Queens qs -&gt; print_board n qs); 
+  match Sys.argv with 
+  | [|_; reps|] -&gt; 
+      for rep=2 to int_of_string reps do 
+        try search n (fun _ -&gt; raise Exit) [] () 0 0 with Exit -&gt; () 
+      done 
+  | _ -&gt; () 
+
+The "fold_n2" and "search" functions are both polymorphic folds. The former 
+folds over a square array and the latter folds over all solutions to the 
+n-queens problem. The generality of the "search" function is not used in this 
+case, as I just print the first solution found and bail using an exception. 
+
+On my machine, 1000 solutions takes: 
+
+0.625s C++ (130 LOC) 
+1.764s OCaml (30 LOC) 
+
+So OCaml is &gt;4x more concise but 2.8x slower than C++. 
+
+Profiling shows that a lot of time is spent in List.for_all. We can roll this 
+ourselves to remove some polymorphism and improve performance: 
+
+let rec unthreatened x1 y1 = function 
+  | (x2, y2) :: t -&gt; 
+      x1 &lt;&gt; x2 &amp;&amp; y1 &lt;&gt; y2 &amp;&amp; x2 - x1 &lt;&gt; y2 - y1 &amp;&amp; x1 - y2 &lt;&gt; x2 - y1 &amp;&amp; 
+        unthreatened x1 y1 t 
+  | [] -&gt; true;; 
+
+let rec search n f queens () x y = 
+  if unthreatened x y queens then 
+    if length queens = n - 1 then f ((x, y) :: queens) else 
+      fold_n2 (search n f ((x, y) :: queens)) () (x + 1) y n;; 
+
+This gets the time down to: 
+
+1.159s OCaml (33 LOC) 
+
+We can continue optimising by removing some generality. Let's turn the "fold" 
+into an "iter" so that "search" becomes monomorphic: 
+
+let rec iter_n2 f x y n = 
+  if y&lt;n then 
+    if x=n then iter_n2 f 0 (y + 1) n else 
+      (f x y; 
+       iter_n2 f (x + 1) y n);; 
+
+let rec search n f queens x y = 
+  if unthreatened x y queens then 
+    if length queens = n - 1 then f ((x, y) :: queens) else 
+      iter_n2 (search n f ((x, y) :: queens)) (x + 1) y n;; 
+
+Performance is improved even more, at the cost of generality. 
+
+0.827s OCaml (34 LOC) 
+
+So OCaml is now only 30% slower whilst still being ~4x more concise.
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>Building OSX Universal Binaries</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/469c0c235df5cc59/845919efbc0a6049#845919efbc0a6049</cwn_url>
+			<cwn_who>Nicolas Cannasse asked and Daniel Bünzli answered</cwn_who>
+			<cwn_what>
+&gt; I'm regularly making OSX releases of the haXe compiler (http://haxe.org)
+&gt; which is written in OCaml, but since I only have a Mac Intel, I didn't
+&gt; find a way to produce a PPC version of the compiler. 
+&gt; I would be interested in building OSX Universal Binaries using ocamlopt.
+&gt; Did anybody found a way to do that ? 
+
+The only way I see is to have access to both a ppc and intel machine   
+an join the executables with the command line tool lipo. 
+Maybe a wish to directly produce universal binaries should go in the   
+bugtracker.
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>Before teaching OCaml</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/6af9f3b7a680dcb0/777ca8fd3b9d01a2#777ca8fd3b9d01a2</cwn_url>
+			<cwn_who>David Teller asked</cwn_who>
+			<cwn_what>
+ I'm going to start teaching OCaml soon and I'm fishing for ideas and 
+suggestions. I hope this list is the right place to ask. 
+
+ Within a few weeks, I'll be teaching OCaml to a class of second-year 
+students in _mathematics &amp; informatics_. The bad part is that their 
+knowledge of computer science is limited to 3 term-long lectures of 
+"algorithmics" (read "Java under Windows"), and that they have nil 
+knowledge of Unix/Cygwin or Makefiles, or even Emacs or command-lines. 
+The good part is that a number of them consider Java "not mathematical 
+enough", so they may be good candidates for functional programming. 
+
+ I'm planning to base my lecture roughly on part 1 of _Developing 
+applications with Objective Caml_, perhaps replacing the chapter devoted 
+to Graphics with the use of LablGTK. Then again, perhaps not. Some 
+low-level graphics might be interesting for them. I also intend to give 
+them a term-long project to work on and develop. 
+
+Right now, I see the following difficulties: 
+
+* the environment -- under Windows, is there any viable alternative to 
+Emacs + the MinGW-based port ? 
+
+* the Makefile -- I've found OCamlMakefile [1] but I haven't tried it 
+yet, hopefully it's simple enough for my students to use without too 
+many arcane manipulations 
+
+* the task -- for the moment, I have no interesting idea of OCaml-based 
+projects. Perhaps something like finding the shortest path along 
+subway/train lines ? 
+
+Thanks for any idea/suggestion/comment, 
+ David, 
+  And a Happy New Year 
+
+[1] http://www.ocaml.info/home/ocaml_sources.html
+			</cwn_what>
+			<cwn_who>Sylvain Le Gall suggested</cwn_who>
+			<cwn_what>
+Well, you can try : 
+http://www.librecours.org/ 
+There is some lecture about OCaml. Maybe you'll find your answer in this 
+(already done) lecture ?
+			</cwn_what>
+			<cwn_who>Aleksey Nogin said</cwn_who>
+			<cwn_what>
+&gt; * the Makefile -- I've found OCamlMakefile [1] but I haven't tried it 
+&gt; yet, hopefully it's simple enough for my students to use without too 
+&gt; many arcane manipulations 
+
+Have you looked at OMake - http://omake.metaprl.org/ ? 
+For simple OCaml projects, the OMakefile would be 1 line: 
+
+DEFAULT: $(OCamlProgram prog_name, module1 module2 module3) 
+
+It's easy to install on Windows and it is self-contained (you do not 
+need GNU Make).
+			</cwn_what>
+			<cwn_who>Jacques Garrigue suggested</cwn_who>
+			<cwn_what>
+For the graphics, I would rather suggest lablTk. It is much easier to 
+use for beginners. And you can even work interactively using the 
+Tk.update command. 
+&gt; * the environment -- under Windows, is there any viable alternative to 
+&gt; Emacs + the MinGW-based port ? 
+
+For writing programs, emacs helps a lot. In particular, the possibility 
+to execute phrases in the toplevel while editing a file makes things 
+much easier. Emacs looks scary, but for this specific case you only 
+need a limited number of key combinations :-) 
+Once you've installed Tcl/Tk (required for LablTk), then you can use 
+ocamlbrowser. It can be helpful too, particularly for browsing the 
+library. 
+(These are very personal suggestions...)
+			</cwn_what>
+			<cwn_who>Andrej Bauer said</cwn_who>
+			<cwn_what>
+I teach theory of programming languages with ocaml on Windows. The path 
+of least resistance seems to be ocaml + XEmacs + tuareg + premade make 
+files (although omake sounds like a good option). It takes one lecture 
+(45 minutes) to explain the setup, and the first homework is "install 
+everything and compile helloWorld.ml". 
+If you're teaching math students who think that "java is not 
+mathematical" enough, then you could offer mathematical projects, 
+possibly involving graphics, such as: 
+
+1) A program that plots the graph of a function. This would involve 
+parsing the function, so you'd have to teach basic lexing and parsing 
+techniques. Or you can provide the lexer and parser and have them extend 
+it with more functions. 
+
+For extra credit: a program that plots surfaces in 3D. 
+
+2) A program for drawing graphs in the plane. The layout of a graph is 
+computed with one of many algorithms, e.g. a spring embedder. You can 
+reuse the graph data structure to develop other things (shortest path 
+etc.) You can have a graph drawing competition. You can have them draw 
+graphs with 10000 vertices. 
+
+I once "won over" several math students from the Dark Side++ by showing 
+them how to define the datatype of finite graphs and implement basic 
+constructions, including computing Cayley's graph and finding the 
+chromatic numbers (by a brute force method). They were convinced because 
+the source code was "mathematically clean" and something like 5 times 
+shorter than corresponding C++ would be. 
+
+3) This is shameless self-propaganda, but several people used random art 
+as a fun project, see e.g. Assignment 2 at 
+http://www.cs.hmc.edu/courses/2005/fall/cs131/homework/index.html 
+(and compare with the "real thing" at http://www.random-art.org). In 
+this project you can avoid writing parsers, while still having abstract 
+syntax and an interpreter, or even a compiler/optimizer. 
+
+4) If your students are very mathematical, something like the tiling 
+examples from "Developing applications in Ocaml" might interest them.
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>calling ocaml from threaded C program</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/3232761d87119b80/92f28e7ef3f96ce2#92f28e7ef3f96ce2</cwn_url>
+			<cwn_who>Trevor Jim asked</cwn_who>
+			<cwn_what>
+I'm having some crashes with a threaded C program that calls 
+ocaml code.  (Unison on Mac OS X.) 
+This discussion: 
+
+http://groups.google.com/group/fa.caml/browse_thread/thread/684a6f1647fdbe3/e4ad7e1e8fca5edb?lnk=gst&amp;q=threads&amp;rnum=1#e4ad7e1e8fca5edb
+
+provides some good information, but I could use some more info. 
+(And I hope this will make it into the manual at some point.) 
+
+Specifically: 
+
+The program is an ObjC program, a GUI wrapped around an ocaml program 
+(Unison).  The ObjC program is multithreaded.  From the above discussion 
+I realize that only one of the ObjC threads can call back to ocaml at 
+any given time, therefore I have a lock for ocaml callbacks (a posix 
+threads mutex). 
+
+However, I still get crashes.  I think I must be missing some locking. 
+So far I have locked ObjC calls to caml_callback, caml_callback_exn, 
+etc.  I have not locked certain other calls of the caml C API, e.g., 
+
+   caml_named_value() 
+   caml_copy_string() 
+   caml_remove_global_root() 
+   caml_register_global_root() 
+   Val_int() 
+   Field() 
+   String_val() 
+   Wosize_val() 
+
+If anyone knows exactly what parts of the ocaml C API need to be locked 
+for this scenario, it would be nice to have that in the documentation. 
+
+Also, I wonder whether there is any issue with having one ObjC thread 
+in the ocaml runtime, while another ObjC thread accesses an object 
+that is either an ocaml root or accessible from an ocaml root -- is 
+any locking required?
+			</cwn_what>
+			<cwn_who>Markus Mottl answered</cwn_who>
+			<cwn_what>
+With the exception of "Val_int" none of the above is thread-safe.  Since the 
+GC can move values at anytime while your C-thread is executing, any 
+C-function that accepts or returns a "value" (= OCaml-value) is potentially 
+unsafe.  Val_int is an exception, because OCaml-ints are unboxed (btw. 
+unlike int32, int64, nativeint!).  Atomic (also atomic polymorphic) variants 
+and characters, too, are unboxed and can therefore be safely handled by 
+C-threads at any time. 
+Furthermore, it is safe to access the contents of bigarrays if they cannot 
+be reclaimed during that time (e.g. because you protected them before 
+releasing the OCaml-lock using CAMLparam, etc.), because their contents is 
+outside of the OCaml-heap. 
+
+Otherwise never access OCaml-values from a C-thread if there are running 
+OCaml-threads.  Here be dragons... 
+
+If anyone knows exactly what parts of the ocaml C API need to be locked 
+
+&gt; for this scenario, it would be nice to have that in the documentation. 
+
+Yes, that would be nice indeed... 
+Also, I wonder whether there is any issue with having one ObjC thread 
+
+&gt; in the ocaml runtime, while another ObjC thread accesses an object 
+&gt; that is either an ocaml root or accessible from an ocaml root -- is 
+&gt; any locking required? 
+
+The OCaml-GC may run at anytime and mess with the existence and position of 
+OCaml-values.  Thus, you cannot do what you want here without locking.
+			</cwn_what>
+		</cwn_entry>
+	</cwn_body>
+</cwn>

@@ -1,0 +1,312 @@
+Hello,
+
+Here is the latest OCaml Weekly News, for the week of February 28 to March 07, 2017.
+
+1) BuckleScript 1.5 - First class support for Reason syntax
+2) Menhir incremental api with ocamlbuild
+3) Cmdliner 1.0.0
+4) researcher permanent position at ONERA, Toulouse
+5) Ocaml Github Pull Requests
+6) Other OCaml News
+
+========================================================================
+1) BuckleScript 1.5 - First class support for Reason syntax
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2017-02/msg00159.html>
+------------------------------------------------------------------------
+** Hongbo Zhang announced:
+
+BuckleScript is an optimizing compiler for OCaml to generate readable
+JavaScript, it is open sourced by Bloomberg [1].
+
+We are glad to announce 1.5.0, Besides a number of minor bug fixes and
+performance improvement, most notable changes:
+
+# Bundled Reason together thanks to contributions from Facebook Reason team, so
+that Reason syntax support is also first class, this also makes Reason for the
+first time available to Windows users.
+
+# FFI added `bs.uncurry` which will automatically uncurry the callback so the
+user land API is clearer, see [2]
+
+# Improve object label translation to cause less surprise, this might case minor
+backward compatibility [3]
+
+Documentation is available here:
+<http://bloomberg.github.io/bucklescript/Manual.html>
+
+To install:
+npm install -g bs-platform
+
+Let's make OCaml a trend in JavaScript community in 2017, together! -- Hongbo
+
+[1]: <https://github.com/bloomberg/bucklescript/> 
+[2]: <http://bloomberg.github.io/bucklescript/Manual.html#__bs_uncurry_for_implicit_uncurried_callback_since_1_5_0>
+[3]: <http://bloomberg.github.io/bucklescript/Manual.html#_object_label_translation_convention>
+      
+========================================================================
+2) Menhir incremental api with ocamlbuild
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2017-03/msg00000.html>
+------------------------------------------------------------------------
+** Helmut Brandl asked:
+
+does anybody know how to build a project with ocamlbuild and use the incremental
+api of menhir. By using menhir directly I would use the ?-table? flag. But I
+don?t know how to transfer this flag to menhir by using ocamlbuild.
+      
+** Gabriel Scherer replied:
+
+Indeed, ocamlbuild misses some built-in flag for menhir features. That said, it
+is easy to add these flags through your myocamlbuild.ml. Here is what I have in
+an incremental-menhir-using project (inside a dispatch call):
+
+flag ["menhir"; "parser"; "trace"] (A"--trace");
+flag ["menhir"; "parser"; "table"] (A "--table");
+flag ["menhir"; "parser"; "canonical"] (A"--canonical");
+
+but it would be easy to add those to the built-in -use-menhir mode.
+
+(If you are not comfortable with using myocamlbuild.ml, see the ocamlbuild
+manual:
+<https://github.com/ocaml/ocamlbuild/blob/master/manual/manual.adoc#Sec_Plugins> )
+
+In this project I also have rules for handling of .messages files corresponding
+Menhir's new error message support. I include the complete code at the end of my
+email. I would like to get a bit more experience using those, before considering
+including them in ocamlbuild proper.
+
+----
+
+module Menhir = struct
+  let menhir () =
+    if !Options.ocamlyacc = N then V"MENHIR" else !Options.ocamlyacc
+  let menhir_tags mly =
+    tags_of_pathname mly ++"ocaml"++"parser"++"menhir"
+  
+  let menhir_produce_messages env build =
+    let messages, mly = env "%.messages", env "%.mly" in
+    let open Ocamlbuild_pack in
+    Ocaml_compiler.prepare_compile build mly;
+    Cmd(S[menhir (); T (menhir_tags mly);
+      A "--list-errors"; P mly; Sh ">"; Px messages])
+  
+  let menhir_compile_messages env build =
+    let mly = env "%.mly" in
+    let messages = env "%.messages" in
+    let target = env "%_messages.ml" in
+    Cmd(S[menhir (); T (menhir_tags mly); P mly;
+      A "--compile-errors"; P messages;
+      Sh ">"; Px target])
+  
+  let menhir_update_messages env build =
+    let mly = env "%.mly" in
+    let messages = env "%.messages" in
+    let tmp = Filename.temp_file "menhir" ".messages" in
+    Seq [
+      Cmd(S[menhir (); T (menhir_tags mly); P mly;
+        A "--update-errors"; P messages;
+        Sh ">"; P tmp]);
+      Cmd(S[A "mv"; P tmp; P messages]);
+    ]
+  
+  let dispatcher = function
+    | After_rules ->
+      flag ["menhir"; "parser"; "menhir_trace"] (A"--trace");
+      flag ["menhir"; "parser"; "menhir_table"] (A "--table");
+      flag ["menhir"; "parser"; "menhir_canonical"] (A"--canonical");
+      rule "menhir: .mly -> .messages"
+        ~prod:"%.messages"
+        ~deps:["%.mly"]
+        menhir_produce_messages;
+      rule "menhir: .mly & .messages -> _messages.ml"
+        ~prod:"%_messages.ml"
+        ~deps:["%.mly"; "%.messages"]
+        menhir_compile_messages;
+      rule "menhir: .mly & .messages -> .messages & .messages.update"
+        ~stamp:"%.messages.update"
+        ~deps:["%.mly"; "%.messages"]
+        menhir_update_messages;
+    | _ -> ()
+end
+      
+** François Pottier then added:
+
+Thanks Gabriel.
+
+Another quick-and-dirty approach is to just use
+  ocamlbuild -use-menhir -menhir "menhir --table".
+      
+** Helmut Brandl finally said:
+
+I have found another solution. The command
+
+ocamlbuild -yaccflag ?table ...
+
+does the job. Thanks for the hints.
+      
+========================================================================
+3) Cmdliner 1.0.0
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2017-03/msg00011.html>
+------------------------------------------------------------------------
+** Daniel Bünzli announced:
+
+It's my pleasure to announce the release of cmdliner 1.0.0. 
+
+One important notice for all users. The argument converter type will become
+abstract in the next major release, please make sure to migrate your code to use
+the constructors/destructors of the Arg module to minimize breakage in the
+future.
+
+For the rest all the details are in the release notes [0], here's an abridged view:
+
+* Few breaking API changes but I suspect most users won't be affected.
+* Internal sanitization and modularization which hopefully now makes the code
+  readable and will ease further developments.
+* Documentation language sanitization.
+* Additions to reduce boilerplate and ease the documentation of your 
+  tool (e.g. support for documenting exit statuses). 
+* Additions for better composition with Pervasives.exit and the new 
+  `result` type of the stdlib.
+* End-user error reporting improvements.
+* Relicense from BSD3 to ISC.
+
+Cmdliner is an ISC licensed library for the declarative definition of command
+line interfaces.
+
+Homepage: <http://erratique.ch/software/cmdliner>
+API docs: <http://erratique.ch/software/cmdliner/doc>
+
+Best, 
+
+Daniel
+
+[0] <https://github.com/dbuenzli/cmdliner/blob/v1.0.0/CHANGES.md#v100-2017-03-02-la-forclaz-vs>
+      
+** SP asked and Daniel Bünzli replied:
+
+> Good work Daniel, thank you. Are there notes anywhere on what and how to
+> migrate for version 1.0.0, or is it simply a case of using Arg constructors?
+
+Mostly yes, you are only affected if you defined your own argument converters
+and the type system won't bark in this release. The shortest fix is to wrap
+existing parser-printer pairs with Arg.pconv [0].
+
+A few projects are affected by the addition of the `Blocks case in the
+Manpage.block type [1].
+
+This should mostly be it --- higher-order users may be affected by the addition
+of optional arguments to some other functions though (e.g. Term.info).
+
+Best, 
+
+Daniel
+
+[0] <http://erratique.ch/software/cmdliner/doc/Cmdliner.Arg.html#VALpconv>
+[1] <http://erratique.ch/software/cmdliner/doc/Cmdliner.Manpage.html#TYPEblock>
+      
+========================================================================
+4) researcher permanent position at ONERA, Toulouse
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2017-03/msg00016.html>
+------------------------------------------------------------------------
+** David Chemouil announced:
+
+we have an open permanent position for a researcher at ONERA. The position is
+located in our Toulouse (*) premises.
+
+--> Please, do not refrain to apply if you have a strong background in formal
+methods, programming language theory, logic, etc.; as well as a will to perform
+research ranging from theoretical techniques to prototyping them and
+experimenting with them in practice.
+
+Please apply with a resume and motivation letter before the end of March at the
+following URL:
+<http://jobboard.cubiq.fr/show?key=4d8fc38123455b12879a07703234bda2&offre_id=465&lang=fr>.
+
+================================================================
+
+ONERA is the French research center in civil and/or defense aeronautics & space.
+Whether ONERA's research has short, medium or long-term goals, it is ultimately
+designed to support the aerospace and defense industries.
+
+The topic of research will revolve around the following:
+- theoretical and practical development of formal and modelling means for safety
+analysis of critical systems
+- safety analyses of new systems architectures (many-core systems, wireless
+networks for critical applications...)
+- formal verification techniques for embedded software (drones, robots...)
+
+The selected researcher will collaborate with academic partners as well as
+industrial (Airbus, Thales, Dassault...) as well as institutional ones (French
+Defence, French Space Agency..).
+
+Expected profile for a candidate:
+- fluent in English
+- PhD in Computer Science
+- Strong background as well as a marked taste for experimenting (/programming)
+ideas and techniques in the domain of critical systems and a will to address
+industrial systems.
+- Strong skills in some of the following areas:
+* systems safety evaluation
+* formal methods (e.g.: assisted or automated proof techniques, model-checking,
+static analysis, test case generation, SAT, SMT, typing...)
+* architecture modelling
+* systems certification
+
+
+(*) To learn more about Toulouse, a vibrant city in the south of France, please
+refer to
+<http://www.so-toulouse.com/en/why-toulouse/10-good-reasons-to-try-toulouse.html>
+and <https://en.wikipedia.org/wiki/Toulouse>.
+      
+========================================================================
+5) Ocaml Github Pull Requests
+------------------------------------------------------------------------
+** Gabriel Scherer and the editor compiled this list:
+
+Here is a sneak peek at some potential future features of the Ocaml
+compiler, discussed by their implementers in these Github Pull Requests.
+
+- RFC: tail recursion modulo constructors
+  <https://github.com/ocaml/ocaml/pull/181>
+- Compiler primitives and standard library support for 63-bit integers
+  <https://github.com/ocaml/ocaml/pull/770>
+- tailrecursive (rev_) split and combine
+  <https://github.com/ocaml/ocaml/pull/867>
+- Make -linkall applicable to single compilation units
+  <https://github.com/ocaml/ocaml/pull/1009>
+- Add iOS support
+  <https://github.com/ocaml/ocaml/pull/1084>
+      
+========================================================================
+6) Other OCaml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Here are links from many OCaml blogs aggregated at OCaml Planet,
+<http://ocaml.org/community/planet/>.
+
+Full Time: Software Developer (Functional Programming) at Jane Street in New York, NY; London, UK; Hong Kong
+ <http://jobs.github.com/positions/0a9333c4-71da-11e0-9ac7-692793c00b45>
+
+Building and Publishing an OCaml Package: Q1 2017
+ <http://kcsrk.info/ocaml/opam/topkg/carcass/2017/03/05/building-and-publishing-an-OCaml-package/>
+
+Functional Game Server (Gameplay) Engineer at Playstudios (Full-time)
+ <https://functionaljobs.com/jobs/9002-functional-game-server-gameplay-engineer-at-playstudios>
+
+What a Jane Street dev interview is like
+ <https://blogs.janestreet.com/what-a-jane-street-dev-interview-is-like/>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

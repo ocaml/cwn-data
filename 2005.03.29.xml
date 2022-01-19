@@ -1,0 +1,552 @@
+<?xml version="1.0" encoding="ISO-8859-15"?>
+<cwn>
+<cwn_head>
+  <cwn_date>2005.03.29</cwn_date>
+  <cwn_prev>2005.03.22</cwn_prev>
+  <cwn_next>2005.04.05</cwn_next>
+  <cwn_date_text>22 to 29 March, 2005</cwn_date_text>
+</cwn_head>
+<cwn_body>
+  <cwn_entry>
+    <cwn_title>Pb &quot;interface C &lt;-&gt; Ocaml&quot; with array of string</cwn_title>
+    <cwn_url>http://caml.inria.fr/pub/ml-archives/caml-list/2005/03/880ebc2e6c2a645a0ffb55df3cb79e2d.en.html</cwn_url>
+    <cwn_who>Frédéric Gava asked</cwn_who>
+    <cwn_what>
+I have a problem with an initialization of a array of strings using a C
+procedure. I give you the code
+with some comments. My code works well without threads but when I add  some
+threads to my code the array is initializing with some strange strings. If
+someone could help me...
+
+Thanks,
+Frédéric Gava
+
+
+char **argv;
+
+/* &quot;arguments&quot; is the Ocaml Sys.argv array */
+value bsmlpub_init(value arguments)
+{
+  int argc,i;
+  CAMLparam1(arguments);
+  /* alloc the arguments */
+  argc = Wosize_val(arguments);
+  argv = (char**)stat_alloc((argc + 1) * sizeof(char *));
+  for (i = 0; i &lt; argc; i++) argv[i] = String_val(Field(arguments, i));
+  argv[i] = NULL;
+  /* saving them */
+ /* This function is a C function take from a special library for parallel
+computing. So it is impossible to modified this function. This function
+gives to all processors the same parameters take from the line command of
+the bash. */
+  bsplib_saveargs(&amp;argc, &amp;argv);
+  CAMLreturn (Val_unit);
+}
+
+/* Them, when a program wants to read the parameters, it calls this
+functions, but here
+I have an array with bad strings.... */
+value bsmlpub_argv(value unit)
+{
+ CAMLparam1(unit);
+ CAMLreturn (copy_string_array(argv));
+}
+    </cwn_what>
+    <cwn_who>Olivier Andrieu answered</cwn_who>
+    <cwn_what>
+using String_val to pass a caml string to a C function can be unsafe
+in several cases. 
+
+Here I guess the C function copies the char* pointers and stores then
+somewhere. When they are accessed later (by another function), they
+have become invalid because the GC has moved the strings around.  Of
+course you can&apos;t really know what the function does with the pointers
+from the prototype alone, you&apos;d need to see the library source code
+(or a good documentation). The solution would be to copy the strings with
+strdup() :
+
+ for (i = 0; i &lt; argc; i++) argv[i] = strdup (String_val(Field(arguments, i)));
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Installing pretty-printers automagically</cwn_title>
+    <cwn_url>http://caml.inria.fr/pub/ml-archives/caml-list/2005/03/d9e38d879617f83ed6630edbf8ab9a2b.en.html</cwn_url>
+    <cwn_who>Markus Mottl described</cwn_who>
+    <cwn_what>
+though the idea is not new, more precisely, I have shamelessly stolen
+it from Gerd Stolpmann&apos;s findlib sources, it still seems not widespread
+and is such a useful thing to have that it should be mentioned here on
+the list.
+
+You will quite often want to have custom pretty-printers for your
+datatypes in the toplevel.  Preferably, they should be installed as
+soon as the library implementing them has been loaded.
+
+The solution for this is quite simple, and I have just implemented it
+in the LACAML-library so that matrices and vectors can be printed in
+the toplevel.
+
+Assuming you have already implemented a pretty-printer with the correct
+signature in module &quot;My_module&quot;:
+
+  val pp_my_type : Format.formatter -&gt; my_type -&gt; unit
+
+Then just create another module in your library:                                
+---------------------------------------------------------------------------
+let printers =
+  [
+    &quot;My_module.pp_my_type&quot;;
+  ]
+
+let eval_string
+      ?(print_outcome = false) ?(err_formatter = Format.err_formatter) str =
+  let lexbuf = Lexing.from_string str in
+  let phrase = !Toploop.parse_toplevel_phrase lexbuf in
+  Toploop.execute_phrase print_outcome err_formatter phrase
+
+let rec install_printers = function
+  | [] -&gt; true
+  | printer :: printers -&gt;
+      let cmd = Printf.sprintf &quot;#install_printer %s;;&quot; printer in
+      eval_string cmd &amp;&amp; install_printers printers
+
+let () =
+  if not (install_printers printers) then
+    Format.eprintf &quot;Problem installing printers@.&quot;
+---------------------------------------------------------------------------
+
+Just add further pretty-printers to the list &quot;printers&quot; if required.
+
+If you link this module into a byte-code library and load it into the
+toplevel (using #load), you will be able to print your types using the 
+custom pretty-printers.
+
+There is one caveat here: the resulting library cannot be used for linking
+with byte-code executables, because the toplevel is not available there.  
+Therefore, if you want to implement a library, you will have to link
+two separate ones: one with and one without the module for installing
+the printers.
+
+If you happen to use &quot;ocamlfind&quot; to &quot;#require&quot; your libraries, you just
+need to add a line to the META-file for each kind of library.  The right
+one will be chosen automatically then, e.g.:
+
+  archive(byte)=&quot;mylib.cma&quot;
+  archive(byte,toploop)=&quot;mylib_top.cma&quot;
+
+Here is a short demonstration using the pretty-printers of the
+LACAML-library in the toplevel while computing the singular value
+decomposition of a 3x3 Hilbert-matrix:
+
+---------------------------------------------------------------------------
+# #require &quot;lacaml&quot;;;
+/usr/local/home/godi/godi/lib/ocaml/std-lib/bigarray.cma: loaded
+/usr/local/home/godi/godi/lib/ocaml/site-lib/lacaml: added to search path
+/usr/local/home/godi/godi/lib/ocaml/site-lib/lacaml/lacaml_top.cma: loaded
+# open Lacaml.D;;
+# let mat = Mat.hilbert 3;;
+val mat : Lacaml_float64.mat = 
+         1      0.5 0.333333
+       0.5 0.333333     0.25
+  0.333333     0.25      0.2
+# gesvd mat;;
+- : Lacaml_float64.vec * Lacaml_float64.mat * Lacaml_float64.mat = 
+(   1.40832
+   0.122327
+ 0.00268734,
+ -0.827045  0.547448  0.127659
+ -0.459864  -0.52829 -0.713747
+ -0.323298 -0.649007  0.688672,
+ -0.827045 -0.459864 -0.323298
+  0.547448  -0.52829 -0.649007
+  0.127659 -0.713747  0.688672)
+---------------------------------------------------------------------------
+
+Enjoy this trick...
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Records with default values</cwn_title>
+    <cwn_url>http://caml.inria.fr/pub/ml-archives/caml-list/2005/03/3cc2685923f947427957693d6b2027ce.en.html</cwn_url>
+    <cwn_who>Jeffrey Cook asked</cwn_who>
+    <cwn_what>
+Is there an existing (or even possible to do with) camlp4 extension to
+support default values in records?  I am constantly finding myself
+doing the following:
+
+type bob = {
+    foo : string ;    &lt;--- field for which no default value makes sense
+    bar : int ;         &lt;--- field(s) that have default values
+}
+
+let bob_default = { foo = &quot;&quot;; bar = 0; }
+
+with usage:
+
+let x = { bob_default with foo = &quot;hello&quot; }
+
+so that I do not have to fill in the numerous fields that really
+should default to some value.
+
+Without using this solution, my code is often cluttered with many
+doldrum default value declarations for record fields (worsened by
+multiple sites that define the initial record values), obscuring what
+the important assignments were.  Additionally, I often find that the
+complex fields (of record types, for example) are the ones that don&apos;t
+lend themselves to a default value whereas the simple types do.  This
+leads to the use of options (discussed below) just to save from even
+uglier default value declarations for fields that never use a default.
+
+Using a default structure like above also does not let me harness the
+type checking mechanisms to detect places in my code where a field
+(that really shouldn&apos;t have a default value) wasn&apos;t defined as is
+normally the case when constructing a record from scratch - especially
+when fields are later added to the record.
+
+Using &apos;options&apos; for no-default-value fields doesn&apos;t seem to be a very
+good solution, as there then need to be runtime deconstructors of the
+options (and runtime checks or uncaught exceptions) if a field has a
+None value that should have been set.  All that aside, it still
+wouldn&apos;t identify where the record was incompletely &apos;created&apos; using
+the default record.
+
+What I would like is the following:
+
+type bob = {
+    foo : string ;
+    bar : int := 0 ;
+}
+
+let x = { foo = &quot;hello&quot; }
+
+(and maybe even some kind of &apos;nodefaults&apos; annotation when defining &apos;x&apos;
+if I want to make sure I&apos;ve explicitly defined every field.)
+
+
+So what advice / solutions do other people have / use?
+    </cwn_what>
+    <cwn_who>Martin Jambon answered</cwn_who>
+    <cwn_what>
+I would go for a &quot;create_bob&quot; function with labelled arguments, some of
+them being optional:
+
+let rec create_bob ~foo ?(bar = 0) () =
+  { foo = foo;
+    bar = bar }
+
+Implementing a syntax extension that defines &quot;create_bob&quot; automatically is
+typically something that can be done with Camlp4 :-)
+
+It supports recursive type definitions such as:
+
+  type t = { x : t option = Some { x = None } }
+
+or even (since create_t is recursive):
+
+  type t = { x : t option = Some (create_t ~x:None ()) }
+
+which would be expanded into:
+
+  type t = { x : t option }
+  let rec create_t ?(x = Some (create_t ~x:None ())) () = { x = x }
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>New logo for O&apos;Caml</cwn_title>
+    <cwn_url>http://caml.inria.fr/pub/ml-archives/caml-list/2005/03/47367327f0a6020488a35e56d397aae1.en.html</cwn_url>
+    <cwn_who>Pau Giner announced</cwn_who>
+    <cwn_what>
+Hello, I designed some time  ago a new logo proposal for O&apos;caml
+(http://usuarios.lycos.es/DrNotrix/images/ocaml.png). Now I&apos;ve made a
+new version more suitable for buttons (caml powered like) or icons.
+You can find it at:
+http://usuarios.lycos.es/DrNotrix/images/ocaml-icon.png
+
+The design represents a *camel* (a bit *abstract*) but it&apos;s also a
+*machine*. So I think it fits with the concept of the language and
+can&apos;t be confussed with perl logo.
+
+Your feedback is welcome.
+    </cwn_what>
+    <cwn_who>Alex Baretta said</cwn_who>
+    <cwn_what>
+Actually, the Perl logo is a *dromedary*. Ours is supposed to be Cam(e)l.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Thread and Unix select</cwn_title>
+    <cwn_url>http://caml.inria.fr/pub/ml-archives/caml-list/2005/03/99c702fe92423a1bc18c92a53d7bc010.en.html</cwn_url>
+    <cwn_who>Alex Baretta asked, Kip Macy said, and Gerd Stolpmann answered</cwn_who>
+    <cwn_what>
+Kip Macy wrote:
+&gt; Alex Baretta wrote:
+&gt; &gt; What are the differences between Unix.select and Thread.select? Is it
+&gt; &gt; safe to use the former in a multithreaded program?
+&gt; 
+&gt; Without looking at the implementation, I would guess that a
+&gt; Unix.select with a non-zero timeout would cause the whole process to
+&gt; block - whereas an equivalent call to Thread.select would only cause
+&gt; the calling thread to block.
+
+Once upon a time, this was the intention of Thread.select. In current
+ocaml, one can also call Unix.select, and only the calling thread is
+blocked.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>GraphPS missed...</cwn_title>
+    <cwn_url>http://caml.inria.fr/pub/ml-archives/caml-list/2005/03/8427a70b9f6d461c56c18109657fa224.en.html</cwn_url>
+    <cwn_who>Oliver Bandel asked and Sachin Shah answered</cwn_who>
+    <cwn_what>
+&gt; I found the documentation on GraphPS via CamlHump,
+&gt; but the ftp-adress which was mentioned in the documentation
+&gt; was unvalid.
+&gt; 
+&gt; Where to find GraphPS?
+
+GraphPS 1.0 and 1.1 are available at:
+
+ftp://ftp.inria.fr/INRIA/Projects/cristal/caml-light/bazar-ocaml/
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Monads, monadic notation and OCaml</cwn_title>
+    <cwn_url>http://caml.inria.fr/pub/ml-archives/caml-list/2005/03/87cab0cdbbcfcf736b85d746ba610e78.en.html</cwn_url>
+    <cwn_who>Jacques Carette announced</cwn_who>
+    <cwn_what>
+Attached is a camlp4 syntax extension for a &apos;monadic do notation&apos; for OCaml,
+much like Haskell&apos;s.  The syntax extension is joint work with Oleg Kiselyov,
+and is loosely based on previous work of Lydia van Dijk on a similar syntax
+extension.
+
+Naturally, in OCaml certain monads (like State and IO) are unnecessary.  But
+other monads (List, option, etc) can be quite convenient.
+
+But monads can be much more than convenient.  Below is some code written in a
+non-deterministic monad of streams.  This example is particularly interesting
+in that it cannot be (naively) done in either Prolog or in Haskell&apos;s MonadPlus
+monad, both of which would go into an infinite loop on this example.
+
+(* test non-determinism monad, the simplest possible implementation *)
+type &apos;a stream = Nil | Cons of &apos;a * (unit -&gt; &apos;a stream)                      | InC of (unit -&gt; &apos;a stream)
+let test_nondet () =
+  let mfail = fun () -&gt; Nil in
+  let ret a = fun () -&gt; Cons (a,mfail) in
+  (* actually, interleave: a fair disjunction with breadth-first search*)
+  let rec mplus a b = fun () -&gt; match a () with
+                  | Nil -&gt; InC b
+		  | InC a -&gt; (match b () with
+		    | Nil -&gt; InC a
+		    | InC b -&gt; InC (mplus a b)
+		    | Cons (b1,b2) -&gt; Cons (b1, (mplus a b2)))
+                  | Cons (a1,a2) -&gt; Cons (a1,(mplus b a2)) in
+  (* a fair conjunction *)
+  let rec bind m f = fun () -&gt; match m () with
+                  | Nil -&gt; mfail ()
+		  | InC a -&gt; InC (bind a f)
+                  | Cons (a,b) -&gt; mplus (f a) (bind b f) () in
+  let guard be = if be then ret () else mfail in
+  let rec run n m = if n = 0 then [] else
+                match m () with
+		| Nil -&gt; []
+		| InC a -&gt; run n a
+		| Cons (a,b) -&gt; (a::run (n-1) b)
+  in
+  let rec numb () = InC (mplus (ret 0) (mdo { n &lt;-- numb; ret (n+1) })) in
+  (* Don&apos;t try this in Prolog or in Haskell&apos;s MonadPlus! *)
+  let tst = mdo {
+                  i &lt;-- numb;
+                  guard (i&gt;0);
+                  j &lt;-- numb;
+                  guard (j&gt;0);
+                  k &lt;-- numb;
+                  guard (k&gt;0);
+                  (* Just to illustrate the `let&apos; form within mdo *)
+                  let test x = x*x = j*j + k*k in;
+                  guard (test i);
+		  ret (i,j,k)
+                }   in run 7 tst
+;;
+
+We ourselves have been experimenting with a combined state-passing,
+continuation-passing monad, where the values returned and manipulated are code
+fragments (in MetaOCaml).  This allows for considerably simpler, typed code
+combinators.  Details of this work will be reported elsewhere.
+    </cwn_what>
+    <cwn_who>The attached file (unavailable from the list archives)</cwn_who>
+    <cwn_what>
+(* name:          pa_monad.ml
+ * synopsis:      Haskell-like &quot;do&quot; for monads
+ * authors:       Jacques Carette and Oleg Kiselyov, 
+ *                based in part of work of Lydia E. Van Dijk
+ * last revision: Sun Mar 27 2005
+ * ocaml version: 3.08.0 *)
+
+
+(** Conversion Rules
+
+Grammar informally:
+                 mdo { exp }
+                 mdo { exp1; exp2 }
+                 mdo { x &lt;-- exp; exp }
+                 mdo { let x = foo in; exp }
+which is almost literally the grammar of Haskell `do&apos; notation,
+modulo `do&apos;/`mdo&apos; and `&lt;-&apos;/`&lt;--&apos;.
+
+Grammar formally:
+
+        mdo { &lt;do-body&gt; }
+        &lt;do-body&gt; :: =
+                &quot;let&quot; var = EXP (&quot;and&quot; var = EXP)* &quot;in&quot; &quot;;&quot; &lt;do-body&gt;
+                EXP
+                (pat &lt;--)? EXP &quot;;&quot; &lt;do-body&gt;
+
+Semantics (as re-writing into the core language)
+
+        mdo { exp } ===&gt; exp
+        mdo { pat &lt;-- exp; rest } ===&gt; bind exp (fun pat -&gt; mdo { rest })
+        mdo { exp; rest } ===&gt; bind exp (fun _ -&gt; mdo { rest })
+        mdo { let pat = exp in; rest } ===&gt; let pat = exp in mdo { rest }
+
+Actually, in `let pat = exp&apos; one can use anything that is allowed
+in a `let&apos; expression, e.g., `let pat1 = exp1 and pat2 = exp2 ...&apos;.
+The reason we can&apos;t terminate the `let&apos; expression with just a semi-colon
+is because semi-colon can be a part of an expression that is bound to
+the pattern.
+
+It is possible to use `&lt;-&apos; instead of `&lt;--&apos;. In that case,
+the similarity to the `do&apos; notation of Haskell will be complete. However,
+due to the parsing rules of Camlp4, we would have to accept `:=&apos; as
+an alias for `&lt;-&apos;. So, mdo { pat := exp1; exp2 } would be allowed too.
+Perhaps that is too much.
+
+The major difficulty with the `do&apos; notation is that it can&apos;t truly be
+parsed by an LR-grammar. Indeed, to figure out if we should start
+parsing &lt;do-body&gt; as an expression or a pattern, we have to parse it
+as a pattern and check the &quot;&lt;--&quot; delimiter. If it isn&apos;t there, we should
+_backtrack_ and parse it again as an expression. Furthermore, &quot;a &lt;-- b&quot;
+(or &quot;a &lt;- b&quot;) can also be parsed as an expression. However, for some patterns,
+e.g. (`_ &lt;-- exp&apos;), that cannot be parsed as an expression. 
+
+    *)
+
+type monbind = BindL of (MLast.patt * MLast.expr) list
+             | BindM of MLast.patt * MLast.expr
+             | ExpM  of MLast.expr
+(* Convert MLast.expr into MLast.patt, if we `accidentally&apos;
+   parsed a pattern as an expression.
+  The code is based on pattern_eq_expression in 
+  /camlp4/etc/pa_fstream.ml *)
+
+let rec exp_to_patt loc e =
+  match e with
+    &lt;:expr&lt; $lid:b$ &gt;&gt; -&gt; &lt;:patt&lt; $lid:b$ &gt;&gt;
+  | &lt;:expr&lt; $uid:b$ &gt;&gt; -&gt; &lt;:patt&lt; $uid:b$ &gt;&gt;
+  | &lt;:expr&lt; $e1$ $e2$ &gt;&gt; -&gt; 
+      let p1 = exp_to_patt loc e1 and p2 = exp_to_patt loc e2 in
+      &lt;:patt&lt; $p1$ $p2$ &gt;&gt;
+  | &lt;:expr&lt; ($list:el$) &gt;&gt; -&gt;
+      let pl = List.map (exp_to_patt loc) el in
+      &lt;:patt&lt; ($list:pl$) &gt;&gt;
+  | _ -&gt; failwith &quot;This pattern isn&apos;t yet supported&quot;
+
+(* The main semantic function *)
+let process loc b = 
+    let globbind2 x p acc =
+        &lt;:expr&lt; bind $x$ (fun $p$ -&gt; $acc$) &gt;&gt;
+    and globbind1 x acc =
+        &lt;:expr&lt; bind $x$ (fun _ -&gt; $acc$) &gt;&gt;
+    and ret n = &lt;:expr&lt; $n$ &gt;&gt; in
+    let folder = let (a,b) = (globbind2, globbind1) in
+        (fun accumulator y -&gt; 
+        match y with
+        | BindM(p,x) -&gt; a x p accumulator
+        | ExpM(x) -&gt; b x accumulator
+        | BindL(l) -&gt; &lt;:expr&lt; let $list:l$ in $accumulator$ &gt;&gt;
+        )
+    in
+    match List.rev b with 
+    | [] -&gt; failwith &quot;somehow got an empty list from a LIST1!&quot;
+    | (ExpM(n)::t) -&gt; List.fold_left folder (ret n) t  
+    | _ -&gt; failwith &quot;Does not end with an expression&quot;
+
+EXTEND
+    GLOBAL: Pcaml.expr; 
+
+    Pcaml.expr: LEVEL &quot;expr1&quot;
+    [
+      [ &quot;mdo&quot;; &quot;{&quot;;
+        bindings = LIST1 monadic_binding SEP &quot;;&quot;; &quot;}&quot; -&gt;
+            process loc bindings
+      ] 
+    ] ;
+
+    Pcaml.expr: BEFORE &quot;apply&quot;
+    [ NONA
+	  [ e1 = SELF; &quot;&lt;--&quot;; e2 = Pcaml.expr LEVEL &quot;expr1&quot; -&gt;
+          &lt;:expr&lt; $e1$ $lid:&quot;&lt;--&quot;$ $e2$ &gt;&gt;
+	  ] 
+    ] ;
+
+    monadic_binding:
+    [ 
+      [ &quot;let&quot;; l = LIST1 Pcaml.let_binding SEP &quot;and&quot;; &quot;in&quot; -&gt;
+	      BindL(l) ]
+    | 
+      [ x = Pcaml.expr LEVEL &quot;expr1&quot; -&gt;
+	(* For some patterns, &quot;patt &lt;-- exp&quot; can parse
+	   as an expression too. So we have to figure out which is which. *)
+        match x with
+              &lt;:expr&lt; $e1$  $lid:op$  $e3$  &gt;&gt; when op = &quot;&lt;--&quot; 
+                  -&gt; BindM((exp_to_patt loc e1),e3)
+            | _ -&gt; ExpM(x) ]
+    | 
+      [ p = Pcaml.patt LEVEL &quot;simple&quot;; &quot;&lt;--&quot;; x = Pcaml.expr LEVEL &quot;expr1&quot; -&gt;
+        BindM(p,x) ]
+    ] ;
+END;
+    </cwn_what>
+    <cwn_who>Walid Taha said and Jacques Carette answered</cwn_who>
+    <cwn_what>
+&gt; This is pretty cool!
+
+Thanks.
+
+&gt; Are you using the same monad we used in the FFT work?
+
+Yes.  For those on caml-list, the paper Walid refers to is
+@inproceedings{KiselyovSwadiTaha2004,
+        author = {Oleg Kiselyov and Kedar N.~Swadi and Walid Taha},
+        title = {A methodology for generating verified combinatorial
+circuits},
+        booktitle = {ACM International conference on Embedded Software
+(EMSOFT)},
+        year = {2004}
+}
+
+&gt; Also, can you either get rid of the &quot;;&quot; after the &quot;in&quot; or the &quot;in&quot; before
+the &quot;;&quot;?  :)
+
+See the comments in pa_monad.ml.  Unfortunately we cannot easily do that; in
+fact the required amount of work to achieve this might be quite large!  It
+would be by far easier to integrate this right into the grammar rather than
+to post-facto extend the grammar via camlp4.  At least, as far as my current
+understanding of camlp4 goes -- maybe if a lot more of the tricks of the
+camlp4 Masters were documented, it would not look so hard anymore!
+    </cwn_what>
+    <cwn_who>William Harrison said</cwn_who>
+    <cwn_what>
+I&apos;ve been reading your recent posts, and given the interest in stream (a.k.a.
+resumption) monads, I thought you might be interested in a draft I&apos;ve submitted
+about the use of just such monads:
+
+  http://www.cs.missouri.edu/~harrison/drafts/CheapThreads.pdf
+
+This article describes the construction of a multitasking operating system
+kernel in Haskell 98 using resumption monads; the kernel has all the &quot;usual&quot; OS
+behaviors (e.g., process forking, preemption, message passing, synchronization,
+etc.) captured succintly.
+    </cwn_what>
+  </cwn_entry>
+</cwn_body>
+</cwn>

@@ -1,0 +1,293 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of December 04 to December 11, 2007.
+
+1) Job announcement -- Ocaml & C hacker
+2) The Caml vs. the Leopard
+3) Ocaml code for Okasaki's "Purely Functional Data Structures"
+4) Questions on replacing finalizers and memory footprints
+5) PLplot library bindings
+6) LablGL 1.03
+
+========================================================================
+1) Job announcement -- Ocaml & C hacker
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/a967497d00894c5f#0b2af984b97b1c2b>
+------------------------------------------------------------------------
+** Berke Durak announced:
+
+Exalead is a French software editor based in central Paris and 
+developing enterprise search solutions and a web search engine 
+(<http://exalead.fr/>).  Our young teams include web, natural language, 
+indexing, database and network specialists.  We count a good number of 
+C hackers. 
+
+We develop an important part of our software in Exascript, our 
+extension of Java.  Currently, we are rewriting our compiler in Ocaml 
+(it was originally written in C) and targeting the Java virtual 
+machine (instead of our in-house virtual machine). 
+
+To help with this task, Exalead is looking for a good hacker fluent in 
+Ocaml and C.  Having some familiarity with Java and its virtual 
+machine is a plus. 
+
+We are looking for someone who: 
+
+- has an excellent grasp of low-level systems programming in C, 
+- has been hacking Ocaml for some time, 
+- has an understanding of garbage-collected virtual machines, and the 
+   way they interact with native code, 
+- is familiar with compilation techniques, 
+- and likes to work in small teams and without formal specifications. 
+
+Tasks to be expected are as follows. 
+
+- Participate in the development of the Exascript compiler in a small 
+   team of two to four people. 
+- Ensure that existing native C and C++ application-level code works 
+   smoothly on the JVM. 
+- Examine the code base to detect parts that can be difficult to port, 
+   possibly by developing automated analysis tools. 
+- Devise, run and interpret benchmarks, deduce possible optimizations 
+   and implement them. 
+- Adapt and rewrite the base libraries to run under the JVM, using 
+   existing Java components if possible. 
+- Adapt developer tools to work smoothly with Exascript (such as Emacs 
+   modes or Eclipse plug-ins). 
+
+This is a permanent position for a full-time job. 
+
+If you are interested, write to berke.durak@exalead.com
+			
+========================================================================
+2) The Caml vs. the Leopard
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/92e8f5867182417a#2c18da30c9a031bc>
+------------------------------------------------------------------------
+** Gordon Henriksen announced:
+
+Good news for Mac users and early adopters! Ocaml versions in CVS now compile 
+cleanly on Leopard with or without setenv MACOSX_DEPLOYMENT_TARGET 10.4. To 
+get the code:
+
+# HEAD branch
+cvs -d :pserver:anoncvs@camlcvs.inria.fr:/caml co ocaml -d ocaml-3.11.x
+
+# release310 branch
+cvs -d :pserver:anoncvs@camlcvs.inria.fr:/caml co -r release310 ocaml -d ocaml-3.10.x
+
+This isn't a release yet, so run at your own risk. Thanks for hacking that 
+patch into shape, Xavier.
+			
+========================================================================
+3) Ocaml code for Okasaki's "Purely Functional Data Structures"
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/a374fa6c9d9a7917#842ac97335a24ec6>
+------------------------------------------------------------------------
+** Erik de Castro Lopo asked and Paolo Donadeo answered:
+
+> I'm currently reading Okasaki's book and a bit of googling told me 
+> that Markus Mottl translated the code examples into Ocaml. 
+> Unfortunately the links to the code are all dead. Does anybody have 
+> this code somewhere or know where it might be available? 
+
+Try here, it's the OCaml page of Markus Mottl: 
+<http://ocaml.info/home/ocaml_sources.html>
+			
+** Ashish Agarwal then asked and Maxence Guesdon answered:
+
+> How do items on the Hump get updated? Markus Mottl's libraries are obviously 
+> a valuable resource, but the Hump's information for at least a few of his 
+> libraries are out of date. Unfortunate for newbies who don't know about the 
+> above link. 
+
+The better way to have the hump updated is to 
+- send an email to hump@caml.inria.fr, 
+- or announce new software or updates on the caml-list, so I can add it to 
+or update the hump.
+			
+========================================================================
+4) Questions on replacing finalizers and memory footprints
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/818e4443c627d478#9e1988d25a4e0cb9>
+------------------------------------------------------------------------
+** Thomas Fischbacher asked and Richard Jones answered:
+
+> Also, is there a simple way to implement a function (perhaps using 
+> Obj.magic) which will walk a (possibly circular) network of tuples, 
+> arrays, variadic entities and lists, and return the total number of 
+> bytes used up by that structure? I see that this should be possible 
+> in principle with the present implementation of the runtime if one 
+> could get some basic information about the internal type of an array. 
+
+You might get some ideas by having a look at the ancient module 
+(<http://merjis.com/developers/ancient>), specifically at how the C 
+function _mark in ancient_c.c is implemented.  Also have a look at the 
+implementation of the Marshal module in the OCaml sources which takes 
+a slightly different approach. 
+
+If you want to do this in pure OCaml, probably your best bet would be 
+to just Marshal the structure and count how big it is.  It'll be slow 
+of course.
+			
+** Thomas Fischbacher then said and Jon Harrop added:
+
+> Actually, the situation that brought up this question is that I have a 
+> complicated internal data structure which will free 300 MB of RAM if I 
+> delete it, while serializing it produces a file of 94 MB only... 
+> So, I would like to have more clarity what is going on here, and which 
+> part of this data structure eats how much space. 
+
+I had never though of measuring the size of a marshalled data structure. Turns 
+out its representation of ints can be more concise than the code 
+representation though: 
+
+# String.length (Marshal.to_string (Array.make 1000000 0) []);; 
+- : int = 1000025 
+# String.length (Marshal.to_string (Array.make 1000000 123456789) []);; 
+- : int = 5000025 
+# String.length (Marshal.to_string (Array.make 1000000 max_int) []);; 
+- : int = 9000025 
+
+which is probably what you're observing. 
+
+Marshalling also handles sharing but that seems to refer to DAGs in memory 
+rather than hash consing: 
+
+# String.length (Marshal.to_string (Array.make 1000000 0., Array.make 1000000 
+0.) []);; 
+- : int = 16000031
+			
+** Xavier Leroy answered the OP:
+
+> Also, is there a simple way to implement a function (perhaps using 
+> Obj.magic) which will walk a (possibly circular) network of tuples, 
+> arrays, variadic entities and lists, and return the total number of 
+> bytes used up by that structure? I see that this should be possible 
+> in principle with the present implementation of the runtime if one 
+> could get some basic information about the internal type of an 
+> array. 
+
+Jean-Christophe Filliâtre's "size" library does exactly this: 
+       <http://www.lri.fr/~filliatr/software.en.html>
+			
+** Jean-Christophe Filliâtre then said:
+
+Indeed. However, note that it uses internally a hash table to store 
+blocks already considered (in order to correctly account for sharing), 
+and thus it is potentially incorrect if the GC moves some blocks during 
+the count, for instance during a resizing of the hash table (which 
+triggers the GC). I don't know how to avoid this issue; any help is welcome.
+			
+** Berke Durak also replied:
+
+I once had more or less the same problem in the EDOS project with huge 
+data structures. 
+
+Filliâtre's size library was also growing too large a hashtable, 
+so I decided to use something else. 
+
+My solution was to marshal the data structure and then analyze the 
+marshalled data by recomputing its type. 
+
+You first write a TYPER module that represents the types in your 
+marshalled data structure, then use the Analyzer module on your 
+output. 
+
+I was more interested in the size strings were taking in memory, 
+but it should be easy to modify.  All the ugly parts (parsing the 
+marshal format, and the combinators for describing the types) 
+have been defined. 
+
+<https://protactinium.pps.jussieu.fr:12345/svn/edos/users/berke/dvhfz/analyze.ml>
+			
+========================================================================
+5) PLplot library bindings
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/b11096c05bce6a56#7da616bfabd6f76f>
+------------------------------------------------------------------------
+** Hezekiah M. Carty announced:
+
+I would like to announce the availability of some reasonably complete 
+OCaml bindings for the PLplot data plotting library [1]. 
+
+These are separate from previously announced PLplot bindings [2] - 
+those used SWIG to generate the interface, while this set of bindings 
+uses camlidl.  These bindings are also somewhat more complete. 
+
+The code can be downloaded from: 
+<http://code.google.com/p/ocaml-plplot/> 
+
+Requirements: 
+- OCaml (tested with 3.10.0, should work on older versions?) 
+- PLplot version 5.7.x or 5.8.x 
+- camlidl 
+- findlib 
+
+The license is the same as PLplot (LGPLv2+). 
+
+This code has been developed on a 32bit CentOS 5 system, using godi 
+for the OCaml installation.  I would be happy to hear about any 
+successes or failures on other systems. 
+
+There is currently only one example included, which corresponds to 
+example 11 on the PLplot website.  The PLplot documentation is a good 
+reference as this binding is very close to the C library.  There are 
+some OCaml specific items though, so feel free to ask if you have 
+questions or problems. 
+
+Enjoy! 
+
+[1] - <http://plplot.sourceforge.net/> 
+[2] - <http://vityok.org.ua/cgi-bin/odd.cgi/Ocaml-plplot>
+			
+========================================================================
+6) LablGL 1.03
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/34efc309ece49f80#853cdba29b09101a>
+------------------------------------------------------------------------
+** Jacques Garrigue announced:
+
+Since it seems that it contains some useful bug fixes, 
+here is a new release of LablGL. 
+
+The main changes are: 
+
+2007-04-13: 
+* add glPolygonOffset 
+* fix Glut.createMenu 
+* fix GlTex.gen_textures 
+
+2006-07-29: 
+* make LablGlut's callback window dependent 
+* simplify glutInit 
+
+You can find it at: 
+
+  <http://wwwfun.kurims.kyoto-u.ac.jp/soft/olabl/lablgl.html> 
+
+There is a (semi-)binary release for windows, with both Togl and Glut 
+support, that can be used directly with the OCaml MSVC or mingw 
+ports. ocamlopt is supported too, with the exception of Togl on mingw. 
+(Read carefully the installation instructions, particularly for ocaml 
+3.10)
+			
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

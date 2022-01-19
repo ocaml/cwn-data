@@ -1,0 +1,563 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of April 23 to 30, 2013.
+
+1) first release of dolog: the dumb ocaml logger
+2) ackermann microbenchmark strange results
+3) OCaml-Java & concurrent programming: request for feedback
+4) OCaml mechanize?
+5) Request for feedback: A problem with injectivity and GADTs
+6) Book reviewers wanted
+7) Thematic trimester "Semantics of proofs and certified mathematics", spring 2014, Paris
+8) Other Caml News
+
+========================================================================
+1) first release of dolog: the dumb ocaml logger
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-04/msg00162.html>
+------------------------------------------------------------------------
+** Francois Berenger announced:
+
+After an 'opam update', you should be able to see the dolog package.
+
+Here is its minimalistic interface definition:
+---
+type log_level = FATAL | ERROR | WARN | INFO | DEBUG
+
+val set_log_level : log_level -> unit
+val set_output : out_channel -> unit
+
+val fatal : string Lazy.t -> unit
+val error : string Lazy.t -> unit
+val warn : string Lazy.t -> unit
+val info : string Lazy.t -> unit
+val debug : string Lazy.t -> unit
+---
+
+The full source code can be found here:
+
+<https://github.com/HappyCrow/dolog>
+
+The license is a BSD one.
+
+I believe the more complete logging alternative
+is Xavier Clerc's Bolt (<http://bolt.x9c.fr/>).
+      
+========================================================================
+2) ackermann microbenchmark strange results
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-04/msg00179.html>
+------------------------------------------------------------------------
+** ygrek asked:
+
+Got some time scratching my head over this little puzzle.
+Consider this bog-standard ackermann code :
+
+let rec ack m n =
+  match m, n with
+  | 0,n -> n+1
+  | m,0 -> ack (m-1) 1
+  | m,n -> ack (m-1) (ack m (n-1))
+in let _ = ack 4 1 ()
+
+One could also pass m and n as a tuple. Also the call to the actual computation
+can be a toplevel let or not.  All in all 4 variants. Can you predict what will
+be the performance and what is the difference (if any) in generated code?
+
+All code and Makefile is attached.
+
+Running `make bench` here consistently gives the following (ack1, ack3 - tuples,
+ack2, ack4 - curried) :
+
+ack1.ml
+0:03.85
+
+ack2.ml
+0:04.70
+
+ack3.ml
+0:04.60
+
+ack4.ml
+0:03.85
+
+Tested with 3.12.1 and 4.00.1 (ack4 becomes slower).
+
+Moreover, the generated assembly code for the main loop is the same, afaics.
+The only difference is the initialization of structure fields and the initial
+call to ack. Please can anybody explain the performance difference? I understand
+that microbenchmarks are no way the basis to draw performance conclusions upon,
+but I cannot explain these results to myself in any meaninful way.
+Please help! :)
+      
+** Many people replied, including Xavier Leroy:
+
+As others said, probably code placement. A good tool to explore these
+issues under Linux is "perf", in particular "perf stats", which lets
+you count various hardware events. Running it on your 4 programs,
+you'll see that the number of instructions executed is almost exactly
+the same, but the branch mispredictions (for instance) vary
+significantly, in a way correlated with the overall execution time.
+
+(Note that this doesn't have anything to do with OCaml: you'd observe
+crazy variations like these with any compiled language.)
+
+> I understand that microbenchmarks are no way the basis to draw
+> performance conclusions upon, but I cannot explain these results to
+> myself in any meaninful way.
+
+Nobody can except perhaps a few engineers at Intel or AMD who have the
+whole microarchitecture of their processors imprinted in their heads.
+(And then they will not tell you.) See, modern microarchitectures
+contain so many clever heuristics that performance is generally very
+good but essentially unpredictable...
+
+rixed AT happyleptic.org
+adds:
+
+> Remember me of a paper I read some years ago that was measuring the
+> effect of the various optimisation levels of gcc against the effect
+> of addresses choices (randomised using environment strings of
+> various lengths!), and which conclusion was that the effect of -O3
+> compared to -O2 was less than the effect of "choosing" a good
+> environment string :-) Couldn't find it again using Google ; maybe
+> someone remember this paper?
+
+It's probably "Producing Wrong Data Without Doing Anything Obviously
+Wrong!" by Diwan et al, ASPLOS 2009,
+<http://www-plan.cs.colorado.edu/diwan/asplos09.pdf>
+This paper made quite a splash in the compiler community...        
+      
+========================================================================
+3) OCaml-Java & concurrent programming: request for feedback
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-04/msg00180.html>
+------------------------------------------------------------------------
+** Xavier Clerc:
+
+The OCaml-Java is a project whose goal is to allow compilation
+of OCaml sources to Java bytecode, thus allowing execution on
+any JVM. The objectives are to gain access to a greater number
+of libraries, and to be able to take advantage of multiple cores.
+
+A new binary release of OCaml-Java has just been published,
+with an enhanced version of the "concurrent" library. The library
+features many different abstractions over concurrent computations:
+atomics, futures, fork/join, map/reduce, STM, etc. An introduction
+to the library can be found at the following address:
+<http://ocamljava.x9c.fr/preview/concurrency.html>
+while general information about the project, and download links
+can be reached at the following address:
+<http://ocamljava.x9c.fr/preview/>
+
+I am looking for testers of the OCaml-Java project at large, and
+of the concurrent library in particular. So, if you are interested in
+OCaml multicore programming, just give it a try and give feedback
+(either here, by private mail, or through the bugtracker available
+at <http://bugs.x9c.fr>). Thanks in advance.
+      
+========================================================================
+4) OCaml mechanize?
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-04/msg00194.html>
+------------------------------------------------------------------------
+** Paolo Donadeo asked and Stéphane Glondu replied:
+
+> Is there something available in OCaml along the line of Python
+> "mechanize <http://wwwsearch.sourceforge.net/mechanize/>"?
+
+There are bindings to Perl's WWW::Mechanize in perl4caml. Its website
+seems down, but it is packaged in Debian [1].
+
+[1]
+<http://anonscm.debian.org/gitweb/?p=pkg-ocaml-maint/packages/perl4caml.git>
+      
+========================================================================
+5) Request for feedback: A problem with injectivity and GADTs
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-04/msg00196.html>
+------------------------------------------------------------------------
+** Jacques Garrigue said, spawning a huge thread:
+
+Some of you may already be aware of PR#5985
+<http://caml.inria.fr/mantis/view.php?id=5985>
+
+To explain very shortly what is happening, a bug was found in the ocaml
+compiler, both 4.00 and the development version, such that one that
+convert a value from any type to any other type, bypassing all checks.
+This is what we call a soundness bug, a hole in the type system.
+
+Such problems happen at times, and we are usually very fast to fix them.
+However this time the problem is bit more subtle, because fixing it
+straightforwardly may make impossible to write a whole category of
+GADTs. Hence this request for feedback.
+
+Practical description of the problem:
+
+It is quite usual to write type witnesses using a GADT:
+
+type _ ty =
+  | Int : int ty
+  | Pair : 'a ty * 'b ty -> ('a * 'b) ty
+  | Hashtbl : 'a ty * 'b ty -> ('a, 'b) Hashtbl.t ty
+
+This looks fine, but now suppose that we write the following code:
+
+module F (X : sig type 'a t end) = struct
+   type _ ty =
+    | Int : int ty
+    | Pair : 'a ty * 'b ty -> ('a * 'b) ty
+    | T : 'a ty -> 'a X.t ty
+end
+
+The idea is to create a type witness with the
+type constructor X.t instead of Hashtbl.t.
+Now I can use it this way:
+
+module U = struct type 'a t = unit end
+module M = F(U)
+let w = M.T M.Int
+(* val w : int U.t M.ty *)
+let w' = match w with M.T x -> x | _ -> assert false
+(* val w' : '_a M.ty = M.Int *)
+
+What this means is that we can now give an arbitrary type
+to a witness for int. You can easily use it to build a function
+from int to any  type:
+
+let f : type a. a M.ty -> int -> a =
+  fun w x -> match w with M.Int -> x | _ -> assert false;;
+let g : int -> float = f w';;
+
+If we look at the source of the problem, it lies in the fact U.t is not injective.
+I.e. when we define a GADT, we assume that all the type variables in
+the return type can be determined from the type parameter.
+That is, from (int U.t M.ty) we assume that the type of the argument of T is (int M.ty).
+However, since U.t is not injective, int U.t is actually equal to any type 'a U.t,
+and we can convert.
+Note that, for known types, injectivity was already checked.
+I.e., the following definition is not accepted:
+
+type _ ty =
+  | Int : int ty
+  | Pair : 'a ty * 'b ty -> ('a * 'b) ty
+  | T : 'a ty -> 'a U.t ty
+
+However, abstract types were assumed to be injective.
+Here we see that you cannot take this for granted.
+
+The problem is of course not limited to type witnesses, and not even GADTs:
+types with constrained parameters (introduced at the very beginning of ocaml),
+can also trigger it.
+And you don't need a functor to trigger it: once you know that two types are equal
+in some scope, there are many ways to leak that information.
+
+=============================
+Here comes the request for feedback:
+
+The fix is simple enough: we should track injectivity, and assume that abstract
+types are not injective by default.
+However, this also means that the first type I defined above (using Hashtbl.t)
+will be refused.
+
+How many of you are using GADTs in this way, and how dependent are you on
+abstract types ?
+
+
+If we need to be able to define GADTs relying on the injectivity of some abstract
+types, a straightforward solution is to add injectivity annotations on type parameters,
+the same way it was done for variance:
+
+  type #'a t
+
+would mean that t is injective.
+This is implemented in branches/non-vanishing, in the subversion repository.
+	svn checkout <http://caml.inria.fr/svn/branches/non-vanishing>
+Note that in that branch Hashtbl.t in the standard library is marked as injective.
+This introduces some new syntax, and libraries have to be modified to benefit,
+so the question is do we really need it?
+
+
+Jacques Garrigue
+
+P.S.
+If you are curious about other difficulties of GADTs, the is also branches/abstract-new
+which introduces a notion of new types, either concrete or abstract, which are guaranteed
+to be distinct from each other, and any other concrete type. This is useful when
+checking the exhaustiveness of pattern-matching, as we can then discard impossible
+branches. That branch is completely experimental.
+      
+** Among many replies, Jacques Garrigue said:
+
+First, let me reiterate my request for feedback:
+
+What I want to know is whether anybody is using GADTs in a way that would be
+broken if we disallow type variables under abstract types (other than the
+predefined ones) in the return type of GADTs.  I.e., for instance defining a
+type witness type involving such abstract types.
+
+This is really the question I want you all to answer.
+
+If this is not the case, we can safely prohibit that at this point, and take
+our time to think about the solution.
+
+But if there are some users, we had better provide at least some mechanism,
+and injectivity annotations seem to be the less intrusive (they don't
+break any code, at least any existing code).
+We may need to make clear that they are experimental and might
+disappear, but at least we are not in a complete void.
+
+Now just my 2 centimes on alternative approaches
+
+Alain Frisch wrote:
+
+> Jacques Le Normand wrote:
+> > Fully injective types are the norm. It would have been nice to have a
+> > "non injectivity" or "phantom type" annotation. Since phantom types are
+> > seldom used, beginners won't get confused. It might even help beginners
+> > understand the concept of a phantom type.
+> 
+> I'd also prefer an annotation on "non injective" type parameters, rather than
+> on "injective" one.  The problem with this approach is that it requires existing
+> well-typed code to be rewritten, to add these annotations (while annotating
+> injectivity will only impact code using GADTs).  I still believe this is less
+> intrusive than requiring most parametrized abstract type to be annotated, or
+> else making GADTs less useful.
+
+This may be a good idea for 5.00, but honestly this is a big change.
+
+Moreover it is not so clear that this is the right choice for functors:
+when a functor takes an abstract type as argument, it usually doesn't care
+whether it is injective or not. And in practice there is a technique of adding
+a type parameter to abstract types just in case we want to pass a parameterized
+type, but usually using this functor for non-parameterized types.
+
+Another point is that I'm not sure how much "less useful" GADTs become when one
+forgets an injectivity annotation somewhere.
+
+> For the transition, we could have two compilation modes (decided on the
+> command-line) for this feature.  In "non-injective" (legacy) mode, every
+> parametrized abstract type would be assumed to be non-injective.  This would
+> allow to compile existing code bases (at least those not relying on GADTs).  In
+> "injective-by-default" mode, non-injective parameters would need to be marked as
+> such.  Enabling this mode will require a few annotations to be added to existing
+> code, but this will be very easy, so I guess we don't need to support
+> "injectivity" annotations the "non-injective" mode.
+
+Again, the defect of such a mode is that it is going to apply to everything,
+including functors.  A functor compiled in this mode might be not be applicable
+to some modules, whereas there was no reason from the beginning to require
+injectivity there.
+
+And just using variance to change the behavior is not going to work well:
+a standard practice is to explicitly define module types for the input and output of
+the functor. We want the output types to be injective, but we don't really need such
+requirement for the input types. But they are just module type definitions?
+(See hashtbl.mli for instance for this pattern.)
+      
+** Nathan Mishra Linger replied and Jacques Garrigue said:
+
+> Our codebase at Jane Street would not suffer from the proposed fix.
+> 
+> In fact, we have previously wished the type system tracked injectivity of type
+> constructors.  Because it didn't, we wrote Type_equal.Injective [^1] for cases
+> when we need to track injectivity ourselves.
+> 
+> [^1] <https://ocaml.janestreet.com/ocaml-core/latest/doc/core/Type_equal.Injective.html>
+
+Thank you for the pointer.
+
+One could say this actually shows the need for injectivity annotations
+(eventhough Core currently works around them).
+
+To be more precise, injectivity has several uses:
+
+1) To allow you to infer equations between types.
+   For instance, assuming the standard equality witness type:
+
+	type (_,_) equal = Eq : ('a,'a) equal
+
+   the following function typeckecks
+
+        let conv1 : type a b. (a array, b array) equal -> a -> b = fun Eq x -> x
+
+   because array is known to be injective, but  this one doesn't
+
+	let conv2 : type a b. (a Queue.t, b Queue.t) equal -> a -> b = fun Eq x -> x
+
+   because Queue.t is an abstract type whose injectivity is unknown.
+
+   This part was correctly handled since 4.00.0.
+
+2) To allow you to prove exhaustiveness of pattern matching, by ensuring
+   that other cases cannot happen. For instance,
+
+	type (_,_) comp =
+	  | Ceq : ('a,'a) comp
+	  | Cany : ('a,'b) comp
+
+	let f (x : (int array,bool array) comp) = match x with Cany -> ()
+       
+   causes no warning, because the type system can prove that Ceq since
+   int array and bool array cannot be equal in any scope. However
+
+	let f (x : (int Queue.t, bool Queue.t) comp) = match x with Cany -> 0
+
+   should emit a warning, because we cannot prove that int Queue.t and
+   bool Queue.t are distinct in the absence of injectivity information.
+   Note that this is not correctly handled in 4.00, and you will get no warning
+   in this situation. Worse, since the code is optimized accordingly (i.e. no
+   runtime check is introduced), if the type is really not injective, and you
+   pass Eq, you can use this as a hole in the type system.
+   This now works correctly in trunk (PR#5981).
+
+3) The problem I describe in my first mail. I.e. when defining a type,
+   if you use type variables appearing in constrained type parameters,
+   you need the type constructors leading to the type variables to be
+   injective. This is PR#5985, and it is only fixed in branches/non-vanishing.
+
+The goal of the Type_equal.Injective interface in Core  is to work around the
+limitation on abstract types in (1), by letting you prove injectivity by hand.
+But if we had injectivity annotations, this would solve simultaneously all 3
+problems: no need to build proofs by hand anymore.
+
+So I understand you answer as: Jane Street is not directly concerned by
+(3) at this point, and has already developed a workaround for (1).
+I suppose you could profit from injectivity annotations, since you had
+to develop a workaround, but this may not be that urgent.
+
+(2) is not so much a problem, since it only means that you may have to
+add extra cases to pattern-matching.
+      
+** Jacques Garrigue then said:
+
+I have now committed in trunk a fix to PR#5985.
+You can use it to test whether your codebase runs into problems.
+You can either obtain it from subversion directly
+svn checkout <http://caml.inria.fr/svn/ocaml/trunk>
+or use opam to do it for you.
+
+I checked that at least Core itself compiles without problems.
+
+Again, if you run into problems, you can try branches/non-vanishing,
+which allows you to annotate some abstract types are injective.
+      
+** The editor says:
+
+There was a huge discussion after this. Please follow the archive link above if
+you want to read more.
+      
+========================================================================
+6) Book reviewers wanted
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-04/msg00209.html>
+------------------------------------------------------------------------
+** John Whitington announced:
+
+I have prepared a book "OCaml from the Very Beginning" which will be published
+in the next few months.
+
+If you have been involved in teaching OCaml to people who have never programmed
+before in any language, either academically or more informally (or have a
+special interest in this situation), and feel you can spare a little time to
+review a draft, please drop me a note by email.
+
+(A paid technical review will also be done -- this adds to rather than replaces
+that.)
+
+If you've already seen an earlier draft, no need to write -- I'll also be
+sending this draft to the same people as last time.
+      
+========================================================================
+7) Thematic trimester "Semantics of proofs and certified mathematics", spring 2014, Paris
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-04/msg00219.html>
+------------------------------------------------------------------------
+** Pierre-Louis Curien announced:
+
+We are pleased to announce the following important event.
+
+A 3-months trimester
+
+"Semantics of proofs and certified mathematics"
+
+will take place at the Institut Henri Poincaré, Paris, France
+
+in the spring 2014 (from 22 April to 11 July, preceded by a preschool at
+CIRM, Marseille).
+
+Details are enclosed below.
+
+Pierre-Louis Curien, Hugo Herbelin, and Paul-André Melliès (organisers)
+
+
+**********************
+Dear colleague,
+
+It is our pleasure to announce a programme on "Semantics of proofs and
+certified mathematics" organised by the Centre Emile Borel of Henri Poincare
+Institute in Paris, from April 7th to July 11th, 2014.
+
+The organisers are Pierre-Louis Curien, Hugo Herbelin and Paul-Andre Mellies.
+
+Information on the programme can be found at : <http://www.ihp.fr/en> or at
+<http://ihp2014.pps.univ-paris-diderot.fr/>
+
+Registration for the programme is free and recommended on:
+<http://www.ihp.fr/en/program/10226/register>
+
+BE CAREFUL :
+
+Deadline to apply for financial support is September 16th, 2013
+
+During this trimester:
+
+- A summerschool at CIRM is organized from April 7th to April 18th, 2014:
+If you intend to participate in this event, it will be necessary to make a
+pre registration through this link:
+<http://www.ihp.fr/en/program/10225/conference/register>
+The number of participants to CIRM Summer School being limited, if necessary
+a selection among the applications will have to be made by the organisers.
+
+and
+
+- 5 workshops will take place:
+1) « Formalization of mathematics in proof assistants » - May 5th to 9th
+(except Thursday, 8th- bank holiday)
+2) « Constructive mathematics and models of type theory » - June 2th to 6th
+3) « Semantics of proofs and programs » June 10th to 14th (Tuesday through
+Saturday- Monday, 9th-bank holiday)
+4) « Abstraction and verification in semantics » June 23rd to 27th
+5) « Certification of high-level and low-level programs » July 7th to 11th
+
+If you intend to participate to one or several of these events please
+register first to the whole programme. Registrations for these workshops will
+be opened later on.
+
+I will at that time send you a message informing you about it.
+
+We are looking forward to welcoming you in Paris!
+The poster of the trimester programme may be retrieved from the site
+<http://ihp2014.pps.univ-paris-diderot.fr/>
+      
+========================================================================
+8) Other Caml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocaml.org/>.
+
+Cryptokit 1.7 released:
+  <https://forge.ocamlcore.org/forum/forum.php?forum_id=875>
+
+forge distribution upgrade 2013/04/24 - 04/27:
+  <https://forge.ocamlcore.org/forum/forum.php?forum_id=874>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

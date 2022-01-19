@@ -1,0 +1,282 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2011.10.18.html">Previous week</a> <a href="index.html">Up</a> <a href="2011.11.01.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of October 18 to 25, 2011.</p><ol><li><a href="#1">MP3 Tag Editing</a></li><li><a href="#2">How to write an efficient interpreter</a></li><li><a href="#3">Research Engineer at Monoidics, London, UK</a></li><li><a href="#4">Other Caml News</a></li></ol><a name="1" /><hr /><h3>MP3 Tag Editing</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2011-10/msg00101.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2011-10/msg00101.html</a></p><i>David Allsopp asked and Maxence Guesdon suggested:</i><br /><pre>
+&gt; I have a slightly strange piece of re-tagging to do to some MP3s and was
+&gt; having a quick look to see if there were any OCaml libraries/bindings for
+&gt; reading and writing ID3v1 and ID3v2 tags.
+&gt; 
+&gt; A cursory glance revealed MP3tags on the hump but its dependencies seem to
+&gt; be out of date and it wasn't clear that I'd be able to build it in a newer
+&gt; ocaml because of camlp4 problems...
+&gt; 
+&gt; Can anyone recommend a library?
+
+You can give a try to mp3tag:
+  <a href="http://www.nongnu.org/mp3tag/">http://www.nongnu.org/mp3tag/</a>
+I just commited a compilation fix to use lablgtk-extras library[1]. You
+must checkout the CVS trunk:
+  cvs -z3 -d:pserver:anonymous AT cvs.savannah.nongnu.org:/sources/mp3tag
+ co mp3tag
+      </pre><i>Romain Beauxis also suggested:</i><br /><pre>
+For not too particular id3 uses, ocaml-taglib is up-to date and functional:
+  <a href="http://savonet.sourceforge.net/modules/ocaml-taglib/Taglib.html">http://savonet.sourceforge.net/modules/ocaml-taglib/Taglib.html</a>
+      </pre><a name="2" /><hr /><h3>How to write an efficient interpreter</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2011-10/msg00107.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2011-10/msg00107.html</a></p><i>Diego Olivier Fernandez Pons asked:</i><br /><pre>
+I have to write an interpreter for a datatype rich purely applicative
+language. I have already written a naive interpreter (like in
+programming languages class) and was wondering what where the options
+for writing something that would perform better while keeping it
+maintainable by a single person &lt; 5% dedicated and preferably only in
+core-ML (no C code or fancy ML extensions).
+
+The language could be described as a rich datastructure typed SQL with
+a programming language syntax
+- first class sets, arrays, dictionaries, lists and their
+corresponding comprehensions
+- tuples and records merged into a single concept (accessible per
+position like in (x, y) = ... or per label like in for t in tupleSet
+if t.label == 3 then)
+- only applicative functions (no lambda operator, no partial
+application)
+- simple types are int, double and string
+- only user declared types are tuples-records
+
+It is mainly used for data transformation : take a list of countries,
+extract from an database the international airports of those
+countries, geolocalize them using city/location table, generate a
+distance table using a great-circle distance, assign to each size of
+plane the legs they can do based on their maximum fight range, etc.
+
+The language has a _javascript_ inline capability
+
+    execute _javascript_ { 
+        //write your _javascript_ code here 
+    }
+
+that's typically used to define functions, unroll comprehensions to
+make them more efficient and to call external libraries (_javascript_
+has full visibility on all the language objects and can read/write
+directly inside, probably the existing interpreter was written in
+_javascript_), so I am considering allowing those features in the core
+language and only supporting a very slow _javascript_ deprecated
+compatibility mode.
+      </pre><i>Gabriel Scherer suggested and Gerd Stolpmann added:</i><br /><pre>
+&gt; Even staying at the "interpreter" stage, you can probably improve your
+&gt; performance seriously by being careful about your implementation : use
+&gt; efficient data structure (what is your implementation of variable
+&gt; lookup?), avoid unnecessary allocation, use tail-recursive functions
+&gt; where possible, etc. Try to find a time-consuming script example that
+&gt; exercise the type of computations you'll usually perform, and profile
+&gt; your interpreter with gprof (compiled natively), try to optimize the
+&gt; parts that show high in the profile, rinse and repeat.
+&gt; 
+&gt; The natural next step is to use a bytecode instead of interpreting an
+&gt; AST directly. You can probably find something relatively simple and
+&gt; yet have a net efficiency gain over direct interpretation, because the
+&gt; bytecode structure is more linear and can be interpreted more
+&gt; efficiently; in a way, you compiled away the tree traversal. 
+
+Well, I wouldn't be too optimistic that this also works for an
+interpreter written in Ocaml. Bytecode profits a lot from cache
+locality, i.e. all bytecode instructions in a single cache line are
+loaded at once from RAM. Cache lines are short, though, usually only 64
+bytes. If the bytecode is an int array, this translates to 8 or 16 array
+elements (64/32 bit platforms). If you stick to the int array, you
+probably get the performance benefit, but you have to live with the
+integer representation, which will make other parts of the interpreter
+difficult (e.g. representation of values). If you use an instruction
+array, where "instruction" is a variant type with and without arguments,
+the performance benefit is probably completely lost, because you deviate
+too much from the linear memory representation.
+
+Also, anything in the direction of good bytecode is really complicated.
+What about this alternative: It is much simpler to "JIT"-compile to
+ocaml (i.e. dump your AST in a different syntax), compile the ocaml code
+by invoking ocamlc or ocamlopt, and to load the compiled code
+dynamically (I'm just guessing that you have a dynamic environment).
+There are only a few drawbacks of this approach, namely that you need
+ocamlc or ocamlopt at runtime (plus "helper files", i.e. the cmi's of
+the standard library), and that you cannot delete code from RAM once it
+is loaded. The latter is usually not too problematic if there is a
+possibility to restart the system now and then.
+
+Gerd
+
+&gt; At this
+&gt; level, you become quite sensible to micro-optimisation : bytecode
+&gt; interpreters written in C have access to efficiency tricks (direct
+&gt; threaded code and the like, or even pinning registers directly) that
+&gt; are difficult or impossible to emulate in OCaml, even if you can get
+&gt; something reasonable with mutually tail-recursive functions. As a
+&gt; single point of measure, I spent a few hours hacking an OCaml bytecode
+&gt; interpreter for a very small subset of Caml recently, and got within
+&gt; 5x-10x slower than the OCaml bytecode interpreter itself for favorable
+&gt; cases. It's not very good, or not very bad, depending on what you
+&gt; expect (but definitely slower than the ocaml native compiler, or even
+&gt; the various JIT projects).
+&gt; 
+&gt; Of course, if possible, you could also target an existing bytecode or
+&gt; intermediate representation, or even compile to an existing language
+&gt; with a rich enough runtime. If you're familiar, for example, with
+&gt; either JVM or LLVM, those are the popular choices these days. I don't
+&gt; know how that would mix with inline Javascript, though (I suppose both
+&gt; environments have a javascript interpreter). You could also compile to
+&gt; OCaml code or Javascript directly, and reuse their implementation, GC,
+&gt; etc. With the current Javascript engines, you can get very good
+&gt; performances if you compile in a way that resemble the ugly Javascript
+&gt; code they're trying to optimize. For example, js_of_ocaml compiles
+&gt; OCaml bytecode into Javascript and the result performs better than
+&gt; using OCaml bytecode interpreter (written in C and well designed for
+&gt; efficiency) directly. That's already quite a lot more work, however,
+&gt; than a good interpreter or a simple home-made bytecode.
+      </pre><i>Xavier Leroy then added:</i><br /><pre>
+Gabriel and Gerd gave very good advice already, but here are my two
+cents:
+
+- Beware of premature optimizations.  It could very well be that your
+  naive interpreter is already fast enough for your applications.
+  Test and profile to find hot spots.
+
+- Pay special attention to your data structures, e.g. environments should
+  be maps, not A-lists.  A good trick is to hash-cons identifiers
+  into unique integers: not only comparisons are much faster,
+  but you can use Patricia trees for your environments.
+
+- Compiling to bytecode is probably overkill.
+      </pre><i>Diego Olivier Fernandez Pons then said and Jérémie Dimino replied:</i><br /><pre>
+&gt; I was rather thinking of translating on-the-fly into Caml code and letting
+&gt; Caml do the job. Is that technically possible (rewriting a toplevel ? a
+&gt; CamlP4 grammar ?). If so guess I would have to license the Caml compiler
+&gt; from the INRIA.
+
+You can link with the toplevellib and use the Toploop module which
+provides functions for executing an OCaml AST. To create the AST you can
+for example write a parser for your language with Camlp4 and translate
+it using the Camlp4_import module. Note that you still need to have
+standard library cmi's at runtime. Also you can only compile your
+interpreter in bytecode.
+      </pre><i>Gerd Stolpmann also replied:</i><br /><pre>
+I don't think you need that, because you can load compiled OCaml code
+dynamically (look into the Dynlink library). This works with both
+bytecode and native code (in recent OCaml versions). This way you just
+invoke the compiler via the normal ocamlc or ocamlopt executable, and
+you don't need to change the compiler (for which you would need the
+license).
+
+If you prefer to include the OCaml compiler directly into your
+"interpreter", you probably get only a very small speedup when "loading"
+code (the overhead of spawning a new process is small). This is IMO only
+worth it if you load code very frequently.
+      </pre><a name="3" /><hr /><h3>Research Engineer at Monoidics, London, UK</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2011-10/msg00110.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2011-10/msg00110.html</a></p><i>Cristiano Calcagno announced:</i><br /><pre>
+Monoidics Ltd (www.monoidics.com), a high-tech SME specialising in
+automatic formal verification and producer of the INFER static analyzer is
+looking for
+
+a Research Engineer (3 years) 
+
+to work on the EU Strep project CARP (Correct and Efficient Accelerator
+Programming), funded by the European Union.
+Other partners in the project are Imperial College, UK; Realeyes, Estonia; 
+ARM,
+UK; RTWH Aachen, Germany; University of Twente, The Netherland; ENS, France 
+and
+Rightware, Finland.
+
+Within the context of the CARP project, the research engineer will
+work on the development of tools and techniques for logic-based
+verification/static analysis for accelerator programming.
+
+
+Qualifications and Skills required:
+
+- PhD degree in Computer Science (or an equivalent qualification). 
+- strong programming skills (in particular OCaml, but also C/C++/Java/system
+programming/embedded)
+- good background knowledge of static analysis, verification,
+ concurrency, logic, compilers and formal methods.
+
+
+Starting date: December 1st, 2011, or as soon as possible thereafter.
+
+Location: London, UK
+
+Salary: Competitive
+
+
+For further information contact:
+Dr. Dino Distefano 
+(dino.distefano AT monoidics.com)
+
+
+===============================================================
+
+About Monoidics:
+
+Monoidics is a high-tech SME specialising in automatic formal
+verification and analysis of software.  Founded in the beginning of
+2009 by a group of computer scientists from London and Cambridge, Monoidics
+designs automatic verification technology for safety critical
+industrial software.  Monoidics' mission is to bring verification and
+program analysis research to the forefront of industrial practice.
+Based in London, Monoidics operates world-wide and has strong links
+with key industrial players in safety critical systems in Europe, USA,
+and Japan.
+
+
+===============================================================
+
+About the CARP project: 
+
+In recent years, massively parallel accelerator processors, primarily
+GPUs, have become widely available to end-users. Accelerators offer
+tremendous compute power at a low cost, and tasks such as media
+processing, simulation, medical imaging and eye-tracking can be
+accelerated to beat CPU performance by orders of
+magnitude. Performance is gained in energy efficiency and execution
+speed, allowing intensive media processing software to run in
+low-power consumer devices.
+
+Accelerators present a serious challenge for software developers. A
+system may contain one or more of the plethora of accelerators on the
+market, with many more products anticipated in the immediate
+future. Applications must exhibit portable correctness, operating
+correctly on any configuration of accelerators, and portable
+performance, exploiting processing power and energy efficiency offered
+by a wide range of devices.
+
+The overall aims of CARP are to design techniques and tools for
+correct and efficient accelerator programming:
+
+- Novel &amp; attractive methods for constructing system-independent accelerator
+programs 
+- Advanced code generation techniques to produce highly optimised
+ system-specific code from system-independent programs
+- Scalable static techniques for analysing system-independent and
+ system-specific accelerator programs, both qualitatively and
+ quantitatively.
+      </pre><a name="4" /><hr /><h3>Other Caml News</h3><i>From the ocamlcore planet blog:</i><br /><pre>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <a href="http://planet.ocamlcore.org/">http://planet.ocamlcore.org/</a>.
+
+"OCaml for the Masses", a paper by Yaron Minsky, published in ACM Queue:
+  <a href="http://queue.acm.org/detail.cfm?id=2038036">http://queue.acm.org/detail.cfm?id=2038036</a>
+
+OCamlCore.org future:
+  <a href="https://forge.ocamlcore.org/forum/forum.php?forum_id=811">https://forge.ocamlcore.org/forum/forum.php?forum_id=811</a>
+
+JavaScript, this static language (part 1):
+  <a href="http://dutherenverseauborddelatable.wordpress.com/2011/10/20/javascript-this-static-language-part-1/">http://dutherenverseauborddelatable.wordpress.com/2011/10/20/javascript-this-static-language-part-1/</a>
+
+PlasmaFS:
+  <a href="http://blog.camlcity.org/blog/plasma4.html">http://blog.camlcity.org/blog/plasma4.html</a>
+      </pre><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

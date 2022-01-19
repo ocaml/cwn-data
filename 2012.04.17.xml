@@ -1,0 +1,433 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2012.04.17</cwn_date>
+    <cwn_prev>2012.04.10</cwn_prev>
+    <cwn_next>2012.04.24</cwn_next>
+    <cwn_date_text>April 10 to 17, 2012</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+		<cwn_entry>
+      <cwn_title>ocamlopen 1.0.2</cwn_title>
+      <cwn_url>https://sympa-roc.inria.fr/wws/arc/caml-list/2012-04/msg00076.html</cwn_url>
+      <cwn_who>Leo P White announced</cwn_who>
+      <cwn_what>
+If anyone is interested, I have written a new version of my patch to add open
+extensible types to OCaml. It is available at:
+
+https://sites.google.com/site/ocamlopen/
+
+The only new feature is allowing variant declarations to be made
+extensible. This allows declarations like:
+
+open type foo = A | B of int | ..
+
+Having implemented it, I think that the extension might well be better off
+without this feature, so I am also releasing another version of the patch
+without it.
+
+I have also written a much better example of how open types and GADTs might be
+used. It basically shows how classes can be created that permit a kind of
+nominative down-casting. I have included it below.
+
+Finally, I have also added a feature request to Mantis if anyone would like to
+comment.
+
+http://caml.inria.fr/mantis/view.php?id=5584
+
+Regards,
+
+Leo
+
+--------------------------------
+
+open type 'a class_name
+
+exception Bad_cast
+
+class type castable =
+object
+ method cast: 'a.'a class_name -&gt; 'a
+end
+
+(* Lets create a castable class with a name*)
+
+class type foo_t =
+object
+ inherit castable
+ method foo: string
+end
+
+extend 'a class_name with Foo: foo_t class_name
+
+class foo: foo_t =
+object(self)
+ method cast: type a. a class_name -&gt; a =
+   function
+      Foo -&gt; (self : #foo_t :&gt; foo_t)
+     | _ -&gt; ((raise Bad_cast) : a)
+ method foo = "foo"
+end
+
+(* Now we can create a subclass of foo *)
+
+class type bar_t =
+object
+ inherit foo
+ method bar: string
+end
+
+extend 'a class_name with Bar: bar_t class_name
+
+class bar: bar_t =
+object(self)
+ inherit foo as super
+ method cast: type a. a class_name -&gt; a =
+   function
+       Bar -&gt; (self : #bar_t :&gt; bar_t)
+     | other -&gt; super#cast other
+ method bar = "bar"
+end
+
+(* Now lets create a mutable list of castable objects *)
+
+let clist :castable list ref = ref []
+
+let push_castable (c: #castable) =
+ clist := (c :&gt; castable) :: !clist
+
+let pop_castable () =
+ match !clist with
+     c :: rest -&gt;
+       clist := rest;
+       c
+   | [] -&gt; raise Not_found;;
+
+(* We can add foos and bars to this list, and retrive them *)
+
+push_castable (new foo);;
+push_castable (new bar);;
+push_castable (new foo);;
+
+let c1: castable = pop_castable ()
+let c2: castable = pop_castable ()
+let c3: castable = pop_castable ()
+
+(* We can also downcast these values to foos and bars *)
+
+let f1: foo = c1#cast Foo
+let f2: foo = c2#cast Foo
+let f3: foo = c3#cast Foo
+
+let b2: bar = c2#cast Bar
+      </cwn_what>
+			<cwn_who>Gabriel Scherer asked and Leo P White replied</cwn_who>
+			<cwn_what>
+&gt; 1. You link to a paper by Andres Löh and Ralf Hinze, how close are you
+&gt; of their proposal?
+&gt; They mention open datatypes and functions, you propose open datatypes,
+&gt; but not open functions? That would be understandable because open
+&gt; pattern matching is a bit fishy (best-fit matching etc...).
+
+I think that my open datatypes are basically the same as they propose, which
+is pretty much the same as the behaviour of exn in OCaml.
+
+&gt; 2. What is the difference between your "open" and "extensible"
+&gt; datatypes? The visual difference is the present of initial
+&gt; constructors in extensible cases, but you apparently make much finer
+&gt; distinctions.
+
+This complication arises from the existence "extensible variant declarations",
+and is one of the reasons that I think the extension is probably better
+without them.
+
+Basically, by an "extensible" type I mean one for which not all the
+constructors are given in the type declaration. Obviously all abstract types
+in a signature are extensible, because they may be implemented using a variant
+type. My extension allows variant type declarations to also be made extensible
+using the syntax:
+
+type Foo = A | B of int | ..
+
+Note that this extensibility cannot be hidden by a signature, the compiler
+needs to know if a variant is extensible in order to properly implement
+pattern matching.
+
+By an "open" type I mean one that is allowed to be extended using an extension
+definition. Only extensible types can be declared open, becuase an extension
+definition adds constructors to a type that are not mentioned in its
+declaration. Unlike extensibility, the openness of a type can be hidden using
+a signature.
+
+&gt; 3. What is the semantics of making a *constructor* private? My
+&gt; intuition of private types is that (type t = private u) generates a
+&gt; new type t that is a strict subtype of u (values of type t can be
+&gt; coerced into u, but not the other way around). This intuition does not
+&gt; hold anymore if some constructors are marked private, but not the
+&gt; other.
+
+As Alain said, making a constructor private allows it to be used for pattern
+matching but not to create a value. This is an alternative intuition for how
+private variant types already work.  I think that allowing private extensions
+could definitly be useful. Borrowing Alain's example of a messsage bus, if a
+message producer used a private message constructor then it could enusre that
+it was the only component producing messages with that constructor.
+
+Note that the extension does not allow private abstract types to be declared
+open, because this would break the standard intuition for them.
+
+However, it does allow private variant declarations to be made open and treats
+this as meaning that each of its ordinary constructors is private, but that
+public extensions *can* still be created and used in positive positions. I
+think that this is a bit of a muddle, and possibly another reason that
+extensible variant declarations should be left out.
+
+&gt; 4. When would you say that one should use polymorphic variants rather
+&gt; than your open datatypes? (I know how to argue in the other direction:
+&gt; unique constructors make for better error messages.)
+
+A good reason for using polymorphic variants is to create multiple types that
+share constructors. For instance a compiler might want one type to represent
+expressions and another to represent constant expressions. Using polymorphic
+variants constant expression values could be used directly as expressions
+values. This wouldn't be possible using open datatypes.
+
+Note that there are other reasons to use open datatypes over polymorphic
+variants: they can be used properly with references, they can be controlled
+using modules and they can be GADTs.
+
+&gt; 5. What are the implications of your patch at the runtime / data
+&gt; representation level? Could you elaborate a bit more on "a new tag to
+&gt; represent extensions"? Have you conducted performance measurements?
+
+Just like exceptions, they are represented as constructors whose first field
+points to an address that is allocated by the extension definition to
+represent that extension. They have a special tag value so that structural
+equality knows to compare the first fields by address. Note that this is
+exactly what is required to fix the bug with structural equality on exceptions
+(4765).
+
+I haven't conducted any performance measurements, but using extensions should
+be similar in cost to using exceptions. The ordinary variants in an extensible
+variant declaration should perform similarly to any other ordinary variants.
+
+Thanks for the interest.
+			</cwn_what>
+			<cwn_who>Alain Frisch then remarked and Leo P White replied</cwn_who>
+			<cwn_what>
+&gt; Do we really need a new special tag? Why not use Object_tag and represent
+&gt; slots as blocks of size 2 (constructor name + unique integer as the second
+&gt; field)? This would have the following consequences (which are the expected
+&gt; ones):
+&gt;  
+&gt; - The generic equality function compares the unique ids.
+&gt; 
+&gt; - The generic hash function returns the unique id.
+&gt; 
+&gt; - The generic unmarshaling function allocates a fresh id when umarshaling such a block. 
+
+I hadn't really considered that option, but it seems like that would probably
+work. It would mean a slightly slower structural comparison, but on the other
+hand it would produce better hashes and might allow slightly quicker pattern
+matching in some specific cases.
+			</cwn_what>
+			<cwn_who>Alain Frisch also answered Gabriel Scherer's questions</cwn_who>
+			<cwn_what>
+&gt; 3. What is the semantics of making a *constructor* private?
+
+I guess the idea is to allow pattern matching on that constructor, but not
+using it in positive position (to construct a value).
+
+&gt; 4. When would you say that one should use polymorphic variants rather
+&gt; than your open datatypes? (I know how to argue in the other direction:
+&gt; unique constructors make for better error messages.)
+
+I've wanted such open datatypes several times. One example is a message bus
+across an application: some components can yield messages to be dispatched to
+all registered components. Messages can hold data, and the set of possible
+messages (with the type of their associated data) is extensible (say, because
+components can be loaded dynamically, or just to make the application's
+architecture more modular). It makes sense to use an extensible datatype to
+represent messages. Components can react to messages with pattern-matching and
+two components can interact if their share a common constructor
+definition. This is simpler than encoding open datatypes with a "universal"
+type (with injections/projections). Of course, one can use the existing "exn"
+type, but then we don't distinguish between exceptions and messages at all.
+			</cwn_what>
+    </cwn_entry>
+		<cwn_entry>
+      <cwn_title>post-doc position available at MSR-INRIA joint lab</cwn_title>
+      <cwn_url>https://sympa-roc.inria.fr/wws/arc/caml-list/2012-04/msg00106.html</cwn_url>
+      <cwn_who>Damien Doligez announced</cwn_who>
+      <cwn_what>
+[ Note: deadline extended to May 15 -- Damien ]
+
+Research team: Tools for Proofs, MSR-INRIA Joint Centre
+=======================================================
+
+The Microsoft Research-INRIA Joint Centre is offering a 2-year
+position for a post-doctoral researcher to contribute to a proof development
+environment for TLA+ developed in the Tools for Proofs project (see
+&lt;http://www.msr-inria.inria.fr&gt;).
+
+Research Context
+================
+
+TLA+ is a language for specifying and reasoning about systems,
+including concurrent and distributed systems.  It is based on
+first-order logic, set theory, temporal logic, and a module system.
+TLA+ and its tools have been used in industry for over a decade.  More
+recently, we have extended TLA+ to include hierarchically structured
+formal proofs that are independent of any proof checker.  We have
+released several versions of the TLAPS proof checker
+(&lt;http://msr-inria.inria.fr/~doligez/tlaps/&gt;) and integrated it into the
+TLA+ Toolbox, an IDE for the TLA+ tools
+(&lt;http://research.microsoft.com/en-us/um/people/lamport/tla/toolbox.html&gt;).
+
+TLAPS and the Toolbox support the top-down development of proofs and
+the checking of individual proof steps independently of the rest of
+the proof.  This helps users focus on the part of the proof they are
+working on.  Although still lacking important features, TLAPS is
+already a powerful tool and has been used for a few verification
+projects, including a proof of the safety properties of a Byzantine-fault
+tolerant consensus algorithm
+(&lt;http://research.microsoft.com/en-us/um/people/lamport/tla/byzpaxos.html&gt;).
+
+TLAPS consists of the Proof Manager (PM, an interpreter for the
+proof language that computes the proof obligations corresponding to
+each proof step) and an extensible list of backend provers. Current backends
+include the tableau prover Zenon, an encoding of TLA+ as an object logic
+in the Isabelle proof assistant, and a generic backend for SMT solvers.
+When possible, we expect backend provers to produce a detailed proof that
+is then checked by Isabelle.  In this way, we can obtain high assurance
+of correctness as well as satisfactory automation.
+
+The current version of the PM handles only the "action" part of TLA+:
+first-order formulas with primed and unprimed variables, where a
+variable v is considered to be unrelated to its primed version v'.
+This allows us to translate non-temporal proof obligations to standard
+first-order logic, without the overhead associated with an encoding of
+temporal logic into first-order logic.
+
+Description of the activity of the post-doc
+===========================================
+
+You will work with other members of the project, including Leslie
+Lamport, Damien Doligez, and Stephan Merz, on the extension of the
+TLA+ proof language to temporal operators.  This extension poses
+interesting conceptual and practical problems.  In particular, the new
+translation must smoothly extend the existing one since temporal proof
+steps rely on action-level subproofs.  You will have the primary
+responsibility for designing and implementing algorithms to generate
+corresponding proof obligations.
+
+As time permits and depending on your interests, you will have the
+opportunity to contribute to further improving the proof checker.
+This may include:
+- adding support for certain TLA+ features that are not yet handled by
+  the PM, such as recursive operator definitions and elaborate patterns
+  for variable bindings;
+- finding what improvements are needed by verifying real examples, perhaps
+  including liveness of the aforementioned consensus algorithm;
+- integrating new backends to improve the automation of proofs;
+- adding validation of proofs by backends whose proofs are not
+  now checked.
+
+Skills and profile of the candidate
+===================================
+
+You should have a solid knowledge of logic and set theory as well as
+good implementation skills related to symbolic theorem proving.  Of
+particular relevance are parsing and compilation techniques.  Our
+tools are mainly implemented in OCaml.  Experience with temporal and
+modal logics, Isabelle, Java or Eclipse would be a plus.
+
+Given the geographical distribution of the members of the team,
+we highly value a good balance between the ability to work in a team
+and the capacity to propose initiatives.
+
+Location
+========
+
+The Microsoft Research-INRIA Joint Centre is located on the Campus of
+INRIA Saclay south of Paris, near the Le Guichet RER station.
+
+Starting date
+=============
+
+The normal starting date of the contract would be September 2012,
+but we can arrange for an extremely well-qualified candidate to
+start sooner.
+
+Contact
+=======
+
+Candidates should send a resume and the name and e-mail addresses of
+one or two references to Damien Doligez 
+&lt;damien.doligez AT inria.fr&gt;.
+The deadline for application is May 15, 2012.
+
+This announcement is available at
+&lt; http://www.msr-inria.inria.fr/Members/doligez/post-doc-position-2012/view ;&gt;
+      </cwn_what>
+    </cwn_entry>
+		<cwn_entry>
+      <cwn_title>PG'OCaml 1.5</cwn_title>
+      <cwn_url>https://sympa-roc.inria.fr/wws/arc/caml-list/2012-04/msg00107.html</cwn_url>
+      <cwn_who>Dario Teixeira announced</cwn_who>
+      <cwn_what>
+PG'OCaml is a library offering type-safe access to PostgreSQL databases for
+OCaml programmes.  Today I have the pleasure of announcing release 1.5.  It's
+been a while since our last release, and 1.5 features a fair amount of
+improvements and new functionality over 1.4.  If, in particular, you've
+upgraded to PostgreSQL 9.x, you'll want to upgrade PG'OCaml as well. Here's
+the changelog for this new release:
+
+
+* Dario Teixeira's patch adding support for more array types, namely
+  bool[], int8[], text[], float4[], and float8[].
+* Michael Ekstrand's patch to make PG'Ocaml work with batteries,
+  if so requested (it still uses ExtLib by default).
+* Dario Teixeira's patch adding support for Hstore.
+* David Allsopp's patch fixing connection on Windows.
+* David Allsopp's patch for better reporting of nullable results.
+* Dario Teixeira's patch adding support for the 'hex' serialisation
+  format introduced with PostgreSQL 9.0.
+* Matías Giovannini's patch adding support for cursors.
+* Dario Teixeira's patch adding support for the various transaction
+  options in function 'begin_work'.
+
+Please visit the project's page for more information:
+
+http://pgocaml.forge.ocamlcore.org/
+
+A big thank you goes out to all users and developers who've contributed to 
+this release!
+      </cwn_what>
+    </cwn_entry>
+		<cwn_entry>
+      <cwn_title>New release of Interval Computation Library</cwn_title>
+      <cwn_url>https://sympa-roc.inria.fr/wws/arc/caml-list/2012-04/msg00111.html</cwn_url>
+      <cwn_who>Jean-Marc Alliot announced</cwn_who>
+      <cwn_what>
+A new release (1.2) of the interval computation library is available:
+http://www.alliot.fr/fbbdet.html.fr
+This release fixes some problems on Mac OS X and windows systems, and a
+possible bug on 32 bits systems for the ffloat function.
+
+Thanks to all those who helped in finding and fixing bugs.
+      </cwn_what>
+    </cwn_entry>
+	  <cwn_entry>
+      <cwn_title>Other Caml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocamlcore.org/&gt;.
+
+Ocsfml:
+  &lt;https://forge.ocamlcore.org/projects/ocsfml/&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

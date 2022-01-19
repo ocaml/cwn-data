@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+<cwn_head>
+  <cwn_date>2006.02.07</cwn_date>
+  <cwn_prev>2006.01.31</cwn_prev>
+  <cwn_next>2006.02.14</cwn_next>
+  <cwn_date_text>31 January to 07 February, 2006</cwn_date_text>
+</cwn_head>
+<cwn_body>
+  <cwn_entry>
+    <cwn_title>Type-safe interface to Postgres's SQL</cwn_title>
+	<cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/32091</cwn_url>
+    <cwn_who>Richard Jones announced</cwn_who>
+    <cwn_what>
+Last year I wrote about my idea for a type safe interface to
+PostgreSQL here:
+
+http://caml.inria.fr/pub/ml-archives/caml-list/2005/07/857083d0d55ca642e4452ab82abd02cc.en.html
+(See also Alex Baretta&apos;s criticism in the same thread).
+
+Well, I actually implemented this after a lot of pain:
+
+http://merjis.com/tmp/pgocaml-0.1.tar.gz
+
+A typical type-safe program is attached to the end of this message.
+
+There are a number of unanticipated problems with the implementation:
+
+(1) Error reporting is a bit confusing.  Actually I think this is an
+issue for any non-trivial camlp4 extension to the language.  You get a
+message which doesn&apos;t relate to code which you actually wrote, but
+instead to the code expanded from the macro.
+
+(2) PostgreSQL doesn&apos;t track NULL types properly so we have to do a
+bit of non-trivial guesswork to try to find out if a database field
+could contain a NULL or not (and therefore whether to map its type to
+&apos;a or &apos;a option).  For parameters this isn&apos;t possible at all, so all
+parameter variables must have an option type.  For result fields, it
+is usually possible to tell if the result corresponds to a known
+column in the database, which is the case in ninety percent of
+queries.
+
+(3) You need to have access to the real database at compile time, as
+discussed in my original message.  This is because we prepare the
+statements on the database engine and then ask the database engine to
+tell us the types of the parameters / results, and use this to
+generate code which makes the magic of type inference work on the
+OCaml side.  Of course we don&apos;t _execute_ the statements at compile
+time - which would have horrible side-effects.  Except that in some
+cases we need to execute the statement at compile time.  The
+particular case is when the statement is &quot;CREATE TEMPORARY TABLE&quot;,
+because subsequent code needs to actually have the temporary table
+there in order to check later statements which access this table.  So
+I&apos;ve added a special case to cope with &quot;CREATE TEMPORARY TABLE&quot;, which
+might be regarded as something of a hack.  You would probably never
+need to use this hack in Real Code, but the nature of test scripts
+like the one attached is that they do create temporary tables.
+
+BTW, I don&apos;t think any of this is necessarily &quot;better&quot; or &quot;worse&quot; than
+the existing PG interfaces out there -- just different.
+
+Rich.
+
+----------------------------------------------------------------------
+(* Example program using typesafe calls to PostgreSQL.
+ * $Id: test.ml,v 1.3 2006/01/31 13:22:36 rich Exp $
+ *)
+
+open Printf
+
+let () =
+  let dbh = PGOCaml.connect () in
+
+  PGSQL_EXECUTE_ON_COMPILE(dbh) &quot;create temporary table employees (
+     id serial not null primary key,
+     name text not null,
+     salary int4 not null,
+     email text
+  )&quot;;
+
+  let insert name salary =
+    PGSQL(dbh) &quot;insert into employees (name, salary)
+                values ($name, $salary)&quot;
+  in
+  insert (Some &quot;Ann&quot;) (Some 10_000_l);
+  insert (Some &quot;Bob&quot;) (Some 45_000_l);
+  insert (Some &quot;Jim&quot;) (Some 20_000_l);
+  insert (Some &quot;Mary&quot;) (Some 30_000_l);
+
+  let rows = PGSQL(dbh) &quot;select id, name, salary, email from employees&quot; in
+  List.iter (
+    fun (id, name, salary, email) -&gt;
+      let email = match email with Some email -&gt; email | None -&gt; &quot;-&quot; in
+      printf &quot;%ld %S %ld %S\n&quot; id name salary email
+  ) rows;
+
+  PGOCaml.close dbh
+		</cwn_what>
+		<cwn_who>Chris Quinn said and Brian Rogoff answered</cwn_who>
+		<cwn_what>
+&gt; A few years ago I implemented a type safe interface to db2 (odbc
+&gt; compliant).
+&gt; My approach was to extend the caml compiler with a Type.typeof : &apos;a -&gt;
+&gt; typeinfo function
+&gt; which marshalled the internal type info into a string.
+&gt; This is then used at runtime to compare with the database&apos;s notion of
+&gt; what a query produces
+&gt; (the check is performed only once during the execution life of the
+&gt; program, thereby minimising cost)
+&gt; So any mismatch with the db schema is caught (as long as that bit of the
+&gt; code is actually run!)
+
+Sounds like GCaml (http://www.y1.is.s.u-tokyo.ac.jp/~furuse/gcaml) would have
+allowed you to express this directly. The better typed marshalling has been
+on my wishlist for a while
+		</cwn_what>
+	</cwn_entry>
+	<cwn_entry>
+		<cwn_title>OCaml &amp; .NET</cwn_title>
+		<cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/32112</cwn_url>
+		<cwn_who>William W Smith asked</cwn_who>
+		<cwn_what>
+Has anyone tried porting OCaml to managed code as a
+Microsoft .NET family language?  
+
+A related question is whether there any library sets
+to access the windows API or MFC directly?
+		</cwn_what>
+		<cwn_who>John Skaller answered</cwn_who>
+		<cwn_what>
+Microsoft Research has, its called F#.
+
+http://research.microsoft.com/projects/ilx/fsharp.aspx
+		</cwn_what>
+		<cwn_who>Brian Hurt gave another link</cwn_who>
+		<cwn_what>
+Take a look at F#:
+http://blogs.msdn.com/dsyme/
+
+It&apos;s not precisely Ocaml.NET, but it&apos;s pretty dang close.
+		</cwn_what>
+		<cwn_who>Jean-Marc Eber suggested</cwn_who>
+		<cwn_what>
+You should also have a look at
+
+http://www.pps.jussieu.fr/~montela/ocamil/
+
+even if I don&apos;t know precisely the current state of this project.
+		</cwn_what>
+		<cwn_who>Harry Chomsky answered the second question</cwn_who>
+		<cwn_what>
+&gt; A related question is whether there any library sets
+&gt; to access the windows API or MFC directly?
+
+A couple of years ago I took a stab at wrapping large parts of the Win32 API 
+into an OCaml library.  You can download the library here:
+
+http://www.speakeasy.org/~hchomsky/ocaml-win32.html
+		</cwn_what>
+	</cwn_entry>
+	<cwn_entry>
+		<cwn_title>async networking</cwn_title>
+		<cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/32123</cwn_url>
+		<cwn_who>Rick Richardson asked and Gerd Stolpmann answered</cwn_who>
+		<cwn_what>
+&gt; I found a post on the list from about 4 years ago where a gentleman
+&gt; expressed interest in developing an async net library in/for ocaml
+&gt; modelled after medusa. 
+&gt; 
+&gt; I have the exact same aspirations, actually, I&apos;d rather just *use* a
+&gt; quality async library than build one. Can anyone suggest such a library?
+
+Maybe you interested in my equeue library for multiplexing I/O. There is
+now a lot of code using equeue (HTTP client, FTP client, RPC
+implementation), so I think it is very stable.
+
+http://www.ocaml-programming.de/programming/equeue.html
+		</cwn_what>
+		<cwn_who>Bardur Arantsson suggested</cwn_who>
+		<cwn_what>
+If you want ease of use and all-round stability I can also recommend
+Gerd&apos;s Equeue. However, if you want very high-performance networking
+you&apos;d be better off with something closer to the metal, i.e. something
+like a libevent wrapper combined with a memory-mapped ring buffer to
+avoid unnecessary copying and minimize the costs associated with string
+allocation and GC. I have developed a highly efficient ring buffer 
+library (ocaml-rbuffer) which can be downloaded at
+
+    http://www.imada.sdu.dk/~bardur/personal/45-programs/index.html
+		</cwn_what>
+		<cwn_who>John Skaller answered</cwn_who>
+		<cwn_what>
+&gt; However, if you want very high-performance networking
+&gt; you&apos;d be better off with something closer to the metal, i.e. something
+&gt; like a libevent wrapper 
+
+Argg no. Libevent isn&apos;t a library, it doesn&apos;t control invert.
+It is a monolithic framework. Therefore it is not very useful because
+your code will no longer be composable. In particular,
+there is no way to compose two such frameworks, for example
+you cannot use it with an event driven GUI framework.
+
+To quote the manpage:
+
+&quot;In order to process events, an application needs to call
+event_dispatch(). This function only returns on error, and should
+replace the event core of the application program.&quot;
+
+Just try telling a GUI that *also* demands you use ITS 
+event loop that!
+
+The only proper way to use libevent would be to spawn the
+dispatch loop inside a pthread, and use the hook functions
+to communicate with your program via channels. It isn&apos;t
+immediately clear this would work (libevent&apos;s single page
+of documentation doesn&apos;t explain if it works when spawned
+inside a pthread).
+		</cwn_what>
+		<cwn_who>Pierre Etchemaïté suggested</cwn_who>
+		<cwn_what>
+I came across a wrapper for the libevent library...
+(No personnal experience with it, sorry)
+
+	http://www.xs4all.nl/~mmzeeman/ocaml/
+		</cwn_what>
+	</cwn_entry>
+</cwn_body>
+</cwn>

@@ -1,0 +1,282 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of April 27 to May 04, 2010.
+
+
+
+1) overbld (ocaml+libraries under mingw) - binary release
+2) Subtyping structurally-equivalent records, or something like it?
+3) OCaml / F# co-development
+4) Other Caml News
+
+========================================================================
+1) overbld (ocaml+libraries under mingw) - binary release
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/3e432f00597c15b8#>
+------------------------------------------------------------------------
+** Dmitry Grebeniuk and Roman Sokolov announced:
+
+I've finally resolved the 'license' question that was worrying me
+for a long time because of my stupidity, and now we are ready to
+present windows binary installer of OCaml/MinGW + libraries.
+
+Moreover, there are _two_ installers. They share in common the following features:
+- OCaml+libraries for win32 mingw
+- Fresh versions of OCaml, fresh versions of libraries.  New libraries
+are added too, if they are cool _and_ portable, _or_ if you want to
+share the library or the way to compile it under mingw and you have
+tested the library somehow.
+- Set the environment variables (either "source /path/set-vars.sh" for
+bash or "call c:\path\set-vars.bat" for windows shell) and use OCaml,
+misc OCaml libraries, MinGW, MSYS, Mercurial, ActiveState Tcl/Tk, GTK,
+7zip.
+
+Things that are specific to binary builds:
+- You don't need to compile anything to use OCaml+libraries.
+- You can install it only to fixed path, due to hardcoded paths in
+OCaml, findlib and maybe some other libraries.
+
+Things that are specific for source builds:
+- You can get new sources instantly, before the compilation process
+that installer runs, and you can update sources anytime you need
+(that's a direct way to contribute (very welcome!).  If you have
+installed the sources, you can add new library or fix something in old
+libraries quickly, and share the results, and so on -- the opensource
+works!).
+- Mercurial repository for sources, MercurialQueues for testing new
+features (for example, you can apply mq patches to test new unreleased
+OCaml 3.12 from SVN trunk or to see my miserable attempts to port
+JoCaml under MinGW).
+
+Here is the list of libraries in overbld:
+batteries camlidl camltemplate camlzip camomile cryptokit deriving
+extlib findlib json-static json-wheel lablgtk2 lwt menhir objsize
+ocaml-bitstring ocaml-sqlite3 ocaml-ssl ocamlgraph ocamlnet omake
+ounit pa_do pa_safeuse pcre-ocaml react sexplib type-conv ulex xmlm
+
+The installers are distributed via BitTorrent (due to large size).
+The .torrent files are available at
+<http://sourceforge.net/projects/overbld/files/>
+
+The project is hosted at <http://sf.net/projects/overbld/> , since
+sourceforge allows the read-only access to repository for anonymous
+users, but there is a mirror on
+<http://forge.ocamlcore.org/projects/overbld/> (updated manually).  Due
+to the nature of DVCS, there is an exact copy of the repository in the
+source installer.
+
+Please, use our bugtracker (
+<http://sourceforge.net/tracker/?group_id=280863&atid=1191746> ) for
+feedback and bug reports, new [possible] features, suggestions and so
+on.  We really appreciate your feedback!
+      
+========================================================================
+2) Subtyping structurally-equivalent records, or something like it?
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/65dcb1f56fb268e5#>
+------------------------------------------------------------------------
+** Anthony Tavener asked:
+
+I have this:
+
+  type kinematic = { lin: Vec.t; ang: Vec.t }
+
+Which I've been using to represent a medley of physical attributes (force,
+momentum, velocity, etc.).
+
+As the physics code becomes increasingly substantial I'm running into possible
+human-error, like passing a momentum where a force is expected, or a mass
+instead of inverse-mass (mass is also a record though different, but inv-mass
+has the same structure as mass). So I'd like to make distinct types, such as:
+
+  type position = { r: Vec.t; theta: Vec.t }
+  type acceleration = { a: Vec.t; alpha: Vec.t }
+  type force = { f: Vec.t; tau: Vec.t }
+
+They are structurally equivalent, and ideally I'd like to be able to treat
+these as 'kinematic' too, since that is how I would express the arithmetic and
+common functions on these types (add, mul, etc).
+
+I'm sure I've seen posts on this before but I can't find them now (though what
+I remember are questions about having distinct 'float' types, such as for
+degrees vs radians, rather than records).
+
+I know OCaml doesn't have subtypes for records, which is effectively what I'm
+looking for. Though this case is a bit more specialized that that... all the
+subtypes and base type are structurally equivalent. Code for one of these
+types would technically work on any... but is there a way to inform the type
+system of my intentions?
+
+I hope someone has a better option than those I've considered, or that I have
+a grave misunderstanding somewhere and one of these options is actually good:
+
+1. Objects. Subtyping makes these a natural fit, but in this case I don't need
+anything else which objects provide, and a certainly don't need the poor
+performance or method-calling mixed in with my computational code
+(aesthetically... yucky, to me). Again, each type is structurally equivalent.
+Just some functions want certain types.
+
+2. Using distinct records for each type, but no 'kinematic' base type, so all
+common operations are duplicated for each new type. No performance hit. But
+the redundant code is horrible -- makes extensions a pain, and a potential
+bug-source.
+
+2b. Same as above, but putting the common code in a functor which we apply on
+all the different types. I think this will add some overhead, since the
+signature of the types (below) would demand accessor functions for the record
+fields, in order to uniformly get the fields from the different types (again,
+even though they are structurally equivalent) -- these calls probably wouldn't
+get optimized out. But maybe there is a better way to do this?
+
+  module type KINEMATIC = sig
+    type t
+    val lin : t -> Vec.t
+    val ang : t -> Vec.t
+  end
+
+3. Making all the other types different aliases of 'kinematic'; then using
+explicit type declarations in function parameters and coercion to 'kinematic'
+when needed. This makes some ugly code, and the added-typesafety is almost
+illusory. This is kind-of like 'typesafe' C code doing typecasting gymnastics.
+
+4. Adapter functions: 'kinematic_of_force: force -> kinematic', etc. as a way
+to use the common set of 'kinematic' functions. This is clunky and comes with
+a big performance hit unless these functions became like type-coercions. If
+there is a way this can be done with zero runtime cost, I'd accept the
+clunkiness. :)
+
+Any thoughts?
+      
+** Stéphane Lescuyer suggested:
+
+I think that maybe using phantom types could do the trick : consider
+defining empty types for all the different "kinds" of similar
+constructs that you have, and then define the kinematic record with a
+phantom parameter type.
+
+type position
+type acceleration
+type force
+
+type 'a kinematic = {lin : Vec.t; ang: Vec.t}
+
+By adding some extra typing annotations, you can then constraint your
+functions to accept (or produce) only a given kind of construct, say
+for example a position kinematic :
+
+let pos_0 : position kinematic = {lin = Vec.origin; ang = Vec.origin }
+
+let double_force (v : force kinematic) : force kinematic = {lin =
+Vec.mult 2. v.lin; ang = v.ang }
+
+double_force pos_0 -> does not type check
+
+You can write generic functions as add, norm, products, etc : they are
+just polymorphic with respect to the phantom type parameter. By the
+way you ensure that you are not multiplying apples and carrots :
+let plus (v : 'a kinematic) (v' : 'a kinematic) : 'a kinematic = ...
+
+Of course, the overhead is that you have to explicitely write some
+type annotations, especially for constructors, but the runtime
+overhead is exactly 0. And also, one limitation is that you can't use
+different projection names for the different cosntructs, since it is
+really always the same record type that you are using.
+      
+** Dario Teixeira added:
+
+I second Stéphane's suggestion of using phantom types; moreover,
+I recommend you read an article that discusses them to some detail
+and covers their use for precisely this sort of problem:
+<http://camltastic.blogspot.com/2008/05/phantom-types.html>
+      
+** Sylvain Le Gall also added:
+
+I really like the use of private type abbreviation for phantom type:
+<http://ocaml.janestreet.com/?q=node/77>
+      
+========================================================================
+3) OCaml / F# co-development
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/37211b1875eb45b2#>
+------------------------------------------------------------------------
+** Benjamin Pierce asked, Sylvain Le Gall suggested, and John Whitington added:
+
+> > Is anybody out there developing code in the common subset of OCaml and
+> > F# so that it works with both compilers / libraries?  I'd be very
+> > interested in hearing about the feasibility of this arrangement...
+> 
+> There was a series of blog posts by CoherentPDF on
+> <http://planet.ocamlcore.org> 1 year ago.
+> 
+> Here is one of them:
+> <http://coherentpdf.com/blog/?p=10>
+> 
+> Browse their archives to have more:
+> <http://www.coherentpdf.com/news-archive.html>
+
+The current release of CamlPDF does this, and it's about 15000 lines of Ocaml
+/ F#.
+
+<http://www.coherentpdf.com/ocaml-libraries.html>
+
+You just have the occasional thing like this:
+
+let digest =
+ (*IF-OCAML*)
+ Digest.string
+ (*ENDIF-OCAML*)
+ (*i*)(*F#
+ function s ->
+   let hasher = System.Security.Cryptography.MD5.Create () in
+     string_of_int_array (intarray_of_bytearray (hasher.ComputeHash (bytearray_of_string s)))
+ F#*)(*i*)
+
+to account for the difference in standard libraries. And a little bit of
+messing around with the different syntax, for example writing
+
+(!x).y
+
+instead of !x.y
+
+And you can't use labeled arguments or polymorphic variants.
+
+But it's perfectly feasible. I converted said 15000 lines of code in a few
+days.
+      
+========================================================================
+4) Other Caml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocamlcore.org/>.
+
+cowboy:
+  <https://forge.ocamlcore.org/projects/cowboy/>
+
+Properly Bound:
+  <http://alaska-kamtchatka.blogspot.com/2010/04/properly-bound.html>
+
+FP-Syd #23.:
+  <http://www.mega-nerd.com/erikd/Blog/FP-Syd/fp-syd-23.html>
+
+CIA bot for forge.ocamlcore.org (Git):
+  <http://forge.ocamlcore.org/forum/forum.php?forum_id=594>
+
+Another use for private type abbreviations:
+  <http://ocaml.janestcapital.com/?q=node/77>
+
+32 year old:
+  <http://le-gall.net/sylvain+violaine/blog/index.php?2010/04/27/58-32-year-old>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

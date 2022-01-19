@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="utf-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2020.01.07</cwn_date>
+    <cwn_prev>2019.12.31</cwn_prev>
+    <cwn_next>2020.01.14</cwn_next>
+    <cwn_date_text>December 31, 2019 to January 07, 2020</cwn_date_text>
+    <cwn_extra_head></cwn_extra_head>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>ocaml-lsp preview</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-ocaml-lsp-preview/4876/15</cwn_url>
+      <cwn_who>Continuing this thread, Edwin Török said</cwn_who>
+      <cwn_what>
+   Here is an example with ALE and Neovim (tested with v0.3.8):
+   - Install the [Ale](https://github.com/dense-analysis/ale) plugin. If your Vim has support for packages (Vim 8+ or Neovim) you can simply clone it in the correct subdir, no need for a plugin manager: ~git clone https://github.com/w0rp/ale.git .vim/pack/my-plugins/start/ale~
+   - Add this to your .vimrc:
+
+#+begin_example
+   " only invoke merlin to check for errors when
+   " exiting insert mode, not on each keystroke.
+   let g:ale_lint_on_text_changed="never"
+   let g:ale_lint_on_insert_leave=1
+
+   " enable ALE's internal completion if deoplete is not used
+   let g:ale_completion_enabled=1
+
+   " only pop up completion when stopped typing for ~0.5s,
+   " to avoid distracting when completion is not needed
+   let g:ale_completion_delay=500
+
+   " see ale-completion-completeopt-bug
+   set completeopt=menu,menuone,preview,noselect,noinsert
+
+   if has('packages')
+       packloadall
+
+       " This should be part of ALE itself, like ols.vim
+       call ale#linter#Define('ocaml',{
+                   \ 'name':'ocaml-lsp',
+                   \ 'lsp': 'stdio',
+                   \ 'executable': 'ocamllsp',
+                   \ 'command': '%e',
+                   \ 'project_root': function('ale#handlers#ols#GetProjectRoot')
+                   \})
+
+       " remap 'gd' like Merlin would
+       nmap &lt;silent&gt;&lt;buffer&gt; gd  &lt;Plug&gt;(ale_go_to_definition_in_split)&lt;CR&gt;
+
+       " go back
+       nnoremap &lt;silent&gt; &lt;LocalLeader&gt;gb &lt;C-O&gt;
+
+       " show list of file:line:col of references for symbol under cursor
+       nmap &lt;silent&gt;&lt;buffer&gt; &lt;LocalLeader&gt;go :ALEFindReferences -relative&lt;CR&gt;
+
+       " Show documentation if available, and type
+       nmap &lt;silent&gt;&lt;buffer&gt; &lt;LocalLeader&gt;hh &lt;Plug&gt;(ale_hover)&lt;CR&gt;
+
+       " So I can type ,hh. More convenient than \hh.
+       nmap , &lt;LocalLeader&gt;
+       vmap , &lt;LocalLeader&gt;
+   endif
+#+end_example
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Mkocaml Release - Project generator</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/mkocaml-release-project-generator/4949/1</cwn_url>
+      <cwn_who>Chris Nevers announced</cwn_who>
+      <cwn_what>
+I recently created a tool to generate OCaml projects. I constantly have difficulties with dune commands and setting up opam files, etc. Mkocaml generates a dune project with inline tests, opam file, git repository, git ignore, and a
+Makefile with easy commands. This tool can be of great help to newcomers, allowing them to get up and running faster!
+
+https://github.com/chrisnevers/mkocaml
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Garbage Collection, Side-effects and Purity</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/garbage-collection-side-effects-and-purity/4737/1</cwn_url>
+      <cwn_who>Gerard asked</cwn_who>
+      <cwn_what>
+GC = Garbage Collection
+
+GC, in a pure program, is a point that's always confused me. I always understood that freeing memory from a program was impure and would create side-effects but it seems it doesn't matter if the program is remove from all consequences of those impure acts and side-effects.
+
+Basically, if any memory block has no remaining references in the program, then freeing that block will have no consequences on the running program so its allowed to happen behind the scenes..
+
+Is this correct reasoning?
+      </cwn_what>
+      <cwn_who>Guillaume Munch-Maccagnoni replied</cwn_who>
+      <cwn_what>
+ To answer your question “does de-allocation creates a side-effect?”:
+
+ To state the obvious: if you care about the memory consumption of your program, then you care about the side-effect of de-allocation, and this indeed voids purity.
+
+ A language like OCaml lets you reason about de-allocation. Memory is collected when values are no longer reachable. Like in other languages, 1) a value that does not escape and goes out of scope will get collected, and 2) you can reason about when a value escapes and goes out of scope thanks to OCaml respecting the strict evaluation order of value types. OCaml (like other compiled languages) is in fact more precise: it ties the dynamic notion of reachability to the lexical notion of variable occurrence. For instance, in the following:
+
+#+begin_src ocaml
+ let x = get_huge_data () in
+ let z = long_running_function x in
+ f z
+#+end_src
+
+ OCaml will be able to collect the value in ~x~ before ~x~ goes out of scope, and thus if possible before ~long_running_function~ returns. Indeed, OCaml performs liveness analysis during compilation, and records the information about variable occurrences in frame descriptors, for consumption by the GC when it scans for roots. In fact, you can rely on call-by-value operational semantics to (loosely) reason that a value no longer appears in a program, and therefore that the corresponding memory will be collected by the GC¹ ([Morrisett, Felleisen and Harper, "Abstract Models of Memory Management"](https://dash.harvard.edu/handle/1/3293156)). Of course, using lazy or higher-order interfaces (when closures escape; with many idioms they do not) will make it harder to reason about the lifetime of values.
+
+ (¹: For OCaml, this is a conjecture I make, for subsets which could be given such operational semantics, and only for native compilation. Morrisett, Felleisen and Harper's semantics obviously assumes that the results of liveness analysis are made available to the GC, but this is not written, nor is there any mention of the link between liveness analysis and accuracy of garbage collection in Appel's "Modern Compiler Implementation in C". I assume that it was part of folklore at the time, though recently I mentioned it to some functional PL researcher and they seemed surprised. I only found it explicitly mentioned in later papers from the OOP community. I checked that everything seems in place for OCaml to allow such reasoning, but only the authors of the original code, @xavierleroy and @damiendoligez, can tell us if this is intended to be part of the language semantics.)
+
+ Furthermore, memory is not collected immediately when a value becomes unreachable. Instead:
+
+ - Short-lived values are allocated contiguously and deallocated in a batch, so that allocating and deallocating short-lived values is very cheap, with additional benefits in terms of cache locality. This replaces stack allocation from languages with explicit memory management.
+
+ - Longer-lived values are moved to a heap that is scanned incrementally, to ensure a bounded latency. In contrast, naive reference-counting and unique pointers from C++/Rust make you pay the cost of deallocation up-front.
+
+ While this is essential for understanding the performance of OCaml programs, from the point of view of deallocation-as-an-effect, the delaying of the collection of unreachable memory can be seen as a runtime optimisation, that does not change the effectful status of deallocation (the memory still gets freed). [The intuition is that an effect can support some degree of reordering without requiring purity, as illustrated by strong monads which can be commutative without being idempotent, one possible definition of purity for semanticists.]
+
+ But is de-allocation an effect _in practice_? Faced with the scepticism and misunderstandings from this thread, I emit two hypotheses:
+
+ 1) Memory consumption is not an issue in functional programming, for application areas that interest functional programmers.
+
+ 2) Memory management in OCaml is efficient in such a way that programmers do not need to think about it in their day-to-day programming activities in those terms.
+
+ Hypothesis 2) could be explained for instance if OCaml programmers are already dealing with effects and thinking about the order in which their code executes (my experience), and are only used to deal with deallocation as an afterthought, e.g. when chasing leaks with a profiler.
+
+ Let us turn towards two programming language experiments from the 1990's that allow me to reject hypothesis 1). Both show what happens when one denies the status of deallocation as an effect controlled by the programmer.
+
+ - Region-based memory management consisted in allocating in a stack of memory _regions_ deallocated at once, and determined by a whole-program static analysis. Now regarded as a failed idea but successful experiment (i.e. good science!), it taught us a lot about the structure of functional programs in relationship to memory management ([see this retrospective](https://link.springer.com/article/10.1023/B:LISP.0000029446.78563.a4)). There were some good performance results, but also pathological cases _“where lifetimes were not nested or where higher-order functions were used extensively”_, sometimes requiring them to be altered to be _“region friendly”_, which was _“time-consuming”_ and required knowledge of the inference algorithm. In addition, the regions changed unpredictably when the programs evolved, and memory leaks appeared when the compiler inferred too wide regions.
+
+ - Haskell was (at the time) an experiment with lazy functional programming. Pervasive laziness prevents reasoning about the lifetime of values, and purity is a central assumption used by the compiler for program transformations, which is antithetical with reasoning about deallocation as an effect. It is well-known that naive Haskell code has issues with memory leaks, and that realistic Haskell programs have to follow "best practices" to avoid leaks, by making extensive use of strictness annotations (e.g. bang patterns). Unfortunately, I found it hard to find reliable academic sources about lessons drawn from the experiment like the RBMM retrospective. The best I could find on the topic of memory leaks is the following blog post: https://queue.acm.org/detail.cfm?id=2538488, from a Haskell programmer who wrote in another post (linked from that one) _“My suspicion is that many (most?) large Haskell programs have space leaks, but they often go unnoticed”_. This is consistent with comments I received from people with Haskell experience (first-hand, one academic and one industrial) and about an industrial Haskell consultant (second-hand) who reportedly commented that their main job was to fix memory leaks (but maybe in jest). Of course, take this with a grain of salt. At least, I believe that the Haskell academic community has accumulated empirical evidence of the extent and manner in which deallocation voids purity assumptions. Having an authoritative source about it would be pretty important to me, given the initial promises of functional programs being more tractable mathematically specifically via “referential transparency” and independence of execution order, whose theoretical justification already looks shaky to me from a semantic point of view. Some parts of the literature continues to promise far-reaching consequences of equational reasoning, without clear statements of limitation of the application domain. I have the impression that the Haskell which is practiced in the real world is very different from what you can read in some academic papers.
+
+ The hypothesis that deallocation matters as an effect, and that ML makes it easy to program and reason about effects, seems to me a strong argument explaining OCaml's predictable and competitive performance.
+
+ So, thank you for your healthy scepticism.
+      </cwn_what>
+      <cwn_who>Xavier Leroy replied</cwn_who>
+      <cwn_what>
+ Concerning the "don't scan local variables that are dead" trick:
+
+ - Technically it is not "intended to be part of the language semantics" because the bytecode compiler (ocamlc) doesn't implement it, only the native-code compiler (ocamlopt).
+
+ - As far as I remember, I reinvented this trick circa 1993, but it seems it was used earlier in the Lazy ML compiler by Augustsson and Johnsson. See Appel and Shao's paper "An Empirical and Analytic Study of Stack vs. Heap Cost for Languages with Closures", JFP, 1996, end of section 5.
+      </cwn_what>
+      <cwn_who>Guillaume Munch-Maccagnoni the asked</cwn_who>
+      <cwn_what>
+ TL;DR: the paper mentioned by @xavierleroy provides additional references regarding the importance of liveness analysis for GC, including a demonstration by Appel that this actually matters for space complexity (thanks!). I find that a link is still missing with an abstract semantics à la Morrisett, Felleisen &amp; Harper. This seems important to me because more theoretical works about time &amp; space complexity in the lambda-calculus seem to take for granted that garbage collection implements something like the latter (i.e., how does one specify and certify that a compiler is sound for space complexity?).
+      </cwn_what>
+      <cwn_who>Xavier Leroy replied</cwn_who>
+      <cwn_what>
+ See for example [Closure Conversion is Safe for Space](https://www.cs.princeton.edu/~appel/papers/safe-closure.pdf), by Zoe Paraskevopoulou and Andrew W. Appel, ICFP 2019.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>A Lightweight OCaml Webapp Tutorial (Using Opium, Caqti, and Tyxml)</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/a-lightweight-ocaml-webapp-tutorial-using-opium-caqti-and-tyxml/4967/1</cwn_url>
+      <cwn_who>Shon announced</cwn_who>
+      <cwn_what>
+The tutorial is [hosted on gitlab pages](https://shonfeder.gitlab.io/ocaml_webapp/), out of [this repository](https://gitlab.com/anuragsoni/ocaml_webapp).
+
+I put this together in response to some requests for introductory material on the topic (here and on [/r/ocaml](https://www.reddit.com/r/ocaml/). I don't have much expertise to offer in this area, but I had hacked together some simple servers based on Opium in the past few months, so it seemed like I should be able to memorialize some of what I learned for the benefit of others. I received some critical guidance by the Opium maintainers, rgrinberg and anuragsoni, and from other resources online (mentioned at the end of the tutorial).
+
+Any feedback or improvements are welcome: this is my first time writing such lengthy instructional material, and I'm sure there's lots of room to make it better.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Release of owl-symbolic 0.1.0</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/announce-release-of-owl-symbolic-0-1-0/4930/2</cwn_url>
+      <cwn_who>jrzhao42 announced</cwn_who>
+      <cwn_what>
+ The Owl tutorial book URL address is now changed to: https://ocaml.xyz/book/symbolic.html.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Static lifetime</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/static-lifetime/4908/19</cwn_url>
+      <cwn_who>André asked and Guillaume Munch-Maccagnoni replied</cwn_who>
+      <cwn_what>
+ > Is it possible to “statically” allocate a value? By this I mean mark a value such that it gets ignored by the GC and lives until the program exits?
+
+ This is indeed the purpose of Ancient, which comes with limitations and does not allow you to reclaim the memory until you exit the program. (I am curious to know how well it works with recent OCaml versions.)
+
+ > it would be really interesting to learn whether Ocaml forbids blocks outside the heap.
+
+ The OCaml runtime has two modes (chosen at compilation) for dealing with so-called "out-of-heap" pointers. In the legacy one that Chet remembers, the GC uses a page table when scanning to be able to tell which pointers it possesses. In the "no-naked-pointers" mode devised more recently for efficiency reasons, the page table is replaced by looking at the colour in the header of the dereferenced value. Out-of-heap values must be preceded by a header with colour black. The no-naked-pointer mode is more restricted, because once a static value is referenced, it can no longer be deallocated, as you never know whether it is still reachable by the GC. This should be enough to support Ancient.
+
+ > One should verify such intuitions experimentally, before trying to fix them, but I’m not familiar with what OCaml profilers can do…
+
+ Excluding large long-lived data from the GC is an old idea. Among recent developments, Nguyen et al. [1] distinguish a "control path" (where the generational hypothesis is assumed to hold) from a "data path" (where values are assumed to follow an "epochal" behaviour (long-lived, similar lifetimes, benefit from locality), and are excluded from GC). They give as motivation so-called "big data" and as figures of pathological GC usage up to 50% of total runtime. I remember reading similar figures from blog posts about large data sets in OCaml. In reality this indeed depends on knobs you can turn on your GC that can result in increased peak memory usage among others. (Assuming infinite available memory, it is even possible to let the GC share drop to 0%.)
+
+ @ppedrot reported to me that in a recent experiment with Coq, using an Ancient-like trick to exclude some large, long-lived and rarely-accessed values from being scanned (namely serialising them into bigarrays), they saw an 8% performance improvement across the board in benchmarks.
+
+ Multicore, if I understood correctly, aims to support only the no-naked-pointer mode, and I am not sure what the page table will become. Coq currently does some out-of-heap allocation in the VM, and has been adapted to be compatible with the no-naked-pointer mode by wrapping out-of-heap pointers into custom blocks. For scanning its custom stack (which mixes in-heap and out-of-heap values), Coq sets up a custom root-scanning function (`caml_scan_roots_hook`), which still relies on the page table.
+
+ Note that having to wrap out-of-heap pointers in custom blocks is (much!) less expressive: for instance with Ancient you can call `List.filter` on a statically-allocated list (and correctly get a GC-allocated list of statically-allocated values). With custom blocks you cannot mix in-heap and out-of-heap values in this way.
+
+ For a type system to deal with "statically" allocated values, have a look at Rust, which: 1) prevents cycles of reference-counting schemes thanks to uniqueness, 2) can treat GC roots as resources to deal with backpointers at the leaves of the value (cf. the interoperability with SpiderMonkey's GC in Servo). A point of view that I like is that tracing GCs and static allocation differ fundamentally by how they traverse values for collection: traversing live values for the first one, and traversing values at the moment of their death for the other. This gives them distinct advantages and drawbacks so one can see them as complementary. (See notably [2,3].) Static allocation is interesting for performance in some aspects (no tracing, no read-write barrier, reusability of memory cells, avoids calling the GC at inappropriate times), but I find it even more interesting for interoperability (e.g. exchanging values freely with C or Rust, or [applications from that other thread](https://discuss.ocaml.org/t/using-a-bigarray-as-a-shared-memory-for-parallel-programming/4841/19)). It is natural to want to mix them in a language.
+
+ As far as I understand, developing the runtime capabilities for OCaml to deal with out-of-heap pointers without resorting to an expensive page table is an engineering problem, not a fundamental one. If anyone is interested in this, please contact me.
+
+ [1] Nguyen et al., [Yak : A High-Performance Big-Data-Friendly Garbage Collector](https://www.usenix.org/system/files/conference/osdi16/osdi16-nguyen.pdf), 2016
+
+ [2] Bacon, Cheng and Rajan, [A Unified Theory of Garbage Collection](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.439.1202&amp;rep=rep1&amp;type=pdf), 2004
+
+ [3] Shahriyar, Blackburn and Frampton, [Down for the Count? Getting Reference Counting Back in the Ring](https://dl.acm.org/citation.cfm?doid=2258996.2259008), 2012
+      </cwn_what>
+      <cwn_who>UnixJunkie also replied</cwn_who>
+      <cwn_what>
+ If you can store your long-leaved data into a bigarray, I think you would reach the effect that you were looking for (no more GC scanning of this data).
+
+ This was once advised to me by Oleg, for some performance-critical section of some code.
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

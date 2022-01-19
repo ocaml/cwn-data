@@ -1,0 +1,319 @@
+<html><head><meta http-equiv="Content-Type" content="text/html" charset=iso-8859-1"><title>Caml Weekly News</title></head><body>
+
+<a href="2003.03.25.html">Previous week</a> &nbsp; <a href="index.html">Up</a> &nbsp; <a href="2003.04.08.html">Next week</a>
+<pre>
+Hello,
+
+Here is the latest Caml Weekly News, week 25 March to 01 April, 2003.
+
+1) <a href="#1">New PXP mailing list</a>
+2) <a href="#2">Recursive types and functors</a>
+3) <a href="#3">OCaml performance</a>
+4) <a href="#4">Our shrinking Humps</a>
+
+<a name="1"/>======================================================================
+1) New PXP mailing list
+----------------------------------------------------------------------
+Blair Zajac announced:
+
+I've set up a new Mailman mailing list for Ocaml's PXP, the Polymorphic
+XML Parser.  This list has Gerd's backing.
+
+The intention of this list is to be a place to discuss using and
+improving PXP, reporting bugs, and the other things you would expect
+from a mailing list for PXP.
+
+The mailing list is managed with Mailman 2.1.1.  It's home page is
+
+    <a href="http://www.orcaware.com/mailman/listinfo/ocaml-pxp-users">http://www.orcaware.com/mailman/listinfo/ocaml-pxp-users</a>
+
+and the email address of the list is
+
+    ocaml-pxp-users@orcaware.com
+
+You can subscribe by going to
+
+    <a href="http://www.orcaware.com/mailman/listinfo/ocaml-pxp-users">http://www.orcaware.com/mailman/listinfo/ocaml-pxp-users</a>
+
+or by sending an email to
+
+    ocaml-pxp-users-join@orcaware.com
+
+<a name="2"/>======================================================================
+2) Recursive types and functors
+----------------------------------------------------------------------
+David Brown asked and Jean-Christophe Filliatre discussed:
+(the message contains some code, available at
+<a href="http://caml.inria.fr/archives/200303/msg00352.html">http://caml.inria.fr/archives/200303/msg00352.html</a>)
+
+&gt; I have a recursive type where I'd like one of the constructors of the
+&gt; type to contain a set of the type (or something like set).  However, I
+&gt; can't figure out how to represent this.
+&gt; 
+&gt; For example:
+&gt; 
+&gt; type foo =
+&gt;   | Integer of int
+&gt;   | String of string
+&gt;   | Set of FooSet
+&gt; 
+&gt; module FooSet = Set.Make (struct type t = foo let compare = compare end)
+&gt; 
+&gt; but this obviously doesn't work.
+
+I'm pretty  sure this has already  been discussed on this  list, but I
+couldn't find the related thread in the archives...
+
+A (too) naive solution could be  to make a polymorphic instance of the
+Set module (either  by adding an argument 'a  everywhere in signatures
+OrderedType  and S,  or  by  copying the  functor  body and  replacing
+Ord.compare by compare); then you have polymorphic sets, say 'a Set.t,
+balanced using compare, and you can define
+
+        type foo = Integer of int | ... | Set of foo Set.t
+
+Unfortunately this  doesn't work because sets  themselves shouldn't be
+compared with  compare, but with  Set.compare (see set.mli).  And then
+you  point out  the  main  difficulty: comparing  values  in type  foo
+requires  to  be able  to  compare sets  of  foo,  and comparing  sets
+requires to *implement* sets and thus to compare values in foo.
+
+Fortunately, there  is another solution  (though a bit  more complex).
+First  we  define  a  more  generic  type 'a  foo  where  'a  will  be
+substituted later by sets of foo:
+
+        type 'a foo = Integer of int | ... | Set of 'a
+
+Then we implement a variant  of module Set which implements sets given
+the following signature:
+
+        module type OrderedType =
+        sig
+          type 'a t
+          val compare: ('a -&gt; 'a -&gt; int) -&gt; 'a t -&gt; 'a t -&gt; int
+        end
+
+that is where elements are in  the polymorphic type 'a t and where the
+comparison function depends on  a comparison function for arguments in
+'a (which will represent the  sets, in fine). The functor implements a
+type t for  sets using balanced trees, as usual,  and defines the type
+of elements elt to be t Ord.t:
+
+        module Make(Ord: OrderedType) =
+          struct
+            type elt = t Ord.t
+            and t = Empty | Node of t * elt * t * int
+
+Right  after, it  implements comparison  over elements  and sets  in a
+mutually recursive way:
+
+        let rec compare_elt x y =
+          Ord.compare compare x y
+
+        and compare = ... (usual comparison of sets, using compare_elt)
+
+The remaining  of the  functor is  exactly the same  as for  Set, with
+compare_elt used  instead of Ord.compare. I  attach the implementation
+of this module.
+
+There  is (at  least) another  solution: to  use a  set implementation
+where comparison  does not require  a comparison of elements.  This is
+possible if, for instance, you are performing hash-consing on type foo
+(which result  in tagging foo values  with integers, then  used in the
+comparison). This  solution is used in Claude  Marché's regexp library
+(<a href="http://www.lri.fr/~marche/regexp/">http://www.lri.fr/~marche/regexp/</a>) and  uses a hash-consing technique
+available here: <a href="http://www.lri.fr/~filliatr/software.en.html">http://www.lri.fr/~filliatr/software.en.html</a>
+
+<a name="3"/>======================================================================
+3) OCaml performance
+----------------------------------------------------------------------
+David Monniaux discussed Ocaml performance:
+
+Let me tell you about our experience here. We are developing a large
+program consisting of
+- a large part of Caml code handling complex data structures
+- a smaller C library handling certain numerical matrix computations that
+  are triggered by the Caml code 
+- some C (+ assembler) libraries dealing with system-dependent issues.
+
+I profiled the code using OProfile (<a href="http://oprofile.sourceforge.net">http://oprofile.sourceforge.net</a>), for
+expenses in clock cycles and cache faults. Earlier attempts were made with
+gprof.
+
+It turned out that we spent a significant amount of time in:
+
+- The Caml polymorphic compare function (15% time + some cache faults)
+
+  Part of the problem seems to lie with the fact that the same function is
+  called when comparing strings, int64's and other types, thus the
+  processor has to do lots of tests and jumps just to get at the correct
+  comparison function.
+
+  Wouldn't it be reasonable to define String.compare and Int64.compare to
+  call monomorphic functions?
+
+- The garbage collector (15% time + lots of cache faults)
+
+  There's little we can do about it. Changing the size of the minor heap,
+  adjusting it to optimize the use of L2 cache seems to gain 2.30% of the
+  total running time.
+
+  Curiously, using the compactor seems to slow things slightly.
+
+  Would it be possible to optimize the GC cache-wise? For instance, have
+  it ask the processor to "prefetch" data.
+
+- 17% in a particular matrix function written in C. There's little we can
+  do except trying to optimize it carefully and compiling it with the best
+  C compiler around.
+
+- The rest of the time is spent within the Caml code.
+
+Now this was a bit surprising to us, because we thought we spent far more
+time in the numerical computations.
+
+On a related subject, Issac Trotts asked and Xavier Leroy answered:
+(start of thread: <a href="http://caml.inria.fr/archives/200303/msg00372.html">http://caml.inria.fr/archives/200303/msg00372.html</a>)
+
+&gt; Here's a numerical mini-benchmark comparing C to OCaml
+&gt; on a simple implementation of the Discrete Fourier Transform:
+&gt; 
+&gt;   <a href="http://redwood.ucdavis.edu/~issac/dft_compare.tar.gz">http://redwood.ucdavis.edu/~issac/dft_compare.tar.gz</a>
+&gt; 
+&gt; The results on my 1 GHZ Pentium III Linux box:
+&gt; 
+&gt; C:
+&gt; real    0m21.273s
+&gt; user    0m21.200s
+&gt; sys     0m0.040s
+&gt; 
+&gt; OCaml:
+&gt; real    1m51.602s
+&gt; user    1m47.020s
+&gt; sys     0m0.260s
+&gt; 
+&gt; So the C version was about five times as fast.  This is after looking 
+&gt; for ideas
+&gt; in the "Writing Efficient Numerical code in Objective Caml" page [1]
+&gt; and the Great Language Shootout statistical moment page for OCaml [2].  
+&gt; 
+&gt; The OCaml code was easier to read and debug, and would be
+&gt; easier to modify.  
+&gt; 
+&gt; I'd be interested if anyone on this list knows of a way
+&gt; to make it perform as well as the C version (without using the FFT.)
+&gt; 
+&gt; [1] 
+&gt; <a href="http://216.239.53.100/search?q=cache:5YnsSStlWiAC:caml.inria.fr/ocaml/numerical.html+efficient+numerical+ocaml&hl=en&ie=UTF-8">http://216.239.53.100/search?q=cache:5YnsSStlWiAC:caml.inria.fr/ocaml/numerical.html+efficient+numerical+ocaml&hl=en&ie=UTF-8</a>
+&gt; 
+&gt; [2]
+&gt; <a href="http://www.bagley.org/~doug/shootout/bench/moments/moments.ocaml">http://www.bagley.org/~doug/shootout/bench/moments/moments.ocaml</a>
+
+It can be done, but not on a Pentium 3.  Here are my timings:
+
+                      Pentium 4        Pentium 4 SSE2     Alpha 21264   
+                      (2 GHz)          (2 GHz)            (500 MHz)
+
+C                       20                20                 36
+OCaml (your code)      113                40                 52
+OCaml (variant 1)       90                26                 40
+OCaml (variant 2)       72                38                100
+
+Variants 1 and 2 differ on the complex multiply step:
+
+Your code:
+               let a2=c*. !a -. s*. !b 
+               and b2=c*. !b +. s*. !a in
+               a := a2; 
+               b := b2;
+Variant 1:
+               let x = s *. !a in
+               a := c*. !a -. s*. !b;
+               b := c*. !b +. x
+Variant 2:
+               let olda = !a and oldb = !b in
+               a := c *. olda -. s *. oldb;
+               b := c *. oldb +. s *. olda
+
+
+The "Pentium 4 SSE2" column is an experimental code generator for the
+Pentium 4 that uses SSE2 instructions and registers for floating-point
+computations.  (Before you ask: no, it's not publically available,
+but will be the basis for the x86_64 code generator as soon as the
+hardware becomes available.)
+
+As you can see above, variant 1 achieves almost the performance of C
+on platforms that have a regular register-based FP arithmetic unit.
+
+However, the x86 floating-point stack (what OCaml uses for
+compatibility with Pentium 3 and earlier processors) is notoriously
+cranky and hard to generate efficient code for.  gcc manages to
+exploit instruction-level parallelism between the "re" and "im"
+computations via amazing feats (fxch instructions, etc), but the
+ocamlopt x86 code generator just generates very sequential code...
+
+So, unless you have an Alpha at hand, you'd better consider FFT.
+There's an FFT implementation that I use as a benchmark here:
+
+       <a href="http://camlcvs.inria.fr/cgi-bin/cvsweb.cgi/ocaml/test/fft.ml">http://camlcvs.inria.fr/cgi-bin/cvsweb.cgi/ocaml/test/fft.ml</a>
+
+and it delivers about 2/3 of the performances of C, even on the Pentium.
+
+<a name="4"/>======================================================================
+4) Our shrinking Humps
+----------------------------------------------------------------------
+Sergey Goldgaber worried:
+
+The Caml Humps are just a list of links.  There seems to be no real
+archive of contributed OCaml code.  Because of this the community is
+losing these contributions as linked web pages disappear (either
+because of web-site reorganization, or because the people maintaining
+those personal web sites have moved on to something else).
+
+One example is Beno?t de Boursetty's PNM library, which doesn't seem to
+be at <a href="http://www.stud.enst.fr/~debourse/projects.html">http://www.stud.enst.fr/~debourse/projects.html</a> any longer, as  
+the Humps maintain.  This seems like a valuable library, of practical
+use to me right now.  I could try to track down Beno?t de Boursetty, or
+ask about this particular library on this list, but that is not an
+effective long-term solution for every missing package case.  
+
+There are also all sorts of other libraries and applications which are   
+far too advanced for me to make use of right now, but which I could see
+myself using a year or two down the road.  But with the web in flux the
+way it is, it is not wise to rely on any particular web page still
+being there after any length of time.
+
+I could go through and manually download every individual piece of
+software, but apart from being extraordinarily tedious, I would loose
+all of the Hump's wonderful organization and descriptions.
+
+I think what would be great if all of these packages were available in
+a centralized, mirrored repository available for download.  That way,
+ideally, people would be able to get every available package and burn
+it to CDROM, distributing the entire archive for posterity.
+
+I know there has been talk of a CPAN-like service, and think that would
+be great as well.  However, nothing so complex is needed for a simple
+centralized archive.  And it is an archive that is needed more.
+Otherwise the community loses code.
+
+I wish I had a server and bandwidth to donate, or I would just do this
+myself.  As it is I'm making an appeal to the community for solutions.
+If there are no individuals or corporate entities in the OCaml
+community who are willing/able to provide the required resources,
+perhaps we could look at something like ibiblio <a href="http://ibiblio.org/">http://ibiblio.org/</a>
+Does anyone have any experience with this service?
+
+======================================================================
+Old cwn
+----------------------------------------------------------------------
+
+If you happen to miss a cwn, you can send me a message
+(alan.schmitt@inria.fr) and I'll mail it to you, or go take a look at
+the archive (<a href="http://pauillac.inria.fr/~aschmitt/cwn/">http://pauillac.inria.fr/~aschmitt/cwn/</a>). If you also wish
+to receive it every week by mail, just tell me so.
+
+======================================================================
+
+Alan Schmitt
+</pre></body></html>

@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="ISO-8859-15"?>
+<cwn>
+<cwn_head>
+  <cwn_date>2005.08.09</cwn_date>
+  <cwn_prev>2005.08.02</cwn_prev>
+  <cwn_next>2005.08.16</cwn_next>
+  <cwn_date_text>02 to 09 August, 2005</cwn_date_text>
+</cwn_head>
+<cwn_body>
+  <cwn_entry>
+    <cwn_title>ocamlsdl natively for Windows?</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/30045</cwn_url>
+    <cwn_who>Tobias Elze said</cwn_who>
+    <cwn_what>
+I succeeded in compiling them with MingW. Special thanks to Sami Mäkelä 
+for his invaluable help and suggestions!
+
+In order to spare others hours of annoying work I provide a mini Howto here:
+
+How to compile ocamlsdl for MingW
+=================================
+
+1) Download the following archives:
+
+a) ocamlsdl (http://ocamlsdl.sourceforge.net/download.html). (e.g. 
+ocamlsdl-0.7.2.zip)
+b) SDL for MingW (precompiled: 
+http://www.libsdl.org/release/SDL-devel-1.2.8-mingw32.tar.gz)
+c) SDL image (source: 
+http://www.libsdl.org/projects/SDL_image/release/SDL_image-1.2.4.zip , 
+the precompiled version for VC6 works for MingW as well: 
+http://www.libsdl.org/projects/SDL_image/release/SDL_image-devel-1.2.4-VC6.zip)
+d) SDL ttf (source: 
+http://www.libsdl.org/projects/SDL_ttf/release/SDL_ttf-2.0.7.zip , 
+precompiled: 
+http://www.libsdl.org/projects/SDL_ttf/release/SDL_ttf-devel-2.0.7-VC6.zip)
+e) SDL mixer 
+(http://www.libsdl.org/projects/SDL_mixer/release/SDL_mixer-1.2.6.zip . 
+precompiled: 
+http://www.libsdl.org/projects/SDL_mixer/release/SDL_mixer-devel-1.2.6-VC6.zip)
+
+(If you need GL support, you may want to download lablgl as well. It has 
+to be installed before compiling ocamlsdl!)
+
+2) Install SDL
+
+a) SDL main package
+
+If you downloaded the compiled version for MingW (see above) then unpack 
+it to your Cygwin home directory.
+
+- go to cygwin/usr/include/Sdl, edit the file "SDL_main.h", and remove 
+the line "#define main ...".
+- look for a file named "i386-mingw32msvc-sdl-config" in your /bin 
+directory and rename it to "sdl-config".
+- edit this file,
+        - change the prefix to "/usr",
+        - remove all references to SDL_main and SDLmain
+        - add "-mno-cygwin"  to "--cflags)"
+        - remove all "-lmingw32" flags
+
+b) SDL image, SDL ttf, SDL mixer
+
+- If you use the precompiled packages, just unarchive. I put the *.h 
+files into the directory where SDL.h was located and the libraries into 
+the directory where the SDL libraries were.
+
+3) Install ocamlsdl
+
+- just ./configure, make, make install -- that's all!
+
+(However, there is no visible standard output of the generated binaries 
+-- I don't know if it's a bug or a feature;) ...)
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>ocamllex problem</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/30056</cwn_url>
+    <cwn_who>Jonathan Roewen asked</cwn_who>
+    <cwn_what>
+Here's my .mll file, to match IRC strings. The problem is that it's
+including spaces, which I assume it shouldn't.
+
+let letter = [^' ']
+
+rule token = parse
+        | ':'((letter|' ')* as s)       { STRING s }
+        | letter+ as s                  { STRING s }
+        | [' ']+                        { token lexbuf }
+        | eof                           { EOL }
+
+(BTW, this is for matching rule 2). Maybe I'm just retarded, but this
+should work, correct?
+    </cwn_what>
+    <cwn_who>He later said, then skaller asked</cwn_who>
+    <cwn_what>
+&gt; Yes, I'm retarded. Ignore me ;-)
+
+No way .. you picked something I didn't know:
+
+&gt; &gt;        | ':'((letter|' ')* as s)       { STRING s }
+
+I check the manual .. yup, you can match
+subgroups like that..
+
+How does that work??? The algorithm for handling
+this for a DFA is non-trivial. Any pointers to
+the algorithm used?
+
+Alain Frisch pointed me at some nasty papers on
+this, one with a regexp -&gt; NFA conversion and the
+other with a NFA-&gt; DFA conversion, but I couldn't
+figure out how to do the direct regexp-&gt;DFA conversion,
+I'd sure like to find an algorithm for that..
+    </cwn_what>
+    <cwn_who>Alain Frisch answered</cwn_who>
+    <cwn_what>
+As you can find in the source code of ocamllex:
+
+(* To generate directly a NFA from a regular expression.
+     Confer Aho-Sethi-Ullman, dragon book, chap. 3
+   Extension to tagged automata.
+     Confer
+       Ville Larikari
+      ``NFAs with Tagged Transitions, their Conversion to Deterministic
+        Automata and Application to Regular Expressions''.
+       Symposium on String Processing and Information Retrieval (SPIRE
+2000),
+     http://kouli.iki.fi/~vlaurika/spire2000-tnfa.ps
+(See also)
+     http://kouli.iki.fi/~vlaurika/regex-submatch.ps.gz
+*)
+    </cwn_what>
+    <cwn_who>James Woodyatt also answered</cwn_who>
+    <cwn_what>
+In my OCaml NAE Core Foundation, there is a something you may find  
+interesting.  See the [Cf_lex] module and its subordinate [Cf_dfa].   
+Since it isn't trying to be a multi-stage programming tool like  
+[ocamllex], it produces a parser monad that executes a Lazy-DFA,  
+instead of a fully space-time optimized DFA.  At some point, I may  
+implement a [study] function that fully evaluates the Lazy-DFA and  
+optimizes it, but I don't yet see a compelling need for that.
+
+One thing: the pattern [':'((letter|' ')* as s)] is interesting.   
+You're definitely right that something non-trivial is happening  
+inside the DFA.  My [Cf_dfa] module does not keep a stack of  
+backtracking sequences because I did something else to resolve the  
+problem.  Look at the ( $@ ) operators, which allow you to use a  
+parser monad on the recognized input sequence to obtain the result of  
+a lexical rule.  Using this, you can implement something like the  
+feature you're interested in by defining a nested hierarchy of parsers.
+
+I know.  This is probably not what you're looking for.  To get what  
+you're looking for, I'd have to extend [Cf_dfa] to handle marker  
+nodes in the NFA.  I thought that would be more appropriate for  
+[ocamllex] and similar tools, so I didn't do it.  Nice to see  
+[ocamllex] did.
+    </cwn_what>
+    <cwn_who>Berke Durak then said</cwn_who>
+    <cwn_what>
+You may also wish to have a look at :
+
+  Thomas Reps, "Maximal-Munch" Tokenization in Linear Time, ACM Trans.
+  Program. Lang. Syst., vol. 20, num. 2, 1998, pp.259-273
+  http://www.cs.wisc.edu/wpis/papers/toplas98b.pdf
+    </cwn_what>
+    <cwn_who>Jonathan Bryant suggested and David Mentre said</cwn_who>
+    <cwn_what>
+&gt; Maybe also "Modern Compiler Implementation In Java".  It's in Java, but
+&gt; the examples are written in a functional style (as far as is possible).
+&gt; Unfortunately, I can't remember the author's name off hand, but it is
+&gt; published by Cambridge Press...
+
+The book exists in 3 languages, Java, ML and C :
+  http://www.cs.princeton.edu/~appel/modern/
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>right-associating infix application operator camlp4 extension</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/30075</cwn_url>
+    <cwn_who>Quôc Peyrot asked and Christian Lindig answered</cwn_who>
+    <cwn_what>
+&gt; Is there any existing camlp4 extensions to define a $ haskell-like  
+&gt; operator?
+&gt; 
+&gt; example:
+&gt; f x $ y z would be equivalent to f x (y z)
+&gt; or
+&gt; print_endline $ string_of_int x would be equivalent to print_endline  
+&gt; (string_of_int x)
+
+You don't need CamlP4 for this. You could define in OCaml:
+
+        let (@@) f x = f x
+
+Now you can write:
+        
+         print_endline @@ string_of_int x
+    </cwn_what>
+  </cwn_entry>
+</cwn_body>
+</cwn>

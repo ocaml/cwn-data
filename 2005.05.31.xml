@@ -1,0 +1,673 @@
+<?xml version="1.0" encoding="ISO-8859-15"?>
+<cwn>
+<cwn_head>
+  <cwn_date>2005.05.31</cwn_date>
+  <cwn_prev>2005.05.24</cwn_prev>
+  <cwn_next>2005.06.07</cwn_next>
+  <cwn_date_text>24 to 31 May, 2005</cwn_date_text>
+</cwn_head>
+<cwn_body>
+  <cwn_entry>
+      <cwn_title>OCaml CSV (comma-separated values) mini-library 1.0.3</cwn_title>
+    <cwn_url>http://caml.inria.fr/pub/ml-archives/caml-list/2005/05/9286991d81ae52bf3d33cf5e71230358.en.html</cwn_url>
+    <cwn_who>Richard Jones announced</cwn_who>
+    <cwn_what>
+I&apos;m pleased to announce version 1.0.3 of the mini-library for handling
+CSV files in OCaml.  This library is released under LGPL with the
+OCaml linking exception.
+
+http://merjis.com/developers/csv
+
+This version comes with a handy command line tool called &apos;csvtool&apos; for
+processing CSV files from shell scripts.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>JIT ?</cwn_title>
+    <cwn_url>http://caml.inria.fr/pub/ml-archives/caml-list/2005/05/5db04cbc701ed6f332f58c997a69f1ac.en.html</cwn_url>
+    <cwn_who>Christopher Alexander Stein asked and Jon Harrop answered</cwn_who>
+    <cwn_what>
+&gt; Can the ocamlrun bytecode interpreter do just-in-time compilation
+&gt; or is ocamlopt the way to go for performance instead of ocamlc?
+
+ocamlopt is the way to go for performance.
+
+ocaml JIT compiles to bytecode which is then interpreted. ocamlc compiled to 
+bytecode which is interpreted. ocamlopt compiles straight to native code and 
+typically produces programs which are several times faster.
+
+Basile Starynkevitch wrote a real JIT compiler for OCaml (compiling to native 
+code on-the-fly) called ocamljit:
+
+  http://cristal.inria.fr/~starynke/ocamljit.html
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Efficient I/O with threads</cwn_title>
+    <cwn_url>http://caml.inria.fr/pub/ml-archives/caml-list/2005/05/7b8093e8e88d0016895e22b0392933a7.en.html</cwn_url>
+    <cwn_who>Yaron Minsky said</cwn_who>
+    <cwn_what>
+We&apos;ve been running into some interesting problems building highly
+efficient I/O routines in threaded code in ocaml, and I&apos;m curious if
+anyone else has some thoughts on this.  The basic problem seems to be
+that the locking and unlocking of the IO channels seems to take a
+large fraction of the execution time.
+
+A little bit of background first.  The data type we&apos;re outputting is
+basically a simple s-expression, with the following type:
+
+type sexp = Atom of string | List of sexp list
+
+We write out an s-expression by writing a tag-byte to determine
+whether the s-expression is an atom or a string.  If the s-expression
+is an atom, we then write a 4-byte int, which is the length of the
+string, and then the string.  If the s-expression is a list, we write
+an atom which is the number of s-expression that are contained, and
+then write those s-expressions.
+
+It&apos;s very easy to write parsing and marshalling for this type of wire
+protocol, but that code turns out to be quite inefficient, because you
+end up making too many calls to the input and output functions, and
+each one of those calls requires releasing and acquiring locks.  I
+just can&apos;t think of a clean way of implementing a reader for this kind
+of protocol.  (a writer could be done by writing stuff to a buffer
+first, and then writing the whole buffer out at the socket at once.)
+
+Any thoughts?
+    </cwn_what>
+    <cwn_who>He then added</cwn_who>
+    <cwn_what>
+An addendum.  One thing that was pointed out to me in some private
+emails was that buffering could solve the problem on the reading side
+as well.  That is true, as far as it  goes --- that&apos;s why I said that
+I can&apos;t think of a _clean_ way of handling it.  One of the nice things
+about ocaml IO channels is that they handle buffering, and it seems a
+shame to have to reimplement buffering on top of them.
+
+Put another way, the problem with input/output channels appears to be
+that the buffering is done on the wrong side of the lock.  You
+shouldn&apos;t have to do any locking to do IO when the request can be
+satisfied from the buffer.  The fact that IO channels always require
+you to acquire the lock means that the performance is crappy unless
+you bundle up writes by yourself.
+
+Fixing this is perhaps too deep of a change to drive into the OCaml
+system at this point.  Is this a problem that is addressed by the I/O
+channels provided by any other library such as extlib?
+    </cwn_what>
+    <cwn_who>Nicolas Cannasse answered</cwn_who>
+    <cwn_what>
+&gt; Fixing this is perhaps too deep of a change to drive into the
+&gt; OCaml system at this point.  Is this a problem that is
+&gt; addressed by the I/O channels provided by any other library
+&gt; such as extlib?
+
+I can maybe answer on that one.
+
+Extlib IO channels provide &quot;high-level&quot; channels. A channel is just a record
+of lambdas that are used to read and write to it. There are implementations
+for reading and writing from caml low level channels, but also to input and
+output directly from a string. You can also create your own channels by
+providing the appropriate API functions ( 3 functions for input channels :
+read / input / close  and 4 functions for output channels : write / output /
+flush / close ).
+
+This approach means that you can easily wrap one channel with another. For
+example there is a Base64 module that takes a channel as parameter and
+returns a channel that will either perform encoding or decoding in B64 and
+read/write to the underlying channel. The same approach could be used to add
+a buffer for either reading or writing.
+
+ExtLib IO channels are focused more on usability than performances. Using
+them require a very small overhead compared to using direct caml channels
+but is more flexible (you can later retarget your output to a string, or
+wrap it with a compression or encoding library) and if you&apos;re performing IO
+on disk it should not be so much different in terms of performances.
+
+Here&apos;s the module documentation :
+http://ocaml-lib.sourceforge.net/doc/IO.html
+    </cwn_what>
+    <cwn_who>Gerd Stolpmann also answered</cwn_who>
+    <cwn_what>
+I just looked into the sources of the OCaml runtime. The additional work
+to lock/unlock the I/O channels is very, very small, just a
+pthread_mutex_lock and a pthread_mutex_unlock for every operation. What
+counts more is the general overhead for the multi-threading machinery.
+For every blocking system call a lot of additional overhead is
+necessary.
+
+As an alternative, you can try the object channels of Ocamlnet. With
+
+let in_ch =
+  Netchannels.lift_in (`Raw (new Netchannels.input_descr in_fd))
+
+and
+
+let out_ch =
+  Netchannels.lift_out (`Raw (new Netchannels.output_descr out_fd))
+
+you get object channels over the file descriptors in_fd, out_fd that
+implement buffers by O&apos;Caml code and work much like the built-in
+channels. These channels aren&apos;t protected against concurrent usage, and
+may be more light-weight because of this.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>CamlTemplate 1.0 released</cwn_title>
+    <cwn_url>http://caml.inria.fr/pub/ml-archives/caml-list/2005/05/a40a280e9ce9eb13c18f25d8d15d4782.en.html</cwn_url>
+    <cwn_who>Benjamin Geer announced</cwn_who>
+    <cwn_what>
+CamlTemplate 1.0 has been released.
+
+CamlTemplate is library for generating text from templates in
+Objective Caml. It can be used to generate web pages, scripts,
+SQL queries, XML documents and other sorts of text.
+
+Features:
+
+   * A versatile, easy-to-learn template syntax that supports
+     common scripting-language constructs, while encouraging a
+     separation between presentation logic and application
+     logic.
+
+   * The supported Caml data structures accomodate lists, tables
+     and trees of items in a straightforward manner.
+
+   * Works well with mod_caml and mod_fastcgi.
+
+   * Supports any ASCII-compatible encoding, including UTF-8.
+
+   * Optional support for multithreading.
+
+Changes since the last release:
+
+   * Fixed bug: META always depended on &apos;threads&apos; even if
+     threads weren&apos;t enabled. Thread support is now compiled
+     into a separate file which can be linked in if needed,
+     instead of being enabled when CamlTemplate is compiled
+     (thanks to Janne Hellsten).
+
+   * Fixed incorrect interpretation of backslashes.
+
+   * Fixed reading of template files on Cygwin (thanks to Janne
+     Hellsten).
+
+   * Fixed incorrect handling of syntax errors in macro call
+     arguments.
+
+   * Added a FastCGI example.
+
+CamlTemplate is available via GODI, or from:
+
+http://saucecode.org/camltemplate
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>BCP relating to -pack?</cwn_title>
+    <cwn_url>http://caml.inria.fr/pub/ml-archives/caml-list/2005/05/74f83cbf2ad949db719f4eac64493835.en.html</cwn_url>
+    <cwn_who>Alex Baretta asked</cwn_who>
+    <cwn_what>
+The AS/Xcaml and FreerP projects are now getting big enough that
+namespace conflicts begin to emerge within them. We are thinking about
+changing our build system so as to encapsulate libraries as single
+cmo/cmi packages to introduce a hierarchy in the namespace. The problem
+I foresee is that the -pack directive to the compiler breaks the code,
+because all modules referring to module X within xyz.cma would need to
+open module Xyz. Patching the entire project is in my opinion contrary
+to the &quot;a posteriori&quot; approach to namespace management taken by the Caml
+team with the -pack directive. So here is my question.
+
+Has anyone already faced this kind of problem on a fairly large project
+( ~ 100 kloc)? What are the Best Current Practices relating to -pack?
+    </cwn_what>
+    <cwn_who>Richard Jones answered</cwn_who>
+    <cwn_what>
+A better way to create a hierarchical namespace seems to be to use
+some character _other than_ &apos;.&apos; (dot) to separate the levels.
+
+For instance:
+
+  Pxp_document
+  Net_httpclient   (nearly)
+
+This allows a third party to come along and add packages to the same
+&quot;namespace&quot;, eg. Pxp_myextension.
+
+Using dot / -pack doesn&apos;t allow extension and doesn&apos;t allow the package
+to be spread over several cma files.
+
+Rich.
+
+(I&apos;m not claiming that I&apos;ve used this convention in my own packages,
+but I ought to have done ...)
+    </cwn_what>
+    <cwn_who>Alex Baretta then said</cwn_who>
+    <cwn_what>
+Given the current implementation of namespaces in Ocaml, I agree. For a
+new project, I&apos;d adopt this convetion. Currently, I have to decide
+whether we have to change all module names to match a sensibile
+convention, and consequently all references to the modules within the
+code, or if we ought to package everything up with -pack. The second
+solution is only viable if it does not break the current code, which is
+currently not written with &quot;open Library_name&quot; directives. If this is
+not possible, we&apos;ll have to stick with cmas and change module names all
+over the place, which is highly undesirable.
+
+If the namespace management could be entirely delegated to the command
+line parameters of ocamlc, I&apos;d be a happier man.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Ocaml Programmer Position</cwn_title>
+    <cwn_url>http://caml.inria.fr/pub/ml-archives/caml-list/2005/05/fd69a81d02d961d4d09eca95a5d13a4f.en.html</cwn_url>
+    <cwn_who>Andres Varon said</cwn_who>
+    <cwn_what>
+The American Museum of Natural History (http://www.amnh.org) seeks to fill
+several positions at various levels for a two-year project for application and
+systems development for the study of emerging infectious disease. One position
+(the first in the list), is for an Ocaml programmer which (I hope), might be of
+direct interest for some of you. The others are CS related, so I&apos;m leaving
+them as these could be of your interest too.
+
+Programmer: Computer Science or engineering BS or MS degree, with at least 3 years of 
+experience in scientific computation. Knowledge of at least one functional language 
+(ML, Lisp, Haskell) is required, preferably Ocaml or ML and the C language. Experience
+in parallel computing desirable. Experience in UNIX/LINUX environments necessary.
+
+Algorithm Scientist: Ph.D. in computational science to perform research and
+implementation of algorithms for full-genome phylogenetic and biogeographic analysis.
+Experience in algorithm design , especially combinatorial optimization problems
+crucial. Experience in string and parallel algorithms, and computational biology,
+desired. Programming skills for prototyping necessary.
+
+Systems Scientist: Ph.D. in computational science to perform R&amp;D of a computational
+system to integrate results of whole genome phylogenetic analysis with geographic and
+phenotypic data. Experience in data modeling and development of middleware and user
+interfaces for large-scale data management across diverse research sites is crucial.
+Experience in geographic information systems important, programming skills in Java
+preferred.
+
+Systems Manager: Ph.D. with five years experience in scientific computing, hardware,
+and software maintenance. Strategic planning, specification and purchasing of
+hardware, grant writing, training of personnel are key skills.
+
+For more information, please contact Ward Wheeler, wheeler@amnh.org
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Embedding Javascript in OCaml</cwn_title>
+    <cwn_url>http://caml.inria.fr/pub/ml-archives/caml-list/2005/05/241450029b04c12c4890d6c6d92db10c.en.html</cwn_url>
+    <cwn_who>Alain Frisch announced</cwn_who>
+    <cwn_what>
+I&apos;d like to announce the first public release of SpiderCaml, a
+library to embed Javascript interpreters in OCaml applications.
+
+It relies on SpiderMonkey, the historic implementation of Javascript 
+from Netscape, now part of the Mozilla project and compliant with the 
+ECMA spec.
+
+The library comes with a very simple Javascript shell.
+
+
+Download:
+  http://yquem.inria.fr/~frisch/SpiderCaml/download/SpiderCaml-0.1.tar.gz
+
+API:
+  http://yquem.inria.fr/~frisch/SpiderCaml/doc
+
+
+The API is not considered stable yet. Comments to improve it are welcome.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>looking for devs</cwn_title>
+    <cwn_url>http://caml.inria.fr/pub/ml-archives/caml-list/2005/05/8cf1db6105fd8dae18874f45311ed947.en.html</cwn_url>
+    <cwn_who>Jonathan Roewen said</cwn_who>
+    <cwn_what>
+I have an operating system project called Desert Spring-Time, written
+almost entirely in OCaml, and I&apos;m looking for some devs that are into
+low-level stuff, i.e. writing device drivers using OCaml.
+
+The device driver of most interest at the moment is DECchip 21140 NIC
+that VirtualPC uses. We have ne2k (isa) for qemu/bochs emulation, and
+realtek 8139 (pci) for real hardware.
+
+Any hardcore ocaml hackers looking for a challenge are most welcome.
+
+I&apos;ve found one spec sheet: google ec-qc0cb-te. And driver is known as
+tulip in bsd/linux it seems.
+
+Our first release should be coming along by end of May, so having a
+driver by then would be awesome =)
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Job for functional programmer</cwn_title>
+    <cwn_url>http://caml.inria.fr/pub/ml-archives/caml-list/2005/05/b111d712efd43c4ff0ff229a8cb48558.en.html</cwn_url>
+    <cwn_who>Simon Peyton-Jones said</cwn_who>
+    <cwn_what>
+Here&apos;s a job advert for a functional programmer to work at Credit Suisse First
+Boston. Nowadays, banks are doing lots of interesting things with computers,
+and they are pretty knowledgeable about programming languages too. This
+modelling and analytics group, who I know slightly, are specifically looking
+for someone who knows functional programming. It looks like an interesting
+job, so I&apos;m taking the liberty of spamming the Haskell and Caml mailing lists.
+
+Simon
+
+
+
+Credit Suisse First Boston is looking to recruit a Computer Scientist for the
+Global Modelling and Analytics Group in the Securities Division.
+
+The plans: 
+To use functional programming concepts to: 
+evaluate financial models in a distributed environment. 
+develop domain specific language tools to increase productivity in the creation
+of financial models. 
+
+What we are looking for: An outstanding individual from an academic or research
+background for a position in New York or London. Prior financial experience is
+not required. The key attributes that are sought: 
+
+  An advanced degree with high honours in Computer Science or Mathematics.
+  Parallel and distributed functional programming expertise.
+  Experience writing compilers.
+  Scientific programming experience, preferably C++.
+  Interest in using academic ideas in a real world environment.
+  Excellent communication skills in order to convey new ideas to our modelling
+  team.
+
+Alternative employment options: 
+In order to allow us to attract the best candidates we would be willing to
+consider flexible employment options; For example, we could offer a position to
+a post doctoral researcher or tenured academic who is on sabbatical from their
+academic post .
+
+Contact: Neville Dwyer [neville.dwyer@csfb.com]
+
+
+Background information on Credit Suisse First Boston &amp; the Global Modelling and
+Analytics Group: 
+
+Global Modelling &amp; Analytics Group: The group develops mathematical models in
+the area of derivatives and relative value modelling for all business areas of
+the Securities Division including Interest Rate Products, Foreign Exchange,
+Equities, Credit, Local currency, Fund Linked Products, CDOs and Mortgages. As
+the group is based on the trading floor, it is immersed in a highly interactive
+environment and is ideally placed to effectively respond to the needs of the
+trading floor and contribute to the genesis of new financial products.
+Occasionally, brief trips to our offices worldwide will be necessary
+
+Division: Credit Suisse First Boston&apos;s Securities Division incorporates
+underwriting, research, sales and trading of a broad range of financial
+instruments. These include government and corporate bonds, money markets,
+foreign exchange, U.S. and international equity and equity related securities,
+precious metals and real estate related assets. The division also provides a
+full range of derivative products that address the financing, risk management
+and investment needs of its customers. The Securities division services over
+5,000 corporate, sovereign and institutional customers worldwide.
+
+The firm: Credit Suisse First Boston (CSFB) is a leading global investment
+bank serving institutional, corporate, government and individual clients.
+CSFB&apos;s businesses include securities underwriting, sales and trading,
+investment banking, private equity, financial advisory services and retail
+online brokerage services. It operates in 68 locations in 33 countries across
+5 continents, and has some 17,000 staff worldwide. The Firm is a business unit
+of the Zurich based Credit Suisse Group, a leading global financial services
+company. For more information on Credit Suisse First Boston, please visit our
+corporate website at http://www.csfb.com
+
+Our commitment to providing outstanding service to our clients, our focus on
+teamwork, diversity and excellence means our recruitment of the best and
+brightest people is essential to our success.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>infix functions</cwn_title>
+    <cwn_url>http://caml.inria.fr/pub/ml-archives/caml-list/2005/05/b3e1a86c65afa1b9438f0c6828902fae.en.html</cwn_url>
+    <cwn_who>Jonathan Roewen asked and Jean-Christophe Filliatre answered</cwn_who>
+    <cwn_what>
+&gt; I see some pervasive functions are infix, and I&apos;m wondering if there&apos;s
+&gt; any plan to support making any arbitrary infix functions?
+&gt; 
+&gt; For instance, the Int32 (etc) modules are horrible to use cause of the
+&gt; prefix functions. These are perfect candidates for being infix. And
+&gt; being an OS project, there are a lot of instances where we need the
+&gt; extra precision, and having to do things like add some_int32
+&gt; another_int32 complex. Especially when you have to throw in
+&gt; bitshifting, AND and OR, and other magic.
+
+In some simple cases, it can help to insert
+
+        let (+) = Int32.add
+        let (-) = Int32.sub
+        ...
+
+at the  beginning of your files  (or better to  put these declarations
+within  a small  module that  you open  only when  you need  the infix
+notation).  You  can even  adopt  other  notations,  such as  +!,  -!,
+etc.  Only the  first  character  is used  to  determine the  operator
+precedence.
+
+Beware of the lexical issue with multiplication :-)
+    </cwn_what>
+    <cwn_who>Vincenzo Ciancia also answered</cwn_who>
+    <cwn_what>
+&gt; For instance, the Int32 (etc) modules are horrible to use cause of the
+&gt; prefix functions. These are perfect candidates for being infix.
+
+Not arbitrary, but there are some &quot;free&quot; symbols that can be defined (I
+don&apos;t know exactly how many and what, but I guess it&apos;s on the manual or in
+the lexer :) ), and all the infix operators can be redefined. Example of
+redefining &quot;+&quot;:
+
+########
+# module InfixInt32 = struct
+    let (+) = Int32.add
+  end;;
+module InfixInt32 : sig val ( + ) : int32 -&gt; int32 -&gt; int32 end
+# 3+3;;
+- : int = 6
+# open InfixInt32;;
+# 3+3;;
+This expression has type int but is here used with type int32
+#######
+
+example of defining &quot;+*&quot;
+
+#######
+# let (+*) = Int32.add;;
+val ( +* ) : int32 -&gt; int32 -&gt; int32 = &lt;fun&gt;
+# 30l +* 20l;;
+- : int32 = 50l
+#######
+
+I don&apos;t know if there is a way to force inlining of &quot;+*&quot; though, but I
+suppose that you could finally resort to defining your operators in camlp4
+
+http://pauillac.inria.fr/caml/camlp4/manual/manual006.html
+
+see section 5.3.1
+    </cwn_what>
+    <cwn_who>Richard Jones also answered</cwn_who>
+    <cwn_what>
+You can create infix operators in the basic language.  You have to use
+the right first character in the operator - the scanner appears to use
+the first character to decide whether the operator is infix or prefix.
+This is rather obliquely documented here:
+
+http://caml.inria.fr/pub/docs/manual-ocaml/manual009.html
+
+(Look for the section &quot;Prefix and infix symbols&quot;).
+
+So:
+
+        $ ocaml    
+                Objective Caml version 3.08.2
+
+        # #load &quot;nums.cma&quot;;;
+        # let (+^) = Int32.add;;
+        val ( +^ ) : int32 -&gt; int32 -&gt; int32 = &lt;fun&gt;
+        # 2000000000l +^ 1l;;
+        - : int32 = 2000000001l
+
+It&apos;s also possible to create infix functions; however you have to use
+the camlp4 preprocessor and your functions become reserved words in
+the language.  Here is an example of an infix function which should
+get you started:
+
+        open Pcaml
+        
+        EXTEND
+           expr: AFTER &quot;apply&quot;
+           [ LEFTA
+               [ e1 = expr; &quot;map_with&quot;; e2 = expr -&gt;
+                   &lt;:expr&lt; List.map $e2$ $e1$ &gt;&gt;
+               ]
+           ];
+        END
+
+So using that extension you could write code like:
+
+        list map_with (fun elem -&gt; ...)
+
+Use the following Makefile rule to compile the extension:
+
+operators.cmo: operators.ml4
+        $(OCAMLC) -c -pp &quot;camlp4o pa_extend.cmo q_MLast.cmo -impl&quot; -I +camlp4 \
+          -impl $&lt;
+
+and the following rule to compile code using this extension:
+
+OCAMLPP := -pp &quot;camlp4o ./operators.cmo&quot;
+OCAMLC := ocamlc.opt
+OCAMLCFLAGS := -w s -g $(OCAMLPP)
+
+.ml.cmo:
+        $(OCAMLC) $(OCAMLCFLAGS) $(OCAMLCINCS) -c $&lt;
+    </cwn_what>
+    <cwn_who>Then padiolea suggested</cwn_who>
+    <cwn_what>
+&gt; So using that extension you could write code like:
+&gt;
+&gt;       list map_with (fun elem -&gt; ...)
+
+I think it is simpler for such cases to have a generic operator such as
+let (+&gt;) o f = f o
+
+and then just do
+ [1;2;3;4] +&gt; map (fun x -&gt; x+1)
+which is reminescent of object notation.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>OS Prototype</cwn_title>
+    <cwn_url>http://caml.inria.fr/pub/ml-archives/caml-list/2005/05/034a45e75fe608992a6dfbf1786f1d2d.en.html</cwn_url>
+    <cwn_who>Jonathan Roewen announced</cwn_who>
+    <cwn_what>
+Desert Spring-Time: An Operating System Project
+
+This is the official release of the Desert Spring-Time prototype
+operating system. It is written almost entirely in OCaml.
+
+The system is comprised of:
+ -  IDE driver and partition reading code
+ -  NE2000 ISA driver
+ -  Realtek 8139 PCI driver
+ -  VBE (via GRUB) support in 32bit mode
+ -  PS/2 mouse &amp; keyboard support
+ -  Networking stack
+
+It has two command-line tools for testing networking: nslookup and
+ping. Each takes an address, and an optional interface number (an
+integer starting at 0) as arguments. Interfaces are automatically set
+up once a DHCP lease has successfully been obtained—there is currently
+no support for manually configuring an interface.
+
+The sources are available online at
+&lt;http://glek.net/subversion/os/kernel&gt;, as well as a floppy image
+&lt;http://dst.purevoid.org/&gt;.
+
+To test in qemu, the following options are required to test networking
+and graphics: -std-vga (for VBE), and -isa (for NE2000 card to be
+present in ISA mode).
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Seemingly inconsistent labels for List module</cwn_title>
+    <cwn_url>http://caml.inria.fr/pub/ml-archives/caml-list/2005/05/73ced3c4131eaf6203b88f228b53e3eb.en.html</cwn_url>
+    <cwn_who>Yaron Minsky asked and Jacques Garrigue answered</cwn_who>
+    <cwn_what>
+&gt; I&apos;ve noticed what appear to be inconsistent labelling on some list
+&gt; functions, and I&apos;m wondering if I&apos;m properly understanding the reasons
+&gt; behind the way the labels work.
+&gt; 
+&gt; For example, in the various association list functions, in some cases
+&gt; the association list is passed with a ~map label, and sometimes with
+&gt; no label.  Another odd case is the mem and memq functions, both of
+&gt; which label the list being queried with the label ~set.  In this case,
+&gt; the labelling mostly seems kind of useless rather than inconsistent.
+
+There are reasons for both :-)
+The ~set label is there, so that you can easily define the membership
+function.
+
+   let in_a = List.mem ~set:a
+
+Same thing for ~map in List.mem_assoc.
+However, there is no label in List.remove_assoc, because there it
+doesn&apos;t really make sense: it maps an association list to a new
+association list.
+There is no label either in List.assoc for a dirty reason:
+as the result is a polymorphic variable, if there were a label, one
+wouldn&apos;t be able to omit it in applications. List.assoc is used very
+often.
+
+&gt; I&apos;m asking all of this because I&apos;m playing around with writing a
+&gt; labelled version of the extlib interface, and I&apos;m wondering whether
+&gt; these are mistakes that should be fixed, or whether there are good
+&gt; reasons for them and they should be preserved.
+
+So, there are good reasons, but you may make different choices. The
+labelling of the standard library is intentionally light; in other
+libraries you might want to put more. Or, conversely, if you choose to
+have only a labelled version (avoids maintaining two versions), you
+must be careful of using labels only where they will not get in the
+way.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>SAFFIRE: type checking the OCaml/C FFI</cwn_title>
+    <cwn_url>http://caml.inria.fr/pub/ml-archives/caml-list/2005/05/1ca9bd6f3b9a39adfd50b76211716499.en.html</cwn_url>
+    <cwn_who>Michael Furr announced</cwn_who>
+    <cwn_what>
+Announcing,
+
+     SAFFIRE: Static Analysis of Foreign Function InteRfacEs
+
+Saffire is a static analysis program that detects bugs in programs that
+use the OCaml/C foreign function interface. Saffire works by performing
+type inference across both OCaml and C to make sure that values are used
+consistently across the language boundary. For instance, if a OCaml passes
+a record to a C function, that C function should not treat the data as an
+integer. Saffire also tracks what C variables point into the OCaml heap
+and ensure they are always registered with CAMLparam/local before any
+allocation functions are called.
+
+Saffire is currently only a proof of concept implementation and does not
+handle every corner of the OCaml grammar.  For example, polymorphic
+variants and objects are not supported.  For a detailed list of what is
+and what is not currently supported, please see the website below.  For a
+more complete discussion on how Saffire works, you may be interested in
+reading our upcoming PLDI paper (also available from the site).
+
+Saffire is implemented as a combination of camlp4 and a CIL module and is
+freely available/redistributable.  The license is the same as CIL
+(standard 3-clause BSD).
+
+http://www.cs.umd.edu/~furr/saffire/
+    </cwn_what>
+  </cwn_entry>
+</cwn_body>
+</cwn>

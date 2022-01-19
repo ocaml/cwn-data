@@ -1,0 +1,651 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2012.03.27</cwn_date>
+    <cwn_prev>2012.03.20</cwn_prev>
+    <cwn_next>2012.04.03</cwn_next>
+    <cwn_date_text>March 20 to 27, 2012</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+		<cwn_entry>
+      <cwn_title>Explicitely named type variable and type constraints</cwn_title>
+      <cwn_url>https://sympa-roc.inria.fr/wws/arc/caml-list/2012-03/msg00254.html</cwn_url>
+      <cwn_who>Philippe Veber asked and Jacques Garrigue replied</cwn_who>
+      <cwn_what>
+&gt; I found myself defining a type that would both contain a module type and a 
+&gt; type constraint:
+&gt; 
+&gt;   module type Screen = sig
+&gt;     type state
+&gt;     type message
+&gt;     val init : state
+&gt;     [...] 
+&gt;    val emit : state -&gt; message option
+&gt;   end
+&gt;   type 'a screen = (module Screen with type message = 'a) constraint 'a = 
+&gt; [&gt; `quit]
+&gt; 
+&gt; That is supposed to express that screens emit messages, and that one of the 
+&gt; messages can be "quit". Now I've got some trouble when using the 'a screen 
+&gt; type in a function that unpack the module it contains:
+&gt; 
+&gt;   let f (screen : 'a screen) = 
+&gt;     let module Screen = (val screen : Screen) in
+&gt;     match Screen.(emit init) with
+&gt;       | Some `quit -&gt; 1
+&gt;       | _ -&gt; 0
+&gt;     
+&gt;   ;;
+&gt; Error: This expression has type
+&gt;          ([&gt; `quit ] as 'a) screen = (module Screen with type message = 'a)
+&gt;        but an expression was expected of type (module Screen)
+
+Indeed, this is clearly wrong: these two module types are not equivalent.
+
+&gt; New attempt:
+&gt; 
+&gt; # let f (screen : 'a screen) = 
+&gt;     let module Screen = (val screen : Screen with type message = 'a) in
+&gt;     match Screen.(emit init) with
+&gt;       | Some `quit -&gt; 1
+&gt;       | _ -&gt; 0
+&gt;   
+&gt;   ;;
+&gt; Error: Unbound type parameter 'a
+
+Wrong again, as subtyping between module signatures does not
+allow free type variables.
+
+&gt; Though here I'm not sure the error is right. New attempt:
+&gt; 
+&gt; 
+&gt; # let f (type s) (screen : s screen) = 
+&gt;     let module Screen = (val screen : Screen with type message = s) in
+&gt;     match Screen.(emit init) with
+&gt;       | Some `quit -&gt; 1
+&gt;       | _ -&gt; 0
+&gt;   
+&gt;   ;;
+&gt; Error: This type s should be an instance of type [&gt; `quit ]
+&gt; 
+&gt; Which makes sense. So here is my question: is there a way to impose a 
+&gt; constraint on the "newtype" introduced in argument? Let me say that I'm 
+&gt; aware I should write this more simply. For instance in the module type 
+&gt; Screen, emit could have type state -&gt; [`quit | `message of message]. So my 
+&gt; question is only a matter of curiosity. Still, I'd be happy to know :o).
+
+No, currently there is no way to do that.
+One can only create locally abstract types, not locally private types.
+In theory I see no problem doing that, but with the current approach this 
+would require new syntax,
+and be rather heavy.
+
+  let f (type s = private [&gt; `quit]) (screen : s screen) = ...
+
+And to be fully general, recursion between those types should be allowed 
+too...
+
+As a side note, writing
+        type message = private [&gt; unit]
+makes the problem clearer.
+And solves it in some cases:
+
+module type Screen =
+  sig
+    type state
+    type message = private [&gt; `quit ]
+    val init : state
+    val emit : state -&gt; message option
+  end
+# let f (module Screen : Screen) =
+    match Screen.(emit init) with
+    | Some `quit -&gt; 1
+    | _ -&gt; 0
+  ;;
+val f : (module Screen) -&gt; int = &lt;fun&gt;
+
+(using 4.00, but you can also write with (val ...))
+      </cwn_what>
+    </cwn_entry>
+		<cwn_entry>
+      <cwn_title>OCaml app for iOS, Schnapsen card game</cwn_title>
+      <cwn_url>https://sympa-roc.inria.fr/wws/arc/caml-list/2012-03/msg00267.html</cwn_url>
+      <cwn_who>Jeffrey Scofield announced</cwn_who>
+      <cwn_what>
+As more proof that you can write real-world iOS apps in OCaml, our little
+outfit Psellos has just released a second OCaml app through the App Store.
+It plays the classic card games Schnapsen and Sixty-Six.
+
+You can find info about the app at our website:
+
+    http://psellos.com/
+
+We think using OCaml was a real advantage in building the game-playing
+engine.  It also seemed a great fit for the animation subsystem that I
+wrote to make the cards move (immutably).
+
+Also, these are great card games.  One of our friends was inspired by
+the app to start up a blog about Schnapsen (also on the website).
+
+In addition to the two apps that we sell (for cheap), I've written 5
+apps that show how to code for iOS in OCaml.  The sources for all 5 are
+available at our website in the OCaml section
+(&lt;http://psellos.com/ocaml/&gt;).  A few people have used these examples as
+the basis for their own apps.
+
+There's also info on how to cross compile to iOS and to the iOS
+Simulator, how to build the cross compilers we're using, and how to use
+OpenGL ES from OCaml.
+
+Recently there was a question about updating our tools to work with
+Apple's latest Xcode.  Now that the app is released, I'll be doing that
+as soon as I can.
+
+I'm trying my best to start a worldwide OCaml-on-iOS craze :-), and
+would be very happy to hear from anyone interested.
+      </cwn_what>
+    </cwn_entry>
+		<cwn_entry>
+      <cwn_title>Wanted: GADT examples: string length, counting module x</cwn_title>
+      <cwn_url>https://sympa-roc.inria.fr/wws/arc/caml-list/2012-03/msg00150.html</cwn_url>
+      <cwn_who>Goswin von Brederlow asked (please find the example at the archive link)</cwn_who>
+      <cwn_what>
+yesterday I compiled ocaml 3.13 and played around a bit with the GDAT
+syntax but wasn't overly successfull. Or at least I had higher hopes for
+it. So it is time to invoke the internet to come up with a better
+example. :)
+
+1) How do I write a GADT that encodes the length of a string or array?
+   How do I use that to create a string or array?
+   How do I specify a function that takes a string or array of a fixed length?
+   Bonus: How do I specify a function that takes a string or array of a
+          certain length or longer?
+
+2) How do I write a GADT that counts an int module x? Say for an offset
+   into a byte stream to safeguard when access is aligned and when
+   unaligned.
+   Again with an example that creates a value and a function that uses
+   it.
+   Bonus: Have one function that only allows aligned access and one that
+          picks the right aligned/unaligned function to use depending on
+          the type.
+
+Below I've included an example for checking aligned access (1/2/4/8 byte
+aligned). First using GADT and second using old style phantom types. The
+second looks much longer because it includes the signature needed to
+make the type (...) off private. The t1/t2/t4/t8 types are just aliases
+to make the type of the other functions shorter.
+
+One thing I couldn't manage is to write a "bind" function with GADTs or
+bind takeX to a string unless I specify the full type. "takeX s" always
+switches to '_a types and then gets bound to a specific type on the
+first use and fail on the second use.
+
+On the plus side of GADTs is that you do not need a private type (and
+therefore the module signature) to make them work.
+
+MfG
+        Goswin
+
+PS: Other simple examples that show the power of GADTs are welcome too.
+      </cwn_what>
+			<cwn_who>Gabriel Scherer replied</cwn_who>
+			<cwn_what>
+I suspect you're seeing too much into the GADT as they're being added
+in OCaml. Your examples are not basically about GADTs, but about
+dependent types: you want to encode values (and operations on them) at
+the type level to get more expressivity. This is a well-known and
+extremely powerful trend in programming languages design, but it also
+results in complex systems with sophisticated rules.
+
+GADTs are not as expressive as full dependent types and, I would
+argue, their "intended use" is elsewhere. GADTs are plain old
+algebraic datatypes that come with equality constraints between types.
+By manipulating GADTs you can reason, in a convenient way, about some
+types being equal to some other in specific case. The cornerstone
+example of GADT is the (a) type of well-typed expressions (a  expr),
+where the shape of the expression gives you more information about the
+type (a) :
+
+  type _ expr =
+    | Int : int -&gt; int expr
+    | Prod : 'a expr -&gt; 'b expr -&gt; ('a * 'b) expr
+    | IfThenElse : bool expr -&gt; 'a expr -&gt; 'a expr -&gt; 'a expr
+...
+
+With a GADT type, you can write an evaluation function of type ('a
+expr -&gt; 'a), for instance, which would not be possible in a type-safe
+way with the usual algebraic datatype with a phantom type parameter --
+it was already possible to use encodings of GADT into first-class
+modules [1], or finally tagless representations [2] to achieve the
+same effect, but with more boilerplate and less efficient runtime
+representations.
+
+[1] http://okmij.org/ftp/ML/first-class-modules/
+[2] http://okmij.org/ftp/tagless-final/index.html
+
+(Remark: a lot of algorithms can be understood as the transformation
+of data into code, that is evaluating a specific language of commands.
+It is therefore easy to see "a type of well-typed expressions" in
+almost every real-life use case.)
+
+On the contrary, your intended applications are not directly about
+equality between types, but about value and computations at the type
+level. While this can be done with GADTs when extended with enough
+machinery (in particular higher-kinded type variables and possibly
+higher-kinded datatypes; see the work on Omega [3] for example), in
+OCaml that is expected to be heavy, painful to write and read, and
+hard on the tooling (type inference, error messages, etc.). At some
+point the benefit of finer static checking does not compensate the
+overall pain and complexity of the whole process, and I think we enter
+the realm of unnecessarily complicated programs.
+
+[3] http://web.cecs.pdx.edu/~sheard/
+
+I'm no expert on the subject, but I doubt GADT will provide you much
+more expressivity at the level of which computation you can embed in
+types. I suspect you'll mostly use the same techniques as you used
+before with phantom types (the question of signature redundancy being
+more a technical detail than an indication of expressivity, or lack
+thereof, of one or another technique). Unary natural numbers will keep
+being easy to express at the type-level (see draft implementation at
+the end of this email), and modulo, difference or what not will
+probably stay tricky and horrible to define if you want the
+*inference* engine to do all computation. There is also this technique
+of using term witnesses to do the heavy type lifting and use a
+logic-programming style at the type level, but that's probably not
+what you're looking for.
+
+A small draft of unary natural numbers mirrored at the type level through 
+GADT.
+  
+https://gitorious.org/gasche-snippets/ocaml-typed-units/blobs/master/gadts_and_type_level_numbers.ml
+
+They quickly get painful and impractical. Implementing addition is
+already non-trivial -- see Mandelbaum and Stump's 2009 article "GADTs
+for the OCaml masses" [4] for a more featureful, but no simpler,
+presentation:
+
+[4] https://www.cs.uiowa.edu/~astump/papers/icfp09.pdf
+
+I consider using GADT to emulate dependent types to be an advanced,
+and often counter-productive, level of "type hackery". We should
+rather seek examples that fit the GADT features well, instead of
+trying to stretch it to such unreasonable places. For example,
+François Pottier and Nadji Gauthier's "Polymorphic typed
+defunctionalization and concretization" article [5] (2004, 2006) uses
+GADT to represent functions by (well-typed) data tags, and Alain
+Frisch's use of GADTs for dynamic type witnesses [6]. But with such
+advanced features, it is of course not easy to draw a line between
+"reasonable" and "less reasonable" uses.
+
+[5] http://gallium.inria.fr/~fpottier/publis/fpottier-gauthier-hosc.pdf
+[6] http://www.lexifi.com/blog/dynamic-types
+			</cwn_what>
+			<cwn_who>oleg also said</cwn_who>
+			<cwn_what>
+Somehow typed tagless interpreters (embeddings of a typed language)
+and length-parameterized lists with the append function are the most
+popular examples of GADTs. Neither of them seem to be particularly
+good or compelling examples. One can write typed interpreters in the
+final-tagless style, with no GADTs. Writing append function whose type
+says the length of the resulting list is the sum of the lengths of the
+argument lists is cute. However, this example does not go too far, as
+one discovers when trying to write List.filter for
+length-parameterized lists.
+
+The ML2010 talk on GADT emulation specifically used a different
+illustrating example: a sort of generic programming, or implementing
+N-morphic functions:
+ 
+http://okmij.org/ftp/ML/first-class-modules/first-class-modules-talk-notes.pdf
+
+Polymorphic functions must operate uniformly on their arguments, which
+means they can't use a specific efficient operation if the argument
+happens to be of a convenient type (like int of float
+array). N-morphic functions can take such an advantage.
+
+The running example of the talk combined value and the shape
+information in the same data type:
+
+type 'a sif = Int of (int,'a) eq * int
+            | Flo of (float,'a) eq * float
+
+val add_sif : 'a sif -&gt;  'a sif -&gt; 'a sif
+
+Shape may well be separated from the value:
+
+type 'a shape = Int of (int,'a) eq
+              | Flo of (float,'a) eq 
+
+val add_sif : 'a shape -&gt; 'a -&gt; 'a -&gt; 'a
+
+and so we pass values to add_sif without `boxing' and wrapping.
+			</cwn_what>
+			<cwn_who>To which Gabriel Scherer replied</cwn_who>
+			<cwn_what>
+In this example, you use GADTs to safely provide runtime type
+information on untagged data. This can also be seen as a specific case
+of the "runtime type information" promoted by Alain Frisch [1] or
+equivalently as a dual (in the sum-of-data vs. product-of-functions
+sense) of type-classes, where you have a predicate over a subset of
+the types ("sif" being read as an "is_a_number" type constraint) whose
+instances are closed / fixed at class definition time, to which
+operations can be added modularly: `add` now, `mult` later. This can
+then be related to Pottier and Gauthier's "concretization" of
+type-classes mentioned in my previous message.
+
+[1] http://www.lexifi.com/blog/dynamic-types
+[2] http://gallium.inria.fr/~fpottier/publis/fpottier-gauthier-hosc.pdf
+
+&gt; One can write typed interpreters in the
+&gt; final-tagless style, with no GADTs.
+
+Isn't this true of all GADTs examples? You have already shown that
+GADTs can be relatively-practically expressible with equality types. I
+suspect the justification for GADTs is not increased expressivity, but
+a simpler/more familiar way to implement those
+type-information-passing techniques -- just as ordinary algebraic
+datatypes could be expressed with functional encodings, but are more
+practical and convenient to use in the usual case. Besides, there is
+the down-to-earth efficiency benefit of directly using first-order
+data instead of functional encodings.
+			</cwn_what>
+			<cwn_who>Goswin von Brederlow later said</cwn_who>
+			<cwn_what>
+I played some more with GADTs, this time with an universal list. Well,
+not truely universal as you can't store arbitrary types. Only Int and
+Float are allowed here:
+
+type _ kind = (* used for searching in the list *)
+  | Int_kind : int kind
+  | Float_kind : float kind
+
+type value = (* box the values so we have runtime type information *)
+  | Int of int
+  | Float of float
+
+type list = (* the universal list *)
+  | Nil : list
+  | Cons : value * list -&gt; list
+
+(* find the first value in the list of a given kind *)
+let rec get : type a . list -&gt; a kind -&gt; a = fun l k -&gt;
+  match (k, l) with
+    | (_, Nil) -&gt; raise Not_found
+    | (Int_kind, Cons (Int x, xs)) -&gt; x
+    | (Float_kind, Cons (Float x, xs)) -&gt; x
+    | (_, Cons (_, xs)) -&gt; get xs k
+
+(* print out list *)
+let rec print = function
+  | Nil -&gt; print_newline ()
+  | Cons ((Int x), xs) -&gt; Printf.printf "%d " x; print xs
+  | Cons ((Float x), xs) -&gt; Printf.printf "%f " x; print xs
+
+(* testing *)
+let empty = Nil
+let l1 = Cons ((Int 1), empty)
+let l2 = Cons ((Float 2.), l1)
+let () = print l2
+let i = get l2 Int_kind
+let f = get l2 Float_kind;;
+
+(*
+                                                          2.000000 1 
+type _ kind = Int_kind : int kind | Float_kind : float kind
+type value = Int of int | Float of float
+type list = Nil : list | Cons : value * list -&gt; list
+val get : list -&gt; 'a kind -&gt; 'a = &lt;fun&gt;
+val print : list -&gt; unit = &lt;fun&gt;
+val empty : list = Nil
+val l1 : list = Cons (Int 1, Nil)
+val l2 : list = Cons (Float 2., Cons (Int 1, Nil))
+val i : int = 1
+val f : float = 2.
+*)
+
+At first glance you might think: Why does that need GADTs? Why not
+simply use 
+
+    type value = Int of int | Float of float
+
+for this?
+
+
+Take a close look at the get funktion:
+
+    val get : list -&gt; 'a kind -&gt; 'a = &lt;fun&gt;
+
+It does not return a value but directly the unboxed type. Because the
+value is unboxed you can directly use it and ocaml will detect if you
+screw up the type like in:
+
+    let () = Printf.printf "%d\n" (get l2 Float_kind);;
+    Error: This expression has type float but an expression was expected
+           of type int
+			</cwn_what>
+    </cwn_entry>
+		<cwn_entry>
+      <cwn_title>GADT examples: composable functions list</cwn_title>
+      <cwn_url>https://sympa-roc.inria.fr/wws/arc/caml-list/2012-03/msg00271.html</cwn_url>
+      <cwn_who>Roberto Di Cosmo said</cwn_who>
+      <cwn_what>
+GADT come in really handy is when you have data structures that need 
+existential
+type variables.
+
+A nice example is the case of lists of composable functions: say you want to
+build a list containing functions f_i : A_i -&gt; A_{i+1}
+
+Without GADT
+------------
+
+ One can get away cheating the type system and declaring the type
+
+  type ('a,'b) cfl = ('a -&gt; 'b) list;;
+
+ which is really incorrect: 'a is the first input type, 'b is the last output
+ type, and that's ok, but it is really not true that the list will contain
+ functions of type 'a -&gt; 'b ... 
+
+ This shows up as soon as one tries to do something useful with this list, 
+like
+ adding one element at the bebinning: to keep the type checker happy, we call
+ Obj.magic in for help
+
+  let add (f: 'a -&gt; 'b)  (fl : ('b,'c) cfl) : ('a,'c) cfl = 
+   (Obj.magic f):: (Obj.magic fl);;
+
+ And you will need Obj.magic's help in writing map, fold, compute, whatever...
+
+ You may argue that if all the hectic primitives are well hidden behind a 
+module
+ signature, and the module programmer is very smart, all will be well, but
+ that's ugly, isn't it?
+ 
+
+Here is the elegant way of doing it using GADT
+----------------------------------------------
+
+ Declare the type cfl of a composable function list as follows
+
+  type ('a,'b) cfl = 
+   Nilf: ('a,'a) cfl
+  |Consf: ('a -&gt; 'b) * ('b,'c) cfl -&gt; ('a,'c) cfl;;
+
+ Now you can write useful functions which are well typed
+
+  let rec compute : type a b. a -&gt; (a,b) cfl -&gt; b = fun x -&gt; 
+  function
+  | Nilf -&gt; x (* here 'a = 'b *)
+  | Consf (f,rl) -&gt; compute (f x) rl;;
+
+ Try it... it works!
+
+  let cl = Consf ((fun x -&gt; Printf.sprintf "%d" x), Nilf);;
+  let cl' = Consf ((fun x -&gt; truncate x), cl);;
+  compute 3.5 cl';;
+
+ Notice that the type of Consf contains a variable 'b which is 
+ not used in the result type: one can check that 
+
+   ('a -&gt; 'b) * ('b,'c) cfl -&gt; ('a,'c) cfl
+
+ can be seen as 
+
+   \forall 'a 'c. (\exists 'b.('a -&gt; 'b) * ('b,'c) cfl) -&gt; ('a,'c) cfl
+
+ so, when deconstructing a cfl, one gets of course a function and the
+ rest of the list, but now we know that their type is
+
+       \exists 'b.('a -&gt; 'b) * ('b,'c) cfl
+
+Well, isn't this a contrived example?
+-------------------------------------
+
+Actually, not at all... back in 1999, when developing a parallel
+programming library named ocamlp3l, we implemented high-level
+parallelism combinators that allowed to write expressions like this
+(hey, isn't this map/reduce? well, yes... indeed that was an ooold idea)
+
+    (seq(intervals 10) ||| mapvector(seq(seq_integr f),5) ||| 
+reducevector(seq(sum),2))
+
+These combinators could be interpreted sequentially or graphically quite
+easily, but turning them into a distributed program required a lot of
+work, and the first step was to build an AST from these expressions:
+here is a snippet of the actual type declaration from the old code in 
+parp3l.ml
+
+ (* the type of the p3l cap *)
+
+ type ('a,'b) p3ltree = Farm of (('a,'b) p3ltree * int)
+                | Pipe of ('a,'b) p3ltree list
+                | Map of (('a,'b) p3ltree * int)
+                | Reduce of (('a,'b) p3ltree * int)
+                | Seq of ('a -&gt; 'b)
+                ;;
+
+And here is one of the simplification steps we had to perform on the AST
+
+ let (|||) (t1 : ('a,'b) p3ltree) (t2 : ('b,'c) p3ltree) =
+   match ((Obj.magic t1 : ('a,'c) p3ltree), (Obj.magic t2 : ('a,'c) p3ltree)) 
+with
+     (Pipe l1, Pipe l2) -&gt; Pipe(l1 @ l2)
+   | (s1, Pipe l2) -&gt; Pipe(s1 :: l2)
+   | (Pipe l1, s2) -&gt; Pipe(l1 @ [s2])
+   | (s1, s2) -&gt; Pipe [s1; s2];;
+
+I am sure you see the analogy with the composable function list: a series
+of functions in a paralle pipeline have exactly the same type structure.
+
+With GADTs, onw can can finally write this 1999 code in a clean way in OCaml,
+so many thanks to the OCaml team, and keep up the good work!
+      </cwn_what>
+    </cwn_entry>
+		<cwn_entry>
+      <cwn_title>Js_of_ocaml version 1.1</cwn_title>
+      <cwn_url>https://sympa-roc.inria.fr/wws/arc/caml-list/2012-03/msg00302.html</cwn_url>
+      <cwn_who>Jerome Vouillon announced</cwn_who>
+      <cwn_what>
+I'm happy to announce a new release of Js_of_ocaml, a compiler
+from OCaml bytecode to Javascript.  This tool lets you write
+OCaml programs that run on Web browsers.  You can use it to
+deploy your OCaml applications everywhere (smartphones, tablets,
+desktop computers, ...), or to take advantage of the graphical
+capabilies of modern browsers: text layout, 2D canvas, WebGL...
+
+This release adds WebGL bindings, provides more complete bindings
+to the other browser APIs, and fixes a number of bugs.
+
+Js_of_ocaml is easy to install, and use thereafter, as it works with
+an existing installation of OCaml, with no need to recompile any
+library.  It comes with bindings for a large part of the browser APIs.
+
+The project page is:   http://ocsigen.org/js_of_ocaml/
+
+EXAMPLES
+
+The compiler has been used to implement the "Try Ocaml" site,
+which runs the OCaml toplevel in you browser.
+
+    http://try.ocamlpro.org/
+
+Another noteworthy example is an interactive tree viewer, which
+let you browse a large phylogenetic tree of animals, layed out on
+the hyperbolic plane.
+
+    http://ocsigen.org/js_of_ocaml/files/hyperbolic/
+
+Further examples can be found on the project page.
+
+PERFORMANCES
+
+According to our benchmarks, with state of the art Javascript engines,
+the generated programs runs typically faster than with the OCaml
+bytecode interpreter ( http://ocsigen.org/js_of_ocaml/performances ;).
+
+Js_of_ocaml performs dead code elimination in order to generate
+compact code: the Javascript file produced is usually smaller than
+the input bytecode file, and often much smaller.
+
+LINKS
+
+Project home page  http://ocsigen.org/js_of_ocaml/
+Download           http://ocsigen.org/download/js_of_ocaml-1.1.1.tar.gz
+Get source code    darcs get http://ocsigen.org/darcs/js_of_ocaml/
+Documentation      https://ocsigen.org/js_of_ocaml/manual/
+      </cwn_what>
+    </cwn_entry>
+		<cwn_entry>
+      <cwn_title>Software engineer position at MyLife</cwn_title>
+      <cwn_url>https://sympa-roc.inria.fr/wws/arc/caml-list/2012-03/msg00304.html</cwn_url>
+      <cwn_who>Martin Jambon announced</cwn_who>
+      <cwn_what>
+We are looking for a software engineer to join our team at MyLife. Our
+work falls broadly into the "Big Data" category.
+
+The successful candidate will be a programmer with an understanding of
+OCaml's properties and why it makes a good choice for the problems we
+have to solve.
+
+The job will require:
+
+- familiarity with OCaml
+- familiarity with Unix systems
+- interest in data analysis
+- continuous learning
+- good communication
+
+The position is in our Mountain View office, which benefits from the
+exceptional work and life environment of the Silicon Valley.
+
+Please contact me for more information:
+
+  Martin Jambon 
+&lt;martin AT mylife-inc.com&gt;
+      </cwn_what>
+    </cwn_entry>
+	  <cwn_entry>
+      <cwn_title>Other Caml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocamlcore.org/&gt;.
+
+PROMELA:
+  &lt;https://forge.ocamlcore.org/projects/promela/&gt;
+
+Zarith 1.1 released:
+  &lt;https://forge.ocamlcore.org/forum/forum.php?forum_id=829&gt;
+
+OCamlTopWin: simple Windows toplevel UI:
+  &lt;https://forge.ocamlcore.org/projects/ocamltopwin/&gt;
+
+ML workshop:
+  &lt;https://ocaml.janestreet.com/?q=node/107&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

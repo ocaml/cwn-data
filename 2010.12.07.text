@@ -1,0 +1,583 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of November 30 to December 07, 2010.
+
+
+
+1) OCaml port of Iteratees
+2) OCamlJIT2 vs. OCamlJIT
+3) GADT constructor syntax
+4) International Workshop on Intermediate Representations (WIR 2011)
+5) Memory management job
+6) help with regular expression
+7) Other Caml News
+
+========================================================================
+1) OCaml port of Iteratees
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/f2fb101b27ffc139#>
+------------------------------------------------------------------------
+** Dmitry Grebeniuk announced:
+
+  Did you ever feel something special touching great things?
+  I did.
+  <http://ocaml-iteratees.forge.ocamlcore.org/>
+      
+========================================================================
+2) OCamlJIT2 vs. OCamlJIT
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/6aff6222b6f0cdb8#>
+------------------------------------------------------------------------
+** Deep in this thread, Török Edwin said and Basile Starynkevitch explained:
+
+> Well there could also be a GCC backend for OCaml, but I don't know how
+> one should get started writing one (or if it would be worth it).
+
+Since I worked on OcamlJIT1 and since I am working now on GCC
+(actually, mostly on the GCC MELT branch, see www.gcc-melt.org for
+more, but sometimes on the GCC trunk, e.g. its gengtype generator), I
+probably have some personal ideas [e.g. my opinions only] on that.
+However, I am not crazy enough to work on an Ocaml front-end to GCC!
+
+The current (slow) trend inside GCC is to open & stabilize more and
+more its middle-end. In particular, the GCC middle end internal
+representations (which you can work on using MELT, a Lispy domain
+specific language suited for that very purpose) such as Gimple (and
+Tree) are becoming more stable, and will eventually (I don't know how
+and when and by whom!) have a "front-end", that is a program eating a
+textual representation of Gimple code and building from it Gimple
+internal representation in GCC memory.
+
+So in the long term, the GCC internal Gimple language is becoming more
+stable and will have a textual front-end. It will then becomes quite
+similar to the LLVM input language <http://llvm.org/docs/LangRef.html>.
+
+When that happens, one could imagine that ocamlopt (or some other
+program) will have the ability to generate (in textual files) the
+appropriate representations of the Ocaml code it is compiling.
+
+One could also imagine that in the long term, GCC would provide enough
+plugin hooks to plug a full (nearly arbitrary) front-end inside it. If
+that happens, one could imagine an Ocaml compiler, implemented as a
+gcc-ocaml-frontend.so plugin, which would create Gimple internals from
+Ocaml code.
+
+However, I believe no one is interested to work on that, and this is
+probably the case because Ocaml is "fast-enough" for most cases. Ocaml
+major strength is the power and expressiveness of its source language.
+
+My feeling is that Ocaml is more targetted for people requiring
+developers' productivity, while GCC is a mature industrial compiler
+aiming portability and performance of generated binary programs, coded
+in old [ugly] languages like C or C++.
+
+I am not sure that putting a lot of efforts inside the Ocaml compiler,
+to slightly improve the performance of generated executable, is
+worthwhile (in particular, because the runtime & the GC may become a
+bottleneck w.r.t to minor performance improvement of ocamlopt generated
+binaries).  I would bet that would bring less than 20% improvement at
+most (and often, much less), for a quite high labor cost.
+
+And my personal feeling is that these days, bright Gallium people (like
+Xavier Leroy or Fran=E7ois Pottier and their colleagues) and other Inria
+persons related to Ocaml (like Damien Doligez or Pierre Weis and many
+others) are much more interested in bringing formal methods inside
+compilers (e.g. the Compcert project of a certified & "proved" C
+compiler) than in spending a lot of time to improve ocamlopt generated
+code by a few percents.=20
+
+I would prefer them to improve even more the Ocaml language (e.g.
+GADT...), perhaps to work on a parallel runtime (but we all now that is
+*very* hard and perhaps even boring), perhaps even to start working, as
+researchers, on the [incompatible] successor of Ocaml. As food for
+thought, I tend to believe that parallel computers (e.g. "clouds", or
+just our next desktop with 16 cores) will require another programming
+style and another programming language, and that incrementally
+improving Ocaml for such systems is not enough. Some people will have
+to invent another way of thinking and programming these parallel
+systems, and it might be the same people who brought us Ocaml!
+
+But all this is day-dreaming, I have no real ideas, just personal
+wishes (and a big admiration for all the Ocaml people at INRIA, which
+are *researchers* not random software developers).
+      
+========================================================================
+3) GADT constructor syntax
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/a4fff047ad42f3bf#>
+------------------------------------------------------------------------
+** Jacques Le Normand asked:
+
+I would like to start a constructive discussion on the syntax of GADT 
+constructors of the ocaml gadt branch, which can be found at: 
+
+<https://sites.google.com/site/ocamlgadt/> 
+
+There are two separate issues: 
+
+1) general constructor form 
+
+option a) 
+
+type _ t = 
+        TrueLit : bool t 
+      | IntLit of int : int lit 
+
+option b) 
+
+type _ t = 
+      TrueLit : bool t 
+    | IntLit : int -> int lit 
+
+I'm open to other options. The branch has used option b) from the 
+start, but I've just switched to option a) to see what it's like 
+
+Personal opinion: 
+
+I slightly prefer option b), because it makes it clear that it's a 
+gadt constructor right from the start. This is useful because the type 
+variables in gadt constructors are independent of the type parameters 
+of the type, consider: 
+
+type 'a t = Foo of 'a : 'b t 
+
+this, counter intuitively, creates a constructor Foo of type forall 'd 
+'e. 'd t -> 'e t. 
+
+2) explicit quantification of existential variables 
+
+option a) 
+
+leave existential variables implicitly quantified. For example: 
+
+type _ u = Bar of 'a t : u 
+or 
+type _ u = Bar :  'a t -> u 
+
+option b) 
+
+specifically quantify existential variables. For example: 
+
+type _ u = Bar of 'a. 'a t : u 
+or 
+type _ u = Bar : 'a. 'a t -> u 
+
+Currently, the branch uses option a). 
+
+Personal opinion: I prefer option b). This is for four reasons: 
+
+I) the scope of the explicitly quantified variable is not clear. For 
+example, how do you interpret: 
+
+type _ u = Bar of 'a. 'a : 'a t 
+or 
+type _ u = Bar : 'a. 'a -> 'a t 
+
+In one interpretation bar has type forall 'a 'b. 'a -> 'b t and in 
+another interpretation it has type forall 'a. 'a -> 'a t. My 
+inclination would be to flag it as an error. 
+
+II) 
+
+In the example of option b), the 'a variable is quantified as a 
+universal variable but, in patterns, it is used as an existential 
+variable. This is something I found very confusing in Haskell where 
+they actually use the 'forall' keyword. 
+
+III) option a) is the current Haskell GADT syntax and I've never heard 
+anyone complain about it 
+
+IIII) I don't see how option b) improves either readability or bug prevention 
+I look forward to hearing your opinions. 
+      
+** After much discussion, Jacques Garrigue said:
+
+Actually I'm not sure that fully explicit quantification is necessary, or even
+desirable.
+The reason is that the gadt extension introduces actually two kinds of
+case-specific type variables: universals and existentials.
+
+Namely, in the type 
+
+  type _ term = 
+      Int : int -> int term 
+    | Bool : bool -> bool term 
+    | Lam : ('a -> 'b) -> ('a -> 'b) term 
+    | App : ('a -> 'b) * 'a -> 'b term 
+
+the type variables 'a and 'b in Lam are universals, but 
+in App only 'b is universal, while 'a is existential. 
+
+Personally, I would prefer this to be written: 
+
+  type _ term = 
+      Int of int : int term 
+    | Bool of bool : bool term 
+    | Lam of ('a -> 'b) : ('a -> 'b) term 
+    | App of 'a. ('a -> 'b) * 'a : 'b term 
+
+
+That is, use a syntax close to the current ocaml one, which makes 
+easy to quantify clearly existential variables, so that they cannot 
+be confused with universal ones. If we use the arrow syntax, 
+the natural scope for quantification includes the return type, which 
+is incorrect for existential types. And using the "of" syntax, it is hard 
+to quantify type variables appearing in the return type, so I think 
+this is better to leave the universals implicit. 
+
+Considering the definition 
+
+  type 'a t = Foo of 'a : 'b t 
+
+I think that is should either unify 'a and 'b, being in practice 
+equivalent to "type 'a t = Foo of 'a", or flag an error because 'a is not 
+available in this branch. I might actually prefer the unification approach, 
+because this conforms to the intuition that the scope of 'a is the whole 
+type definition, but maybe people can come to understand that an 
+explicit return type overrides this.
+      
+** Daniel de Rauglaudre also replied:
+
+> option a)
+> type _ t =
+>         TrueLit : bool t
+>       | IntLit of int : int lit
+> option b)
+> type _ t =
+>       TrueLit : bool t
+>     | IntLit : int -> int lit
+
+For a:
+  A little bit easier to parse (as a Camlp5 designer), which is just
+  a parse of the 'of' part followed (or not) with the ':' and another
+  type. In the option b), in the "revised" syntax version, I decided
+  to also separate the constructor parameters with arrows, which forced
+  me to add a function separating the ending type, the parsing being
+  therefore more complicated.
+
+For b:
+  1/ The difference between normal constructors and constructors with GADT
+     is very visible. All examples given here are often with definitions
+     which are relatively short, but I tried an example with constructors
+     with several long types and I like the idea of seing immediately
+     that they are GADTs, rather at the end of the definition line (or
+     lines).
+  2/ I like the idea of defininig them with a syntax like the one of
+     functions definitions, like 'val'. In the "revised" syntax version,
+     where the constructors parameters are in "curried" form, this is
+     even more readable (even if partially applied parameters are
+     not accepted in the OCaml compiler).
+
+PS The latest version of Camlp5 works with Jacques' version. You can
+download it at: <http://pauillac.inria.fr/~ddr/camlp5/>
+
+PPS The version with GADT is very interesting to parse parsing rules. I
+is what I was searching for many years. In Camlp[45], the EXTEND statement
+generates calls to Obj.magic and types constraints to "extend" the
+OCaml type system. (This cannot be simulated by first class modules.)
+      
+========================================================================
+4) International Workshop on Intermediate Representations (WIR 2011)
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/1b033083d8a28b57#>
+------------------------------------------------------------------------
+** Simon Peyton-Jones announced:
+
+Dear functional friends
+
+Here's the Call for Papers for a new Workshop on Intermediate Representations.
+
+I expect it to get a lot of papers about the JVM and program dependence
+graphs, but the Chair explicitly wants papers about intermediate
+representations for functional programs, both typed and untyped. So, do me a
+favour :-) and submit your paper, lest I get landed with a mountain of SSA
+papers to review. (Yes, SSA is just CPS in disguise. But the disguise is
+heavy.)
+
+The deadline is rather short: Jan 21.  Happy Christmas!
+
+Simon
+
+==============================
+Call for Papers
+
+International Workshop on Intermediate Representations (WIR 2011)
+
+Co-located with CGO 2011, April 2/3 2011 in Chamonix, France
+
+<http://researchr.org/conference/wir-2011>
+
+Description
+===========
+
+The intermediate representation is the core of any program transformation
+tool. Its design has a significant impact on the simplicity, efficiency, and
+effectiveness of program transformations. The developments in concurrent
+programming, integrated development environments, and domain-specific
+languages pose new requirements on intermediate representations. This workshop
+provides a forum to discuss current trends and experiences in the design,
+implementation, and application of intermediate representations.
+
+Topics of Interest
+==================
+
+The list of topics includes, but is not limited to:
+
+  * intermediate representations for
+        o parallelism and concurrency
+        o instrumentation
+        o JIT compilation
+        o compiler verification
+        o domain-specific languages
+        o refactoring
+        o integrated development environments
+  * functional intermediate representations for imperative programs
+  * translation to, and code generation from an IR
+  * modeling low-level machine details in IRs
+  * impact of IR on the precision of static analyzers
+  * representing static analysis results in an IR
+  * origin tracking
+
+Submission
+==========
+
+We solicit submission of original papers on topics relevant to intermediate
+representations. Papers should be formatted in SIGPLAN Proceedings
+Format, 9 point
+font, and be at most 8 pages in length.
+
+  * <http://www.acm.org/sigs/sigplan/authorInformation.htm>
+
+Selected papers will be published in the ACM digital library (to be
+confirmed).
+
+Papers should be submitted electronically with easychair:
+
+  * <http://www.easychair.org/conferences/?conf=wir2011>
+
+Important Dates
+===============
+
+  * Submission: January 21, 2011
+  * Notification: February 25, 2011
+  * Camera-ready: March 18, 2011
+  * Workshop: April 2/3, 2011
+
+Organizers
+==========
+
+  * Florent Bouchez
+  * Sebastian Hack
+  * Eelco Visser
+
+Program Committee
+=================
+
+   * Florent Bouchez (chair)
+   * Martin Bravenboer
+   * Albert Cohen
+   * François de Ferrière
+   * Robert Fuhrer
+   * Sebastian Hack (chair)
+   * Andrew Kennedy
+   * Sorin Lerner
+   * Nathaniel Nystrom
+   * Simon Peyton Jones
+   * Tijs van der Storm
+   * Eelco Visser (chair)
+      
+========================================================================
+5) Memory management job
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/fd4cb7263452e21b#>
+------------------------------------------------------------------------
+** Simon Peyton-Jones announced:
+
+Dear Haskellers and Camlers
+ 
+I?m posting this job ad on behalf of Richard Brooksby at Ravenbrook. They do
+cool stuff, and I thought some of you might be interested.
+
+Simon
+ 
+ 
+Ravenbrook is seeking a developer to work with us on the Memory Pool System
+(MPS), a mature, open source, high reliability, high performance memory
+management system with a unique and innovative architecture. You can read an
+overview here
+<http://www.ravenbrook.com/project/mps/doc/2002-01-30/ismm2002-paper/ismm2002.html>.
+The MPS is a highly engineered ?Swiss watch? of a system with an extremely low
+bug rate.
+ 
+We're looking for someone who can support our commercial clients with
+customisations, but also develop the MPS for new opportunities. It could be a
+half-time position (or subcontract), paying about £35k pro rata. This could
+grow if you are successful in developing new commercial opportunities for the
+MPS. We have several other options for work structure and payment that we can
+discuss with you. There can be a great deal of flexibility and a higher rate
+of pay depending on what kind of risk/reward tradeoff you need. Ask!
+ 
+This is an excellent opportunity for someone interested in memory management
+and garbage collection research. We are keen to promote research, and the
+flexible nature of this work would allow time for it. It's also an excellent
+opportunity for someone interested in developing commercial applications for
+memory management and garbage collection.
+
+There would also be an opportunity to get involved with our other consulting
+work, or even video game development.
+
+Essential requirements:
+
+? you will mostly need to work at our office in Cambridge, UK
+
+? you will need to start early in 2011
+
+? highly professional attitude to quality, reliability, and commercial
+relationships
+
+? able to self-start, plan, and manage yourself
+
+? excellent verbal and written technical communication skills
+
+? excellent knowledge of ISO/IEC 9899:1990 and ISO/IEC 9899:1999. (Oh OK then,
+I mean C.)
+
+? good understanding of operating systems and memory management
+
+? understanding of processor architectures and assembly language
+
+Also very useful:
+
+? some compiler and language run-time development experience
+
+? good understanding of threads, concurrency, and race/hazard issues
+
+? some low level systems and embedded systems experience
+
+? low-level Unix (including Mac) and Windows programming
+
+? some experience in soft real-time systems
+
+? keen interest in programming languages, compilers, provability
+
+Address in sig. Do get in touch.
+
+PLEASE NOTE: Generic CVs and resumes as Word document attachments will be
+trashed. Explain why you might be good for us, in plain text or on the phone.
+Thanks!
+ 
+---
+Richard Brooksby <rb@ravenbrook.com>
+Director
+Ravenbrook Limited <http://www.ravenbrook.com/> PO Box 205, Cambridge CB2 1AN, United Kingdom
+Voice: +44 777 9996245  Fax: +44 1223 750036
+      
+========================================================================
+6) help with regular expression
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/29e1f81372f9eb05#>
+------------------------------------------------------------------------
+** Zaid Khalid asked and Dawid Toton suggested:
+
+> I want some help in writing regular expressions in Ocaml, as I know how to 
+> write it in informal way but in Ocaml syntax I can not. For example I want 
+> to write "a* | (aba)* ".
+>
+> Another question if I want the string to be matched against the regular 
+> expression to be matched as whole string not as substring what symbol I need 
+> to attach to the substring, i.e if I want only concrete strings accepted 
+> (like (" ", a , aa , aaa, aba, abaaba), but not ab or not abaa).
+
+I also had problems with Str (regexp descriptions being unreadable,
+error-prone and hard to generate dynamically) and decided just to stop using
+Str.
+I have a tiny module [1] made with clarity in mind. It is pure OCaml. It
+defines operators like $$ to be used in regexp construction. This way syntax
+of the expressions is checked at compile time. Also, it is trivial to build
+them at run time.
+The whole "engine" is contained in a relatively short function
+HRegex.subwords_of_subexpressions, so I believe anybody can hack it without
+much effort.
+
+I haven't measured performance of this implementation. I expect it to be slow
+when processing long strings. It's just OK for my needs so far. Anyway, the
+important part is the module interface. It expresses my point of view on this
+topic.
+
+The code is available in a mercurial repository [2].
+
+The exemple "a* | (aba)* " would become:
+
+open HRegex.Operators
+
+let rx = (!* !$ "a") +$ (!* !$ "aba")
+
+Dawid
+
+[1] <http://hg.ocamlcore.org/cgi-bin/hgwebdir.cgi/hlibrary/hlibrary/raw-file/tip/HRegex.mli>
+[2] <http://hg.ocamlcore.org/cgi-bin/hgwebdir.cgi/hlibrary/hlibrary>
+      
+** Sylvain Le Gall also replied and Martin Jambon added:
+
+> There is also syntax extension like mikmatch, that helps to write regexp
+> in a very meaningful syntax:
+> 
+> match str with 
+> | RE bol "a"* | "ab"* eol ->
+>   true
+> | _ ->
+>   false
+
+If I understand correctly the original problem, the solution is:
+
+match str with
+  | RE ("a"* | "aba"*) eos ->
+      (* matches always the beginning of the string,
+         eos enforces a match at the end of the string,
+         and the vertical bar has the lowest priority
+         and so parentheses are needed. *)
+      true
+  | _ ->
+      false
+
+
+> <http://martin.jambon.free.fr/mikmatch-manual.html>
+> <http://martin.jambon.free.fr/mikmatch.html>
+> 
+> You can use pcre and str with mikmatch.
+
+I would recommend the pcre variant mostly for one feature that is not
+provided by str:  lazy quantifiers, i.e. "repeat as little as possible
+before trying to match what comes next".
+      
+========================================================================
+7) Other Caml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocamlcore.org/>.
+
+Pearls of OCaml Batteries (1):
+  <http://www.donadeo.net/post/2010/batteries-1>
+
+Dynamic types:
+  <http://www.lexifi.com/blog/dynamic-types>
+
+Implicit arguments:
+  <http://www.lexifi.com/blog/implicit-arguments>
+
+ocaml-benchmark:
+  <https://forge.ocamlcore.org/projects/ocaml-benchmark/>
+
+XDG basedir:
+  <https://forge.ocamlcore.org/projects/xdg-basedir/>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

@@ -1,0 +1,300 @@
+Hello,
+
+Here is the latest Caml Weekly News, week 13 to 20 May, 2003.
+
+1) POSIX Threads: kill
+2) Printf question
+3) Generating dynamically libraries with OCaml
+4) Reading a file
+5) Ocaml and large development projects
+6) Ocaml-Sqlite 0.3.4
+
+==============================================================================
+1) POSIX Threads: kill
+------------------------------------------------------------------------------
+Christoph Bauer asked and Xavier Leroy explained:
+
+> in file ocam-3.06/otherlibs/systhreads/thread_posix is this comment:
+> 
+> (* Thread.kill is currently not implemented due to problems with
+>    cleanup handlers on several platforms *)
+> 
+> Is anybody working on it?
+
+The problem is as follows.
+
+POSIX threads have a notion of cleanup handlers, which are functions
+that are called when the thread dies, either voluntarily (via
+pthread_exit) or by being cancelled by another thread (via
+pthread_cancel).
+
+On some platforms (Tru64 Unix for sure, perhaps Solaris as well),
+cleanup handlers are implemented via C++ exceptions.  (It is true that
+POSIX threads is a C interface, however the Tru64 C compiler
+understands C++ exceptions even when compiling pure C sources.)
+Namely, a cleanup handler is mapped to a try... finally construct that
+just does the right thing.
+
+The problem is that C++ exception handling is based on unwinding stack
+frames one by one till a matching exception handler is found.  This
+requires stack frames to adhere strictly to a particular format, and
+be equipped with stack descriptors that the C++ stack unwind mechanism
+understands.  But of course the stack frames used ocamlopt-generated
+code do not adhere to this format, and do not come with C++ stack
+descriptors.  Hence, if the "systhreads" library was using
+pthread_exit and pthread_cancel, the C/C++ runtime system would try to
+unwind Caml stack frames, and just crash the whole program.
+
+> Is there a solution for linux-i386?
+
+LinuxThreads on Linux doesn't rely on C++ exceptions, so it doesn't
+suffer from the problem above.  However, LinuxThreads is being
+replaced by NPTL, another, better threading library for Linux, and I
+don't know how NPTL implements cleanup handlers.
+
+The general solution is to avoid using Thread.kill.  Terminating another
+thread at arbitrary times is an inherently unsafe operation: the
+killed thread may be holding mutexes, for instance.  There's a good
+explanation of the problems in the Java documentation:
+
+http://java.sun.com/j2se/1.4.2/docs/guide/misc/threadPrimitiveDeprecation.html
+
+explaining why they "deprecated" their equivalent of Thread.kill.
+
+==============================================================================
+2) Printf question
+------------------------------------------------------------------------------
+Brian Hurt asked:
+
+I want to define a wrapper function for printf, basically for debug.  I'd
+like it to work so I can do things like:
+
+    debug "some message"; (* outputs "FOO: some message\n" *)
+    debug "answer: %d" 42 ; (* outputs "FOO: answer: 42\n" *)
+
+basically to prepend "FOO: " and append "\n".  Is this possible in any
+sane manner?  I tried:
+
+let debug s = Printf.printf ("FOO: " ^ s ^ "\n")
+
+and:
+
+let debug s = let t = "FOO: " ^ s ^ "\n" in Printf.printf s
+
+and neither works.
+
+Manos Renieris suggested:
+
+You need to concatenate formats, not strings. In the CVS version,
+(^^) is defined, and does exactly that.
+
+and William Lovas proposed:
+
+This is due to the funny type magic that makes printf work in the first
+place.
+
+I think the right solution (or at least, *a* right solution) in this case
+is to use kprintf, which takes a continuation to pass the resulting string
+to.  For an sprintf-like solution:
+
+    let debug s = Printf.kprintf (fun t -> "FOO: " ^ t ^ "\n") s
+
+Or, for something more side-effectual:
+
+    let debug s = Printf.kprintf
+                    (fun t -> print_string ("FOO: " ^ t ^ "\n"); "") s
+
+(But you might have to use `ignore' to ignore the useless empty string
+result value.)
+
+==============================================================================
+3) Generating dynamically libraries with OCaml
+------------------------------------------------------------------------------
+Wolfgang Müller asked:
+
+I would like to rephrase the question: is it possible to use OCaml code (plus
+possibly some C code) for generating dynamically linked libraries that are
+used as easily as c(++) from c(++)? I've got the impression that this is the
+case. At least page 218 of the docs (chapter 17.7. at the end) suggests so.
+
+As I am currently deciding if I want to start a project in OCaml that possibly
+could become a library that would have to be used from C or JAVA, I would be
+very interested in the OCaml-Gurus' comment on that.
+
+Nicolas Cannasse suggested:
+
+One of the best way to do what you want right now is to use ODLL (
+http://tech.motion-twin.com/odll ). This will give you a good idea of how
+you can handle it.
+
+Wolfgang Müller then asked:
+
+Looks great! Thanks! But this is for Windows, right? Do you think there are
+any obstacles in porting it to Linux (i.e. I would not be able to spend much
+time on it soon)?
+
+Nicolas Cannasse answered:
+
+Yes, right now only windows DLL can be produced, but I think with some minor
+changes you can extend ODLL to make it works with GCC, since this is only a
+matter of "calling the good command with the good arguments". If you're
+interested in modifying it , I'll be happy to answer your questions and to
+include the diffs in the distribution.
+
+==============================================================================
+4) Reading a file
+------------------------------------------------------------------------------
+Siegfried Gonzi asked:
+
+Is there a better way in Ocaml to read a file line by line than via the
+read_line function?
+
+I use read_line on a file, perform some tasks on this line and store the
+results in a list and after having red the file I use List.rev. The
+problem actually is on big files the function is awfully slow. As
+similar Clean function takes 15 seconds, my Bigloo program takes 25
+second and my C++ programs (via templates) takes 25 secondes but my
+Ocaml program takes 8 minutes.
+
+I am not sure how quick List.rev actually is? In Bigloo reversing a list
+has more or less no overhead. My Bigloo function is similar to my OCaml
+function. Could it be that OCaml is that slow because I use "try and
+with" constructs in order to check for the end of a file?
+
+Why my Clean function is that fast is incomprehensible for me. Does one
+know whether there exists a function in OCaml which converts a String to
+a character-list? I use this construct in Clean then in order to extract
+floating point numbers from that character list: ['1','.','2',...] and
+store this floating point numbers via pattern matching in my result-list.
+
+Mattias Waldau suggested:
+
+If the files are not of megabyte size, I just read
+them into a string. Very fast.
+
+(** return the contents of filename as a string *)
+let read_as_string filename =
+  (* read at most len chars into string s, return the number of chars   
+read *)
+  let rec my_input ic s ofs len =
+    if len <= 0 then ofs else begin
+      let r = input ic s ofs len in
+      if r = 0
+      then ofs
+      else my_input ic s (ofs+r) (len-r)
+    end in
+  let ic = open_in_bin filename in
+  let max_size = in_channel_length ic in
+  let buf = String.create max_size in
+  let read_chars = my_input ic buf 0 max_size in
+  close_in ic;
+  String.sub buf 0 read_chars ;;
+
+Nicolas Cannasse said:
+
+You might want to use the ExtLib for this.
+You can look at the CVS here :
+
+http://cvs.sourceforge.net/cgi-bin/viewcvs.cgi/ocaml-lib/
+
+The code you need :
+-------------------------------
+open ExtLib   
+
+let e = input_enum my_file in
+let e = Enum.map my_conversion_function e in
+List.of_enum e (* will return you the mapped list without any rev done *)
+-------------------------------------   
+(You'll need the ExtList and the Enum modules for it)
+
+You can use ExtString.enum to get a char Enumeration on your string.
+It is more efficient then to use it as an Enum, since you don't create any
+data structure to store the chars , but you still can get a list from it by
+doing List.of_enum.
+
+Markus Mottl also answered:
+> Is there a better way in Ocaml to read a file line by line than via the 
+> read_line function?
+
+Yes: use "input_line"! "read_line" flushes stdout, which you'll probably
+not need.
+
+> I am not sure how quick List.rev actually is?
+
+As quick as it can be...
+
+This problem is most likely not related to List.rev.
+
+> In Bigloo reversing a list 
+> has more or less no overhead. My Bigloo function is similar to my OCaml 
+> function. Could it be that OCaml is that slow because I use "try and 
+> with" constructs in order to check for the end of a file?
+
+If you create the exception handler within a loop, this will also be a bit
+costly. The loop should be within the exception handler, not vice versa.
+
+==============================================================================
+5) Ocaml and large development projects
+------------------------------------------------------------------------------
+Following a discussion on managing large development projects with OCaml, and
+questions about Makefiles, Markus Mottl said:
+
+OCamlMakefile does that for you:
+
+  http://www.ai.univie.ac.at/~markus/home/ocaml_sources.html#OCamlMakefile
+
+A "make bc" (or simply: "make") will build byte code, a "make nc" will
+build native code for the sources you specify. In each case "make"
+will only build what is still missing.
+
+OCamlMakefile should scale up fairly well for medium-sized
+OCaml-projects. The limitations / problems that appear with larger
+projects are mostly related to general issues concerning "make", which
+isn't a particularly well-suited tool for this purpose, but the only
+one which is reliably installed on most development platforms.
+
+Nicolas Cannasse added:
+
+You can also use Ocamake : http://tech.motion-twin.com/ocamake which is more
+like a "make for ocaml" , entirely written in OCaml, and does not rely on 
+external tools such as bash , make, and so on... ( in particular, one
+doesn't need to install cygwin gnu make on Windows platform to compile ) .
+OCamake can then be called as "fully portable" since it works exactly the
+same on all platforms OCaml is working on ( and who would like to compile
+ocaml code on a platform where ocaml doesn't work ?? )
+
+==============================================================================
+6) Ocaml-Sqlite 0.3.4
+------------------------------------------------------------------------------
+Mikhail Fedotov announced:
+
+Bindings for accessing Sqlite databases from ocaml
+programs, version 0.3.4
+
+Not all functionality of Sqlite is exposed, the binding is   
+a rough equvalent of bindings by David Brown with a bit
+more features.
+
+Available at
+http://www.sourceforge.net/projects/ocaml-sqlite
+
+Plans for 0.4.x versions: tidy up error codes & exceptions
+(i.e raising Invalid_argument exception in place of
+Sqlite_error where it is appropriate, and so on);
+
+Plans for 0.5.x versions: provide richer API to match the
+API of Sqlite more closely. User sql functions and
+aggregates, busy calbacks, authorization etc.
+
+==============================================================================
+Old cwn
+------------------------------------------------------------------------------
+
+If you happen to miss a cwn, you can send me a message
+(alan.schmitt@inria.fr) and I'll mail it to you, or go take a look at
+the archive (http://pauillac.inria.fr/~aschmitt/cwn/). If you also wish
+to receive it every week by mail, just tell me so.
+
+==============================================================================
+
+Alan Schmitt

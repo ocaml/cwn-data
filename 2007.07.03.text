@@ -1,0 +1,236 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of June 26 to July 03, 2007.
+
+1) The Implicit Accumulator: a design pattern using optional arguments
+2) An OCaml toplevel IRC bot
+3) pattern guards
+4) Adding another "let ... in"-like construct for fontification/indentation
+
+========================================================================
+1) The Implicit Accumulator: a design pattern using optional arguments
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/5505600e34d72409/258b9c92560b3670#258b9c92560b3670>
+------------------------------------------------------------------------
+** Jon Harrop said, spawning a huge thread:
+
+I can't find the thread where we were talking about design patterns recently 
+but I'd like to note a design pattern that works nicely in OCaml. I'll call 
+it "The Implicit Accumulator". 
+ML programmers often use nested auxiliary functions or separate functions to 
+handle base cases. For example, writing rev in terms of rev_append: 
+# let rec rev_append l1 l2 = match l1 with 
+    | [] -> l2 
+    | a :: l -> rev_append l (a :: l2);; 
+val rev_append : 'a list -> 'a list -> 'a list = <fun> 
+# let rev l = rev_append l [];; 
+val rev : 'a list -> 'a list = <fun> 
+Provided performance is unimportant, you can make the accumulator implicit in 
+OCaml by specifying the default value in an optional argument instead of 
+having a separate function: 
+# let rec rev ?(back=[]) = function 
+    | [] -> back 
+    | h::t -> rev ~back:(h::back) t;; 
+val rev : ?back:'a list -> 'a list -> 'a list = <fun> 
+When you don't want the auxiliary (rev_append) function, I think this style 
+results in shorter and clearer code. I used it in the "search" function of my 
+Sudoku solver, for example: 
+let rec search ?(x=0) ?(y=0) f accu = match x, y with 
+    9, y -> search ~x:0 ~y:(y+1) f accu (* Next row *) 
+  | 0, 9 -> f accu                      (* Found a solution *) 
+  | x, y -> 
+      if m.(y).[x] <> '0' then search ~x:(x+1) ~y f accu else 
+        fold (fun accu n -> 
+                let n = Char.chr (n + 48) in 
+                if invalid x y n then accu else 
+                  (m.(y).[x] <- n; 
+                   let accu = search ~x:(x+1) ~y f accu in 
+                   m.(y).[x] <- '0'; 
+                   accu)) accu 1 10 
+and it crops up quite a lot in addition to all of the "conventional" uses of 
+optional arguments.
+			
+** Quôc Peyrot then said (there are many replies which you may read online):
+
+It's funny that you speak about this, because I recently (few days   
+ago) used 
+a pattern similar to yours, but to actually improve performances. 
+I had something like that (which is quite different than my actual   
+code, but 
+the idea is the same): 
+let encrypt str = 
+   let len = String.length str in 
+   let encrypted = String.create len in 
+   (* ... *) 
+   encrypted 
+(*...*) 
+for i = 0 to 10000000 do 
+   let encrypted = encrypt str in 
+   (* do something on the result *) 
+done 
+Which is slow due to the string allocation happening each time we   
+call "encrypt" 
+So I rewrote it like that: 
+let encrypt ?encrypted str = 
+   let len = String.length str in 
+   let result = match encrypted with 
+     | None -> String.create len 
+     | Some s -> s 
+   in 
+   (* ... *) 
+   result 
+(* ... *) 
+let encrypted = String.create (String.length str) in 
+for i = 0 to 1000000000 do 
+   let encrypted = encrypt ~encrypted str in 
+   (* ... *) 
+done 
+Which gave me more than a 2x speedup while still being able to call a   
+simple: 
+let encrypted = encrypt str 
+during normal usage 
+I was quite happy with this solution, but maybe there is something   
+more elegant to do? 
+(I'm still in the process of learning good optimization patterns in   
+ocaml which preserve readability)
+			
+========================================================================
+2) An OCaml toplevel IRC bot
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/c2efb7fbbbc57095/edf94fe14926b0e5#edf94fe14926b0e5>
+------------------------------------------------------------------------
+** Richard Jones announced:
+
+Appearing from time to time on #ocaml on FreeNode. 
+<http://annexia.org/tmp/xavierbot-0.1.tar.gz>
+			
+========================================================================
+3) pattern guards
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/b5fceca4e37bbed6/b0ec5324180bfeba#b0ec5324180bfeba>
+------------------------------------------------------------------------
+** Jeremy Yallop announced:
+
+I'm pleased to announce the initial release of `patterns', an OCaml 
+extension providing general-purposes additions to pattern matching. 
+This release includes a single feature: "pattern guards"; others will 
+be made available in the near future. 
+You can download patterns from 
+    <http://code.google.com/p/ocaml-patterns/> 
+Pattern guards generalize "when"-guards to allow arbitrary pattern 
+matching with binding.  After each pattern in a match you can write 
+one or more binding phrases as follows: 
+   match e with 
+     | patt1 with p1 = e1 
+             ... 
+             with pn = en 
+          -> e 
+     | patt2 ... 
+The expressions e1 ... en are evaluated in turn and matched with 
+the corresponding patterns p1 ... pn until either a match fails (in 
+which case matching proceeds with patt2 etc.) or all matches 
+succeed.  Any variables bound in p1 ... pn are in scope within 
+subsequent guards and within e. 
+For example, given a function 
+    val lookup : 'a -> ('a * 'b) list -> 'b option 
+you might write the following 
+    let f env = function 
+     | Var x 
+          with Some v = lookup x env -> ... v ... 
+instead of the less elegant and less efficient 
+    let f env = function 
+     | Var x 
+          when mem_assoc x env -> ... assoc x env ... 
+Pattern guards and regular guards can be freely intermixed; for 
+example, you can write 
+   match e with 
+     | patt when c1 
+            with patt1 = e1 
+            when c2 
+            with patt2 = e2 -> e 
+     | ... 
+Pattern guards were proposed (for Haskell) in 
+    Martin Erwig and Simon Peyton Jones 
+    Pattern Guards and Transformational Patterns 
+    Haskell Workshop, 2000 
+See also: <http://research.microsoft.com/~simonpj/Haskell/guards.html>
+			
+========================================================================
+4) Adding another "let ... in"-like construct for fontification/indentation
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/a767d66c1721a432/19eb32a9dbb96f11#19eb32a9dbb96f11>
+------------------------------------------------------------------------
+** Denis Bueno asked and Philippe Wang answered:
+
+> In tuareg-mode, is there a simple way to add support for indentation 
+> for a new syntactic construct that behaves exactly like "let ... in 
+> ..."?  I'd like "def ... in ..." to behave the same way.  I'm thinking 
+> of some code I can stuff in my .emacs, hopefuly, as opposed to a 
+> modification of tuareg.el. 
+> I'd like to be able to write: 
+>    let foo a b = a + b in 
+>    def hi(x) = print_int x; 0 in 
+>    let bar x = x in 
+>      <some body where foo and hi are in scope> 
+> i.e. I'd like to interleave let .. in ... and def ... in ..., and have 
+> them cooperate. 
+> I looked around tuareg.el and found a bunch of places where "let" is 
+> mentioned in a regexp, and even found `tuareg-make-find-kwop-regexp', 
+> whose doc string says "Make a custom indentation regexp".  That doc 
+> string seems like it's what I want, but that function has no side 
+> effects, so clearly it's not the whole story. 
+> What I'm eventually shooting for is a tuareg mode that "knows" about 
+> Jocaml syntax, since I'm fiddling around with that for the moment. 
+> There are more new pieces of syntax on Jocaml (new keywords "spawn" 
+> and "reply to") which seem pretty simple to support, but I haven't 
+> thought about them very much. 
+> Thanks in advance. 
+
+
+Hi, 
+I sent the following text last week but, I don't know why, it got lost... 
+Well, I played a little bit with tuareg, to try to adapt it to JoCaml. 
+The keywords are well colored (well, I think they are), but the 
+indentation is not finished (well, let's say it : it's wrong). 
+You can get what I have done if ever you are interested : 
+<http://philippewang.info/cs/misc/juareg-mode-1.46.2.tar.gz> 
+(there is in particular a bug : a function call finds nil... why why why 
+is dynamic typing so mean with me...) 
+Well, I've spent only a few minutes on it, plus a few hours trying to 
+catch bugs, most of which I haven't caught. 
+I have no idea if someone else is working on it, I just wanted to "play" 
+with elisp... 
+But I don't have time to continue right now, that's the reason why I 
+give you the sources. 
+Cheers, 
+Philippe Wang 
+ mail[at]philippewang.info 
+PS : 
+if ever you want to compare tuareg sources with juareg sources, I 
+suggest you apply : 
+for i in * ; sed -i -e 's/juareg/tuareg/g' -e 's/jocaml/ocaml/g' $i ; done 
+on the sources first. 
+The advantage in naming it juareg instead of tuareg is that it can be 
+used without interfering with tuareg.
+			
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

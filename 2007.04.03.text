@@ -1,0 +1,289 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of March 27 to April 03, 2007.
+
+1) HOWTO create and install a new printer with camlp4 3.10
+2) OCaml and C code in a dynamic library
+3) Running several parsers in a single runtime (nethttpd, Menhir)
+4) A web toolkit for OCaml (logging, RSS, etc)
+5) OCaml Summer Project winners selected
+6) [Camlp4 3.10] The rosetta stone
+
+========================================================================
+1) HOWTO create and install a new printer with camlp4 3.10
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/cf3a349874b56bc3/c0df9c65e552a9eb#c0df9c65e552a9eb>
+------------------------------------------------------------------------
+** Hendrik Tews said:
+
+Posted in the hope to save somebody's time before the new camlp4 
+documentation gets out. 
+
+First a word on side effects: I mean those side effects that 
+newly loaded modules perform inside camlp4 to register their 
+functions in the camlp4 engine. 
+
+In the good old times one simply used assignments for that, for 
+instance 
+        Pcaml.print_implem := f 
+has always been used to install f as printer for a .ml file. 
+
+In the new camlp4 (some of) these side effects are performed not 
+by the user but by camlp4 itself. The user only supplies the 
+structure. It works the following way: The user defines a 
+functor Make that maps some structure to a structure that defines 
+the entities that camlp4 should use: 
+
+    module Make (some arg) = struct 
+      let important_fun ... 
+    end 
+
+The user then uses Make in a functor application with a 
+higher-order, registering functor from camlp4: 
+
+   module IgnoreResult = Camlp4.Register.Purpose(Make) 
+
+where Purpose is one of the functors that Camlp4.Register 
+provides. On invocation Purpose applies the user supplied Make to 
+the right arguments, obtains a structure with important_fun and, 
+finally, performs the side effect to register important_fun in 
+the right hook. Actually the story is a bit more complicated, 
+because the side effects are delayed: First Make is registered as 
+a loaded module inside camlp4 together with a function that will 
+perform the necessary side effects some time later. See for 
+example functor Printer in camlp4/Camlp4/Register.ml line 73. 
+
+In order to install a new camlp4 printer we only have to find the 
+right registering functor and apply it to our arguments, put 
+everything into some file and compile it into a .cmo. 
+
+To install a new printer I chose Register.Printer, which takes 
+two arguments: an identification module and a Make functor with 
+my new printer functions inside. 
+
+Here is the complete code: 
+
+  (* identification module *) 
+module Id = struct 
+    (* name is printed with the -loaded-modules switch *) 
+  let name = "Printer HOWTO" 
+    (* cvs id's seem to be the preferred version string *) 
+  let version = "$Id: howto verion 1 $" 
+end 
+
+  (* the real thing containing the real functions *) 
+module Make (Syntax : Camlp4.Sig.Syntax) : 
+  Camlp4.Sig.Printer with module Ast = Syntax.Ast = 
+struct 
+  module Ast = Syntax.Ast 
+
+  let opt_string = function 
+    | None -> "<None>" 
+    | Some s -> s 
+
+  let info ?input_file ?output_file name = 
+    Printf.eprintf 
+      "printer on %s\n input : %s\n output : %s\n" 
+      name 
+      (opt_string input_file) 
+      (opt_string output_file) 
+
+    (* print_interf shall be called on .mli files *) 
+  let print_interf ?input_file ?output_file ast = 
+    info ?input_file ?output_file "signature" 
+
+    (* print_implem shall be called on .ml files *) 
+  let print_implem ?input_file ?output_file ast = 
+    info ?input_file ?output_file "structure" 
+end 
+
+  (* apply everything to register the new printer *) 
+module M = Camlp4.Register.Printer(Id)(Make) 
+
+(* end of source *) 
+
+Put the source into a file printer.ml and compile with 
+
+   ocamlc -c -I `camlp4 -where` printer.ml 
+
+Use examples: 
+
+    gromit otags 7> camlp4o printer.cmo printer.ml 
+    printer on structure 
+     input : printer.ml 
+     output : <None> 
+
+    gromit otags 8> camlp4o -o output_file printer.cmo printer.ml 
+    printer on structure 
+     input : printer.ml 
+     output : output_file 
+
+    gromit otags 9> ocamlc -pp 'camlp4o printer.cmo' printer.ml 
+    printer on structure 
+     input : printer.ml 
+     output : <None> 
+
+Happy printing, 
+
+Hendrik
+			
+** Nicolas Pouillard added:
+
+I'm making a little change. 
+[...] 
+
+>   (* the real thing containing the real functions *) 
+> module Make (Syntax : Camlp4.Sig.Syntax) : 
+>   Camlp4.Sig.Printer with module Ast = Syntax.Ast = 
+
+Will be 
+   Camlp4.Sig.Printer(Syntax.Ast).S = 
+[...] 
+
+Since 3.10 is not officially out the sooner is the better.
+			
+========================================================================
+2) OCaml and C code in a dynamic library
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/6d49899d39920659/fc16bc4dca500af0#fc16bc4dca500af0>
+------------------------------------------------------------------------
+** Joel Reymont asked and Pablo Polvorin answered:
+
+> Has anyone succeeded in wrapping OCaml code in a dynamic library for   
+> use in C? 
+> I can build a static OCaml library without any problems but when I   
+> try to package that and some other C code in a dynamic library I get   
+> errors like this on Mac OSX: 
+> 
+> /usr/bin/ld: ./libfib.a(fibcaml.o) has local relocation entries in   
+> non-writable section (__TEXT,__text) 
+
+i recently make a dynamic library including c++ wrappers to an ocaml 
+module, to be loaded as a SCA component by apache tuscany. 
+The first problem was that i have a 64b architecture, and in order to 
+link against libcamlrun in shared mode, a recompilation of the runtime 
+with -fPIC flag was necessary. I called the resulting library 
+libcamlrun_shared, to not confuse it with the original one. 
+Also you have to initialize the ocaml runtime from whiting you 
+library.., and for my best knowledge it is necessary to pass the path 
+to you .so to the caml_main function, like: 
+
+#define LIB_DIR "/home/pablo/ocaml/tproject/deploy/TuscanyCalculator" 
+  static char *argv[] = { 
+    LIB_DIR "/libTuscanyCalculatorImpl.so", 
+    LIB_DIR "/libTuscanyCalculatorImpl.so", 
+    NULL 
+  }; 
+  caml_main (argv); 
+
+The way that work for my is to compile the c code with -c -fPIC flags, 
+ compile the ocaml modules also with -c , and then link all the object 
+codes together with  ocamlc -linkall -custom -cclib "-fPIC -shared 
+.. and include the libraries you need ( -lcamlrun_shared  -ltermcap 
+in my system) 
+
+I think the best is to look at the makefile of the ocaml module for 
+the aol server <http://www.crystalballinc.com/vlad/software/> 
+
+or the apache mod_ocaml 
+<http://merjis.com/developers/mod_caml> , a lite more complex makefile. 
+
+also, look at these previous post in this area: 
+<http://caml.inria.fr/pub/ml-archives/caml-list/2002/09/0d8daa135bd30302f1ebf30daf9a0ed9.en.html>
+<http://caml.inria.fr/pub/ml-archives/caml-list/2002/01/44d30c5454106646098bf00977c66796.en.html>
+<http://caml.inria.fr/pub/ml-archives/caml-list/2001/12/e9e89dadd773729481bf8446f1b73b64.en.html>
+
+and also the manual pages 
+<http://caml.inria.fr/pub/docs/manual-ocaml/manual032.html>
+			
+========================================================================
+3) Running several parsers in a single runtime (nethttpd, Menhir)
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/d019d3444fb6dbd5/2b9372432c8fefe1#2b9372432c8fefe1>
+------------------------------------------------------------------------
+** Joel Reymont asked and Nicolas Pouillard answered:
+
+> It appears that Parsing uses global state, e.g. 
+
+>    let rhs_loc n = (Parsing.rhs_start_pos n, Parsing.rhs_end_pos n) 
+
+> I'm building an "app server" to provide translation services to Ruby/ 
+> Rails . How would you suggest I work around the global state issue? 
+> Would I need to switch to Menhir? 
+
+Yes Menhir is reentrant.
+			
+========================================================================
+4) A web toolkit for OCaml (logging, RSS, etc)
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/4afd6c94de88a30e/f19c299f1dbe5110#f19c299f1dbe5110>
+------------------------------------------------------------------------
+** Joel Reymont asked and Richard Jones answered:
+
+> Also, what XML package for OCaml is the easiest for publishing RSS   
+> and parsing XHTML? 
+
+COCANWIKI (very recent versions) use OCamlRSS and xml-light.
+			
+========================================================================
+5) OCaml Summer Project winners selected
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/fad1517dbd680347/3f200a804f9d1f5c#3f200a804f9d1f5c>
+------------------------------------------------------------------------
+** Yaron Minsky announced:
+
+I'm pleased to announce that we've selected a list of winning projects for 
+the OCaml Summer Project.  The project has gone well beyond our 
+expectations.  Our initial expectation was to fund 5-10 students, but the 
+quality of the submissions we saw was so high that we decided to fund 12 
+projects for a total of 15 students (three of the projects had two 
+participants.) 
+
+We're really excited about this summer, and we hope to see some great 
+software come out of it.  For a list of the accepted titles, take a look at 
+the project website: 
+
+    <http://osp2007.janestcapital.com>
+			
+========================================================================
+6) [Camlp4 3.10] The rosetta stone
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/3e1b0e92a9c6b184/3d83e781758b5d29#3d83e781758b5d29>
+------------------------------------------------------------------------
+** Continuing the thread from last week, Nicolas Pouillard said and Martin Jambon added:
+
+> Here is your rosetta stone :) 
+> I translated pa_json_static.ml. 
+
+Thanks a lot. 
+I backported it to camlp4 3.10.0+beta. Compiling the extension and 
+using it to preprocess a sample file now work fine (but I haven't tested 
+the correctness of the generated code). 
+
+The few things that didn't want to work with 3.10.0+beta were commented 
+out and replaced by workarounds. 
+
+People interested in upgrading their syntax extensions can read the 
+side-by-side diffs: 
+
+   <http://martin.jambon.free.fr/examples/pa_json_static_3100beta.html>
+			
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

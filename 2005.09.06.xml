@@ -1,0 +1,547 @@
+<?xml version="1.0" encoding="ISO-8859-15"?>
+<cwn>
+<cwn_head>
+  <cwn_date>2005.09.06</cwn_date>
+  <cwn_prev>2005.08.30</cwn_prev>
+  <cwn_next>2005.09.13</cwn_next>
+  <cwn_date_text>30 August to 06 September, 2005</cwn_date_text>
+</cwn_head>
+<cwn_body>
+  <cwn_entry>
+    <cwn_title>Restarting a piece of code</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/30289</cwn_url>
+    <cwn_who>Andrej Bauer asked and Alex Baretta answered</cwn_who>
+    <cwn_what>
+&gt; I have a problem which I do not know how to program in The Right Way.
+&gt; I would be grateful to hear ideas on how to do it.
+&gt; 
+&gt; Suppose I have a bunch of functions (the actual example is exact real
+&gt; number arithmetic) which optimistically compute results (e.g. we compute
+&gt; numbers up to some precision and hope it will be good enough) that may
+&gt; turn out not to be good enough later during the computation. When this
+&gt; happens, the entire computation needs to be restarted (e.g. we need to
+&gt; recompute the numbers again with higher precision).
+
+This is a very interesting idea. Something similar comes up in my
+AS/Xcaml application server when an HTTP resource which has already
+computed a portion of the HTTP response realizes that it cannot continue
+and must delegate the response to a different HTTP resource. An
+exception is raised which is caught by the AS/Xcaml runtime system,
+which aborts the current computation and restarts the computation of the
+request by activating the HTTP resource whose URL is provided in the
+exception body.
+
+***
+
+Back to your question, I suggest not to represent computations as thunks
+but to use continuation passing style. This programming paradigm
+provides enough flexibility to allow for different overflow thresholds
+in different parts of the computation, without need for globals and side
+effects (yes, you should worry about them, they are the bad guys).
+
+exception Overflow
+
+let grow_threshold old_value = ...
+
+let compute threshold threshold_transformation computation =
+  try
+    computation (threshold_transformation threshold)
+  with Overflow -&gt;
+    let new_threshold = grow_threshold threshold in
+      computation (threshold_transformation new_threshold)
+
+Recursive computations occur through the compute driver, which also
+receives a threshold_transformation function determining the value of
+the threshold for the next computation. If you want your code to be
+parametric with respect to the threshold growing policy, you might want
+to modify the code as follows (-rectypes required!)
+
+let rec compute grow_threshold = fun
+  threshold
+  threshold_transformation
+  computation
+-&gt;
+  try
+    computation
+      (compute grow_threshold)
+      (threshold_transformation threshold)
+  with Overflow -&gt;
+    let new_threshold = grow_threshold threshold in
+      computation
+        (compute grow_threshold)
+        (threshold_transformation new_threshold)
+
+
+In this case the driver for recursive computations is no longer the
+global compute function but the first parameter of the computation function.
+    </cwn_what>
+    <cwn_who>Andrej Bauer then asked and Alex Baretta answered</cwn_who>
+    <cwn_what>
+&gt; Can we avoid having to pass treshold around directly? You can imagine
+&gt; that users won't be too thrilled about this sort of thing.
+
+I think you can. See arithmetic functions as building blocks for
+computations---rather than computations themselves---which are
+parametric with respect to the threshold value.
+
+let unit_expression _ = assert false
+let imaginary_unit_expression _ = assert false
+let addition_expression _ = assert false
+let negative_expression _ = assert false
+let multiplication_expression _ = assert false
+let inverse_expression _ = assert false
+let exponential_expression _ = assert false
+let logarithm_expression _ = assert false
+
+exception Overflow
+
+let rec compute grow_threshold threshold_transformation = fun
+  computation
+  threshold
+-&gt;
+  try
+    computation
+      (compute grow_threshold)
+      (threshold_transformation threshold)
+  with Overflow -&gt;
+    let new_threshold = grow_threshold threshold in
+      computation
+        (compute grow_threshold)
+        (threshold_transformation new_threshold)
+
+(* Here we define the primitive operations of the algebraic structure *)
+(* We don't mind if the primitive operations are a little heavy, so   *)
+(* long as it is easy to compose them to form complex computations.   *)
+
+let one = fun compute threshold -&gt; unit_expression threshold
+let i = fun compute threshold -&gt; imaginary_unit_expression threshold
+
+let add x y = fun compute threshold -&gt;
+  let x' = compute x threshold in
+  let y' = compute y threshold in
+    addition_expression x y threshold
+
+let neg x = fun compute threshold -&gt;
+  let x' = compute x threshold in
+    negative_expression x threshold
+
+let mul x y = fun compute threshold -&gt;
+  let x' = compute x threshold in
+  let y' = compute y threshold in
+    multiplication_expression x y threshold
+
+let inv x = fun compute threshold -&gt;
+  let x' = compute x threshold in
+    inverse_expression x threshold
+
+let exp x = fun compute threshold -&gt;
+  let x' = compute x threshold in
+    exponential_expression x threshold
+
+let log x = fun compute threshold -&gt;
+  let x' = compute x threshold in
+    logarithm_expression x threshold
+
+(* Let's say these are all the basic computations we need. Now we can *)
+(* start building more computations on top of these.                  *)
+
+let sub x y = add x (neg y)
+let div x y = mul x (inv y)
+let pow x y = exp (mul (log x) y)
+let root x y = exp (mul (log x) (inv y))
+let two = add one one
+let twoi = add i i
+let cos x = div (add (exp (mul i x)) (exp (neg (mul i x)))) two
+let sin x = div (sub (exp (mul i x)) (exp (neg (mul i x)))) twoi
+
+&gt; I sense monads. Or am I looking for dynamic binding?
+
+You are looking for partial evaluation/multistage programming, but you
+don't necessarily have to delve into MetaOcaml to solve your problem. As
+you can see you can generate a homomorphism from the calculus of
+imaginary numbers to the calculus of computations of imaginary numbers
+which can be directly represented in Ocaml.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>ocaml-gui mailing list</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/30348</cwn_url>
+    <cwn_who>David Mentre announced</cwn_who>
+    <cwn_what>
+I have created a Google group to discuss about GUI issues in/with
+OCaml. For those interested by the subject...
+
+Homepage:               http://groups.google.com/group/ocaml-gui
+Group email:            ocaml-gui@googlegroups.com
+Description:            Mailing list to discuss design and development
+of a cross-platform Graphic User Interface for the OCaml language
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>GUIs and ocaml</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/30293</cwn_url>
+    <cwn_who>Continuing the thread from last week, Jon Harrop asked and Olivier Andrieu answered</cwn_who>
+    <cwn_what>
+&gt; May I add another question to this thread: What do people think of
+&gt; OCaml's GUI libraries in terms of stability?
+
+Well there are not that many libraries for GUIs in ocaml. We have :
+
+ - LablTk/CamlTk
+ - LablGTK
+ - Wxcaml [1]
+ - OCaml-Win32 [2]
+
+Are there any others ?
+
+[1] http://pllab.kaist.ac.kr/~shoh/ocaml/wxcaml/doc/
+[2] http://www.speakeasy.org/~hchomsky/ocaml-win32.html
+    </cwn_what>
+    <cwn_who>Jon Harrop said and Olivier Andrieu answered</cwn_who>
+    <cwn_what>
+&gt; If anyone is seriously considering writing bindings for Cairo from
+&gt; OCaml then I'd like to know.
+
+Gah! they already exist : http://cairographics.org/cairo_2docaml
+
+(No tarballs, only in the CVS repository).
+    </cwn_what>
+    <cwn_who>Jon Harrop said and David Mentre answered</cwn_who>
+    <cwn_what>
+&gt; I had better clarify before continuing. I see two viable approaches here:
+&gt; 
+&gt; 1. Write OCaml bindings to the native GUIs and then an OCaml wrapper that
+&gt; abstracts the nativeness away.
+&gt; 
+&gt; 2. Write a new widget toolkit designed to render via OpenGL.
+&gt; 
+&gt; If we do (1) then it will handle skinning and the intersection of the sets of
+&gt; functionality of the native GUIs.
+&gt; 
+&gt; If we do (2) then customisation and skinning will be ignored but you have the
+&gt; advantage of real time 2D and 3D graphics.
+&gt; 
+&gt; Option (2) seems much easier and more useful to me. I've never cared about
+&gt; skinning...
+
+Well, in option (1), as somebody else underlined it, it is a lot more
+than just skinning. How do you handle i18n and l10n issues? How to
+display bidirectionnal languages? How to write Arabic, Hebrew or
+Chinese characters? How to take input in Japanese or Tamil? How to
+handle copy/paste and drag &amp; drop with other applications of the
+platform? Or to print PDF with Arabic and Indian characters in the
+same document?
+
+Maybe you don't have those issues for you local market, Jon. But as
+soon as you are writting graphical applications to be used worldwide,
+those issues are coming out pretty quickly. This is at least a
+requirement for my application.
+
+I really fear your under estimate the amount of work needed to
+accomplish such a job. And the OCaml community seems pretty fragmented
+on this GUI front.
+
+To improve on the situation, I see following options:
+
+ 1. improve Labgtk2 documentation and use Gtk2 on all patforms. As our
+try on Win32 have shown, compiling Gtk2 on Windows seems pretty
+complicated and a moving target, albeit not impossible to do. I don't
+know for MacOS X. And Gtk2 behaviour is different on Win32 than native
+Win32 applications;
+
+ 2. write a *simple* GUI front end, in OCaml, with only simple modules
+and/or simple objects. No fancy use of OCaml type system. Stay close
+to ML core. Use Labgtk2, native Win32 and MacOS X libraries to render
+the GUI. However I don't know the complexity of handling gory details,
+like encoding of strings;
+
+ 3. (Jon option) write a pure GUI from scratch, in pure OCaml. A
+project similar to Qt or WxWidgets for C++. It seems doable to have a
+basic GUI but handling all i18n and desktop interoperability issues
+seems pretty complicated;
+
+ 4. Use Labltk. I can't really comment on it, as I have never used it
+and can't say about its graphical behaviour or desktop integration
+(copy/paste and drag&amp;drop);
+
+ 5. drop OCaml to write GUI. Use other languages (usually C++) to make
+front-ends and use OCaml code only as backend, communicating through
+sockets or shared memory. Maybe the most viable long term solution.
+
+Personnally, I don't know what decision to take. My current GUI code
+is in Lablgtk2 but, as stated in other emails, use of Gtk2 is too
+difficult for me. And I don't want to go into another reinvent the
+wheel syndrom. (sigh)
+    </cwn_what>
+    <cwn_who>Matt Gushee said, Skaller answered, and Chris Campbell said</cwn_who>
+    <cwn_what>
+&gt; &gt; I'm not sold on the idea of a "simple" GUI front end.
+&gt; 
+&gt; I am. My idea is this: GET RID OF CALLBACKS.
+&gt; The idea is to use (user space) threads instead.
+&gt; 
+&gt; The big problem with GUI's is that they're passive.
+&gt; You write 'event handlers' and have to store the current
+&gt; state manually. By control inverting the code, you can
+&gt; just use a thread for each widget.
+
+Joe Armstrong did something like this with Erlang and X called Ex11. 
+Can't remember how it works exactly, but it seems each widget is a
+thread and can process events independantly of the others.
+
+http://www.erlang.se/workshop/2004/ex11.pdf
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Polymorphic variants and scene graphs</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/30378</cwn_url>
+    <cwn_who>Jon Harrop said</cwn_who>
+    <cwn_what>
+Here's my first attempt at using the technique described in Jacques' paper 
+"Code reuse using polymorphic variants" to make an extensible scene graph. 
+This could be useful for GUI code because users could easily add their own 
+widgets.
+
+First, we define functions to render a polygon or a group (list of scene 
+graphs):
+
+  type polygon = [ `Polygon of vec2 list ]
+
+  let render_polygon (`Polygon rs) =
+    GlDraw.begins `polygon;
+    List.iter vertex rs;
+    GlDraw.ends ()
+
+  type 'a group = [ `Group of 'a list ]
+
+  let rec render_group render (`Group l) =
+    List.iter (render_group render) l
+
+  type 'a t =
+      [ `Polygon of vec2 list 
+      |`Group of 'a list ]
+
+  let rec render1 self = function
+    | #polygon as polygon -&gt; render_polygon polygon
+    | #group as group -&gt; render_group (render1 self) group
+
+This "render1" function needs a Y combinator to implement recursion:
+
+  let rec render1' t = render1 render1' t
+
+That "render1'" function can now be used to render scene graphs containing 
+polygons and groups.
+
+Next, we define a function to render an axis-aligned rectangle (e.g. for a 
+button):
+
+  type rectangle = [ `Rectangle of vec2 * vec2 ]
+
+  let render_rectangle (`Rectangle (l, u)) =
+    render_polygon (`Polygon [vec2 l.x l.y; vec2 u.x l.y;
+                              vec2 u.x u.y; vec2 l.x u.y])
+
+  let render2 self = function
+    | #rectangle as rectangle -&gt; render_rectangle rectangle
+    | #t as t -&gt; render1 self t
+
+By dispatching over type "t", this render function can now render rectangles 
+as well as polygons and groups. Here's the final "render2'" function:
+
+  let rec render2' t = render2 render2' t
+
+Do polymorphic variants look like the way to go for scene graphs? They are 
+slower than ordinary variants but performance is not so important in scene 
+graph code and, particularly, not in GUI code.
+
+Now, we want to add:
+
+1. GL naming to identify which GUI element has been clicked on.
+
+2. A "get_bound" function.
+
+3. Layout functions, e.g. "hbox" and "vbox".
+
+4. GL picking to search for the first GUI element under a mouse click.
+
+5. Rendering of text.
+
+and, finally, a selection of widgets.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Unix.localtime not threadsafe?</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/30384</cwn_url>
+    <cwn_who>Yaron Minsky asked</cwn_who>
+    <cwn_what>
+I was looking at the Unix.localtime implementation, and it appears to
+me that it's not threadsafe.  I'm wondering if anyone can confirm.
+
+First off, the underlying localtime call is definitely not re-entrant.
+ The tm data structure is shared among all calls, leading to the
+possibility of races.  What I'm not sure of is whether there can be a
+race given the locking of the OCaml runtime.  Here's the code from
+gmtime.c in the ocaml distribution:
+
+static value alloc_tm(struct tm *tm)
+{
+  value res;
+  res = alloc_small(9, 0);
+  Field(res,0) = Val_int(tm-&gt;tm_sec);
+  Field(res,1) = Val_int(tm-&gt;tm_min);
+  Field(res,2) = Val_int(tm-&gt;tm_hour);
+  Field(res,3) = Val_int(tm-&gt;tm_mday);
+  Field(res,4) = Val_int(tm-&gt;tm_mon);
+  Field(res,5) = Val_int(tm-&gt;tm_year);
+  Field(res,6) = Val_int(tm-&gt;tm_wday);
+  Field(res,7) = Val_int(tm-&gt;tm_yday);
+  Field(res,8) = tm-&gt;tm_isdst ? Val_true : Val_false;
+  return res;
+}
+
+CAMLprim value unix_localtime(value t)
+{
+  time_t clock;
+  struct tm * tm;
+  clock = (time_t) Double_val(t);
+  tm = localtime(&amp;clock);
+  if (tm == NULL) unix_error(EINVAL, "localtime", Nothing);
+  return alloc_tm(tm);
+}
+
+If I understand the way ocaml's locking works, another thread could
+make a call to localtime where alloc_small is called.  If there are
+mixed C threads and Ocaml threads, then a call by the C thread at that
+point could muck up the tm data structure before switching back to
+OCaml, thus leading to bad data getting into the tm data structure.
+
+So, does this seem like a going bug?  We think we may have encountered
+this in the wild, so this may be more than a theoretical bug.
+    </cwn_what>
+    <cwn_who>Bardur Arantsson answered and Florian Weimer added</cwn_who>
+    <cwn_what>
+&gt; I don't think the glibc/Linux localtime() man page explicitly states 
+&gt; this, but I expect that it returns a pointer to a *thread-local* 
+&gt; statically allocated struct tm... in which case there's no problem.
+&gt; 
+&gt; Most other system functions whose API looks non-threadsafe do the same. 
+&gt; ('errno' would be the standard example).
+
+Thread-local storage is a recent innovation in the Linux camp.
+Previously, developers seem to think that no efficient implementation
+was possible.  That's why there all the *_r variants (such as
+localtime_r).
+
+I believe Solaris does something in the direction you suggest.
+    </cwn_what>
+    <cwn_who>Xavier Leroy also answered</cwn_who>
+    <cwn_what>
+As others mentioned, the C library implementation of this function
+could use thread-local storage to avoid this particular race.  I don't
+think this is guaranteed, though.
+
+&gt; If I understand the way ocaml's locking works, another thread could
+&gt; make a call to localtime where alloc_small is called.
+
+No, at least not another Caml thread: GC triggered from C code
+(e.g. alloc_small()) cannot cause context switches.  So, from a Caml
+standpoint, the call to localtime() and the following allocation of
+its result are atomic.
+
+&gt; If there are mixed C threads and Ocaml threads, then a call by the C
+&gt; thread at that point could muck up the tm data structure before
+&gt; switching back to OCaml, thus leading to bad data getting into the
+&gt; tm data structure.
+
+Yes, this is possible in principle if 1- some non-Caml threads call
+localtime(), and 2- the implementation of that function does not use
+thread-local storage.
+    </cwn_what>
+    <cwn_who>Damien Bobillot said</cwn_who>
+    <cwn_what>
+For information : Mac OS X use thread-local storage since version 10.2.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Existential types</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/30410</cwn_url>
+    <cwn_who>Lukasz Stafiniak asked and Jacques Garrigue answered</cwn_who>
+    <cwn_what>
+&gt; I use an abstract type and a one-way typecast operator to implement
+&gt; existential quantification; e. g.
+&gt; 
+&gt; type 'a t
+&gt; type unknown_t
+&gt; let some (v : 'a t) = ((Obj.magic v) : unknown_t t)
+&gt; 
+&gt; Good?
+
+This is a standard technique that is used in labltk for instance.
+There should be no problem as long as your ['a t] type has a uniform
+representation (i.e. this use of magic only encodes more refined type
+distinctions.)
+Note that if your values are implemented in ocaml, there is a
+reasonable possibility that you could avoid the magic altogether.
+And if this is not the case (i.e. implemented in ocaml but magic
+required), there is a serious risk that this is actually unsound.
+Remember that the function Obj.repr of type ['a -&gt; Obj.t] is unsound,
+contrary to the intuition.
+Which leads to the rule of thumb: the only "safe" uses of  magic are
+when dealing with "unsafe" values (implemented in C.)
+
+By the way, I'm not sure I would call this existantial quantification,
+as it is only one-way. This looks more like a simple form of
+subtyping.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Offre d'emploi a l'IRISA</cwn_title>
+    <cwn_url>http://thread.gmane.org/gmane.comp.lang.caml.general/30412</cwn_url>
+    <cwn_who>Thomas Genet announced (in French only)</cwn_who>
+    <cwn_what>
+L'unité de Recherche INRIA de RENNES recrute sur contrat à durée
+déterminée (appellation ingénieur expert) : 
+
+                         1 Ingénieur recherche &amp; développement
+
+Lieu de travail : INRIA-Rennes
+
+Projet d'accueil : Lande
+
+Début du contrat: entre le 1/09/05 et le 31/12/05
+
+Durée du contrat : 12 mois
+
+Formation requise : doctorat, DEA, DESS, M2R ou M2Pro en Informatique
+
+Activité du Projet d'accueil: Le projet Lande est une équipe de
+recherche qui s'intéresse à la vérification formelle de logiciels. En
+particulier, Lande travaille en partenariat avec France Telecom R&amp;D et
+Thomson R&amp;D sur la vérification de protocoles cryptographiques. Lande
+développe une technique de vérification automatique, à l'état de
+prototype, qui a déjà été appliquée avec succès à des protocoles
+cryptographiques industriels.
+
+Objectif du poste: A partir des techniques développées par l'équipe
+Lande, l'objectif est de réaliser un outil complet, intégré et open
+source pour la vérification de protocoles cryptographiques. Les
+protocoles visés sont des protocoles de commerce électronique et de
+diffusion de contenu video numérique. Ce travail sera réalisé en
+collaboration avec France Telecom R&amp;D et Thomson R&amp;D. 
+
+Qualités requises:
+
+- solide expérience dans le développement d'applications 
+  complexes en Objective Caml. 
+- autonomie
+- expérience du travail en équipe
+- anglais courant
+- des connaissances dans le domaine de la vérification et/ou des protocoles
+  cryptographiques seraient un plus 
+
+Contact: Thomas.Genet@irisa.fr  (http://www.irisa.fr/lande/genet)
+         Thomas.Jensen@irisa.fr (http://www.irisa.fr/lande/jensen)
+    </cwn_what>
+  </cwn_entry>
+</cwn_body>
+</cwn>

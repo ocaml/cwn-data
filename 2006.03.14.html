@@ -1,0 +1,320 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2006.03.07.html">Previous week</a> <a href="index.html">Up</a> <a href="2006.03.21.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of March 07 to 14, 2006.</p><ol>
+      <li>
+        <a href="#1">HashSet</a>
+      </li>
+      <li>
+        <a href="#2">Deadlock free locking scheme</a>
+      </li>
+      <li>
+        <a href="#3">pa_bounds</a>
+      </li>
+      <li>
+        <a href="#4">Netclient</a>
+      </li>
+    </ol><a name="1" /><hr /><h3>HashSet</h3><p>Archive: <a href="http://thread.gmane.org/gmane.comp.lang.caml.general/32484">http://thread.gmane.org/gmane.comp.lang.caml.general/32484</a></p><i>Mario Pernici announced:</i><br /><pre>
+It is my pleasure to announce the release of HashSet,
+a hashed set library for Objective Caml.
+
+Buckets are ordered and the first element of a bucket is kept in a
+separate array, with occupation controlled by a bitvector.
+
+Version 0.1 is available at
+<a href="http://wwwteor.mi.infn.it/~pernici/ocaml/ocaml.html">http://wwwteor.mi.infn.it/~pernici/ocaml/ocaml.html</a>
+It is released under LGPL.
+
+In tests on my desktop I find that, compared to Hashset in
+<a href="http://www.lri.fr/~filliatr/software.en.html">http://www.lri.fr/~filliatr/software.en.html</a>
+HashSet is usually 2x faster or more
+for large sets (n &gt;= 100000) of integers and floats,
+and roughly equivalent in other cases.
+
+In the examples directory there is the nth.ml example with HashSet,
+which for the case of 100-nth neighbours for amorphous silicon
+is on my desktop more than 2x faster than the one in
+<a href="http://www.ffconsultancy.com/products/ocaml_for_scientists/complete/">http://www.ffconsultancy.com/products/ocaml_for_scientists/complete/</a>
+which uses Set.
+There are a few other examples which I found in the ocaml mailing lists.
+        </pre><a name="2" /><hr /><h3>Deadlock free locking scheme</h3><p>Archive: <a href="http://thread.gmane.org/gmane.comp.lang.caml.general/32481">http://thread.gmane.org/gmane.comp.lang.caml.general/32481</a></p><i>Deep in this thread, Michael Hicks said and David Mentre answered:</i><br /><pre>
+&gt; There's a longer answer, but one short answer is: check out AtomCaml  at
+&gt; <a href="http://www.cs.washington.edu/homes/miker/atomcaml/">http://www.cs.washington.edu/homes/miker/atomcaml/</a>
+
+Thank you for the interesting paper, I did not know about that work. Was
+there an announcement on caml-list?
+
+By the way, as a reply to initial Asfand Yar Quazi's question, there is
+a simple way to implement deadlock free locking scheme, both for byte
+and native code: call a locking routine that always try to lock the
+needed locks *in the same order*. By using the high-order properties of
+OCaml, this is very easy for the programmer to use it.
+
+Such a locking scheme can be used in the following way (imagine you have
+four bases, named like "participant" or "position", each one protected
+with a multiple-reader/single-writer lock):
+
+let do_atomic_work () =
+  let unlock =
+     lock_bases { no_locks with participant = Read_lock; 
+                                position = Read_lock; } in
+  let result = do_processing () in
+  unlock ();
+  result
+
+Compared to AtomCaml approach, it is like if the do_processing code is
+executed in a Commit phase.
+
+Please find below the code that imlements this scheme (using Reader and
+Writer mutex[1]). It could probably be optimized for speed (using
+precomputed locking and unlocking functions stored in a hash table) or
+improved to support more locks (using an ordered set as input to lock
+function), but the general scheme is there.
+
+\chapter{Control of data bases access}
+
+Module [[Basesctrl]] controls the locks to access the data bases. 
+
+Each of the four data bases (Participants, Classification, Delegation,
+Position) can be accessed for reading or for writing. A reader/writer
+lock (see chapter \ref{module:rwmutex}) protects each one of them.
+
+All locking and unlocking of those bases are done through this
+module. We can thus control the locking and unlocking order and thus
+guarantee the absence of deadlocks.
+
+The locking of the bases is done through the [[lock]] function. It locks
+bases as desired and then return an unlocking function that should be
+called to cancel locking.
+
+\section{Data structures}
+
+Each lock can either be taken for reading ([[Read_lock]]), for writing
+([[Write_lock]]) or not taken at all ([[No_lock]]).
+
+&lt;&lt;basesctrl.ml&gt;&gt;=
+type lock_type =
+  | Read_lock
+  | Write_lock
+  | No_lock
+ &lt;at&gt;  
+
+We define a data structure [[t]] that indicates, for each action on the
+database, the desired (un)locking for each base.
+
+&lt;&lt;basesctrl.ml&gt;&gt;=
+type t = {
+    participant : lock_type;
+    classification : lock_type;
+    delegation : lock_type;
+    position : lock_type;
+  }
+ &lt;at&gt;  
+
+We define a default lock state [[no_locks]] where no locks are taken.
+
+&lt;&lt;basesctrl.ml&gt;&gt;=
+let no_locks = {
+  participant = No_lock;
+  classification = No_lock;
+  delegation = No_lock;
+  position = No_lock;
+}
+ &lt;at&gt;  
+
+We also define the actual set of locks that protect bases. We chose a
+[[Writer_preference]] to give priority to data base modifications that
+should be less frequent that data base reading.
+
+\nextchunklabel{code:basesctrl:locks}
+&lt;&lt;basesctrl.ml&gt;&gt;=
+let pref = Rwmutex.Writer_preference
+
+let participant_lock = Rwmutex.create pref
+let classification_lock = Rwmutex.create pref
+let delegation_lock = Rwmutex.create pref
+let position_lock = Rwmutex.create pref
+ &lt;at&gt;  
+
+\section{Base unlocking}
+
+Helper function [[unlock_a_base]] is used to unlock [[lock]] with
+[[desired]] unlocking.
+
+&lt;&lt;basesctrl.ml&gt;&gt;=
+let unlock_a_base desired lock =
+  match desired with
+  | Read_lock -&gt; Rwmutex.read_unlock lock
+  | Write_lock -&gt; Rwmutex.write_unlock lock
+  | No_lock -&gt; ()
+ &lt;at&gt;  
+
+Function [[create_unlock]] returns a function that, when called,
+unlocks the bases as specified in the [[what]] argument.
+
+\nextchunklabel{code:create_unlock}
+&lt;&lt;basesctrl.ml&gt;&gt;=
+let create_unlock what =
+  fun () -&gt; 
+    unlock_a_base what.position position_lock;
+    unlock_a_base what.delegation delegation_lock;
+    unlock_a_base what.classification classification_lock;
+    unlock_a_base what.participant participant_lock
+ &lt;at&gt;  
+
+\section{Base locking}
+
+Helper function [[lock_a_base]] is used to lock [[lock]] with
+[[desired]] locking.
+
+&lt;&lt;basesctrl.ml&gt;&gt;=
+let lock_a_base desired lock =
+  match desired with
+  | Read_lock -&gt; Rwmutex.read_lock lock
+  | Write_lock -&gt; Rwmutex.write_lock lock
+  | No_lock -&gt; ()
+ &lt;at&gt;  
+
+Function [[lock_bases]] is called to lock bases. The [[what]] argument
+gives for each base the desired locking. This function returns a
+function that should be called to unlock the bases.
+
+To avoid deadlocks, the locking order is the reverse as used in the
+unlocking procedure (see \codechunkref{code:create_unlock}).
+
+&lt;&lt;basesctrl.ml&gt;&gt;=
+let lock_bases what =
+  lock_a_base what.participant participant_lock;
+  lock_a_base what.classification classification_lock;
+  lock_a_base what.delegation delegation_lock;
+  lock_a_base what.position position_lock;
+  create_unlock what
+ &lt;at&gt;  
+
+Best wishes,
+david
+
+Footnotes: 
+[1]  <a href="http://www.linux-france.org/~dmentre/code/ocaml_thread_synchro.tar.gz">http://www.linux-france.org/~dmentre/code/ocaml_thread_synchro.tar.gz</a>
+        </pre><a name="3" /><hr /><h3>pa_bounds</h3><p>Archive: <a href="http://thread.gmane.org/gmane.comp.lang.caml.general/32542">http://thread.gmane.org/gmane.comp.lang.caml.general/32542</a></p><i>Martin Jambon announced:</i><br /><pre>
+As suggested by Rich Jones, here is a better description of this new 
+syntax extension:
+
+                   pa_bounds syntax extension
+                   ==========================
+
+Location-specific reports of out-of-bounds accesses in arrays, strings and 
+bigarrays.
+
+<a href="http://martin.jambon.free.fr/ocaml.html#bounds">http://martin.jambon.free.fr/ocaml.html#bounds</a>
+
+What it provides:
+----------------
+The default behavior of out-of-bounds array, string or bigarray accesses
+is to raise the Invalid_argument exception, with no information on where
+the faulty access was attempted.
+This Camlp4 module provides a special syntax which allows the illegal
+accesses to be reported accurately, by indicating the location
+in the source code. The same exception, Invalid_argument, is raised, but
+its argument is a string which contains that information.
+
+The syntax:
+----------
+Replace the dot (.) by the number sign (#), e.g.:
+
+     native             extension
+     a.(i)              a#(i)
+     a.(i) &lt;- e         a#(i) &lt;- e
+     s.[i]              s#[i]
+     s.[i] &lt;- c         s#[i] &lt;- c
+     big.{i,j}          big#{i,j}
+     big.{i,j} &lt;- x     big#{i,j} &lt;- x
+
+It should also work with the revised syntax, where ":=" replaces "&lt;-".
+
+Options:
+-------
+
+-native
+   The native behavior can be restored without changing the program by
+   passing the -native option to the preprocessor. For unsafe access
+   without bound checking, this option must be used in addition to the
+   -unsafe option that can be passed to the compiler (ocamlopt or ocamlc).
+
+Installation:
+------------
+Install Findlib and P4ck, and then install it from P4ck.
+Alternatively, you can compile the extension as follows:
+   camlp4o -o ocamlc -c \
+          -pp 'camlp4o pa_extend.cmo q_MLast.cmo -loc _loc' \
+          -I +camlp4 pa_bounds.ml
+
+See <a href="http://www.ocaml-tutorial.org/compiling_ocaml_projects">http://www.ocaml-tutorial.org/compiling_ocaml_projects</a> for
+information on how to compile programs that use Camlp4 extensions.
+
+License:
+-------
+BSD-style, see <a href="http://martin.jambon.free.fr/pa_bounds/pa_bounds.ml.html">http://martin.jambon.free.fr/pa_bounds/pa_bounds.ml.html</a>
+        </pre><a name="4" /><hr /><h3>Netclient</h3><p>Archive: <a href="http://thread.gmane.org/gmane.comp.lang.caml.general/32543">http://thread.gmane.org/gmane.comp.lang.caml.general/32543</a></p><i>Jean-David asked and Gerd Stolpmann answered:</i><br /><pre>
+&gt; I was wondering about the best way to create a stream
+&gt; from a remote file for which I have the URL
+&gt; 
+&gt; open Http_client
+&gt; open Stream
+&gt; 
+&gt; let body = Stream.of_string Convenience.http_get
+&gt; "<a href="http://dfl.sjsu.edu">http://dfl.sjsu.edu</a>";;
+&gt; 
+&gt; Is the content of body downloaded completely before
+&gt; being streamed(which defeats the purpose of streams)
+&gt; or not? and if not how can I get the content of an URL
+&gt; gradually (without getting the whole body into
+&gt; memory)?
+
+Yes, Convenience.http_get always downloads the whole body into a string.
+
+For a stream-like download, you must use the pipeline interface. For
+example, to store the body into a file do:
+
+let call = new get "<a href="http://dfl.sjsu.edu">http://dfl.sjsu.edu</a>" in
+call # set_response_body_storage (`File (fun () -&gt; "filename"));
+let pipeline = new pipeline in
+pipeline # set_proxy_from_environment();
+pipeline # add call;
+pipeline # run()
+
+Now check call#status whether the HTTP request was successfully
+responded.
+
+If you want to postprocess the body while it is downloaded, things will
+get more complicated. In particular, it is possible to store the body in
+an object that fulfils the Netmime.mime_body class type. Netclient
+invokes the open_value_wr method and outputs into this netchannel. Using
+this mechanism to define a callback-style interface (i.e. a function is
+called whenever a chunk of data arrives) can be implemented in a
+straight-forward manner.
+
+If you really need a "string Stream.t": This is possible because
+Netclient is programmed in an event-driven way, but is very difficult,
+because you must arrange a so-called control inversion. This is
+absolutely non-trivial but implementable in less than 100 lines of code.
+        </pre><hr /><h3>Using folding to read the cwn in vim 6+</h3><p>Here is a quick trick to help you read this CWN if you are viewing it using vim (version 6 or greater).</p><pre>:set foldmethod=expr<br />:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'&amp;lt;1':1<br />zM</pre><p>If you know of a better way, please let me know.</p><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right">
+      <i>
+        <a href="http://alan.petitepomme.net/">Alan Schmitt</a>
+      </i>
+    </p><p align="right">
+      <script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script>
+      <script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" />
+      <script src="http://www.google-analytics.com/urchin.js" type="text/javascript" />
+      <script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script>
+    </p></body>
+</html>

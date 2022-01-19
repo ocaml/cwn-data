@@ -1,0 +1,439 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2012.03.13.html">Previous week</a> <a href="index.html">Up</a> <a href="2012.03.27.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of March 13 to 20, 2012.</p><ol><li><a href="#1">CVE request: Hash DoS vulnerability (ocert-2011-003)</a></li><li><a href="#2">New version of standalone ocaml interval library + mpfr/mpfi preliminary bindings for ocaml</a></li><li><a href="#3">Arrays and private types</a></li><li><a href="#4">ML workshop 2012: call for presentations</a></li><li><a href="#5">Software Development Engineer at OCamlPro (Paris, France)</a></li><li><a href="#6">Spring release</a></li><li><a href="#7">Efficient scanning of large strings from files</a></li><li><a href="#8">Parsing cmi file</a></li><li><a href="#9">Other Caml News</a></li></ol><a name="1" /><hr /><h3>CVE request: Hash DoS vulnerability (ocert-2011-003)</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2012-03/msg00186.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2012-03/msg00186.html</a></p><i>Deep in this thread, Xavier Leroy replied to many people:</i><br /><pre>
+Gerd Stolpmann writes:
+&gt; The Random module is definitely not good enough (e.g. if you
+&gt; know when the program was started like for a cgi, and the cgi reveals
+&gt; information it should better not like the pid, the Random seed is made
+&gt; from less than 10 unpredictable bits, and on some systems even 0 bits).
+
+Dario Teixeira adds:
+&gt; I think the problem may be in finding a good source of randomness
+&gt; that is common across all OSes.  In Unixland this problem has
+&gt; largely been solved: pretty much everyone supports /dev/random and
+&gt; /dev/urandom.  Windows does things differently, however.
+
+David Allsopp adds:
+&gt; Does the source of randomness have to be common? The decision to use
+&gt; a random seed doesn't need to be limited by a problem getting a good
+&gt; cryptographically secure generator on a given OS - you'd simply
+&gt; document that the implementation on that particular OS doesn't seed
+&gt; with a good PRNG and await a patch from someone who may care in the
+&gt; future, but at least the philosophy behind the decision is correct!
+
+We are also thinking of strengthening Random.self_init, for instance
+by using /dev/urandom when available.  This said, for randomizing
+hashtables or other data structures, we do *not* need a
+cryptographically-strong PRNG: we're not generating an RSA key pair or
+some other situation where cryptographic quality is required; we're
+just making a mild DOS attack impractical.
+
+(Obligatory advertisement: if you're in need of
+cryptographically-strong random data,
+<a href="http://forge.ocamlcore.org/projects/cryptokit/">http://forge.ocamlcore.org/projects/cryptokit/</a>
+is what you need.)
+      </pre><a name="2" /><hr /><h3>New version of standalone ocaml interval library + mpfr/mpfi preliminary bindings for ocaml</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2012-03/msg00190.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2012-03/msg00190.html</a></p><i>Jean-Marc Alliot announced:</i><br /><pre>
+Everything is in the title.
+
+Just go to :
+<a href="http://www.alliot.fr/fbbdet.html.fr">http://www.alliot.fr/fbbdet.html.fr</a>
+      </pre><a name="3" /><hr /><h3>Arrays and private types</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2012-03/msg00203.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2012-03/msg00203.html</a></p><i>Pietro Abate asked and Gabriel Scherer replied:</i><br /><pre>
+&gt; In my application I'm using arrays all over, and lately I've discovered a
+&gt; couple of bugs related to the fact that I was using the index of one array 
+&gt; to
+&gt; get the element of another array. Since both indexes are int the compiler 
+&gt; could
+&gt; not help me at all. Using private types it seems I can solve this problem
+&gt; without loosing anything (??).
+
+Here is a proposal:
+  
+<a href="https://gitorious.org/gasche-snippets/private-array-keys-type/blobs/master/private_array_key_types.ml">https://gitorious.org/gasche-snippets/private-array-keys-type/blobs/master/private_array_key_types.ml</a>
+
+It works by using a functor to generate "fresh" private types for
+keys. Note that the arrays themselves are still polymorphic (no
+IntArray FloatArray etc.). The user still has to use the discipline to
+produce a new application of ArrayMake each time she wants to use a
+different kind of array: if she only does `module A = ArrayMake(struct
+end)` and then use `A` for everything, there will be no additional
+safety guarantee.
+      </pre><i>Later on, Pietro Abate asked and Gabriel Scherer replied:</i><br /><pre>
+&gt; Thanks Gabriel, very nice solution. If I go this way, I guess there is
+&gt; no way to access array elements using the usual a.(i) syntax (where i
+&gt; = M.key i)... [...]
+&gt; Is this a problem I can solve using a camlp4 decorator ?
+
+I don't think you need -- nor want to use -- a camlp4 extension. a.(i)
+is desugared into (Array.get a i) at a purely syntactical level in
+OCaml, so you could overload its behavior by changing the Array module
+in the typing environment.
+
+With my example you could write, for example:
+module A1 = ArrayMake(struct end)
+let () =
+  let module Array = A1 in
+  let k = A1.key in
+  assert (A1.make 3 true).(k 2);;
+
+You could even define the ArrayMake functor so that it returns a
+structure with an Array submodule. You would then write, using 3.12
+"local open" syntax:
+
+module A1 = ArrayMake(struct end)
+let () =
+  let open A1 in
+  assert (Array.make 3 true).(k 2)
+
+That said, I don't think that the slight readability benefit of
+writing a.(i) instead of (get a i) will outweigh the confusion among
+your readers that don't understand what you're doing with this weird
+Array stuff.
+			</pre><a name="4" /><hr /><h3>ML workshop 2012: call for presentations</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2012-03/msg00212.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2012-03/msg00212.html</a></p><i>Alain Frisch announced:</i><br /><pre>
+Another great event for the OCaml community, to be held in conjunction with
+ICFP in September... Note that users, not only researchers, are particularly
+welcome to propose a presentation, and of course to attend the workshop.
+
+-- Alain
+
+=======================================================================
+CALL FOR PRESENTATIONS
+
+ACM SIGPLAN Workshop on ML
+Thursday, September 13th, 2012, Copenhagen, Denmark
+(co-located with ICFP)
+
+<a href="http://www.lexifi.com/ml2012">http://www.lexifi.com/ml2012</a>
+=======================================================================
+
+The ML family of programming languages includes dialects known as
+Standard ML, OCaml, and F#.  These languages have inspired a large
+amount of computer-science research, both practical and theoretical.
+This workshop aims to provide a forum where users, developers and
+researchers of ML languages and related technology can interact and
+discuss ongoing research, open problems and innovative applications.
+
+The format of ML 2012 will continue the return in 2010 and 2011 to a
+more informal model: a workshop with presentations selected from
+submitted abstracts.  The workshop will not publish proceedings, so
+any contributions may be submitted for publication elsewhere.  We hope
+that this format will encourage the presentation of exciting (if
+unpolished) research and deliver a lively workshop atmosphere.
+
+
+SCOPE
+-----
+
+We seek research presentations on topics related to ML, including but
+not limited to
+
+  * applications: case studies, experience reports, pearls, etc.
+  * extensions: higher forms of polymorphism, generic programming,
+    objects, concurrency, distribution and mobility, semi-structured
+    data handling, etc.
+  * type systems: inference, effects, overloading, modules, contracts,
+    specifications and assertions, dynamic typing, error reporting, etc.
+  * implementation: compilers, interpreters, type checkers, partial
+    evaluators, runtime systems, garbage collectors, etc.
+  * environments: libraries, tools, editors, debuggers, cross-language
+    interoperability, functional data structures, etc.
+  * semantics: operational, denotational, program equivalence,
+    parametricity, mechanization, etc.
+
+Three kinds of submissions will be accepted: Research Presentations,
+Experience Reports and Demos.
+
+  * Research Presentations: Research presentations should describe new
+    ideas, experimental results, significant advances in ML-related
+    projects, or informed positions regarding proposals for
+    next-generation ML-style languages.  We especially encourage
+    presentations that describe work in progress, that outline a
+    future research agenda, or that encourage lively discussion.
+    These presentations should be structured in a way which can be, at
+    least in part, of interest to (advanced) users.
+
+  * Experience Reports: Users are invited to submit Experience Reports
+    about their use of ML languages. These presentations do not need
+    to contain original research but they should tell an interesting
+    story to researchers or other advanced users, such as an
+    innovative or unexpected use of advanced features or a description
+    of the challenges they are facing or attempting to solve.
+
+  * Demos: Live demonstrations or short tutorials should show new
+    developments, interesting prototypes, or work in progress, in the
+    form of tools, libraries, or applications built on or related to
+    ML.  (Please note that you will need to provide all the hardware
+    and software required for your demo; the workshop organizers are
+    only able to provide a projector.)
+
+Each presentation should take 20-25 minutes, except demos, which
+should take 10-15 minutes.  The exact time will be decided based on
+the number of accepted submissions.
+
+
+SUBMISSION INSTRUCTIONS
+-----------------------
+
+Submissions should be at most two pages, in PDF format, and printable
+on US Letter or A4 sized paper. Submissions longer than a half a page
+should include a one-paragraph synopsis suitable for inclusion in the
+workshop program.
+
+Submissions must be uploaded to the following website before the
+submission deadline (2012-06-04):
+
+  <a href="https://www.easychair.org/conferences/?conf=ml2012">https://www.easychair.org/conferences/?conf=ml2012</a>
+
+For any question concerning the scope of the workshop or the
+submission process, please contact the program chair
+(alain AT frisch.fr).
+
+
+IMPORTANT DATES
+---------------
+
+  * 2012-06-04: Submission
+  * 2012-07-13: Notification
+  * 2012-09-13: Workshop
+
+
+PROGRAM COMMITTEE
+-----------------
+
+    Alain Frisch (chair)    (LexiFi)
+    Anders Schack-Nielsen   (SimCorp)
+    Cedric Fournet          (Microsoft Research)
+    Francois Pottier        (INRIA)
+    Gian Ntzik              (Imperial College)
+    Jeremy Yallop
+    Keiko Nakata            (Institute of Cybernetics, Tallinn)
+    Matthias Blume          (Google)
+    Oleg Kiselyov
+    Stephen Weeks           (Jane Street Capital)
+    Tomas Petricek          (University of Cambridge)
+
+
+STEERING COMMITTEE
+------------------
+
+    Andreas Rossberg        (Google)
+    Chung-chieh Shan        (Cornell University)
+    Eijiro Sumii (chair)    (Tohoku University)
+    Jacques Garrigue        (Nagoya University)
+    Matthew Fluet           (Rochester Institute of Technology)
+    Robert Harper           (Carnegie Mellon University)
+    Yaron Minsky            (Jane Street)
+      </pre><a name="5" /><hr /><h3>Software Development Engineer at OCamlPro (Paris, France)</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2012-03/msg00216.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2012-03/msg00216.html</a></p><i>Thomas Gazagnaire announced:</i><br /><pre>
+We (OCamlPro) are looking to recruit an excellent software engineer.
+
+OCamlPro[1] is a small French company located near Paris. It is devoted to 
+promote the use of OCaml to IT professionals, as a way to make industrial 
+software more reliable. We participate to the development of OCaml and we 
+create new tools and libraries to facilitate the use of OCaml in large 
+industrial software projects (such as the TypeRex[2] development studio).
+
+We especially seek for candidates with:
+
+* strong problem solving skills, ie. the ability to find clean and elegant 
+solutions to complex engineering problems;
+
+* very strong experience of developing applications in OCaml (at least 3 
+years);
+
+* good understanding and knowledge of the OCaml compilers and runtimes' 
+internals;
+
+* experience in extending, contributing and maintaining open-source libraries 
+and tools;
+
+* the determination to work with our customers to understand and analyze 
+their needs, and deliver great products to fulfill them.
+
+If you are interested by this position, please email your C.V. with a 
+description of some of your best accomplishments to: 
+contact AT ocamlpro.com
+
+Thanks,
+
+[1] <a href="http://www.ocamlpro.com">http://www.ocamlpro.com</a>
+[2] <a href="http://www.typerex.org">http://www.typerex.org</a>
+      </pre><a name="6" /><hr /><h3>Spring release</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2012-03/msg00225.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2012-03/msg00225.html</a></p><i>Daniel Bünzli announced:</i><br /><pre>
+I'd like to announce the release of Cmdliner 0.9.1, React 0.9.3, 
+Rtime 0.9.2, Uuidm 0.9.4, and Xmlm 1.1.0.
+
+There's a mix of bug fixing and small feature additions. Consult the 
+individual release notes given below. 
+
+But foremost all the modules now support OASIS and use
+setup.ml for the distribution. Thanks to Sylvain for his work and
+taking time to respond to my questions.
+
+The tarballs were tested with `odb.ml` and seem to install fine
+that way. Before they eventually find their way into oasis-db
+(it doesn't support oasis 0.3 yet) you'll find a few lines here [1] 
+that you can add to your `packages` file to access them directly.
+
+Best, 
+
+Daniel
+
+[1] <a href="http://erratique.ch/software/odb-packages.txt">http://erratique.ch/software/odb-packages.txt</a>
+
+* Cmdliner v0.9.1 <a href="http://erratique.ch/software/cmdliner">http://erratique.ch/software/cmdliner</a>
+
+- OASIS support.
+- Fixed broken `Arg.pos_right`.
+- Variables `$(tname)` and `$(mname)` can be used in a term's man
+  page to respectively refer to the term's name and the main term
+  name.
+- Support for custom variable substitution in `Manpage.print`.
+- Adds `Term.man_format`, to facilitate the definition of help commands.
+- Rewrote the examples with a better and consistent style. 
+
+# Incompatible API changes
+
+- The signature of `Term.eval` and `Term.eval_choice` changed to make
+  it more regular: the given term and its info must be tupled together
+  even for the main term and the tuple order was swapped to make it
+  consistent with the one used for arguments.
+
+
+
+
+* React v0.9.3 <a href="http://erratique.ch/software/react">http://erratique.ch/software/react</a>
+
+- OASIS support
+
+
+* Rtime v0.9.2 <a href="http://erratique.ch/software/rtime">http://erratique.ch/software/rtime</a>
+
+- OASIS support.
+
+
+* Uuidm v0.9.4 <a href="http://erratique.ch/software/uuidm">http://erratique.ch/software/uuidm</a>
+
+- OASIS support.
+- New functions `Uuidm.v3` and `Uuidm.v5` that generate directly these 
+  kinds of UUIDs.
+- New function `Uuidm.v4_gen` returns a function that generates
+  version 4 UUIDs with a client provided random state. Thanks to Lauri
+  Alanko for suggesting that `Random.make_self_init` may be too weak
+  for certain usages.
+
+
+
+
+* Xmlm v1.1.0 <a href="http://erratique.ch/software/xmlm">http://erratique.ch/software/xmlm</a>
+
+- OASIS support.
+- Fixes a bug in the UTF-16 decoder.
+- Fixes a bug in `Xmlm.make_output` with a custom function. Thanks to
+  Konstantinas Myalo for the report and the patch.
+- New optional argument `decl` to `Xmlm.make_output` to control whether the
+  XML declaration should be output.
+- New function `Xmlm.output_depth`, returns the current element nesting level.
+      </pre><a name="7" /><hr /><h3>Efficient scanning of large strings from files</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2012-03/msg00217.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2012-03/msg00217.html</a></p><i>Philippe Veber asked and Jérémie Dimino replied:</i><br /><pre>
+&gt; Say that you'd like to search a regexp on a file with lines so long
+&gt; that you'd rather not load them entirely at once. If you can bound
+&gt; the size of a match by k &lt;&lt; length of a line, then you know that you
+&gt; can only keep a small portion of the line in memory to search the
+&gt; regexp. Typically you'd like to access substrings of size k from left
+&gt; to right. I guess such a thing should involve buffered inputs and
+&gt; avoid copying strings as much as possible. My question is as follows:
+&gt; has anybody written a library to access these substrings gracefully
+&gt; and with decent performance? Cheers,
+
+You can use a non-backtracking regexp library to find offsets of the
+substrings, then seek in the file to extract them. You can use for
+example the libre library from Jérôme Vouillon [1]. It only accept
+strings as input but it would be really easy to make it work on input
+channels (just replace "s.[pos]" by "input_char ic").
+
+  [1] <a href="http://sourceforge.net/projects/libre/">http://sourceforge.net/projects/libre/</a>
+      <a href="https://github.com/avsm/ocaml-re.git">https://github.com/avsm/ocaml-re.git</a>
+      </pre><a name="8" /><hr /><h3>Parsing cmi file</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2012-03/msg00177.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2012-03/msg00177.html</a></p><i>Bob Zhang asked and Gerd Stolpmann replied:</i><br /><pre>
+&gt;    I noticed that Godi can pretty print cmi files, is there already
+&gt; libraries parsing cmi files?
+
+Yes, toplevellib.cma (i.e. the ocaml toploop). It's a silly trick. Run the
+toploop and do
+
+module M = &lt;NameOfTheCMI&gt;;;
+
+and the toploop responds.
+      </pre><i>Gerd Stolpmann later suggested and David Brown added:</i><br /><pre>
+&gt; I think you can also "use" ocamlc -i for it, maybe easier to wrap.
+
+ocamlc -i will print out all of the types of the .ml file, not just
+the interface.  It's useful, but not necessarily what is wanted.
+
+The top trick doesn't work if the code isn't byte-compiled and has the
+consequence of running the module.
+
+It would be handy to be able to actually just dump out the .cmi file,
+especially in cases, such as prebuilt packages that include the .cmi but
+left out the .ml files.
+			</pre><i>rixed also replied to the original question:</i><br /><pre>
+Yes you can do this using the compiler libs (not installed by default
+but debian have these in a separate package).
+For an exemple of use see for instance the small tool displaying mli
+signatures from this git repo:
+
+git clone <a href="http://git.gitorious.org/ocalme/cmidump.git">http://git.gitorious.org/ocalme/cmidump.git</a>
+			</pre><i>Raphael Proust also suggested:</i><br /><pre>
+There is the cmigrep tool found on <a href="http://homepage.mac.com/letaris/">http://homepage.mac.com/letaris/</a>
+I have no idea about current status though;
+<a href="http://jun.furuse.info/hacks">http://jun.furuse.info/hacks</a> seems to imply it works on 3.12.
+			</pre><i>Hongbo Zhang then said and Mehdi Dogguy replied:</i><br /><pre>
+&gt; I tried, it does not compile, but it would be not hard to fix, I
+&gt; guess.
+
+In Debian, we apply the following patches to compile it:
+
+        <a href="http://patch-tracker.debian.org/package/cmigrep/1.5-9">http://patch-tracker.debian.org/package/cmigrep/1.5-9</a>
+
+FWIW, it compiles and runs perfectly well with any OCaml &gt;= 3.10.
+			</pre><a name="9" /><hr /><h3>Other Caml News</h3><i>From the ocamlcore planet blog:</i><br /><pre>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <a href="http://planet.ocamlcore.org/">http://planet.ocamlcore.org/</a>.
+
+Ocsigen Js_of_ocaml 1.1 released:
+  <a href="http://ocsigen.org/">http://ocsigen.org/</a>
+
+Ocsigen Server 2.0.4 released:
+  <a href="http://ocsigen.org/">http://ocsigen.org/</a>
+
+Interval computation library 1.1:
+  <a href="http://caml.inria.fr/cgi-bin/hump.cgi?contrib=805">http://caml.inria.fr/cgi-bin/hump.cgi?contrib=805</a>
+
+OCaml MySQL Protocol 0.4:
+  <a href="http://caml.inria.fr/cgi-bin/hump.cgi?contrib=804">http://caml.inria.fr/cgi-bin/hump.cgi?contrib=804</a>
+
+OCaml MySQL Protocol 0.4 available:
+  <a href="https://forge.ocamlcore.org/forum/forum.php?forum_id=828">https://forge.ocamlcore.org/forum/forum.php?forum_id=828</a>
+
+Spring release:
+  <a href="http://erratique.ch/software">http://erratique.ch/software</a>
+
+ML workshop 2012: call for presentations!:
+  <a href="http://www.lexifi.com/blog/ml2012">http://www.lexifi.com/blog/ml2012</a>
+
+Unix.open_process* and file descriptors:
+  <a href="http://blog.rastageeks.org/ocaml/article/unix-open_process-and-file">http://blog.rastageeks.org/ocaml/article/unix-open_process-and-file</a>
+
+barbra:
+  <a href="https://forge.ocamlcore.org/projects/barbra/">https://forge.ocamlcore.org/projects/barbra/</a>
+
+whenjobs 0.7.0 released:
+  <a href="http://rwmj.wordpress.com/2012/03/13/whenjobs-0-7-0-released/">http://rwmj.wordpress.com/2012/03/13/whenjobs-0-7-0-released/</a>
+      </pre><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

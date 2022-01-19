@@ -1,0 +1,396 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2009.05.05.html">Previous week</a> <a href="index.html">Up</a> <a href="2009.05.19.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of May 05 to 12, 2009.</p><ol><li><a href="#1">arm backend</a></li><li><a href="#2">memory profiling</a></li><li><a href="#3">OCaml 3.10.2 on iPhone unified patch</a></li><li><a href="#4">Custom blocks and finalization</a></li><li><a href="#5">Ocamlopt x86-32 and SSE2</a></li><li><a href="#6">Call for translators of the Unix system programming course</a></li><li><a href="#7">Other Caml News</a></li></ol><a name="1" /><hr /><h3>arm backend</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/0e411d2051ead4b4#">http://groups.google.com/group/fa.caml/browse_thread/thread/0e411d2051ead4b4#</a></p><i>Deep in this thread, Joel Reymont asked and Xavier Leroy answered:</i><br /><pre>
+&gt; Is the ARM backend (ocamlopt) usable and actively maintained?
+
+In brief: yes modulo ABI issues; yes.
+
+In more details:
+
+In OCaml 3.11 and earlier, the ARM port uses an old ABI (software
+conventions on using registers, etc).  This ABI corresponds to the
+"arm" port of Debian; I don't know about other Linux distros.
+OCaml/ARM works like a charm on platforms supported by Debian/arm.
+I use it on a Linksys NSLU2.
+
+However, most embedded Linux/ARM platforms use a more recent,
+incompatible ABI called EABI.  In Debian Lenny, it's available under
+the name "armel".
+
+I recently revised the OCaml/ARM port to adapt it to EABI and to
+software floating-point emulation.  You can find it in the CVS trunk,
+and testing and feedback is most welcome.  It works fine under Debian
+Lenny "armel".
+
+Floating-point performance is better than with the old port, because
+the latter used floating-point instructions that are no longer
+available on contemporary ARM processors and therefore had to be
+trapped and emulated by the kernel.  In contrast, with soft
+floating-point, emulation is performed in user land by C library
+functions, which can also take advantage of vector float
+instructions if the processor supports them.
+
+Concerning the iPhone, it is not supported out of the box by 3.11 nor
+by the CVS trunk code.  For 3.11, several patches have been mentioned
+on this list; it would be great if someone with iPhone development
+experience could combine them and publish a unified patch.
+
+For the CVS trunk code, it seems we are getting close: as far as I
+could see, MacOSX/ARM uses EABI plus Apple's "signature" approach to
+dynamic linking.  However, I haven't yet succeeded in running Apple's
+iPhone SDK compilers from the command-line.  (It looks like one of
+those Microsoft SDK's that assume everyone is developing from the
+vendor-supplied IDE...)  Again, I welcome feedback and patches from
+iPhone development experts.
+			</pre><a name="2" /><hr /><h3>memory profiling</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/370d07b9c2a71cb5#">http://groups.google.com/group/fa.caml/browse_thread/thread/370d07b9c2a71cb5#</a></p><i>Christoph Bauer asked and Dmitry Grebeniuk answered:</i><br /><pre>
+&gt; what is the best option to do memory profiling with ocaml?
+&gt; Is there a patch of ocaml-memprof for 3.11.0? What about
+&gt; objsize?
+
+ If you want to use objsize with ocaml 3.11, you should get
+the new version of objsize -- 0.12:
+<a href="http://forge.ocamlcore.org/projects/objsize/">http://forge.ocamlcore.org/projects/objsize/</a>
+ OCaml has new heap since 3.11, and old versions won't work.
+
+ objsize has an unresolved make-related problem with building
+on msvc/win32 (object/library file extensions, to be specific), so
+one should build objsize manually on msvc (not a hard thing.
+but I'll fix it in near future).
+			</pre><i>Sylvain Le Gall also replied:</i><br /><pre>
+I use a more simple approach (though I have used objsize to estimate
+some datastructure size, but only in the toplevel): GC allocation rate.
+
+You can override a little ocaml-benchmark to measure the allocation rate
+of the GC. This gives you a pretty good understanding on the fact you
+are allocating too much or not.
+
+Regards,
+Sylvain Le Gall
+
+ps: here is a part of my benchmarkExt.ml file
+
+
+(** Benchmark extension
+   @author Sylvain Le Gall
+ *)
+
+open Benchmark;;
+
+type t =
+   {
+     benchmark: Benchmark.t;
+     memory_used: float;
+   }
+;;
+
+let gc_wrap f x =
+ (* Extend sample to add GC stat *)
+ let add_gc_stat memory_used samples =
+   List.map 
+     (fun (name, lst) -&gt;
+        name,
+        List.map 
+          (fun bt -&gt; 
+             { 
+               benchmark = bt; 
+               memory_used = memory_used;
+             }
+          )
+          lst
+     )
+     samples
+ in
+
+ (* Call throughput1 and add GC stat *)
+ let () = 
+   print_string "Cleaning memory before benchmark"; print_newline ();    
+   Gc.full_major ()
+ in
+ let allocated_before = 
+   Gc.allocated_bytes ()
+ in
+ let samples =
+   f x
+ in
+ let () = 
+   print_string "Cleaning memory after benchmark"; print_newline ();
+   Gc.full_major ()
+ in
+ let memory_used = 
+   ((Gc.allocated_bytes ()) -. allocated_before) 
+ in
+   add_gc_stat memory_used samples
+;;
+
+let throughput1
+     ?min_count ?style
+     ?fwidth    ?fdigits
+     ?repeat    ?name
+     seconds 
+     f x =
+
+ (* Benchmark throughput1 as it should be called *) 
+ gc_wrap 
+   (throughput1
+      ?min_count ?style
+      ?fwidth    ?fdigits
+      ?repeat    ?name
+      seconds f) x
+;;
+
+let throughputN 
+     ?min_count ?style
+     ?fwidth    ?fdigits
+     ?repeat    
+     seconds name_f_args =
+ List.flatten
+   (List.map
+      (fun (name, f, args) -&gt;
+        throughput1 
+          ?min_count ?style
+          ?fwidth    ?fdigits
+          ?repeat    ~name:name
+          seconds f args)
+      name_f_args)
+;;
+
+let latency1 
+     ?min_cpu ?style 
+     ?fwidth  ?fdigits 
+     ?repeat  n 
+     ?name    f x =
+ gc_wrap 
+   (latency1
+     ?min_cpu ?style 
+     ?fwidth  ?fdigits 
+     ?repeat  n 
+     ?name    f) x
+;;
+
+let latencyN 
+     ?min_cpu ?style 
+     ?fwidth  ?fdigits 
+     ?repeat  
+     n name_f_args =
+ List.flatten
+   (List.map
+      (fun (name, f, args) -&gt;
+        latency1 
+          ?min_cpu   ?style
+          ?fwidth    ?fdigits
+          ?repeat    ~name:name
+          n          f args)
+      name_f_args)
+;;
+			</pre><a name="3" /><hr /><h3>OCaml 3.10.2 on iPhone unified patch</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/58da7b4ee4e0c0d4#">http://groups.google.com/group/fa.caml/browse_thread/thread/58da7b4ee4e0c0d4#</a></p><i>Jeff Scofield announced:</i><br /><pre>
+I'm attaching a unified patch that contains all the changes
+necessary to cross-compile OCaml for the iPhone.
+
+The patch should create a file named Makefile.xarm, which
+contains a build script to build the cross compiler.  This script
+essentially automates the instructions given by Toshiyuki Maeda
+at the following URL:
+
+   <a href="http://web.yl.is.s.u-tokyo.ac.jp/~tosh/ocaml-on-iphone">http://web.yl.is.s.u-tokyo.ac.jp/~tosh/ocaml-on-iphone</a>
+
+This unified patch contains all his patches plus some fixes of
+our own.  The result works with Apple's official iPhone SDK, and
+we have used it to build a working iPhone application.
+
+To build the cross-compiler:
+
+a.  Must be on an Intel Mac with Apple's iPhone SDK installed.
+
+b.  Create two full copies of the OCaml 3.10.2 release, in two
+   sibling directories.  One must be named OCamlBase (used to
+   hold a native build of OCaml).  The other can be named
+   anything; I'll use the name OCamlXARM.
+
+   $ wget <a href="http://caml.inria.fr/pub/distrib/ocaml-3.10/ocaml-3.10.2.tar.gz">http://caml.inria.fr/pub/distrib/ocaml-3.10/ocaml-3.10.2.tar.gz</a>
+   $ tar xzf ocaml-3.10.2.tar.gz
+   $ mv ocaml-3.10.2 OCamlBase
+   $ cp -R OCamlBase OCamlXARM
+
+c.  Patch the OCamlXARM tree:
+
+   $ cd OCamlXARM
+   $ patch -p0 &lt; ocamlxarm0.1.patch
+
+d.  Run the build process:
+
+   $ make xarm-build
+
+   This will take a while.  It builds two copies of the OCaml
+   release, using the native copy to plug native components into
+   the cross-compiler at a few critical spots.  (For more
+   information, see the URL above.)
+
+e.  There is also a make rule for installing.  The default target
+   is /usr/local/ocamlxarm.  To change this, you'll need to edit
+   Makefile.xarm.  When the target is set as desired:
+
+   # make install
+
+I just verified that the build works on my system.  Let me know of
+any difficulties.
+
+(Please follow the archive link to download the patch.)
+			</pre><a name="4" /><hr /><h3>Custom blocks and finalization</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/cd0ff9523ed1b6cd#">http://groups.google.com/group/fa.caml/browse_thread/thread/cd0ff9523ed1b6cd#</a></p><i>Deep in this thread, Thomas Fischbacher said, Markus Mottl asked and Xavier Leroy answered:</i><br /><pre>
+&gt; &gt; Let's have a look at byterun/globroots.c: 
+&gt; [snip] 
+&gt; &gt; So... how could caml_remove_global_root() actually trigger a heap GC? 
+&gt; It certainly doesn't, but it obviously manipulates runtime 
+&gt; datastructures which may not necessarily be in a state during 
+&gt; finalization where this is safe.  I'd have to study the runtime code 
+&gt; in detail to learn more, but maybe the OCaml team can clarify this 
+&gt; issue more quickly? 
+
+I foresee absolutely no problems with registering/unregistering global 
+roots from a C finalizer.  As the manual states, the big no-no in 
+C functions attached to custom blocks is allocating in the heap, 
+either directly or via a callback into Caml or by releasing the global 
+lock.  Within a finalizer, you should also refrain from raising an 
+exception, as this would leave the GC is a bizarre state.  But global 
+roots operations are OK. 
+
+As for not using the CAMLparam, etc macros in these functions: since 
+these functions must not allocate, the macros are certainly not 
+needed.  I don't think that actually using them could cause a problem, 
+but that would be silly anyway, so don't use them in this context. 
+			</pre><a name="5" /><hr /><h3>Ocamlopt x86-32 and SSE2</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/2a00d837b64efaf5#">http://groups.google.com/group/fa.caml/browse_thread/thread/2a00d837b64efaf5#</a></p><i>Deep in this thread, Xavier Leroy replied to several posts:</i><br /><pre>
+Dmitry Bely wrote: 
+&gt; I see. Why I asked this: trying to improve floating-point performance 
+&gt; on 32-bit x86 platform I have merged floating-point SSE2 code 
+&gt; generator from amd64 ocamlopt back end to i386 one, making ia32sse2 
+&gt; architecture. It also inlines sqrt() via -ffast-math flag and slightly 
+&gt; optimizes emit_float_test (usually eliminates an extra jump) - 
+&gt; features that are missed in the original amd64 code generator. 
+
+You just passed black belt in OCaml compiler hacking :-) 
+
+&gt; Is this of any interest to anybody? 
+
+I'm definitely interested in the potential improvements to the amd64 
+code generator. 
+
+Concerning the i386 code generator (x86 in 32-bit mode), SSE2 float 
+arithmetic does improve performance and fit ocamlopt's compilation 
+model much better than the current x87 float arithmetic, which is a 
+bit of a hack.  Several options can be considered: 
+
+1- Have an additional "ia32sse2" port of ocamlopt in parallel with the 
+   current "i386" port. 
+
+2- Declare pre-SSE2 processors obsolete and convert the current 
+   "i386" port to always use SSE2 float arithmetic. 
+
+3- Support both x87 and SSE2 float arithmetic within the same i386 
+   port, with a command-line option to activate SSE2, like gcc does. 
+
+I'm really not keen on approach 1.  We have too many ports (and 
+their variants for Windows/MSVC) already.  Moreover, I suspect 
+packagers would stick to the i386 port for compatibility with old 
+hardware, and most casual users would, too, out of lazyness, so this 
+hypothetical "ia32sse2" port would receive little testing. 
+
+Approach 2 is tempting for me because it would simplify the x86-32 
+code generator and remove some historical cruft.  The issue is that it 
+demands a processor that implements SSE2.  For a list of processors, see 
+  <a href="http://en.wikipedia.org/wiki/SSE2">http://en.wikipedia.org/wiki/SSE2</a> 
+As a rule of thumb, almost all desktop PC bought since 2004 has SSE2, 
+as well as almost all notebooks since 2006.  That should be OK for 
+professional users (it's nearly impossible to purchase maintenance 
+beyond 3 years, anyway) and serious hobbyists.  However, packagers are 
+going to be very unhappy: Debian still lists i486 as its bottom line; 
+for Fedora, it's Pentium or Pentium II; for Windows, it's "a 1GHz 
+processor", meaning Pentium III.  All these processors lack SSE2 
+support.  Only MacOS X is SSE2-compatible from scratch. 
+
+Approach 3 is probably the best from a user's point of view.  But it's 
+going to complicate the code generator: the x87 cruft would still be 
+there, and new cruft would need to be added to support SSE2.  Code 
+compiled with the SSE2 flag could link with code compiled without, 
+provided the SSE2 registers are not used for parameter and result 
+passing.  But as Dmitry observed, this is already the case in the 
+current ocamlopt compiler. 
+
+Jean-Marc Eber: 
+&gt; &gt; But again, having better floating point performance (and 
+&gt; &gt; predictable behaviour, compared to the bytecode version) would be a 
+&gt; &gt; big plus for some applications. 
+
+Dmitry Bely: 
+&gt; Don't quite understand what is "predictable behavior" - any generator 
+&gt; should conform to specs. In my tests x87 and SSE2 backends show the 
+&gt; same results (otherwise it would be called a bug). 
+
+You haven't tested enough :-).  The x87 backend keeps some intermediate 
+results in 80-bit float format, while the SSE2 backend (as well as all 
+other backends and the bytecode interpreter) compute everything in 
+64-bit format.  See David Monniaux's excellent tutorial: 
+  <a href="http://hal.archives-ouvertes.fr/hal-00128124/en/">http://hal.archives-ouvertes.fr/hal-00128124/en/</a> 
+Computing intermediate results in extended precision has pros and 
+cons, but my understanding is that the cons slightly outweigh the pros. 
+			</pre><i>Editor's note:</i><br /><pre>
+This thread contains many more messages, please follow the link archive if you
+want to dig deeper in the subject.
+			</pre><a name="6" /><hr /><h3>Call for translators of the Unix system programming course</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/f244a97e23e751b0#">http://groups.google.com/group/fa.caml/browse_thread/thread/f244a97e23e751b0#</a></p><i>Daniel Bünzli announced:</i><br /><pre>
+We are launching an effort to translate Xavier Leroy and Didier Rémy's course
+on Unix system programming in Objective Caml [1].
+
+We are looking for one translator and one proofreader for each of the seven
+main chapters. To facilitate the task of proof readers and get the best
+translation preference will be given to native english speaking contributors.
+If you are interested in participating please email me privately with the
+following information : chapter you'd like to translate/proofread and whether
+your are a native english speaker or not.
+
+The work of the translators will be published online as html and pdf documents
+at this adress [2] under a Creative Commons BY-NC-SA french license [3]. Note
+that the non commercial aspect of the license doesn't preclude a subsequent
+publication of the result as a (non free as in wine) book. However in that
+case an agreement would be sought between the authors, the translators and the
+publisher.
+
+Thanks for your help,
+
+Daniel
+
+[1] <a href="http://pauillac.inria.fr/~remy/poly/system/camlunix/index.html">http://pauillac.inria.fr/~remy/poly/system/camlunix/index.html</a>
+
+[2] <a href="http://ocamlunix.forge.ocamlcore.org/">http://ocamlunix.forge.ocamlcore.org/</a>
+
+[3] <a href="http://creativecommons.org/licenses/by-nc-sa/2.0/fr/deed.en">http://creativecommons.org/licenses/by-nc-sa/2.0/fr/deed.en</a>
+			</pre><a name="7" /><hr /><h3>Other Caml News</h3><i>From the ocamlcore planet blog:</i><br /><pre>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <a href="http://planet.ocamlcore.org/">http://planet.ocamlcore.org/</a>.
+
+Sudoku in ocamljs, part 3: functional reactive programming:
+  <a href="http://ambassadortothecomputers.blogspot.com/2009/05/sudoku-in-ocamljs-part-3-functional.html">http://ambassadortothecomputers.blogspot.com/2009/05/sudoku-in-ocamljs-part-3-functional.html</a>
+
+Polymorphic Recursion:
+  <a href="http://alaska-kamtchatka.blogspot.com/2009/05/polymorphic-recursion.html">http://alaska-kamtchatka.blogspot.com/2009/05/polymorphic-recursion.html</a>
+
+Rope library:
+  <a href="http://forge.ocamlcore.org/projects/rope/">http://forge.ocamlcore.org/projects/rope/</a>
+
+Line Printer Deamon library:
+  <a href="http://forge.ocamlcore.org/projects/lpd/">http://forge.ocamlcore.org/projects/lpd/</a>
+
+ocaml-text 0.2:
+  <a href="http://caml.inria.fr/cgi-bin/hump.cgi?contrib=697">http://caml.inria.fr/cgi-bin/hump.cgi?contrib=697</a>
+
+Camlspikes:
+  <a href="http://caml.inria.fr/cgi-bin/hump.cgi?contrib=696">http://caml.inria.fr/cgi-bin/hump.cgi?contrib=696</a>
+			</pre><hr /><h3>Using folding to read the cwn in vim 6+</h3><p>Here is a quick trick to help you read this CWN if you are viewing it using vim (version 6 or greater).</p><pre>:set foldmethod=expr<br />:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'&amp;lt;1':1<br />zM</pre><p>If you know of a better way, please let me know.</p><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

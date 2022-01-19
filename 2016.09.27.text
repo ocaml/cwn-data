@@ -1,0 +1,404 @@
+Hello,
+
+Here is the latest OCaml Weekly News, for the week of September 20 to 27, 2016.
+
+1) bindings for xz compression and decompression ?
+2) BuckleScript on Windows
+3) Encoding "links" with the type system
+4) otags reloaded 4.03.1 for OCaml 4.03
+5) opkg v0.0.1 - Documentation access improvements
+6) Other OCaml News
+
+========================================================================
+1) bindings for xz compression and decompression ?
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2016-09/msg00074.html>
+------------------------------------------------------------------------
+** Deep in this thread, Adrien Nader said:
+
+ocaml-archive[1] has read-only bindings to libarchive which handles xz
+through liblzma. I've used it for quite a bit of time now. I have a few,
+non-upstream, small patches to bind a few more functions (on-the-fly
+path-rewrite, read from bigarray, extract to disk (?), getters and
+setters for libarchive's "pathname",
+archive_entry_{set_,}{hard,sym}link() and archive_entry_set_link). If
+they're of interest I can take some time to share them properly (they're
+already public, just not announced).
+
+[1] <https://forge.ocamlcore.org/projects/ocaml-archive/>
+      
+========================================================================
+2) BuckleScript on Windows
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2016-09/msg00076.html>
+------------------------------------------------------------------------
+** Hongbo Zhang announced:
+
+We are glad to announce the native windows support of BuckleScript: a backend
+for the OCaml compiler which emits JavaScript.
+
+We are committed to provide native support on all major platforms: Linux, Mac
+and Windows, for Windows Users, in the future we will provide a pre-built binary
+so that it does not need Cygwin (BuckleScript does not depend on Cygwin after
+installation), the installation instructions is available:
+<http://bloomberg.github.io/bucklescript/Manual.html#_installation>
+
+A simple example of BuckleScript is available here:
+<https://github.com/bloomberg/bucklescript/#an-http-server>
+
+As examples of that vision, using BuckleScript, OCaml users can use Chrome Dev
+Tools to debug OCaml code, while Javascript users can use OCaml libraries as
+plain npm[2] packages.
+
+Documentation is available here:
+<http://bloomberg.github.io/bucklescript/Manual.html>
+
+Thanks -- Hongbo
+
+[1]: <https://github.com/bloomberg/bucklescript/>
+[2]: <https://www.npmjs.com/>
+      
+========================================================================
+3) Encoding "links" with the type system
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2016-09/msg00077.html>
+------------------------------------------------------------------------
+** Andre Nathan asked:
+
+I'm trying to encode links (an example would be directed graph edges)
+using the type system.
+
+The idea is to have types such as
+
+  module Source = struct
+    type 'a t = { name : string }
+    let create name = { name }
+  end
+
+  module Sink = struct
+    type 'a t = { name : string }
+    let create name = { name }
+  end
+
+  module Link = struct
+    type ('a, 'b) t = 'a Source.t * 'b Sink.t
+  end
+
+
+and then define a "link set" with the following characteristics:
+
+* You initialize a link set with a sink;
+* You can add links to set such that
+    * The first link's sink must be of the type of the sink;
+    * Additional links can have as sink types the original sink type
+      from the set creation, or the source types of previously added
+      links.
+
+In other words, if a set is created from a "t1 Sink.t", the first link
+on the set must be of type "t2 Source.t * t1 Sink.t", the second link
+can be either "t3 Source.t * t1 Sink.t" or "t3 Source.t * t2 Sink.t" and
+so on.
+
+Is it possible at all to encode such invariants using the type system? I
+couldn't get past something like
+
+  module Set = struct
+    type _ t =
+      | S : 'a Sink.t -> 'a t
+      | L : 'a t * ('b, 'a) Link.t -> ('a * 'b) t
+    let create sink = S sink
+    let add_link link set = L (set, link)
+  end
+
+This allows me to insert the first link:
+
+  type t1
+  type t2
+  type t3
+
+  let _ =
+    let snk1 : t1 Sink.t = Sink.create "sink1" in
+    let set = Set.create snk1 in
+
+    let src1 : t2 Source.t = Source.create "source1" in
+    let lnk1 = (src1, snk1) in
+    let set1 = Set.add_link lnk1 set in
+    ...
+
+but now "set1" has type "(t1 * t2) Set.t" and I can't call "add_link" on
+it anymore:
+
+    ...
+    let src2 : t3 Source.t = Source.create "source2" in
+    let lnk2 = (src2, snk1) in
+    let set2 = Set.add_link lnk2 set1 in
+    ...
+
+which gives me "This expression has type (t1 * t2) Set.t but an
+expression was expected of type t1 Set.t" when passing "set1" to "add_link".
+
+I also tried to come up with a solution using difference lists for the
+set but hit basically the same problem as above.
+
+Any help would be appreciated.
+      
+** Jeremy Yallop replied:
+
+> Is it possible at all to encode such invariants using the type system?
+
+It is!  Here's one approach, which is based on two ideas:
+
+   1. generating a fresh, unique type for each set
+      (the paper "Lightweight Static Capabilities" calls these "type
+eigenvariables")
+
+   2. an encoding of a set as a collection of evidence about membership.
+
+I'll describe an interface based on these ideas that maintains the
+properties you stipulate.  I'll leave the problem of building an
+implementation that satisfies the interface to you.  (In fact, the
+interface is the tricky part and the implementation is straightforward
+if you can treat all the type parameters as phantom.)
+
+First, we'll need types for the objects in the domain: sources, sinks,
+sets and links.
+
+  type _ source and _ sink and _ set and ('source, 'sink) link
+
+Besides these we'll also need a type of membership evidence.  A value
+of type '(sink, set) accepts' is evidence that 'set' will accept a
+link with sink type 'sink':
+
+  type ('sink, 'set) accepts
+
+Then there are two operations on sets: creating a fresh set and adding
+a link to a set.  In both cases the operation returns multiple values,
+so I'll use records for the return types.  Furthermore, both
+operations create fresh types (since sets have unique types), so I'll
+use records with existential types.
+
+First, here's the type of the result of the create_set operation:
+
+  type 'sink fresh_set = Fresh_set :{    (* :{  *)
+      set: 't set;
+      accepts: ('sink, 't) accepts;
+    } -> 'sink fresh_set
+
+There's a type parameter 'sink, which'll be instantiated with the type
+of the sink used to create the set, and two fields:
+
+   1. 'set' is the new set
+   2. 'accepts' is evidence that 'set' will accept a link with sink type 'sink'
+      (or, if you like, a capability that will allow us to add such a link)
+
+Note that 'sink is a type parameter, since we need to ensure that it
+is the same as another type in the program (the sink used to create
+the set), but 't is existential, since we need to ensure that it is
+distinct from every other type in the program (since it uniquely
+identifies 'set').
+
+The create_set operation builds a fresh set from a sink:
+
+  val create_set : 'sink sink -> 'sink fresh_set
+
+Next, here's the type of the result of the add_link operation:
+
+  type ('sink, 'parent) augmented_set = Augmented_set :{
+      set: 't set;
+      accepts: ('sink, 't) accepts;
+      cc: 's. ('s, 'parent) accepts -> ('s, 't) accepts;
+    } -> ('sink, 'parent) augmented_set
+
+This time there are three elements to the result:
+   1. 'set' is the new set (as before)
+   2. 'accepts' is evidence that 'set' will accept a link with sink
+type 'sink' (as before)
+   3. 'cc' is a capability converter, that turns evidence that the
+"parent" set will accept a link into evidence that 'set' will accept
+the same link.
+
+(Another of looking at this is that 'augmented_set' bundles the new
+set up along with evidence that 'sink' is a member and evidence that
+every member of the parent set is also a member.)
+
+(And it's again worth looking at the scope of the type variables:
+'sink and 'parent are parameters, since they correspond to the types
+of inputs to the operation;  't is fresh, and 's is
+universally-quantified, since the capability converter must work for
+any piece of evidence involving the parent.)
+
+The insert_link operation takes three arguments: the link to insert,
+the set into which the link is inserted, and evidence that the
+insertion is acceptable:
+
+  val insert_link :
+    ('source, 'sink) link ->  (* the link *)
+    't set ->                 (* the set *)
+    ('sink, 't) accepts ->    (* evidence that the set accepts the link *)
+    ('source, 't) augmented_set
+
+Here's the interface in action.  Let's assume that we have your sinks,
+sources and links:
+
+    type t1 and t2 and t3
+    val snk1 : t1 sink
+    val src1 : t2 source
+    val src2 : t3 source
+    val lnk1 : (t2, t1) link
+    val lnk2 : (t3, t1) link
+    val lnk3 : (t3, t2) link
+
+Let's start by building a set from snk1:
+
+    let Fresh_set { set = set; accepts = a } =
+        create_set snk1 in
+
+Now, since 'set' accepts links with sink type 't1' (as attested by
+'a') we can insert a new link:
+
+    let Augmented_set { set = set1; accepts = a1; cc = cc1 } =
+        insert_link lnk1 set a in
+
+We now have the following evidence available:
+
+    'a' says that 'set' accepts 't1'
+    'a1' says that 'set1' accepts 't2'
+    'cc1' says that 'set1' accepts anything that 'set' accepts, and so
+    'cc1 a' says that set1' accepts 't1'
+
+and so we can insert links with sink type either 't1' or 't2' into 'set1':
+
+    insert_link lnk3 set1 a1
+    insert_link lnk2 set1 (cc1 a)
+
+And, of course, since we can only insert links when we have evidence
+that the set will accept them, there's no way to perform invalid
+insertions.
+
+One drawback of the above is a possible lack of efficiency, mostly
+depending on how 'cc' is implemented.  In fact, there's also a
+cost-free approach to capability conversions based on evidence
+subtyping and private types, but I'll leave it as an exercise for the
+reader.
+
+I hope that helps!
+      
+========================================================================
+4) otags reloaded 4.03.1 for OCaml 4.03
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2016-09/msg00082.html>
+------------------------------------------------------------------------
+** Hendrik Tews announced:
+
+I released a new version of otags for OCaml 4.03. You can find it
+at the usual place <http://askra.de/software/otags/> under the
+usual license GPL v3.
+
+Otags reloaded generates tags tables for emacs and vi/vim. 
+
+This is a major rewrite. After seeing more and more problems with
+camlp4, I decided to base otags on the standard OCaml parser from
+the compiler-libs library. Consequently all camlp4 parsing
+options and the support for tagging sources in the revised syntax
+or with other syntax extensions disappeared now.
+
+There are two more restrictions in this version: Methods and
+attributes in class types are not tagged (but the underlying
+problem has been fixed already with pull request 749). Finally,
+there is no support for source files with line directives.
+
+All in all the rewrite for the parse tree exported from
+compiler-libs was a pleasant experience. While the camlp4 systems
+was intellectually appealing, the straightforward matching on a
+standard OCaml variant type makes otags much simpler now. I could
+also flush quite a bit of code that dealt only with problems
+inherited from camlp4...
+
+The restriction with line directives is pretty severe because it
+excludes ocamlyacc, ocamllex and cppo. I have a plan for this
+already.
+
+I am not so sure whether the support for the revised syntax,
+quotations or other syntax extensions will really be missed. Any
+opinions on that one?
+      
+========================================================================
+5) opkg v0.0.1 - Documentation access improvements
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2016-09/msg00089.html>
+------------------------------------------------------------------------
+** Daniel Bünzli announced:
+
+One of the goal of the `opkg` project [0] is to kill the myth 
+that documentation doesn't exist in the OCaml eco-system. 
+The fact is that documentation exists in many cases; it's only 
+scattered and thus painful to access.
+
+A first version of `opkg` was released just to address this problem. 
+Among other things like swift access to installed change logs, 
+it uses ocamldoc to generate best-effort, per package,
+API docsets, relying on the mlis and cmis installed by packages. 
+
+In a >= 4.03 switch, simply invoke :
+
+  opam install ocaml-manual opkg 
+  opkg ocamldoc
+  opkg doc
+
+Future `opkg` releases will rely on `cmti` files and use 
+the maturing `odoc` effort [1] for generating API docsets.
+This will notably add inter-package cross-references.
+
+If the packages you use comply with opkg's install conventions,
+there are a few other commands that you will find useful, here
+applied to the bos package which satisfies them:
+
+  opkg doc bos # Show generated API docs
+  opkg changes bos # Show release notes
+  opkg issues bos # Browse issues
+  opkg homepage bos # Browse homepage
+  opkg online-doc bos # Browse online docs
+
+More information can be found in `opkg help basics`. 
+
+Information on packaging conventions is in `opkg help packaging`. 
+Note that these conventions are automatically enforced without 
+having anything special to do if you use `topkg` [2] to release 
+your packages.
+
+Finally note that `opkg` is mostly a dumb command driver. All the 
+hard work of API doc generation is being done by ocamldoc and 
+credits should go to Maxence Guesdon for all the work he put in it
+over the years.
+
+Best & RTFM,
+
+Daniel
+
+[0] <http://erratique.ch/software/opkg>
+[1] <https://github.com/ocaml-doc>
+[2] <http://erratique.ch/software/topkg>
+      
+========================================================================
+6) Other OCaml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Here are links from many OCaml blogs aggregated at OCaml Planet,
+<http://ocaml.org/community/planet/>.
+
+Custom operators in OCaml
+ <http://blog.shaynefletcher.org/2016/09/custom-operators-in-ocaml.html>
+
+What the interns have wrought, 2016
+ <https://blogs.janestreet.com/what-the-interns-have-wrought-2016/>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

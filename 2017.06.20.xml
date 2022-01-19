@@ -1,0 +1,203 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2017.06.20</cwn_date>
+    <cwn_prev>2017.06.13</cwn_prev>
+    <cwn_next>2017.06.27</cwn_next>
+    <cwn_date_text>June 13 to 20, 2017</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>Micro benchmarks for floating-point operations in OCaml?</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2017-06/msg00056.html</cwn_url>
+      <cwn_who>Evgeny Roubinchtein asked and Gabriel Scherer replied</cwn_who>
+      <cwn_what>
+&gt; Is there a suite of micro-benchmarks for floating-point operations in
+&gt; OCaml?  If so, could someone point me to such suite(s)?
+
+While they are not "micro-benchmarks" in the sense of "testing only one
+operation", the set of short-running benchmarks in operf-micro contains
+many short floating-point-heavy programs (almabench, fft, kahan_sum...):
+
+https://github.com/OCamlPro/operf-micro/tree/master/share/operf-micro/benchmarks
+https://www.typerex.org/operf-micro.html
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Can this code be accelerated by porting it to SPOC, SAREK or MetaOCaml ?</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2017-06/msg00062.html</cwn_url>
+      <cwn_who>Francois BERENGER asked</cwn_who>
+      <cwn_what>
+I am wondering if some high performance OCaml experts out there
+can know in advance if some code can go faster by executing it
+on a GPU.
+
+I'd like to get some feeling before I invest into some new technology.
+
+I'd like to stay in OCaml, not drop down to C.
+So I mention SPOC, SAREK and MetaOCaml which look like the right technologies.
+
+I have some clear bottleneck in my program.
+Here is how the code looks like:
+
+---
+let f (points: (Vector3.t * float) list) =
+  let acc = ref [] in
+  let ac p1 x (p2, y) =
+    acc := (Vector3.dist p1 p2, x *. y) :: !acc
+  in
+  let rec loop = function
+    | [] -&gt; ()
+    | (p1, x) :: xs -&gt;
+      L.iter (ac p1 x) xs;
+      loop xs
+  in
+  loop points;
+  !acc
+---
+
+So, in terms of size: each point is 3 floats (a 3D coordinate) plus 1 float
+(some value).
+I usually have several thousands of points, but less than 10_000.
+
+The f function will be called thousands of times for one run of the program
+(let's say 300k calls is a big but reasonable use case).
+
+I don't care about the order of points in the input list.
+
+I also don't care about the order of the results in acc.
+
+I very probably don't care about using single point precision (32 bit floats)
+for everything, instead of double precision.
+
+Thanks a lot for any feedback.
+
+Best regards,
+Francois.
+
+PS: vector3 is available in opam, if that helps
+      </cwn_what>
+      <cwn_who>Ronan Le Hy replied</cwn_who>
+      <cwn_what>
+As a baseline before attempting anything on the GPU, I'd vectorize
+this. Put all your vectors in a big matrix. Put all your numbers in a
+vector. Compute the distances and the products all at once using
+Lacaml (make sure you use OpenBLAS as a backend). I'd expect it to be
+much faster than the above loop already.
+      </cwn_what>
+      <cwn_who>Ivan Gotovchits also replied</cwn_who>
+      <cwn_what>
+Your code is actually bound by memory, not by computation. The problem is
+that you create lots of data, and all the time is spent in the allocation
+functions and GC. The actual computation consumes less than 5% of overall
+program execution, that can be easily seen by profiling (always profile
+before starting optimization). Thus moving to GPU will make this 5% of code
+run faster, at the expense of even higher overhead of moving data between
+CPU and GPU.
+
+So, let's see how we can optimize your code. First of all, your code uses
+too much mutable state, that can have a negative performance impact in
+OCaml due to write barriers. Let's make it a little bit cleaner and faster:
+
+
+let nonmutab points =
+  let rec loop xs acc = match xs with
+    | [] -&gt; acc
+    | (x,w) :: xs -&gt;
+      List.fold_left (fun acc (x',w') -&gt;
+          (Vector3.dist x x', w *. w') :: acc) acc xs |&gt;
+      loop xs in
+  loop points []
+
+This code runs a little bit faster (on 10000 points):
+
+original: 14084.1 ms
+nonmutab: 11309.2 ms
+
+It computes absolutely the same result, using the same computational core,
+and allocating the same amount of trash. The only difference is that we are
+not using a mutable state anymore, and we are rewarded for that.
+
+The next step is to consider, do you really need to produce these
+intermediate structures, if the result of your program is the computed
+data, then you can just store it in a file. Or, if you need later this data
+to be reduced to some value, then you shouldn't create an intermediate
+result, and apply the reduction in place (so called de-foresting). So,
+let's generalize a little bit the function so that instead of producing a
+new list, the function just applies a user-provided function to all
+produced elements, along with an accumulator.
+
+let nonalloc f acc points =
+  let rec loop xs acc = match xs with
+    | [] -&gt; acc
+    | (x,w) :: xs -&gt;
+      List.fold_left (fun acc (x',w') -&gt;
+          f acc (Vector3.dist x x') (w *. w')) acc xs |&gt;
+      loop xs in
+  loop points acc
+
+
+
+This function will not allocate any unnecessary data (it will though
+allocate a pair of floats per each call). So we can use this function to
+implement the `nonmutab` version, by passing a consing operator and an
+empty list. We can also try to use it to store data. The data storage
+process depends on how fast we can reformat the data, and how fast is the
+sink device. If we will output to /dev/null (that is known to be fast),
+then we can use the Marshal module and get about 300 MB/s throughtput. Not
+bad, but still about 10 seconds of running time. If, for example, we just
+need some scalar metrics, then we don't need to pay an overhead of data,
+and it will be as fast as possible. For example, with the following
+implementations of the kernel function
+
+let flags = [Marshal.No_sharing]
+
+let print () x1 x2 =
+  Marshal.to_channel stdout x1 flags;
+  Marshal.to_channel stdout x2 flags
+
+let product total x1 x2 = total +. x1 *. x2
+
+
+We will have the following timings:
+
+printall: 9649.54 ms
+nonalloc: 541.186 ms
+
+
+So, the actual computation took only half a second, the rest is data
+processing.
+
+Please find attached the whole example. You can run it with the following
+command:
+
+ocamlbuild -pkgs vector3,unix points.native -- &gt; /dev/null
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>From the OCaml discourse</cwn_title>
+      <cwn_who>The editor compiled this list</cwn_who>
+      <cwn_what>
+Here are some links to messages at &lt;http://discuss.ocaml.org&gt; that may
+be of interest to the readers.
+
+- Dave Scott talks about "[ANN]: io-page 2.0.0, with packaging changes"
+  &lt;https://discuss.ocaml.org/t/ann-io-page-2-0-0-with-packaging-changes/440/1&gt;
+
+- Reynir Björnsson talks about "Ocp-index-top v0.4.1 - first release on opam"
+  &lt;https://discuss.ocaml.org/t/ocp-index-top-v0-4-1-first-release-on-opam/442/1&gt;
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Ocaml Github Pull Requests</cwn_title>
+      <cwn_who>Gabriel Scherer and the editor compiled this list</cwn_who>
+      <cwn_what>
+Here is a sneak peek at some potential future features of the Ocaml
+compiler, discussed by their implementers in these Github Pull Requests.
+
+- Unsigned 32-bit and 64-bit integers
+  https://github.com/ocaml/ocaml/pull/1201
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

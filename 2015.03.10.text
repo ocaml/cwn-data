@@ -1,0 +1,436 @@
+Hello,
+
+Here is the latest OCaml Weekly News, for the week of March 03 to 10, 2015.
+
+1) Dependencies between plugins
+2) CFP: OCaml Workshop 2015
+3) pycaml
+4) Changing precedence and placement of attributes
+5) Firmata v0.1
+6) Other OCaml News
+
+========================================================================
+1) Dependencies between plugins
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2015-03/msg00016.html>
+------------------------------------------------------------------------
+** François Bobot asked:
+
+I'm wondering how people are handling dependencies between libraries
+dynamically linked.
+
+Even if many libraries compile a cmxs and have in their META file
+`archive(plugin,native)=...`. I know only one tool that uses this
+information: the ocsigen server. The code to gather all the cmxs or
+cma is not hard to write, thanks to findlib:
+
+<https://github.com/ocsigen/ocsigenserver/blob/master/src/baselib/ocsigen_loader.ml#L165>
+
+Does someone wrote a library that does that?
+
+Gerd, do you think that something that does that could be added to
+ocamlfind? One tricky thing is to know the library statically linked
+(ie. `Ocsigen_config.builtin_packages`), perhaps ocamlfind can during
+linking add this information.
+      
+** Gabriel Scherer replied:
+
+Maxence Guesdon's static blog/website generator Stog (
+<https://zoggy.github.io/stog/index.html> ) supports dynamic plugins,
+and its loading code is available at
+
+<https://github.com/zoggy/stog/blob/e83c363c83465a7bfd1595816b3d9bc8331af560/stog_dyn.ml#L119-L146>
+
+It also uses ocamlfind, but through the command-line rather than the
+Findlib library.
+      
+** François Bobot then said and Maxence Guesdon replied:
+
+> Thank you for the pointer. His code is even able to create cmxs from
+> cmxa if needed!
+
+Warning, as you see according to the name: it's a hack :)
+
+This discussion is an opportunity to call every library developer
+to compile and install .cmxs files, *please*.
+      
+** Gerd Stolpmann replied to the OP and François Bobot then said:
+
+(please see the archive link for the patch)
+        
+>> Gerd, do you think that something that does that could be added to ocamlfind? One tricky thing is to
+>> know the library statically linked (ie. `Ocsigen_config.builtin_packages`), perhaps ocamlfind can
+>> during linking add this information.
+>
+> I think so. For toploops, there is already code that tracks libraries
+> already linked into the executable (i.e. if you ocamlmktop your
+> toploop).
+
+All was already in place indeed! It was easy to add. I kept caml-list
+in CC for discussing the big picture in order to get comments from
+people. Is mail still your preferred way of receiving patch?
+
+I kept it simple, no hack (no automatic: cmxa -> cmxs) because
+I prefer problems in library META to be found than to be paper over.
+
+The first patch adds:
+- A library `findlib.dynlink` that depends on `findlib` and `dynlink`
+- During linking (using `ocamlfind ocaml*`) if `-package
+findlib.dynlink` and `-linkpkg` are used then a module
+`Findlib_initl...` is linked after all packages and it stores the
+names of packages linked in `Findlib.linked_packages`.
+- In the main program `Fl_dynlink.load_packages ["yojson"]` can be used to dynlink packages
+
+The second patch forbids to run `Fl_dynlink.load_packages` during the
+initialization of packages (statically or dynamically linked), because
+`Findlib_initl...` is not yet run and because if you want to load
+a package that depend on a statically linked package not yet
+initialized, there is no sane semantic.
+
+Problems:
+- The package is named `findlib.dynlink`, the archive
+`findlib_dynlink.cm*` and the module `Fl_dynlink` ...
+- If you don't use `-linkall` static packages could only be partially
+linked, and you can't link the remaining part later. So perhaps
+`-linkall` must be automatically added if `findlib.dynlink` is used.
+- If you define `archive(native)` and not `archive(native,plugin)` the
+error is not nice (in Dynlink.Error). Perhaps I should add
+a `Package_not_dynamically_loadable of string` error, that should
+catch the loading of something else than `*.cmxs`.
+- Often you link your binary with your own library without using
+`-package` (the library is not yet installed), and plugins for your
+tools depend on your library. Currently you should do before any
+`Fl_dynlink.load_packages`: `Findlib.linked_packages :=
+"mylib"::Findlib.linked_packages`. For simplicity, I don't know if
+I should add a function `Fl_dynlink.add_linked_packages`, or an option
+to ocamlfind `-additional-package-statically-linked `.
+- During the initialization of your own library (linked
+without -package) you should not use `Fl_dynlink.load_packages`, but
+the library doesn't protect you against this error.
+
+Choices:
+- If you don't link with `findlib.dynlink` or use `create_toploop`,
+the variables `Findlib.linked_packages` and
+`Findlib.linked_predicates` are empty because I don't wanted to add
+backward change by adding `Findlib_initl...` when `findlib` is linked.
+
+
+Remains to do:
+- Fix problems
+- Documentations (add `plugin` in the list of standard predicates, ...)
+
+
+Gerg, what do you think of this first version of the patch? Of the way to fix the problems?
+      
+** Sebastien Mondet also replied to the OP:
+
+We have also some code doing that there:
+<https://github.com/hammerlab/ketrew/blob/master/src/lib/pure/ketrew_plugin.ml#L52>
+One of the tricks used is that, at configure time, the list of findlib
+packages already linked is given to the library itself to avoid double
+loading.
+      
+========================================================================
+2) CFP: OCaml Workshop 2015
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2015-03/msg00029.html>
+------------------------------------------------------------------------
+** Damien Doligez announced:
+
+==============================================================================
+
+                              OCAML 2015
+               The  OCaml Users and Developers Workshop
+                <http://ocaml.org/meetings/ocaml/2015/>
+                 Vancouver, British Columbia, Canada
+                         September 4, 2015
+
+                        CALL FOR PRESENTATIONS
+
+                      Co-located with ICFP 2015
+                         Sponsored by SIGPLAN
+           Talk Proposal Submission Deadline: May 18, 2015
+
+==============================================================================
+
+The OCaml Users and Developers Workshop brings together industrial users of
+OCaml with academics and hackers who are working on extending the language,
+type system and tools.
+Previous editions have been colocated with ICFP 2012 in Copenhagen,
+ICFP 2013 in Boston, ICFP 2014 in Gothenburg, following the OCaml
+Meetings in Paris in 2010 and 2011. OCaml 2015 will be held on
+September 4, 2015 in Vancouver, colocated with ICFP 2015.
+
+Scope
+=====
+
+Discussions will focus on the practical aspects of OCaml programming and
+the nitty gritty of the tool-chain and upcoming improvements and changes.
+Thus, we aim to solicit talks on all aspects related to improving the use
+or development of the language and of its programming environment,
+including, for example:
+
+- compiler developments, new backends, runtime and architectures
+
+- practical type system improvements, such as (but not limited to)
+ GADTs, first-class modules, generic programming, or dependent types
+
+- new library or application releases, and their design rationales
+
+- tools and infrastructure services, and their enhancements
+
+- prominent industrial uses of OCaml, or deployments in unusual
+ situations.
+
+Submission
+==========
+
+It will be an informal meeting, with an online scribe report of the
+meeting, but no formal proceedings. Slides of presentations will be
+available online from the workshop homepage. The presentations will
+likely be recorded, and made available at a later time.
+
+To submit a talk, please register a description of the talk (about 2 pages
+long) at <https://www.easychair.org/conferences/?conf=ocaml2015>, providing a
+clear statement of what will be brought by the talk: the problems that are
+addressed, the technical solutions or methods that are proposed. If you
+wish to perform a demo or require any special setup, we will do our best to
+accommodate you.
+
+Schedule
+========
+
+Monday 18th May (any time zone)   Abstract submission deadline
+Monday 29th June                  Author notification
+Friday 4th September 2015         OCaml Workshop
+
+ML family workshop and post-proceedings
+=======================================
+
+The ML family workshop, held on the previous day, deals with general issues
+of the ML-style programming and type systems, and is seen as more research-
+oriented. Yet there is an overlap with the OCaml workshop, which we are
+keen to explore, for instance by having a common session.  The authors who
+feel their submission fits both workshops are encouraged to mention it at
+submission time and/or contact the Program Chairs.
+
+As another form of cooperation, we are considering combined post-conference
+proceedings of selected papers from the two workshops. The Program
+Committees shall invite interested authors of selected presentations to
+expand their abstract for inclusion in the proceedings. The submissions
+would be reviewed according to the standards of the publication.
+
+Program Committee
+=================
+
+The program committee will be announced very soon.
+
+If you have any questions, please e-mail:
+Damien Doligez <ocaml2015 AT easychair DOT org>
+      
+========================================================================
+3) pycaml
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2015-03/msg00032.html>
+------------------------------------------------------------------------
+** Sébastien Hinderer asked:
+
+Does anybody here know about pycaml's maintainance status, please?
+Being involved in a project that depends on it, I'd be happy to
+participate to its maintainance but am not sure how to do since it's not
+clear to me who maintains the project currently, if there is someone
+maintaining it at all.
+
+More generally speaking, is there interest in bridging OCaml and Python?
+Are other solutions (perhaps more maintained) than pycaml arond?
+      
+** Drup replied:
+
+Are we talking about <http://sourceforge.net/projects/pycaml/> ?
+
+I'm surprised the project actually works at all. The last version is
+from 2004, and iirc, it was already not working 4 years ago.
+
+I'm pretty sure you can adopt it. The work to update it may be
+significant. As far as I (and opam) knows, there are no other choices
+currently.
+I think Jeremy Yallop had plans for pytypes, similar to
+<https://github.com/ocamllabs/ocaml-ctypes> but for python.
+      
+** John Whitington also replied:
+
+Unmaintained, and entirely special-purpose, but this vector graphics
+renderer, which I wrote a long time ago, links an OCaml binary to
+a wxpython GUI, sending ocaml-rendered fragments over a pipe, and
+mouse clicks etc back. It seemed to work fine, but it didn't have
+a general purpose ocaml-python data bridge.
+
+<https://github.com/johnwhitington/coherence-renderer>
+
+Screenshot: <http://coherentpdf.com/renderer.png>
+
+See the camlpy.ml and mltalk.py files. It can be started either by
+running the OCaml or the Python part...
+
+You need camlgpc and camlpdf OPAM packages to build.
+      
+** Nils Becker also replied:
+
+there is also this:
+
+<https://sites.google.com/a/furuse.info/jun/hacks/opycaml>
+
+which seems to be a reworked version of pycaml, last updated 01-2014.
+i'm interested but have not used it.
+      
+========================================================================
+4) Changing precedence and placement of attributes
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2015-03/msg00066.html>
+------------------------------------------------------------------------
+** Alain Frisch asked:
+
+Following a feature request by whitequark and a pull request by
+Jérémie Dimino, we're considering two related changes to attributes:
+
+ - Their precedence on type expressions, so that "int * int [@foo]" is
+parsed as "(int * int) [@foo]" instead of "int * (int [@foo])".
+
+ - Their placement on constructor/field declaration, so that one would
+write "A of int [@foo]" or "a : int [@foo]" instead of "A [@foo] of
+int" or "a [@foo] : int".
+
+References:
+
+ - <http://caml.inria.fr/mantis/view.php?id=6612>
+ - <https://github.com/ocaml/ocaml/pull/152>
+
+There seems to be a strong support in favor of the change (at least,
+nobody objected to it on principle).  But it can clearly break or
+change the interpretation of existing code.  I'm still in favor of
+doing the change as soon as possible.
+
+So my question is:  would anyone be negatively impacted (or just
+shocked) if the change was done as part of the next bug fix release
+(4.02.2)?
+      
+** Maxence Guesdon replied and Alain Frisch then said:
+
+> I'm quite "shocked" as it becomes inconsistent with other precedences
+> in type definitions. By now
+>    int * int list
+> is parsed as
+>    int * (int list)
+> and not as
+>    (int * int) list
+>
+> I would expect attributes to be associated the same way.
+
+Attributes really don't behave as type constructors; for instance,
+
+   (int, int) [@foo]
+
+is not allowed in type expressions.
+
+
+I'd be more concerned about how attributes behave across various
+syntactic categories for similarly looking fragments.  For instance,
+in expressions
+
+  x * y [@foo]
+
+is already currently parsed as
+
+  (x * y) [@foo]
+
+
+But
+ - "x, y [@foo]" is parsed as "x, (y [@foo])"
+ - "x * y [@foo] * z" is accepted as an expression, and parsed as "(x
+* y)[@foo] * z".
+
+> How would be parsed the following:
+>    int * int [@foo] * int
+> ?
+
+This would be rejected.  Doing the same as for expression would be
+weird, since * is a n-ary construction in types, not a binary
+operator.
+
+(Note: Jérémie prepared a nice table in his pull request 152 on
+Github; it shows how various forms are interpreted currently and after
+the change.)
+      
+** Maxence Guesdon then said and Leo White replied:
+
+> If I understand, you mean that
+>   type t = int * int [@foo] * int
+> would be rejected and we use instead:
+>   type t = int * (int [@foo]) * int
+>
+> Again, it's really not natural to me.
+
+I haven't looked at the patch closely, but it seems roughly consistent
+with how "as 'a" is handled. This makes sense to me, since in both
+cases you are attaching additional information to the type.
+      
+========================================================================
+5) Firmata v0.1
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2015-03/msg00074.html>
+------------------------------------------------------------------------
+** Leonardo Laguna Ruiz announced:
+
+I would like to share the initial release of my Firmata library for
+Ocaml. You can find the source code in:
+
+<https://github.com/modlfo/firmata>
+
+The Firmata library allows you to connect to any board supporting the
+Firmata protocol (for example Arduinos) and use them as data
+acquisition board. You can, for example, read values of sensors,
+control servo motors and read and write digital values directly from
+you favorite programming language (Ocaml).
+
+I have tested this library not only in Arduinos but ChipKit and Teensy
+boards.
+
+You can find more information about the Firmata protocol in
+
+<http://firmata.org>
+
+I?m currently using this library in the Raspberry Pi to control small
+robots and other educational projects.
+      
+========================================================================
+6) Other OCaml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocaml.org/>.
+
+Heap sort:
+  <http://shayne-fletcher.blogspot.com/2015/03/heap-sort.html>
+
+Centralizing distributed version control, revisited:
+  <https://blogs.janestreet.com/centralizing-distributed-version-control-revisited/>
+
+Hacker (Node.js, NOSQL, Data Science) at Mobitrans (Full-time):
+  <http://functionaljobs.com/jobs/8793-hacker-nodejs-nosql-data-science-at-mobitrans>
+
+Cumulus and ocp-memprof, a love story:
+  <http://www.ocamlpro.com/blog/2015/03/04/ocp-memprof-cumulus.html>
+
+Full-Stack Senior Functional Web Engineer at Front Row Education (Full-time):
+  <http://functionaljobs.com/jobs/8792-full-stack-senior-functional-web-engineer-at-front-row-education>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

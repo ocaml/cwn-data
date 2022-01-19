@@ -1,0 +1,417 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2005.12.27.html">Previous week</a> <a href="index.html">Up</a> <a href="2006.01.10.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of 27 December, 2005 to 03 January, 2006.</p><ol>
+      <li>
+        <a href="#1">PIC</a>
+      </li>
+      <li>
+        <a href="#2">Ask-if-continue wrapper?</a>
+      </li>
+      <li>
+        <a href="#3">Announcing OMake 0.9.6.7</a>
+      </li>
+      <li>
+        <a href="#4">Persistent storage and stability of Marshal?</a>
+      </li>
+      <li>
+        <a href="#5">LablPCRE 0.9 - a PCRE binding for Objective Caml</a>
+      </li>
+    </ol><a name="1" /><hr /><h3>PIC</h3><p>Archive: <a href="http://thread.gmane.org/gmane.comp.lang.caml.general/31833">http://thread.gmane.org/gmane.comp.lang.caml.general/31833</a></p><i>John Skaller asked and Xavier Leroy answered:</i><br /><pre>
+&gt; I notice Ocaml 3.09 has -fPIC option. Thanks! This is a step
+&gt; towards dynamic loading in native code.
+&gt;
+&gt; I wonder, is it actually supported -- or even possible
+&gt; to load native code (on suitable platforms) at startup
+&gt; from C? From an Ocaml mainline?
+&gt;
+&gt; What's left to be able to 'dlopen()' a function library?
+&gt; From C? From Ocaml? Will that ever be possible?
+
+Encapsulation of compiled OCaml code as a shared library that can be
+called from C is possible, on x86 at least.
+
+The procedure is similar to that described in section 18.8 of the
+reference manual, namely, use "ocamlc -output-obj" or
+"ocamlopt -output-obj" to package the Caml code as a .o file, then use
+"gcc -shared" (or equivalent commands to build shared objects) to group
+together this .o file, the C stub code that calls back into OCaml, and
+the OCaml run-time system.
+
+This is a very good approach to use OCaml code from other languages
+(e.g. Java) or as plug-ins (e.g. in Apache).
+
+The reason it works particularly well for x86 is that dynamic loaders
+for x86 (both under Unix/Linux and Windows) can relocate arbitrary
+code, not necessarily PIC code.  This is unfortunately not the case
+for all target architectures.  In particular, dynamic loaders for
+x86_64 (AMD64) are much less forgiving.  The -fPIC option to ocamlopt
+you mention was added to the AMD64 code generator in an attempt to
+generate "more position-independent" code.  However, it does not quite
+work yet.  A difficulty is the paucity of documentation on what,
+exactly, the Linux AMD64 dynamic loader can relocate.
+
+Dynamic loading of OCaml code from OCaml code raises many other
+issues.  It is currently supported for bytecode only, and will not be
+available for native code in the forseeable future.  I have already
+discussed this on this list earlier.
+
+&gt; [Another question, whether one can wrap native code
+&gt; so it can be called from bytecode.. this would allow
+&gt; bytecode programs to generate and compile bytecode
+&gt; extensions .. without the bulk of the code running
+&gt; slowly]
+
+Again, I believe this has been discussed at length before.  The short
+answer is: no.  A longer answer is the asmdynlink library by Fabrice
+Le Fessant, which (used to) enable this kind of things with some speed
+penalty on the interpretation of the bytecode.
+    </pre><a name="2" /><hr /><h3>Ask-if-continue wrapper?</h3><p>Archive: <a href="http://thread.gmane.org/gmane.comp.lang.caml.general/31841">http://thread.gmane.org/gmane.comp.lang.caml.general/31841</a></p><i>Stephen Brackin asked and Xavier Leroy answered:</i><br /><pre>
+&gt; I'd like an OCaml function, which I'll call continueq, with the property
+&gt; that for any function f with argument(s) fargs,
+&gt;
+&gt; continueq f fargs tsecs defaultval
+&gt;
+&gt; starts evaluating f on fargs and lets this evaluation proceed for up to
+&gt; tsecs seconds. If the computation of (f fargs) completes in this time,
+&gt; then it returns the result of that computation. Otherwise, it asks the
+&gt; user how many seconds to let the computation of (f fargs) proceed. If
+&gt; the user inputs a value less than or equal to 0, then it returns
+&gt; defaultval. If the user inputs a value tsecs' greater than 0, then it
+&gt; evaluates
+&gt;
+&gt; continueq f' fargs' tsecs' defaultval
+&gt;
+&gt; where (f' fargs') denotes the computation state of (f fargs) at the time
+&gt; it was interrupted.
+
+The latter ("the computation state of ...") is not something you can
+manipulate programmatically in OCaml.  However, there is no need to:
+Unix timer signals are sufficient to do what you want.  (If you're on
+Windows, there's nothing I can do for you, in this particular instance
+and in general.)  See below for the code.
+
+A word of caution: if your function f performs I/O operations, be
+prepared for them to fail with a EINTR Unix error.  That's the Unix
+(SVR4 / POSIX) way of being unhelpful...
+
+- Xavier Leroy
+
+----------------------------------------------------------------------
+
+let set_timer tsecs =
+  ignore (Unix.setitimer Unix.ITIMER_REAL
+                         { Unix.it_interval = 0.0; Unix.it_value = tsecs })
+
+exception Timeout
+
+let handle_sigalrm signo =
+  print_string "Continue for how long? "; flush stdout;
+  let f = read_float() in
+  if f &lt;= 0.0
+  then raise Timeout
+  else set_timer f
+
+let continueq f arg tsecs defaultval =
+  let oldsig = Sys.signal Sys.sigalrm (Sys.Signal_handle handle_sigalrm) in
+  try
+    set_timer tsecs;
+    let res = f arg in
+    set_timer 0.0;
+    Sys.set_signal Sys.sigalrm oldsig;
+    res
+  with Timeout -&gt;
+    Sys.set_signal Sys.sigalrm oldsig;
+    defaultval
+    </pre><i>Jonathan Roewen also answered:</i><br /><pre>
+Sounds like you'd need continuations to do it nicely/properly. I have
+no idea if it's possible to support continuations in ocaml. But why
+not use a couple of threads?
+
+Something like:
+
+let continueq f args timeout timeout_val =
+  let result = ref timeout_val in
+  let on_done = ref (fun () -&gt; ()) in (* hack cause I dunno how to get
+around the order of declarations *)
+  let do_computation () = result := f args; !on_done () in
+  let comp_t = Thread.create do_computation () in
+  let rec do_timeout t =
+    if t &lt;= 0 then
+      Thread.kill comp_t
+    else begin
+      Thread.delay (float_of_int t);
+      print_string "set timeout: ";
+      do_timeout (read_int ());
+    end in
+  let timeout_t = Thread.create do_timeout timeout in
+  on_done := (fun () -&gt; Thread.kill timeout_t);
+  Thread.join timeout_t;
+  !result;;
+
+Very ugly, but should do what you want. I have to add that one of the
+thread implementations for ocaml doesn't implement Thread.kill -- I
+can't remember which -- which would break this horribly.
+    </pre><a name="3" /><hr /><h3>Announcing OMake 0.9.6.7</h3><p>Archive: <a href="http://thread.gmane.org/gmane.comp.lang.caml.general/31848">http://thread.gmane.org/gmane.comp.lang.caml.general/31848</a></p><i>Aleksey Nogin announced:</i><br /><pre>
+We are proud to announce the latest release of the OMake Build System -
+OMake version 0.9.6.7.
+
+OMake is a build system, similar to GNU make, but with many additional
+features. The home site for OMake is <a href="http://omake.metaprl.org/">http://omake.metaprl.org/</a> . OMake
+features include:
+
+    o Support for projects spanning several directories or directory
+      hierarchies.
+
+    o Comes with a default configuration file providing support for
+      OCaml, C and LaTeX projects, or a mixture thereof.
+      Often, a configuration file is as simple as a single line
+
+         OCamlProgram(prog, foo bar baz)
+
+      which states that the program "prog" is built from the files
+      foo.ml, bar.ml, and baz.ml.
+
+    o Fast, reliable, automated, scriptable dependency analysis using
+      MD5 digests.
+
+    o Portability: omake provides a uniform interface on Win32, Cygwin,
+      and Unix systems including Linux and OS X.
+
+    o Builtin functions that provide the most common features of programs
+      like grep, sed, and awk.  These are especially useful on Win32.
+
+    o Full native support for rules that build several files at once.
+
+    o Active filesystem monitoring, where the build automatically
+      restarts whenever you modify a source file.  This can be very
+      useful during the edit/compile cycle.
+
+    o A companion command interpreter, osh, that can be used
+      interactively.
+
+OMake preserves the style of syntax and rule definitions used in
+Makefiles, making it easy to port your project to omake.  There is no
+need to code in perl (cons), or Python (scons).  However, there are a
+few things to keep in mind:
+
+    1. Indentation is significant, but tabs are not required.
+    2. The omake language is functional: functions are first-class
+       and there are no side-effects apart from I/O.
+    3. Scoping is dynamic.
+
+OMake is licensed under a mixture of the GNU GPL license (OMake engine
+itself) and the MIT-like license (default configuration files).
+
+OMake version 0.9.6.7 in minor bugfixes/feature enhancements release.
+The changes in this version include:
+
+   - Added basic support for C++ projects to OMake standard library.
+   - Several improvements in OCaml.om module of the standard library.
+   - Portability improvements.
+   - Minor documentation fixes.
+   - A few other bugfixes and improvements.
+
+For a more verbose change log, please visit
+<a href="http://omake.metaprl.org/changelog.html#0.9.6.7">http://omake.metaprl.org/changelog.html#0.9.6.7</a> .
+
+Source and binary packages of OMake 0.9.6.7 may be downloaded from
+<a href="http://omake.metaprl.org/download.html">http://omake.metaprl.org/download.html</a> . In addition, OMake may be
+obtained via the GODI packaging system (release lines "3.08", "3.09" and
+"dev").
+
+To try it out, run the command "omake --install" in a project directory,
+and modify the generated OMakefile.
+
+OMake 0.9.6.7 is still an alpha release.  While we have made an effort
+to ensure that it is bug-free, it is possible some functions may not
+behave as you would expect.  Please report any comments and/or bugs to
+the mailing list omake@metaprl.org and/or at <a href="http://bugzilla.metaprl.org/">http://bugzilla.metaprl.org/</a>
+    </pre><a name="4" /><hr /><h3>Persistent storage and stability of Marshal?</h3><p>Archive: <a href="http://thread.gmane.org/gmane.comp.lang.caml.general/31836">http://thread.gmane.org/gmane.comp.lang.caml.general/31836</a></p><i>David Mentre asked:</i><br /><pre>
+I need to implement some kind of persistent storage in my application
+(demexp web proxy part and demexp server part), so I'm looking at the
+different possible alternatives.
+
+Roughly, I've found:
+
+ - Dbm standard module of OCaml: file storage, no external dependency,
+   safe?
+
+ - Berkeley DB 4.x interface[1]: file storage, seems safe;
+
+ - SQL database[2]: real database, complicated to setup, safe.
+
+Right now, I don't have big needs: few tables of moderate size (below
+100,000 records) so I'm in favor of simple solutions: Dbm or Berkeley DB
+(no need to setup an external SQL server). I need to lookup values
+through known keys. The key and stored data are simple records of
+strings and integers. In the future, I might need to lookup rows
+according to certain field value.
+
+Looking at code using Berkeley DB, I noticed that stored key and data is
+made using the Marshal module. However, Marshal doc says that
+marshalling is "compatible across all machines for a given version of
+Objective Caml", so there might be issues when changing OCaml version. 
+
+So my questions:
+
+ 1. Is the Marshal module that much unstable? I have the feeling that
+    marhsaled values are compatible between OCaml releases. True or
+    false?
+
+ 2. Any advice on implementing persistent storage? I know about Persil
+    library[3] but I don't see much advantage of using it (does it
+    implement its own marshaling, more stable than Marshal?).
+
+Best wishes,
+d.
+
+Footnotes: 
+[1]  <a href="http://www.eecs.harvard.edu/~stein/ocamlbdb-4.3.21.tar.gz">http://www.eecs.harvard.edu/~stein/ocamlbdb-4.3.21.tar.gz</a>
+
+[2]  OCamlDBI: <a href="http://caml.inria.fr/cgi-bin/hump.fr.cgi?contrib=381">http://caml.inria.fr/cgi-bin/hump.fr.cgi?contrib=381</a>
+
+[3]  <a href="http://cristal.inria.fr/~starynke/persil/">http://cristal.inria.fr/~starynke/persil/</a>
+    </pre><i>Xavier Leroy answered:</i><br /><pre>
+&gt;  1. Is the Marshal module that much unstable? I have the feeling that
+&gt;     marhsaled values are compatible between OCaml releases. True or
+&gt;     false?
+
+True in practice: the last incompatible change was done in 1996...
+Still, the Marshal module is not intended for long-term storage of
+data that you cannot easily reconstruct from other sources.  In
+particular, the data format is compressed enough that it is not
+possible to salvage data using, say, a text editor.  At the very
+least, it is prudent to build into your software functions to dump and
+restore marshaled data to/from a simpler, textual format.  (That's
+what I did for SpamOracle's database, which is a marshaled hash table.)
+
+&gt;  2. Any advice on implementing persistent storage? I know about Persil
+&gt;     library[3] but I don't see much advantage of using it (does it
+&gt;     implement its own marshaling, more stable than Marshal?).
+
+There are two independent questions:
+
+1- How to encode your data into character strings?
+2- How to store these strings in persistent storage?
+
+For 2-, you have many options, ranging from flat files (the
+traditional Unix way) to full-fledged databases.
+
+For 1-, in addition to the Marshal module, you can also use textual
+formats: key-value pairs, XML, Lisp S-expressions, etc.  Other
+options are XDR or ASN1 encodings.
+    </pre><i>Owen Gunden suggested:</i><br /><pre>
+&gt; For 1-, in addition to the Marshal module, you can also use textual
+&gt; formats: key-value pairs, XML, Lisp S-expressions, etc.  Other
+&gt; options are XDR or ASN1 encodings.
+
+You could consider using the fantastic S-expression library, developed
+at Jane Street Capital, for this step.
+
+Here's the thread where sexplib was introduced:
+
+<a href="http://tinyurl.com/9m4s4">http://tinyurl.com/9m4s4</a>
+    </pre><i>Florian Weimer suggested and David Mentre answered:</i><br /><pre>
+&gt; Have a look at SQLite.  I like it a lot.  During the past couple of
+&gt; months, even a few Ocaml bindings have sprung into existence.
+
+Yes, I looked at it through Dbi[1]. There is however an issue: it seems
+that everything is stored as a string in an SQLite base. Returned data
+after Dbi query are typed as string.
+
+It might be an issue with Dbi itself (I haven't looked to the SQLite
+binding themselves) but after looking at SQLite documentation, it does
+not seem to be the case[2].
+
+I could work around this small issue by easily converting strings to
+integer, float, etc. but it seems a bit awkward to me. Beside that,
+you are right the SQLite is quite interesting: full SQL database but
+without the need to setup an SQL server.
+
+Best wishes,
+david
+
+Footnotes: 
+[1]  <a href="http://download.savannah.nongnu.org/releases/modcaml/">http://download.savannah.nongnu.org/releases/modcaml/</a>
+
+[2]  <a href="http://www.sqlite.org/datatypes.html">http://www.sqlite.org/datatypes.html</a>
+     ""
+      SQLite is "typeless". This means that you can store any kind of
+      data you want in any column of any table, regardless of the
+      declared datatype of that column.
+     ""
+    </pre><i>Florian Weimer then said:</i><br /><pre>
+It's got manifestant types.  There are strings, integers, reals and
+BLOBs (and NULL, of course).  You need a binding which stores integers
+as integers, and not as strings, though.  SQLite mostly ignores column
+types and uses only the type of the value you insert into the
+database.
+    </pre><a name="5" /><hr /><h3>LablPCRE 0.9 - a PCRE binding for Objective Caml</h3><p>Archive: <a href="http://thread.gmane.org/gmane.comp.lang.caml.general/31828">http://thread.gmane.org/gmane.comp.lang.caml.general/31828</a></p><i>Following the announcement from last week, Owen Gunden asked and Robert Roessler answered:</i><br /><pre>
+&gt; What is the advantage of your PCRE bindings over Markus Mottl's
+&gt; pcre-ocaml?  How do they differ?
+
+At the time (mid-June 2005), Markus' package would not build properly 
+on Windows... he invited me to contribute a fix, and in good open 
+source style, I built my own. ;)
+
+As I was already familiar with PCRE in its "POSIX" interface guise, I 
+was looking for a relatively simple interface... I found the sheer 
+comprehensiveness of Markus' binding (giving access to *all* of PCRE) 
+daunting.  So, deciding that others with modest pattern-matching needs 
+might also appreciate a simpler interface, I built LablPCRE (certainly 
+not as a replacement, but as a small-footprint alternative).
+
+There are really only three "major" functions in LablPCRE: regcomp to 
+compile REs, regexec to test them against input, and regmatch when all 
+that is needed is a simple match/nomatch query (this last is my own 
+low-resource-consumption addition - it is not included in the POSIX API).
+
+In addition, of course, there are a handful of functions for accessing 
+the match state, errors, and/or any captured substrings from a regexec 
+invocation.  Some effort is made to make a Pcre.t value as light as 
+possible, e.g., a reference to the tested string will only be kept if 
+the match succeeded *and* substring capture was requested.
+
+The original release made the above (minus regmatch) available in an 
+"object" form... subsequent experience with OCaml vernacular and idiom 
+suggested that a "module" interface was superior, so the current 
+release has been re-oriented to that style (with the original object 
+interface still available).
+
+&gt; Is there API documentation for your library on the web somewhere?
+
+Yes - in the LablPCRE-0.9.tar.gz file on the download site. :)
+
+As seems to be somewhat common in the OCaml world, there is a 
+commented .mli file, and a README.txt with more in-depth discussions 
+and examples.
+    </pre><i>Christoph Bauer then said:</i><br /><pre>
+&gt; At the time (mid-June 2005), Markus' package would not build properly
+&gt; on Windows... he invited me to contribute a fix, and in good open
+&gt; source style, I built my own. ;)
+
+OCaml-MinGW-Maxi contains a working version of ocaml-pcre. You can
+find my build notes under
+<a href="http://lasagne.unix-ag.uni-kl.de/omm/protokol.txt">http://lasagne.unix-ag.uni-kl.de/omm/protokol.txt</a> ., Section 3. The Makefile.mingw
+can be found at <a href="http://lasagne.unix-ag.uni-kl.de/omm/">http://lasagne.unix-ag.uni-kl.de/omm/</a> .
+    </pre><hr /><h3>Using folding to read the cwn in vim 6+</h3><p>Here is a quick trick to help you read this CWN if you are viewing it using vim (version 6 or greater).</p><pre>:set foldmethod=expr<br />:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'&amp;lt;1':1<br />zM</pre><p>If you know of a better way, please let me know.</p><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right">
+      <i>
+        <a href="http://alan.petitepomme.net/">Alan Schmitt</a>
+      </i>
+    </p><p align="right">
+      <script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script>
+      <script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" />
+      <script src="http://www.google-analytics.com/urchin.js" type="text/javascript" />
+      <script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script>
+    </p></body>
+</html>

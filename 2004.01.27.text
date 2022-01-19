@@ -1,0 +1,229 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of 20 to 27 January, 2004.
+
+1) CamlFloat
+2) The Scala programming language
+3) Marshalling unknown types
+
+========================================================================
+1) CamlFloat
+------------------------------------------------------------------------
+** Shivkumar Chandrasekaran announced:
+
+We are glad to announce the first release of CamlFloat. CamlFloat is a
+highly stylized OCaml interface to Lapack and Blas. This interface
+tries to make numerical linear algebra programs look like they were
+written in the conventional linear algebra mathematics notation,
+without sacrificing speed or memory efficiency. It also tries to
+insulate the user from the convoluted and bug-prone interface provided
+by Lapack.
+
+The design borrows a lot from Matlab, but tries to stick to the OCaml
+way of doing things. Some parts might take some getting used to. The
+library has been used extensively to code, test and time our own
+research algorithms. So it is battle-hardened to some extent. User
+feedback is welcome.
+
+The package can be obtained from <http://math.ucsb.edu/~lyons/camlFloat/>
+    
+========================================================================
+2) The Scala programming language
+------------------------------------------------------------------------
+** Martin Odersky announced:
+
+We'd like to announce availability of the first implementation of the
+Scala programming language.  Scala smoothly integrates object-oriented
+and functional programming. It is designed to express common
+programming patterns in a concise, elegant, and type-safe way.  Scala 
+introduces several innovative language constructs. For instance:
+
+- Abstract types and mixin composition unify ideas from object and   
+  module systems.
+
+- Pattern matching over class hierarchies unifies functional and  
+  object-oriented data access. It greatly simplifies the processing of
+  XML trees.
+
+- A flexible syntax and type system enables the construction of
+  advanced libraries and new domain specific languages.
+
+At the same time, Scala is compatible with Java.  Java libraries and
+frameworks can be used without glue code or additional declarations.
+
+The current implementation of Scala runs on Java VM. It requires JDK
+1.4 and can run on Windows, MacOS, Linux, Solaris, and most other
+operating systems. A .net version of Scala is currently under
+development.
+
+For further information and downloads, please visit:
+
+    <http://scala.epfl.ch>
+    
+========================================================================
+3) Marshalling unknown types
+------------------------------------------------------------------------
+** Alex Baretta asked:
+
+I would like Caml breeders and Caml riders to comment on the following
+issue: the need to type-safe unmarshalling of datastructures and the way
+to achieve it.
+
+The Marshal module appropriately provides polymorphic functions as
+> val from_string : string -> 'a (* Offset parameter omitted *)
+
+Such polymorphism is unable to provide static type safety. I would be
+happy with runtime type safety: in other words, I'd be happy with an
+exception being thrown at runtime if a datastructure is unmarshalled to
+the wrong runtime type. The obvious way to do this is the following.
+
+module Type_safe_marshal = struct
+  let to_string (ex:exn) = Marshal.to_string ex []
+  let from_string s = raise (Marshal.from_string s 0)
+end
+
+module Foobar_marshal = struct
+  open Type_safe_marshal
+  type foobar = Foo of int | Bar of string
+  exception Foobar of foobar
+
+  let to_string (x:foobar) = to_string (Foobar x)
+  let from_string s = try raise (from_string s) with
+    | Foobar x -> x
+end
+
+open Foobar_marshal
+let foo1 = foo 1 
+let what = from_string (to_string foo1)
+
+Obviously this does not work. For some reason, as someone already
+pointed out, pattern matching does not work on unmarshalled exceptions.
+When the above code is sent to the toplevel interpreter I get the
+following output.
+
+module Type_safe_marshal :
+  sig val to_string : exn -> string val from_string : string -> 'a end
+
+module Foobar_marshal :
+  sig
+    type foobar = Foo of int | Bar of string
+    exception Foobar of foobar
+    val to_string : foobar -> string
+    val from_string : string -> foobar
+  end
+val foo1 : Foobar_marshal.foobar = Foo 1
+Exception: Foobar_marshal.Foobar _.
+
+I'm sure that there are excellent reasons why this should occur. So, I
+tried a less obvious means of achieving runtime type safety for
+unmarshalled objects.
+
+module Type_safe_marshal_2 = struct
+  let to_string (f:unit -> 'a) = Marshal.to_string f [Marshal.Closures]
+  (* f is a function which builds and throws an appropriate exception *)
+  let from_string s () = Marshal.from_string s 0 ()
+end
+
+module Foobar_marshal_2 = struct
+  open Type_safe_marshal_2
+  type foobar = Foo of int | Bar of string
+  exception Foobar of foobar
+
+  let raise_foobar x () = raise (Foobar x)
+  let to_string x = to_string (raise_foobar x)
+  let from_string s = try from_string s () with
+    | Foobar x -> x
+end
+
+open Foobar_marshal_2
+let foo1 = Foo 1
+let what = from_string (to_string foo1)
+let _ = Printf.eprintf "Hey, I managed to build \"what\" alright!\n"
+
+Here I try to build and raise the exceptions at unmarshalling time by
+actually marshalling closures of functions know how to throw an
+exception containing the datastructure I wish to marshal. However, this
+code cannot be run in the toplevel. This is what it says:
+
+Exception: Invalid_argument "output_value: abstract value".
+
+Apparently, closures built by the toplevel compiler cannot be
+marshalled. So let's try with ocamlc. I placed the above code in
+marshal_foobar.ml and compiled it with ocamlc.
+
+$ ocamlc foobar_marshal.ml -o foobar_marshal
+$ ./foobar_marshal
+Fatal error: exception Foobar_marshal.Foobar_marshal_2.Foobar(1)
+
+I can find no reasonable explanation for this behavior. I realize that
+exceptions are nasty beasts and that the marshalling functions were not
+meant for them, but in this case, the exception is only built and raised
+*after* unmarshalling occurs, so I don't see why pattern matching should
+fail.
+
+***
+
+All this said, O great Camlers, what is your verdict? If my approach is
+sound, how can I fix my code to make it work? If my approach is
+misguided, how should type-safe unmarshalling be achieved?
+    
+** James Leifer suggested:
+
+We (Gilles Peskine, Peter Sewell, Keith Wansbrough, and I) have been
+working on type safety and related questions concerned with
+marshalling:
+
+  <http://pauillac.inria.fr/~leifer/articles/leifer-globas-icfp2003.ps.gz>
+  <http://pauillac.inria.fr/~leifer/articles/leifer-marabreb.ps.gz>
+
+However, we're far from a patch to the actual Ocaml compiler right
+now.  We've rather concentrated on building a prototype ML interpreter 
+which we can use for exploring the design space (type safety,
+abstraction safety, versioning, dynamic rebinding to local resources,
+etc.).
+
+If you don't need abstraction safety, then Jun Furuse's work on safe  
+marshalling might interest you.  Michel Mauny might be reimplementing
+this for 3.07?
+
+Richard Jones said:
+> What's needed is for someone to rewrite the marshal code to work
+> safely.  However there's not enough type information available at
+> runtime for this to work.  eg. [1; 2; 3] looks the same as (1, 2, 3)
+> at runtime.
+
+Well... Peter, Xavier, and I were scratching our heads at POPL two
+weeks ago and said: For a really polymorphic marshal then you need to 
+pass some type information around at run-time or introduce user type
+representations.
+
+Of course, if you know *at compile time* that you're marshalling or
+unmarshalling to an int list or an int triple, there's no problem
+distinguishing between those cases (and including the right data for
+doing the dynamic type check).
+    
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

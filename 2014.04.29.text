@@ -1,0 +1,317 @@
+Hello,
+
+Here is the latest OCaml Weekly News, for the week of April 22 to 29, 2014.
+
+1) Camlp5 git
+2) Core Suite 111.11.00
+3) React 1.1.0
+4) Other OCaml News
+
+========================================================================
+1) Camlp5 git
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2014-04/msg00162.html>
+------------------------------------------------------------------------
+** Daniel de Rauglaudre announced:
+
+Camlp5 sources are now distributed in a git directory. Useful if you
+are a user of Camlp5 and want to test your software against the current
+(trunk) version of OCaml or in case of fixed bugs or new features of Camlp5
+not yet released.
+
+To get it, type in a terminal:
+   git clone git://scm.gforge.inria.fr/camlp5/camlp5.git
+
+Then you get Camlp5 sources in a directory named camlp5.
+
+To update, when changes are done later, go to this directory and type:
+   git pull
+      
+========================================================================
+2) Core Suite 111.11.00
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2014-04/msg00167.html>
+------------------------------------------------------------------------
+** Jeremie Dimino announced:
+
+I am pleased to announce the 111.11.00 release of the Core suite.
+
+The following packages were upgraded:
+
+- async
+- async_extra
+- async_kernel
+- async_unix
+- core
+- core_extended
+- core_kernel
+- ocaml_plugin
+- sexplib
+
+Files and documentation for this release are available on our website
+and all packages are in opam:
+
+<https://ocaml.janestreet.com/ocaml-core/111.11.00/individual/>
+<https://ocaml.janestreet.com/ocaml-core/111.11.00/doc/>
+
+Here is the changelog for this version:
+
+# 111.11.00
+
+## async
+
+- Updated the sound.ml example
+
+## async_extra
+
+- Made `Log` more fair with respect to other Async jobs, by working on
+fixed-length groups of incoming log messages.
+
+Previously, `Log` had processed everything available. The change
+gives other Async jobs more of a chance to run.
+
+## async_kernel
+
+- Added `Clock.run_at_intervals`, which runs a job at regular
+intervals.
+
+## async_unix
+
+- Added `val Scheduler.yield : unit -> unit Deferred.t`, which becomes
+determined after the current cycle finishes.
+- Improved the behavior of the scheduler's thread pool when
+`Thread.create` raises.
+
+With this improvement, when the thread pool is unable to create a
+thread, it presses on with the threads it has rather than raise.
+Subsequent attempts to add work to the thread pool will cause the
+pool to attempt to create the thread, as long as enough time has
+passed since the most recent thread-creation failure.
+
+Before this change, the thread pool wouldn't handle a
+`Thread.create` exception, and the exception would get raised to
+whatever code happened to be calling the `Thread_pool` function that
+tried to create a thread, e.g. `Thread_pool.add_work`. This caused
+`In_thread.run` to unexpectedly raise, and in turn
+`In_thread.syscall` to unexpectedly raise, leading to:
+
+```
+"Fd.syscall_in_thread bug -- should be impossible"
+```
+
+Also, changed `should be impossible` text to `please report`, since
+there may be other lurking rare exceptions that `In_thread.syscall`
+can raise, and we'd like to hear about them.
+
+We rely on thread-pool-stuck detection to report problems where the
+inability to create threads causes the inability of the thread pool
+to make progress. A tweak was needed to make that work -- now the
+thread-pool-stuck warning is based on whether the thread pool has
+unstarted work, rather than on whether the thread pool has an
+"available thread". The latter would no longer work, since it is
+now possible for the thread pool to have unstarted work and to
+appear to have an available thread, i.e. `num_threads <
+max_num_threads`.
+
+## core
+
+- Change some `Bigstring` functions to retry on `EINTR` rather than
+raise.
+
+The following functions (and their unsafe versions) were affected:
+
+* `read`
+* `really_read`
+* `really_recv`
+* `really_write`
+* `really_send_no_sigpipe`
+
+Some other `Bigstring` functions, like `input` and `output`, already
+retried on `EINTR`, so this change has precedent.
+
+All of the affected stubs raise `Bigstring.IOError` on failure,
+rather than `Unix_error`, which means the normal method for retrying
+on `EINTR` doesn't work. In particular `Async.Reader` didn't retry
+them, even though it was supposed to.
+
+Additionally, the documentation for the following functions was
+corrected to say that they raise =Unix_error= rather than =IOError=:
+
+* `pread_assume_fd_is_nonblocking`
+* `pwrite_assume_fd_is_nonblocking`
+- Eliminated global binary-to-decimal tables computed at startup for
+converting `Date` and `Of_day` to string.
+
+Used an efficient implementation of division by 10, rather than the
+`sprintf` tables in `time_internal.ml`. This result in much less
+allocation at startup and it is a bit faster:
+
+* before:
+| Name           | Time/Run | mWd/Run | Percentage |
+|----------------+----------+---------+------------|
+| Date.to_string | 69.39ns  | 3.00w   |    100.00% |
+
+- after:
+| Name           | Time/Run | mWd/Run | Percentage |
+|----------------+----------+---------+------------|
+| Date.to_string | 53.38ns  | 3.00w   |    100.00% |
+
+- Fixed `Time.Zone` tests so that they are deterministic.
+- Added `Iobuf.to_string_hum`, which produces a readable, multi-line
+representation of an iobuf, intended for debugging.
+- Fixed brittle unit tests of `Command`.
+
+## core_extended
+
+- For `Flang`, added ordering to fields, and added `abs`, `min`, and
+`max` to the language.
+- Removed `Loggers` module.
+
+## core_kernel
+
+- Added to `String` functions for substring search and replace, based
+on the KMP algorithm.
+
+Here are some benchmarks, comparing `Re2` for a fixed pattern,
+Mark's kmp from extended_string, and this implementation ("needle").
+
+The pattern is the usual `abacabadabacabae...`. The text looks
+similar, with the pattern occurring at the very end.
+
+For =Re2= and =Needle= search benchmarks, the pattern is
+preprocessed in advance, outside of the benchmark.
+
+FWIW: I've also tried searches with pattern size = 32767, but =Re2=
+blows up, saying:
+
+```
+re2/dfa.cc:447: DFA out of memory: prog size 32771 mem 2664898
+```
+
+| Name                          | Time/Run        | mWd/Run       | mjWd/Run    | Prom/Run | Percentage |
+|-------------------------------+-----------------+---------------+-------------+----------+------------|
+| create_needle_15              | 102.56ns        | 21.00w        |             |          |            |
+| re2_compile_15                | 6_261.48ns      |               | 3.00w       |          |      0.01% |
+| create_needle_1023            | 13_870.48ns     | 5.00w         | 1_024.01w   |          |      0.03% |
+| re2_compile_1023              | 107_533.32ns    |               | 3.03w       |          |      0.24% |
+| create_needle_8191            | 90_107.02ns     | 5.00w         | 8_192.01w   |          |      0.20% |
+| re2_compile_8191              | 1_059_873.47ns  |               | 3.28w       | 0.28w    |      2.37% |
+| create_needle_524287          | 6_430_623.96ns  | 5.00w         | 524_288.09w |          |     14.35% |
+|                               |                 |               |             |          |            |
+| re2_compile_524287            | 44_799_605.83ns |               | 3.77w       | 0.77w    |    100.00% |
+| needle_search_15_95           | 349.65ns        | 4.00w         |             |          |            |
+| re2_search_15_95              | 483.11ns        |               |             |          |            |
+| mshinwell_search_15_95        | 1_151.38ns      | 781.01w       |             |          |            |
+| needle_search_15_815          | 2_838.85ns      | 4.00w         |             |          |            |
+| re2_search_15_815             | 3_293.06ns      |               |             |          |            |
+| mshinwell_search_15_815       | 8_360.57ns      | 5_821.07w     | 0.55w       | 0.55w    |      0.02% |
+| needle_search_15_2415         | 8_395.84ns      | 4.00w         |             |          |      0.02% |
+| re2_search_15_2415            | 9_594.14ns      |               |             |          |      0.02% |
+| mshinwell_search_15_2415      | 24_602.09ns     | 17_021.16w    | 1.62w       | 1.62w    |      0.05% |
+| needle_search_1023_6143       | 14_825.50ns     | 4.00w         |             |          |      0.03% |
+| re2_search_1023_6143          | 40_926.59ns     |               |             |          |      0.09% |
+| mshinwell_search_1023_6143    | 81_930.46ns     | 49_149.66w    | 1_025.65w   | 1.65w    |      0.18% |
+| needle_search_1023_52223      | 126_465.96ns    | 4.00w         |             |          |      0.28% |
+| re2_search_1023_52223         | 365_359.98ns    |               |             |          |      0.82% |
+| mshinwell_search_1023_52223   | 527_323.73ns    | 371_715.39w   | 1_033.17w   | 9.17w    |      1.18% |
+| needle_search_1023_154623     | 377_539.53ns    | 4.00w         |             |          |      0.84% |
+| re2_search_1023_154623        | 1_001_251.93ns  |               |             |          |      2.23% |
+| mshinwell_search_1023_154623  | 1_499_835.01ns  | 1_088_518.15w | 1_033.19w   | 9.19w    |      3.35% |
+| needle_search_8191_49151      | 115_223.31ns    | 4.00w         |             |          |      0.26% |
+| re2_search_8191_49151         | 559_487.38ns    |               |             |          |      1.25% |
+| mshinwell_search_8191_49151   | 653_981.19ns    | 393_219.50w   | 8_201.01w   | 9.01w    |      1.46% |
+| needle_search_8191_417791     | 976_725.24ns    | 4.00w         |             |          |      2.18% |
+| re2_search_8191_417791        | 4_713_965.69ns  |               |             |          |     10.52% |
+| mshinwell_search_8191_417791  | 4_224_417.93ns  | 2_973_709.32w | 8_202.37w   | 10.37w   |      9.43% |
+| needle_search_8191_1236991    | 2_912_863.78ns  | 4.00w         |             |          |      6.50% |
+| re2_search_8191_1236991       | 14_039_230.59ns |               |             |          |     31.34% |
+| mshinwell_search_8191_1236991 | 11_997_713.73ns | 8_708_130.87w | 8_202.47w   | 10.47w   |     26.78% |
+
+- Added to `Set` functions for converting to and from a `Map.t`.
+
+```ocaml
+val to_map : ('key, 'cmp) t -> f:('key -> 'data) -> ('key, 'data, 'cmp)
+Map.t
+val of_map_keys : ('key, _, 'cmp) Map.t -> ('key, 'cmp) t
+```
+
+This required adding some additional type trickery to
+`Core_set_intf` to indicate that the comparator for a given module
+may or may not be fixed.
+- Added an optional `iter` parameter to `Container.Make`.
+
+A direct implementation of `iter` is often more efficient than
+defining `iter` in terms of `fold`, and in these cases, the results
+of `Container.Make` that are defined in terms of `iter` will be more
+efficient also.
+- Added `Int.pow` (and for other integer types), for bounds-checked
+integer exponentiation.
+
+## ocaml_plugin
+
+- Added a tag to exceptions coming from the toplevel execution of
+plugins so that we do not confuse them with exceptions coming from
+the library.
+
+Also, added a function to check a plugin without executing it. And
+captured the common pattern of checking the compilation of a plugin
+in a `Command.t` offered in the library.
+
+## sexplib
+
+- Added error locations to `Macro`-expansion errors.
+      
+========================================================================
+3) React 1.1.0
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2014-04/msg00188.html>
+------------------------------------------------------------------------
+** Daniel Bünzli announced:
+
+There was still a bug in the initialization of the rank S.switch'ed
+signals which wasn't captured by the test suite. It now is and we have
+react 1.1.0. A few new combinators (e.g. for dealing with options) were
+also added. Details here:
+
+<https://github.com/dbuenzli/react/blob/master/CHANGES.md>
+      
+========================================================================
+4) Other OCaml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocaml.org/>.
+
+Writing Planet in pure OCaml:
+  <http://amirchaudhry.com/writing-planet-in-pure-ocaml>
+
+Being normal:
+  <http://shayne-fletcher.blogspot.com/2014/04/being-normal.html>
+
+Power means:
+  <http://shayne-fletcher.blogspot.com/2014/03/power-means.html>
+
+Program Analysis Software Developer at ForAllSecure (Full-time):
+  <http://functionaljobs.com/jobs/8707-program-analysis-software-developer-at-forallsecure>
+
+Full Time: Software Developer (Functional Programming) at Jane Street in New York, NY; London, UK; Hong Kong:
+  <http://jobs.github.com/positions/0a9333c4-71da-11e0-9ac7-692793c00b45>
+
+Fifth OCaml compiler hacking session:
+  <http://ocamllabs.github.com/compiler-hacking/2014/04/24/fifth-compiler-hacking-session.html>
+
+How to fail - introducing Or_error.t:
+  <https://blogs.janestreet.com/how-to-fail-introducing-or-error-dot-t/?utm_source=rss&utm_medium=rss&utm_campaign=how-to-fail-introducing-or-error-dot-t>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

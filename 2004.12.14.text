@@ -1,0 +1,428 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of 07 to 14 December, 2004.
+
+1) Lazy application to Lazy.t
+2) Line buffering
+3) Type constraints
+4) Felix 1.0.20 released
+5) environment idiom
+6) recursive types
+
+========================================================================
+1) Lazy application to Lazy.t
+Archive: <http://caml.inria.fr/archives/200412/msg00059.html>
+------------------------------------------------------------------------
+** Hal Daume III asked and Karl Zilles answered:
+
+> suppose I have
+> 
+>   val x : int ref Lazy.t
+> 
+> and I want to 'incr' it, but want to keep it lazy.  i.e., if i start with:
+> 
+>   let x = Lazy.lazy_from_fun (fun () -> ref 0)
+> 
+> then i run my lazy_incr on it, I want:
+> 
+>   let y = Lazy.force x
+> 
+> to return 1
+> 
+> but i only want 'incr' to be run when I Lazy.force x.  is there a way to 
+> accomplish this?
+
+Not the way you have it.  Because x is itself not a reference, you can't 
+change its value by calling a function on it.
+
+If instead you had val x : int Lazy.t ref, then it would be possible:
+
+open Lazy;;
+
+let x = ref (lazy (0));;
+val x : int lazy_t ref = {contents = <lazy>}
+
+let lazy_incr r = let current = !r in r:=lazy ((force current) + 1);;
+val lazy_incr : int Lazy.t ref -> unit = <fun>
+
+lazy_incr x;;
+- : unit = ()
+
+force !x;;
+- : int = 1
+    
+========================================================================
+2) Line buffering
+Archive: <http://caml.inria.fr/archives/200412/msg00039.html>
+------------------------------------------------------------------------
+** Richard Jones asked and Xavier Leroy answered:
+
+> I noticed before that OCaml seems to implement its own I/O buffering
+> system, instead of using FILE* (or sfio, I guess).  Is there a reason
+> for that?
+
+Largely historical.  Early versions of Caml Light, circa 1990, had a
+GC which did not play nice with "malloc", hence many standard C
+library functions such as fopen() could not be used.  The buffering
+code that I wrote at that time managed to survive until now.  
+
+Also, bytecode-level threads (vmthreads) need to do non-blocking I/O
+on I/O channels, and I don't think this could be done reliably with FILE*.
+This said, one could also argue that bytecode-level threads are
+another survivance of the past.
+    
+========================================================================
+3) Type constraints
+Archive: <http://caml.inria.fr/archives/200412/msg00025.html>
+------------------------------------------------------------------------
+** In this long thread, Jacques Garrigue said:
+
+> > > This does not answer to me why this works,
+> > >
+> > > #type t = { t : 'a. 'a -> 'a}
+> > >
+> > > #let v = let module M = struct let t x = x end in {t = M.t} in (v.t 5, 
+> > > v.t true)
+> 
+> I have the impression that if the above code is type checked,
+> then, something like the following code could be type checked.
+> What is the differences?
+> 
+> > > #let v : 'a. 'a -> 'a = let module M = struct let t x = x end in  M.t 
+> > > in (v 5, v true)
+
+These two examples use different kinds of polymorphism.
+In the first case, the data structure ensures the polymorphism,
+meaning that even if the type of the data structure is made
+non-generalizable, you can still extract a polymorphic value from it
+later.
+That's why you can pass such values to functions, and use them
+polymorphically inside (which you cannot do with normal variables.)
+
+A simple example of the difference is
+   (fun v -> (v.t 5, v.t true)) {t = fun x -> x}
+vs.
+   (fun v -> (v 5, v true)) (fun x -> x)
+
+There is currently no way to make a first-class polymorphic value in
+ocaml without using either record or object.
+(There is no theoretical limitation, just we could never come up with
+the right syntax for introduction and elimination.)
+    
+** In the same long thread, Xavier Leroy said:
+
+> Hmmm...  Now I don't know whether it's safe or not, and I don't know
+> whether someone checked its safety before excluding it from the value
+> restriction code...
+
+You word it in a slightly backward way: it is always safe to claim
+that an expression is expansive and its type should not be
+generalized; it's the converse (asserting that an expression is
+non-expansive) that is potentially dangerous and requires some
+semantic evidence that it is safe.  The current treatment of "let
+module" as being always expansive just errs on the safe side, in the
+absence of this semantic evidence.
+
+> >So I don't understand why the same cannot apply to local modules. If 
+> >the let-module-in were declared "safe" for the value restriction, 
+> >shouldn't
+> >
+> >let module M = struct let v = ref [] end in M.v
+> >
+> >yield a non-generalized type for the same reason as for the non-local
+> >case (and not because of the value restriction) ?
+
+I don't follow you here.  So, OK, your expression E above
+(E = let module M = struct let v = ref [] end in M.v) has type
+alpha list ref for a fresh variable alpha.  If we were to classify E
+as non-expansive, we could do 
+
+      let x = E in E'
+
+and in E', x would have polymorphic type forall alpha, alpha list ref,
+from which it is easy to break type safety.
+
+So, your example shows that it would be unsafe to say that a "let
+module M = A in B" expression is nonexpansive if B is nonexpansive.
+One would need to inspect the module expression A to establish that it
+is nonexpansive.  This is what we do for ordinary "let" expressions:
+"let x = A in B" is nonexpansive if both A and B are nonexpansive.
+
+There are two concerns here.  The practical one is that the module
+language is quite complex and I really don't feel like implementing a
+syntactic nonexpansiveness check for module expressions.  
+
+The conceptual concern is that the type system for the module language
+is somewhat richer than that of the core language -- it has "deep"
+polymorphism, subtyping and some forms of dependent types -- so it is
+not entirely clear to me that the value restriction and the syntactic
+nonexpansiveness criterion that work for the core language would also
+work for the module language.
+    
+========================================================================
+4) Felix 1.0.20 released
+Archive: <http://caml.inria.fr/archives/200412/msg00121.html>
+------------------------------------------------------------------------
+** John Skaller announced:
+
+Felix version 1.0.20 is now stablised and 1.0.21 has been
+opened as the development version. Felix is an Algol like
+language with a strong functional subsystem and ML like typing.
+Available with BSD like FFAU licence from
+
+<http://felix.sf.net>
+
+This version integrates Scott McPeaks Elkhound GLR parser
+
+<http://www.cs.berkeley.edu/~smcpeak/elkhound/>
+
+directly in the language. 
+
+A complete (but trivial) working example is given below
+to indicate the what the integration looks like.
+
+----------------------------------------------
+
+include "std";
+ 
+// the input string
+data := "1+2+3$";
+ 
+// a type for tokens
+union token_t =
+  | TOK_EOF
+  | TOK_PLUS
+  | TOK_INT of int
+;
+ 
+// a token stream generator
+var i = 0;
+fun get_token():token_t =
+{
+  ch := data.[i to i+1];
+  ++i;
+  tok :=
+    match ch with
+    | "$" => TOK_EOF
+    | "+" => TOK_PLUS
+    | "1" => TOK_INT 1
+    | "2" => TOK_INT 2
+    | "3" => TOK_INT 3
+    endmatch
+  ;
+  return tok;
+}
+ 
+// a type for expression terms
+union expr_t =
+  | Integer of int
+;
+ 
+// a grammar for expressions
+nonterm expr : expr_t =
+| xx:expr TOK_PLUS y:TOK_INT =>
+  match xx with
+  | Integer ?i => Integer (i+y)
+  endmatch
+ 
+| y:TOK_INT => Integer y
+;
+ 
+// a parser for our example
+var z : 1 + int =
+  parse (the get_token) with
+  | e: expr => match e with | Integer ?i => i endmatch
+  endmatch
+;
+ 
+// print the result
+match z with
+| case 1 => { print "Error"; }
+| case 2 (?i) => { print i; }
+endmatch;
+endl;
+    
+========================================================================
+5) environment idiom
+Archive: <http://caml.inria.fr/archives/200412/msg00085.html>
+------------------------------------------------------------------------
+** A huge thread was started by the following message (see the archive for the rest). Jeff Henrikson said:
+
+I am interested in the idiom of passing a number of parameters by some
+kind of "environment" variable.  Think of a web server with hundredes of
+functions for processing markup and other things, only 3 of which need
+to detect the browser.  It's bad maintainability to explicitly pass
+browserid through hundreds of functions which don't use it.  And of
+course, we must separate the state of the calling threads so as to not
+cheat with global variables or some such thing.
+
+There seem to be two main candidates for such an idiom in Ocaml, objects
+and polymorphic variants.  The object way, roughly:
+
+let bar env s =
+  env#pear ^ s;;
+
+let foo env s =
+  let x = env#apple in
+  let y = env#banana in
+  bar env (x^y^s);;
+
+As long as we never name the classes the compiler keeps track of which
+environment methods the foo call chain has by creating ad hoc classes:
+
+#  val bar : < pear : string; .. > -> string -> string = <fun>
+#  val foo :
+  < apple : string; banana : string; pear : string; .. > -> string ->
+string =
+  <fun>
+
+And the polymorphic variant way, roughly:
+
+
+let h = Hashtbl.create 10;;
+
+Hashtbl.add h `Banana (`Banana "b");;
+Hashtbl.add h `Apple (`Apple "a");;
+Hashtbl.add h `Pear (`Pear "p");;
+
+
+let get_apple h =
+  try match Hashtbl.find h `Apple with
+      `Apple n -> n
+    | _ -> failwith "no apple config key"
+  with Not_found -> failwith "no apple config key";;
+
+let get_banana h =
+  try match Hashtbl.find h `Banana with
+      `Banana n -> n
+    | _ -> failwith "no banana config key"
+  with Not_found -> failwith "no banana config key";;
+
+let get_pear h =
+  try match Hashtbl.find h `Pear with
+      `Pear n -> n
+    | _ -> failwith "no pear config key"
+  with Not_found -> failwith "no pear config key";;
+
+
+let bar env s =
+    (get_pear env) ^ s;;
+#   val bar : ([> `Pear ], [> `Pear of string ]) Hashtbl.t -> string ->
+string =  <fun>
+
+let foo env s =
+  let x = get_apple env in
+  let y = get_banana env in
+  bar env (x^y^s);;
+#       val foo :
+  ([> `Apple | `Banana | `Pear ],
+   [> `Apple of string | `Banana of string | `Pear of string ])
+  Hashtbl.t -> string -> string = <fun>
+
+foo h "5";;
+# - : string = "pab5"
+
+
+
+Each of these idioms has its own advantage:
+
+In the object way the compiler verifies that the functions are passed
+objects which contain all their needed configuration keys.  But if I
+understand correctly, we must at some point construct an environment
+object which has _all_ the keys, even if we don't know them yet.  We can
+add by mutation, but we cannot simply leave them out and add them as we
+get to functions which need them.  This is because while we can write
+
+
+object
+  method apple = "a"
+  method banana = "b"
+end;;
+- : < apple : string; banana : string > = <obj>
+
+
+we cannot inherit anonymously:
+
+
+let add_pear env =
+  object
+    inherit env
+    method pear = "p"
+  end;;
+
+#         Characters 40-43:
+      inherit env
+              ^^^
+Unbound class
+env
+
+
+In the pv way the construction can be made incremental.  Ie, if we
+changed the hashtable to a list or immutable queue, we could add keys as
+we go.  But at least as I have it set up, the variants are not placing
+restrictions on the existence of keys in the environment, other than
+saying "we can understand at least this many keys," which is of course
+meaningless.  Is there a way to turn the typing around to say "we
+require at least these keys"?
+
+In general, what are the typing and run-time limitations around each
+way?
+    
+========================================================================
+6) recursive types
+Archive: <http://caml.inria.fr/archives/200412/msg00145.html>
+------------------------------------------------------------------------
+** Keiko Nakata asked:
+
+Can I have recursive types going through both of "normal" types and
+class types?
+
+I would like to define something like
+
+type exp = [`Num of obj |`Neg of obj] 
+and class type obj = 
+  object 
+    method eql : exp ->  bool
+  end
+    
+** Damien Pous answered:
+
+You can do something this:
+
+type 'a exp_ = [`Num of 'a |`Neg of 'a] 
+
+class type obj = object 
+  method eql : obj exp_ ->  bool
+end
+
+type exp = obj exp_
+    
+** John Skaller added:
+
+Or the converse (parameterise the class instead).
+    
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

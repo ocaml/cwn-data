@@ -1,0 +1,137 @@
+Hello,
+
+Here is the latest OCaml Weekly News, for the week of April 14 to 21, 2015.
+
+1) Suggested way to determine platform specific capabilities in build system?
+2) OCaml-openmaple
+3) Timeout
+4) Other OCaml News
+
+========================================================================
+1) Suggested way to determine platform specific capabilities in build system?
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2015-04/msg00082.html>
+------------------------------------------------------------------------
+** Malcolm Matalka asked and Daniel Bünzli replied:
+
+> What is the current suggested way to determine what, roughly, autoconf
+> would do for you? I have some platform specific functionality to be
+> included (or excluded) depending on the OS.
+
+I don't know if there's a suggested way but here are various ways to proceed.
+
+If you are using ocamlbuild, you can use `Sys.win32` since 4.01.0 or
+`Sys.os_type = "Win32"` to determine if you are on windows and otherwise get
+the (stripped and lowercased) result of `uname -s`, see e.g (but it's missing
+the win bit):
+
+<https://github.com/dbuenzli/tsdl/blob/master/myocamlbuild.ml#L6>
+
+If you are using Makefiles you may want include
+`$(ocamlc -where)/lib/ocaml/Makefile.config` and use the `$SYSTEM` variable.
+
+If this is only needed for C stubs you can also try solve this at the CPP
+level ? but I guess this can be quite brittle ? see e.g (here again missing
+the win bit as it's undefined for now):
+
+<https://github.com/dbuenzli/mtime/blob/master/src-os/mtime_stubs.c#L11-L21>
+
+In any case make sure the value can be overridden from the command line for
+cross compilation scenarios.
+      
+** Thomas Gazagnaire then added:
+
+See also the system detection functions in opam-depext:
+
+<https://github.com/ocaml/opam-depext/blob/master/depext.ml#L76>
+      
+** Ivan Gotovchits also suggested:
+
+oasis, look at setup.data and setup.ml
+      
+========================================================================
+2) OCaml-openmaple
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2015-04/msg00089.html>
+------------------------------------------------------------------------
+** Maxence Guesdon announced:
+
+I started OCaml-openmaple, bindings to the Openmaple C library:
+  <https://github.com/zoggy/ocaml-openmaple>
+
+This is still work in progress but you can give it a try.
+It uses the excellent OCaml-ctypes library.
+      
+========================================================================
+3) Timeout
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2015-04/msg00099.html>
+------------------------------------------------------------------------
+** Rodolphe Lepigre asked and Benjamin Greenman:
+
+> I was wondering: is there a standard way to stop a computation after, say,
+> a given number of milliseconds (or seconds) in OCaml?
+> 
+> For instance I would like to have a function
+> 
+> exception Timeout
+> val exec : int -> ('a -> 'b) -> 'a -> 'b
+> 
+> such that [exec t f x] computes [f x] but raises [Timeout] in case the
+> computation did not end before [t] milliseconds (or seconds).
+> 
+> My guess would be that I need to use some Unix signals magic. Has anyone
+> come up with a clean solution to this problem?
+
+Here's a small function I use, taken from the book "Developing Applications
+with Objective Caml"
+<http://caml.inria.fr/pub/docs/oreilly-book/html/book-ora168.html>
+
+exception Timeout
+let sigalrm_handler = Sys.Signal_handle (fun _ -> raise Timeout)
+let timeout (time : int) (f : 'a -> 'b) (arg : 'a) =
+   let old_behavior = Sys.signal Sys.sigalrm sigalrm_handler in
+   let reset_sigalrm () = ignore (Unix.alarm 0); Sys.set_signal Sys.sigalrm old_behavior in
+   ignore (Unix.alarm time) ;
+   let res = f arg in reset_sigalrm () ; res
+      
+** Rodolphe Lepigre then said:
+
+Great, thank you!
+
+I only see one problem: when [Timeout] is raised, the signal handler is not
+reset. This can be fix by doing something like:
+
+  try let res = f arg in reset_sigalrm (); res
+  with e -> (reset_sigalrm (); raise e)
+
+This will have the advantage of transmitting other exceptions to the caller
+as well.
+
+Also, I guess [Unix.alarm time] should also be in the [try ... with ...].
+      
+========================================================================
+4) Other OCaml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocaml.org/>.
+
+Mid/Senior Software Development Engineer at Lookingglass Cyber Solutions (Full-time):
+  <http://functionaljobs.com/jobs/8810-mid-senior-software-development-engineer-at-lookingglass-cyber-solutions>
+
+Senior/Principal Software Development Engineer at Lookingglass Cyber Solutions (Full-time):
+  <http://functionaljobs.com/jobs/8809-senior-principal-software-development-engineer-at-lookingglass-cyber-solutions>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

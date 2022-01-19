@@ -1,0 +1,452 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>OCaml Weekly News</title>
+  </head>
+  <body>
+    <a href="2015.07.21.html">Previous week</a> <a href="index.html">Up</a> <a href="2015.08.04.html">Next week</a><p>Hello</p><p>Here is the latest OCaml Weekly News, for the week of July 21 to 28, 2015.</p><ol><li><a href="#1">Introduction to Functional Programming in OCaml, a MOOC</a></li><li><a href="#2">Comparing floats</a></li><li><a href="#3">Clever typing for client-server communication?</a></li><li><a href="#4">Call for participation: ML 2015</a></li><li><a href="#5">Released: OCaml version 4.02.3</a></li><li><a href="#6">Other OCaml News</a></li></ol><a name="1" /><hr /><h3>Introduction to Functional Programming in OCaml, a MOOC</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2015-07/msg00090.html">https://sympa.inria.fr/sympa/arc/caml-list/2015-07/msg00090.html</a></p><i>Roberto Di Cosmo announced:</i><br /><pre>
+We are very pleased to announce the massive, open, online course
+
+  Introduction to Functional Programming in OCaml
+
+the first MOOC entirely devoted to our beloved OCaml programming language.
+
+All the information on the course, including a teaser video, is available at 
+ 
+   <a href="https://www.france-universite-numerique-mooc.fr/courses/parisdiderot/56002/session01/about">https://www.france-universite-numerique-mooc.fr/courses/parisdiderot/56002/session01/about</a>
+
+The course is in english, starts from the basics, and goes on for seven weeks up
+to the module system. 
+
+An interactive exercise environment will allow to do the exercises in the
+browser, with an online evaluation integrated in the learning system; as you
+expect, this is based on tryocaml and js_of_ocaml, and is a unique
+distinguishing feature of this MOOC.
+
+The learning platform happens to be called FUN (yes, great to have fun with
+functional programming :-)), that is a variant of Open EdX run by the french
+ministry of education.
+
+The registration is open, and the course will start on October 19th.
+
+We finally have a MOOC on OCaml, a great tool to bring functional
+programming and our preferred programming language to a wide audience:
+now, let's tell the world! Use your social networks, mailing lists,
+professional and non professional conferences to spread the world.
+
+And see you soon for our first course :-)
+
+-- 
+Roberto Di Cosmo, Yann Regis-Gianas and Ralf Treinen
+      </pre><a name="2" /><hr /><h3>Comparing floats</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2015-07/msg00099.html">https://sympa.inria.fr/sympa/arc/caml-list/2015-07/msg00099.html</a></p><i>Sébastien Hinderer asked and Xavier Leroy replied:</i><br /><pre>
+&gt; What's the most efficient way to compare floats, please?
+&gt; Is it the polymorphic compare function, or is there a more specialized
+&gt; version of it?
+
+You'll get good performance by type-specializing Pervasives.compare:
+
+let compare_float (x: float) (y: float) = compare x y
+
+If you're absolutely sure your floats are not NaN, you can shave a few
+CPU cycles:
+
+let compare_float (x: float) (y: float) =
+  if x &lt; y then -1 else if x &gt; y then 1 else 0
+      </pre><i>Boris Yakobowski then said:</i><br /><pre>
+I feel obligated to point out that the _semantics_ of floating-point
+comparison is a bit tricky. IEEE 754 mandates that NaN == NaN should return
+false (as well as NaN != NaN), breaking all algebraic laws known to mankind :
+-). OCaml's operators '=' and '!=' follow this convention, but 'compare nan
+nan' returns 0, which is usually the desired behavior. However, 'compare 0.
+(-0.)' also returns 0, while you might want to distinguish those two values.
+      </pre><i>Jacques-Henri Jourdan then said and Boris Yakobowski replied:</i><br /><pre>
+&gt; Beaware:
+&gt; 
+&gt; Nan &lt;&gt; Nan -&gt; true
+&gt; Nan = Nan -&gt; false
+&gt; Nan != Nan and Nan == Nan : depends on the memory layout.
+
+Indeed, thanks for the clarification...
+
+I got confused when negating OCaml's '=' operator (a dangerous side-effect of
+writing too much C!), hence the erroneous '!=' instead of &lt;&gt;. Regarding, 'nan
+&lt;&gt; nan', I had convinced myself that all comparisons with NaN returned false.
+I wonder why &lt;&gt;/!= got a special treatment since e.g. 'nan &lt; 1.' and '1. &lt;
+nan' both return false.
+      </pre><i>Xavier Leroy finally said:</i><br /><pre>
+Perhaps so that (using Caml syntax) "x &lt;&gt; y" is always equivalent to
+"not (x = y)".  But I agree it can be viewed as yet another oddity
+with NaNs.
+
+Just to clarify my previous post:
+
+  let compare_float (x: float) (y: float) = compare x y
+
+gives a total order over floats that behaves sensibly, if somewhat
+arbitrarily, over NaN arguments:  two NaNs are equal, and any NaN is
+less than any non-NaN float.  In contrast,
+
+let compare_float (x: float) (y: float) =
+  if x &lt; y then -1 else if x &gt; y then 1 else 0
+
+is not a proper order, because the implied equality is not transitive.
+Consider:
+
+   compare_float 0.0 nan = 0
+   compare_float nan 1.0 = 0
+   compare_float 0.0 1.0 = -1
+
+So, don't use the latter definition for e.g. sorting a list of floats
+that can contain NaN.  The former definition is more robust.
+      </pre><a name="3" /><hr /><h3>Clever typing for client-server communication?</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2015-07/msg00109.html">https://sympa.inria.fr/sympa/arc/caml-list/2015-07/msg00109.html</a></p><i>Markus Weißmann asked:</i><br /><pre>
+I'm trying to do something clever regarding the interface for a communication
+library:
+There is a server and a client which can only send "client" (client to server)
+and "server" (server to client) messages.
+The current idea is to use a phantom type to annotate the socket as either
+being "client to server" or "server to client";
+
+type client
+type server
+
+type ('a, 'b) socket
+type 'a message
+
+I've got a bunch of functions that only work on either "client messages",
+"server messages" or some on both. Something like:
+
+val p1 : 'a message -&gt; int
+val p2 : server message -&gt; float
+val p3 : client message -&gt; char
+
+You can only send "client messages" on the "client socket" and "server
+messages" on the "server socket".
+
+val send : ('a, _) socket -&gt; 'a message -&gt; unit
+
+You can get these messages only on the respective other side.
+
+val recv : (_, 'b) socket -&gt; 'b message
+
+but is there some clever way to only have the socket annotated with one type
+while keeping only one send and one recv function?
+Something in the spirit of this:
+
+type 'a socket
+val send : 'a socket -&gt; 'a message -&gt; unit
+val recv : [server socket -&gt; client message | client socket -&gt; server message]
+
+there is no "(client, client) socket" or "(server, server) socket";
+
+
+regards
+-Markus
+
+PS: Under the hood its basically
+
+type 'a message = bytes
+type ('a, 'b) socket = mysocket
+
+But the underlying system allows me to add filters that guarantee me the
+aforementioned properties of send/receive.
+      </pre><i>Nicolas Ojeda Bar suggested:</i><br /><pre>
+This is not exactly what you asked, but you can use GADTs to constrain the
+phantom type (_, _) socket:
+
+type client
+type server
+
+type (_, _) socket =
+| ClientServer : mysocket -&gt; (client, server) socket
+| ServerClient : mysocket -&gt; (server, client) socket
+      </pre><i>Mikhail Mandrykin also suggested:</i><br /><pre>
+The closest solution I can suggest is with a recv signature
+
+val recv : ('a, 'b) recv_t -&gt; 'a socket -&gt; 'b message
+
+(one extra argument while socket is annotated with only one type and there's
+only one send and recv function). This uses GADTs:
+
+type 'a socket =
+| Client_socket : ... -&gt; client socket
+| Server_socket : ... -&gt; server socket
+
+type 'a message =
+| Client_message : ... -&gt; client message
+| Server_message : ... -&gt; server message
+
+let send =  ...
+
+type (_, _) recv_t =
+  | From_client : (server, client) recv_t
+  | From_server : (client, server) recv_t
+
+let recv : type a b. (a, b) recv_t -&gt; a socket -&gt; b message =
+  function
+  | From_client -&gt; fun Server_socket -&gt; ... Client_message (...)
+  | From_server -&gt; fun Client_socket -&gt; ... Server_message (...)
+
+The "[server socket -&gt; client message | client socket -&gt; server message] "
+(without an extra argument) looks like a dependent type (in spirit of " 'a
+socket -&gt; (reverse 'a) message"), which makes me doubt about whether it's
+possible in OCaml.
+      </pre><i>octachron also suggested:</i><br /><pre>
+I see one way to do this, but I am not sure I would call it a clever way.
+
+The idea is to try to encode (-1),(1) and (~-) at the type level. With this
+encoding, it is possible
+to define send and recv as
+
+type 'a socket
+val send : 'n socket -&gt; 'n message -&gt; unit
+val recv : 'n socket -&gt; '-n message
+
+A working encoding would be:
+
+type head
+type tail
+type 'a socket = ... (constraint  'a = 'b * 'c)
+type 'a message = ... (constraint  'a = 'b * 'c)
+
+where you can use either gadt or abstract value to enforce that 'a is only
+head*tail ( = 1 ) or tail*head ( = -1 ).
+
+Then -( 'a * 'b ) can be translated to ('b *' a), i.e.
+
+val send : 'n socket -&gt; 'n message -&gt; unit
+val recv: ('a * 'b) socket -&gt; ('b * 'a) message
+
+With this encoding, you only need to decompose the type parameter of socket or
+message when you need to flip it. However, I am not sure that this slim
+advantage is worth the added complexity (and one could argue that I added
+a type parameter to message rather than removed one from socket).
+      </pre><i>Jeremy Yallop also suggested:</i><br /><pre>
+&gt; but is there some clever way to only have the socket annotated with one type
+&gt; while keeping only one send and one recv function?
+
+One way to achieve this is to add some structure to the 'server' and
+'client' types, by turning your descriptions of the desired behaviour
+into code.  For example, you say
+
+&gt; There is a server and a client which can only send "client" (client to
+&gt; server) and "server" (server to client) messages.
+
+which you might encode as follows:
+
+type server = &lt; src: server; dst: client; name: [`server] &gt;
+ and client = &lt; src: client; dst: server; name: [`client] &gt;
+
+These are object types, but there's no need to actually use object
+values in your code.  The object type syntax is simply a convenient
+way to label the different components of the type so that they can be
+retrieved later.
+
+Once you have these types you might write type-level functions to
+retrieve the components.   Here's a function that retrieves the 'src'
+component:
+
+   type 'a src = 's constraint 'a = &lt; src: 's; .. &gt;
+
+This can be read as follows: src is a function that maps 'a to 's,
+where 'a is an object type with a src key, and 's is the value of that
+key.
+
+Similarly, here's a function to retrieve the 'dst' component:
+
+   type 'a dst = 'd constraint 'a = &lt; dst: 'd; .. &gt;
+
+&gt; You can only send "client messages" on the "client socket" and "server
+&gt; messages" on the "server socket".
+&gt;
+&gt; val send : ('a, _) socket -&gt; 'a message -&gt; unit
+&gt;
+&gt; You can get these messages only on the respective other side.
+&gt;
+&gt; val recv : (_, 'b) socket -&gt; 'b message
+&gt;
+&gt; Something in the spirit of this:
+&gt;
+&gt; type 'a socket
+&gt; val send : 'a socket -&gt; 'a message -&gt; unit
+&gt; val recv : [server socket -&gt; client message | client socket -&gt; server
+&gt; message]
+
+You might then write
+
+  val send : 's socket -&gt; 's src message -&gt; unit
+  val recv : 's socket -&gt; 's dst message
+
+and OCaml will enforce the constraints you describe.
+      </pre><i>Török Edwin then asked:</i><br /><pre>
+This is very useful to know, thanks!
+
+It'd be interesting to know how you come up with these solutions :)
+They are easy to understand as you've explained, but I wouldn't have thought of this solution
+although I guessed there had to be a solution with objects (after reading
+[1]), and I understand (simple) phantom types and (mostly) understand object
+types and GADTs by now.
+
+Is there some (fundamental) knowledge I'm missing that would allow me to
+construct solutions to problems like these
+(if so could you point to some papers, lecture notes or books please), or is
+it just that I very rarely use objects/GADTs and lack the experience?
+
+Best regards,
+--Edwin
+
+[1]
+<a href="http://stackoverflow.com/questions/10779283/when-should-objects-be-used-in-ocaml/10780681#10780681">http://stackoverflow.com/questions/10779283/when-should-objects-be-used-in-ocaml/10780681#10780681</a>
+      </pre><i>Oleg then replied and mandrykin added:</i><br /><pre>
+&gt; This is probably a folklore, but it was mentioned on this list more than
+&gt; a decade ago by Jacques Garrigue. We have used this trick extensively
+&gt; in
+&gt;
+&gt;         <a href="http://okmij.org/ftp/meta-programming/HPC.html#GE-generation">http://okmij.org/ftp/meta-programming/HPC.html#GE-generation</a>
+&gt; 
+&gt; (see the description on p11 of the SCP-metamonads.pdf paper, and many
+&gt; applications starting from p21)
+
+For me actually knowing the trick used in the paper alone was not enough to
+quickly come up with this solution. I had already used this object constraints
+several times in even in real-life code, but that didn't help much(. To me the
+key idea here (in the Jeremy Yallop's solution) is the ability to express the
+"negation" function on type level with a pair of mutually-recursive types and
+a constraint. This can actually be also done with polymorphic variants instead
+of object types:
+
+type client = [`cs of server * [`client]]
+  and  server = [`cs of client * [`server]]
+type 'a rev = 'b constraint 'a = [`cs of 'b * _] (* rev is the function *)
+
+This ensures the relations client rev = server, server rev = client and client
+&lt;&gt; server. This approach seems powerful enough to express any finite
+permutation group, e.g. for 2 elements:
+
+type z = [`t of [`e1] * [`e2] * z] (* initial permutation *)
+
+type 'e e1 = [`t of 'e1 * 'e2 * 'e e1] (* neutral permutation *)
+ constraint 'e = [`t of 'e1 * 'e2 * _ ]
+and 'e e2 = [`t of 'e2 * 'e1 * 'e e2] (* reverse permutation *)
+ constraint 'e = [`t of 'e1 * 'e2 * _]
+
+type 'a inv = 'b constraint 'a = [`t of _ * _ * 'b]
+
+Here "-e1 - e2 - e3 - ... - en + e1' + e2' + ... + em'" (using `+' for the
+group operation and `-' for the inverse) can be encoded as "z e1 e2 ... en inv
+e1' e2' ... em'". By Cayley's theorem (states that every finite group G is
+isomorphic to a subgroup of the symmetric group acting on G) this means (if
+I got it right) that in fact any finite group operation (and the corresponding
+inverse) is encodiable in OCaml as type-level function!
+      </pre><a name="4" /><hr /><h3>Call for participation: ML 2015</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2015-07/msg00122.html">https://sympa.inria.fr/sympa/arc/caml-list/2015-07/msg00122.html</a></p><i>Jeremy Yallop announced:</i><br /><pre>
+Higher-order, Typed, Inferred, Strict: ACM SIGPLAN ML Family Workshop
+Thursday 3 September 2015, Vancouver, Canada (co-located with ICFP)
+
+Call For Participation:        <a href="http://www.mlworkshop.org/ml2015/">http://www.mlworkshop.org/ml2015/</a>
+
+Early registration deadline:   Monday 3 August 2015
+Register online: <a href="https://regmaster4.com/2015conf/ICFP15/register.php">https://regmaster4.com/2015conf/ICFP15/register.php</a>
+
+The ML Family Workshop brings together researchers, implementors and
+users of languages in the extended ML family and provides a forum to
+present and discuss common issues, both practical (compilation
+techniques, tooling, embedded programming) and theoretical (fancy
+types, module systems, type inference).
+
+ML 2015 will be held in Vancouver on 3 September, immediately after
+ICFP and close to a number of other related events, including the
+OCaml Workshop on the following day.
+
+Programme
+
+(Talk times and abstracts are available from the workshop website:
+ <a href="http://www.mlworkshop.org/ml2015/">http://www.mlworkshop.org/ml2015/</a>).
+
+* The History of Standard ML: Ideas, Principles, Culture
+  (Invited Talk)
+  David MacQueen
+
+* Generating code with polymorphic let
+  Oleg Kiselyov
+
+* Polymorphism, subtyping and type inference in MLsub
+  Stephen Dolan and Alan Mycroft
+
+* Arduino programming of ML-style in ATS
+  Kiwamu Okabe and Hongwei Xi
+
+* Resource monitoring for Poly/ML processes
+  David Matthews, Magnus Stenqvist and Tjark Weber
+
+* Full dependency and user-defined effects in F*
+  Nikhil Swamy, Cătălin Hriţcu, Chantal Keller, Pierre-Yves Strub,
+  Aseem Rastogi, Antoine Delignat-Lavaud, Karthikeyan Bhargavan, and
+  Cédric Fournet
+
+* Dependent types for real-time constraints
+  William Blair and Hongwei Xi
+
+* Manifest contracts for OCaml
+  Yuki Nishida and Atsushi Igarashi
+
+* Lost in extraction, recovered
+  Éric Tanter and Nicolas Tabareau
+
+* GADTs and exhaustiveness: looking for the impossible
+  Jacques Garrigue and Jacques Le Normand
+      </pre><a name="5" /><hr /><h3>Released: OCaml version 4.02.3</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2015-07/msg00123.html">https://sympa.inria.fr/sympa/arc/caml-list/2015-07/msg00123.html</a></p><i>Damien Doligez announced:</i><br /><pre>
+Dear OCaml users,
+
+We have the pleasure of celebrating the anniversary of the first
+transatlantic telegraph cable by announcing the release of
+OCaml version 4.02.3.
+This is mainly a bug-fix release, see the list of changes below.
+
+It is (or soon will be) available as an OPAM switch, or as a source
+download here: &lt; <a href="http://caml.inria.fr/download.en.html">http://caml.inria.fr/download.en.html</a> &gt;
+
+Happy hacking,
+
+-- Damien Doligez for the OCaml team.
+
+
+OCaml 4.02.3:
+-------------
+
+Bug fixes:
+- PR#6908: Top-level custom printing for GADTs: interface change in 4.02.2
+  (Grégoire Henry, report by Jeremy Yallop)
+- PR#6919: corrupted final_table
+  (ygrek)
+- PR#6926: Regression: ocamldoc lost unattached comment
+  (Damien Doligez, report by François Bobot)
+- PR#6930: Aliased result type of GADT constructor results in assertion failure
+  (Jacques Garrigue)
+
+Feature wishes:
+- PR#6691: install .cmt[i] files for stdlib and compiler-libs
+  (David Sheets, request by Gabriel Radanne)
+- GPR#37: New primitive: caml_alloc_dummy_function
+  (Hugo Heuzard)
+      </pre><a name="6" /><hr /><h3>Other OCaml News</h3><i>From the ocamlcore planet blog:</i><br /><pre>
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <a href="http://planet.ocaml.org/">http://planet.ocaml.org/</a>.
+
+Fun With Opam: Advice to My Past Self:
+  <a href="http://www.somerandomidiot.com/blog/2015/07/27/fun-with-opam-advice-to-my-past-self/">http://www.somerandomidiot.com/blog/2015/07/27/fun-with-opam-advice-to-my-past-self/</a>
+
+Full Time: Sr. Software Engineer-Java Scala at The Weather Channel in Atlanta, GA:
+  <a href="http://jobs.github.com/positions/fa9f90ae-2fd8-11e5-89d8-951f8e3c66bd">http://jobs.github.com/positions/fa9f90ae-2fd8-11e5-89d8-951f8e3c66bd</a>
+
+Building the LLVM Fuzzer on Debian.:
+  <a href="http://www.mega-nerd.com/erikd/Blog/CodeHacking/building-llvm-fuzzer.html">http://www.mega-nerd.com/erikd/Blog/CodeHacking/building-llvm-fuzzer.html</a>
+
+OCaml server-side developer at Ahrefs Research (Full-time):
+  <a href="http://functionaljobs.com/jobs/8827-ocaml-server-side-developer-at-ahrefs-research">http://functionaljobs.com/jobs/8827-ocaml-server-side-developer-at-ahrefs-research</a>
+      </pre><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

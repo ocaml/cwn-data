@@ -1,0 +1,698 @@
+<?xml version="1.0" encoding="ISO-8859-15"?>
+<cwn>
+<cwn_head>
+  <cwn_date>2005.02.22</cwn_date>
+  <cwn_prev>2005.02.15</cwn_prev>
+  <cwn_next>2005.03.01</cwn_next>
+  <cwn_date_text>15 to 22 February, 2005</cwn_date_text>
+</cwn_head>
+<cwn_body>
+  <cwn_entry>
+    <cwn_title>Polymorphic variant typing</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200502/msg00416.html</cwn_url>
+    <cwn_who>Gilles Dubochet asked and Jacques Garrigue answered</cwn_who>
+    <cwn_what>
+&gt; The following O&apos;Caml expression:
+&gt; let incr g x = match x with
+&gt; 	| `Int i -&gt; `Int (i+1)
+&gt; 	| x -&gt; (g x);;
+&gt; 
+&gt; Receives type:
+&gt; (([&gt; `Int of int ] as &apos;a) -&gt; ([&gt; `Int of int ] as &apos;b)) -&gt; &apos;a -&gt; &apos;b
+&gt; 
+&gt; Why? I am quite astonished. I would have expected a type more like:
+&gt; ([&gt; ] -&gt; [&gt; ]) -&gt; [&gt; `Int of int ] -&gt; [&gt; `Int of int ]
+&gt; 
+&gt; or in Wand or Rémy-like row variable notation with which I am a little 
+&gt; more comfortable (I am not exactly sure the preceding type is correct 
+&gt; in the &apos;at leat - at most&apos; notation of O&apos;Caml):
+&gt; ([ &apos;a ] -&gt; [ &apos;b ]) -&gt; [ `Int of int | &apos;a ] -&gt; [ `Int of int | &apos;b ]
+
+The reason is simple enough: variants in ocaml are not based on Remy&apos;s
+rows, but on a type system with kinded variables, more in Ohori&apos;s style.
+This is described in detail in &quot;Simple type inference for structural
+polymorphism&quot;, which you can find at
+  http://wwwfun.kurims.kyoto-u.ac.jp/~garrigue/papers/
+
+The main reason for this choice is avoiding making rows explicit,
+i.e. having a multi-sorted type algebra. Note also that ocaml object
+types, while originally based on Remy&apos;s system, are hiding their
+row-variables, and can be described in the same formalism.
+
+&gt; Could anyone be kind enough to give me some clues about where to look 
+&gt; at to find an explanation or even better, explain me what is going on? 
+&gt; I am particularly puzzled by the fact that the g function&apos;s *argument* 
+&gt; type is &apos;at least `Int of int&apos;. This rejects the following code which 
+&gt; seems intuitively correct:
+&gt; incr (function `Float f -&gt; `Float (f+.1.));;
+
+Pragmatic reasons for this choice are given in Section 3 of
+  &quot;Typing deep pattern-matching in presence of polymorphic variants&quot;
+which you can find at the same place.
+    </cwn_what>
+    <cwn_who>Gilles Dubochet then asked and Jacques Garrigue answered</cwn_who>
+    <cwn_what>
+&gt; Just to make it crystal clear for me: You say that the &quot;main reason for 
+&gt; this choice is avoiding making rows explicit&quot;, does this mean that the 
+&gt; O&apos;Caml team feels that row-based type information is too complicated 
+&gt; for an average user since you either steer away of hide it in an object 
+&gt; model?
+
+Basically yes. Hence the clever tricks to have types containing hidden
+row variables, like #t, [&lt; t], [&gt; t]. Having explicit row variables
+was considered at some point, but it was not done because types would
+become much more verbose. Consider for instance that with variants,
+presence/absence information is needed for each tag.
+
+On the other hand, advanced features like explicit polymorphism require
+some understanding of the presence of hidden variables, and how they
+interact, so at that level of proficiency it&apos;s not clear whether
+hiding them really helps. And I&apos;m now playing with abstract rows,
+which makes the decision even less clear...
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>interprocess mutex</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200502/msg00435.html</cwn_url>
+    <cwn_who>Janne Hellsten asked</cwn_who>
+    <cwn_what>
+I need to sequentialize two processes accessing the same GDBM database 
+(OCaml&apos;s dbm library).  Since GDBM allows for only one writer at a time, 
+I need a way to block until the previous writer has finished.  I think 
+there is a way to do this with the original GDBM library since it claims 
+to handle the file lockings properly -- I could block based on the 
+returned error codes.  However, this functionality does not appear to be 
+exposed through the Dbm module.
+
+Of course I can implement this blocking myself with an interprocess 
+mutex.  But how can I implement such a mutex in OCaml?  I couldn&apos;t find 
+anything from the standard library that would resemble my problem.
+
+Is it easily doable or do I need to go and start hacking C code?  I&apos;ve 
+never done it on Unix but I know it&apos;s easily done on Windows.
+
+Thanks in advance,
+Janne
+
+P.S.  I&apos;m using GDBM merely as a cache between process invocations, so 
+using a more heavyweight DB is out of the question.
+    </cwn_what>
+    <cwn_who>Alex Baretta answered</cwn_who>
+    <cwn_what>
+Unix.lockf is the way to go.
+    </cwn_what>
+    <cwn_who>Janne Hellsten then replied</cwn_who>
+    <cwn_what>
+OK, this is what I came up with (uses ExtLib&apos;s Std.finally):
+
+---
+let create_lock name =
+  let chnl = open_out name in
+  output_string chnl &quot;Lockfile - don&apos;t delete&quot;;
+  close_out chnl
+
+let with_write_block name f =
+  if not (Sys.file_exists name) then
+    create_lock name;
+  let fd = Unix.openfile name [Unix.O_RDWR] 0o660 in
+  Std.finally
+    (fun () -&gt; Unix.close fd)
+    (fun _ -&gt;
+       Unix.lockf fd Unix.F_LOCK 0;
+       f ()) ()
+
+let test =
+  with_write_block &quot;lock_name&quot; (fun () -&gt; Printf.printf &quot;this code 
+blocks if other process already acquired lock!&quot;)
+---
+
+I hope I&apos;m using lockf correctly.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>XQuery Implementation: Galax version 0.5.0 available</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200502/msg00442.html</cwn_url>
+    <cwn_who>Mary Fernandez announced</cwn_who>
+    <cwn_what>
+We are proud to announce version 0.5.0 of Galax, an open source
+implementation of XQuery 1.0.
+
+This version implements the October 2004 XQuery working drafts and
+includes a completely redesigned compiler with an algebraic optimizer,
+a more efficient XML parser, and numerous bug fixes.
+
+Galax 0.5.0 can be downloaded from the Galax Web site at:
+
+   http://www.galaxquery.org/
+
+In addition to the Galax source, pre-compiled binaries are available
+for Linux, MacOS, Solaris, and Windows with MinGW.
+
+Galax provides APIs for O&apos;Caml, C, and Java and is implemented in
+O&apos;Caml.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Safe marshall?</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200502/msg00439.html</cwn_url>
+    <cwn_who>Mike Hamburg asked and Gerd Stolpmann answered</cwn_who>
+    <cwn_what>
+&gt; Is there any way to call Marshall in a type-safe way?  I need to use
+&gt; marshaling for a networking program, and I&apos;d rather not leave Marshal
+&gt; as an arbitrary code execution vulnerability (which it is as far as I
+&gt; can tell: switching on a Marshaled value should produce a computed
+&gt; jump, which can be set by an attacker to point to an arbitrary place).
+&gt;  Am I stuck writing my own marshal function?
+
+Marshal is not type-safe, no chance. I see three options for you:
+
+- If it is a closed protocol, you can sign the marshaled values
+
+- You can use other serializers. A quite simple and fast serializer is the
+  XDR encoder in my SunRPC implementation (see
+  http://ocaml-programming.de/programming/rpc.html). Other options
+  I know are BER (see ocamldap), XML-RPC, SOAP, and Ensemble.
+
+- Write the serializer yourself. Maybe this is an option for you
+  if you need maximum performance.
+    </cwn_what>
+    <cwn_who>Oliver Bandel then asked and Gerd Stolpmann answered</cwn_who>
+    <cwn_what>
+&gt; Well.. is there already an XDR-binding for OCaml?
+
+Yes, as already pointed out, it is part of my SunRPC implementation:
+http://ocaml-programming.de/programming/rpc.html . It is not a binding,
+however, but a pure O&apos;Caml implementation.
+
+It is quite easy and obvious how to use the XDR part alone without
+the rest of RPC. For example, to define a record with an integer
+and a string of maximum 20 characters:
+
+open Xdr
+open Rtypes
+let my_type_term =
+  X_struct [ &quot;my_int&quot;, X_int;
+             &quot;my_string&quot;, (X_string (uint4_of_int 20)) ]
+let my_type = validate_xdt_type_term my_type_term
+
+Now, to encode a value:
+
+let my_val =
+  XV_struct [ &quot;my_int&quot;, (XV_int (int4_of_int 42));
+              &quot;my_string&quot;, (XV_string &quot;Sample&quot;) ]
+let my_val_as_wire_string =
+  pack_xdr_value_as_string my_val my_type []
+
+my_val_as_wire_string can now be sent over the network. For
+decoding, use:
+
+let my_val_again =
+  unpack_xdr_value my_val_as_wire_string my_type []
+
+If the string is illegal (e.g. my_string is longer than
+20 characters), exceptions will be thrown.
+
+One can also use ocamlrpcgen to generate parts of the above
+code, including automatic conversion between XDR and the
+corresponding O&apos;Caml types (e.g. an XDR struct is converted
+to an O&apos;Caml record type). For complex protocols, the overhead
+of learning ocamlrpcgen is worth the effort.
+
+One should also consider using RPC directly rather than to invent
+a new networking layer.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>New book: Objective CAML for Scientists</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200502/msg00475.html</cwn_url>
+    <cwn_who>Jon Harrop announced</cwn_who>
+    <cwn_what>
+We&apos;ve just published our first book on OCaml!
+
+http://www.ffconsultancy.com/products/ocaml_for_scientists
+
+Let me know what you think. :-)
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Estimating the size of the ocaml community</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200502/msg00485.html</cwn_url>
+    <cwn_who>Continuing last week&apos;s thread, Jon Harrop said</cwn_who>
+    <cwn_what>
+I was just reading this presentation and stumbled upon some figures it 
+contains of the number of freshmeat projects written in different languages:
+
+http://www.uclan.ac.uk/facs/destech/gradschool/autumnschool/thu11built-karlin2.pdf
+
+According to this, just over a year ago (09/2003), OCaml was the 31st most 
+popular language with 22 projects.
+
+Checking freshmeat now, OCaml is the 24th most popular language with 52 
+projects. Here&apos;s the full {language, projects} list:
+
+{{C, 7066}, {Java, 3769}, {C++, 3523}, {Perl, 3300}, {PHP, 2947}, {Python, 
+    1763}, {Unix Shell, 721}, {Tcl, 421}, {JavaScript, 409}, {SQL, 
+    405}, {Objective C, 260}, {Other, 221}, {Assembly, 220}, {Ruby, 219}, {C#,
+     155}, {Other Scripting Engines, 125}, {Scheme, 111}, {Lisp, 81}, {PL/SQL,
+     78}, {Delphi, 74}, {Fortran, 62}, {Ada, 56}, {Common Lisp, 54}, {OCaml, 
+    52}, {Emacs-Lisp, 51}, {Pascal, 48}, {Haskell, 48}, {Awk, 46}, {Zope, 
+    41}, {Smalltalk, 33}, {ASP, 33}, {Visual Basic, 31}, {Basic, 30}, {Eiffel,
+     28}, {ML, 27}, {YACC, 24}, {Forth, 23}, {Cold Fusion, 
+    20}, {Object Pascal, 19}, {Prolog, 18}, {Erlang, 18}, {Pike, 11}, {Lua, 
+    11}, {Rexx, 10}, {Modula, 9}, {Groovy, 5}, {Logo, 4}, {Euphoria, 4}, {APL,
+     3}, {PROGRESS, 2}, {Pliant, 2}, {Dylan, 2}, {XBasic, 1}, {Simula, 
+    1}, {REALbasic, 1}, {Euler, 1}}
+
+I also computed the fractional increase in the number of projects for each 
+language to determine how rapidly languages have been adopted over the past 
+year. C# is 1st and OCaml is 2nd:
+
+{{C#, 3.44444}, {OCaml, 2.36364}, {Objective C, 1.91176}, {Common Lisp, 
+    1.86207}, {JavaScript, 1.74043}, {Haskell, 1.71429}, {Ruby, 
+    1.71094}, {Java, 1.57304}, {Emacs-Lisp, 1.54545}, {Delphi, 1.48}, {Ada, 
+    1.47368}, {Python, 1.47162}, {PHP, 1.43058}, {C++, 1.41999}, {Scheme, 
+    1.40506}, {SQL, 1.38225}, {Fortran, 1.37778}, {Unix Shell, 
+    1.30144}, {Other Scripting Engines, {}}, {PL/SQL, 1.27869}, {C, 
+    1.28077}, {ASP, 1.26923}, {Pascal, 1.26316}, {Assembly, 1.24294}, {Lisp, 
+    1.22727}, {Zope, 1.20588}, {Perl, 1.19392}, {Tcl, 1.17927}, {Awk, 
+    1.15}, {Other, 0.840304}}
+
+Considering that C# is pushed by Microsoft, Objective C is pushed by Apple and 
+LISP is pushed by Thomas Fischbacher ;-), I think this is very impressive.
+
+I&apos;ve also checked the number of unique posters to caml-list per month, which 
+has continued to rise exponentially since 1992, currently weighs in at 300 
+and is set to hit 1,000 in the year 2008.
+    </cwn_what>
+    <cwn_who>Diego Olivier Fernandez Pons said and Jon Harrop answered</cwn_who>
+    <cwn_what>
+&gt; Part of the 27 ML projects are in fact Caml projects.
+
+Indeed, the following twelve seem to be written in OCaml:
+
+Unison, FFTW, MATHPLOT, WDialog, PXP, GeneWeb, SwiftSurf, FaCiLe, pxpvalidate, 
+Camlserv, Lazy-L and JSON.
+
+I just had a look at sourceforge, which has far more projects (14,325 C, 
+14,813 C++ and 14,074 Java) by comparison, and the accredited language seems 
+to be wrong much more often. Assuming that all of the 132 SML projects are 
+actually in OCaml, this gives 155 projects OCaml, i.e. about two orders of 
+magnitude less common that the most popular languages.
+
+Also, I think that web searches for &quot;resume&quot; and &quot;CV&quot; are likely to be 
+inaccurate. Searching for &quot;written in *&quot; seems more reasonable. This gives:
+
+792,000 Java
+636,000 C
+424,000 Perl
+312,000 C++
+221,000 Python
+92,900 C#
+30,100 Ruby
+20,300 Lisp
+11,700 Scheme
+5,240 ocaml
+974 caml
+
+Again, OCaml is about two orders of magnitude below the most popular 
+languages.
+    </cwn_what>
+    <cwn_who>Erik de Castro Lopo added</cwn_who>
+    <cwn_what>
+For FFTW, only a small part is written in O&apos;Caml, a program which generates
+optimized C codelets for the FFT butterflys.
+
+The vast majority of FFTW is written in C.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Online Programming Course for Beginners, in Ocaml (in french)</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200502/msg00510.html</cwn_url>
+    <cwn_who>Arthur Chargueraud announced</cwn_who>
+    <cwn_what>
+I&apos;d like to announce the release of an Ocaml programming course.
+It is designed for beginners, and does not require any knowledge
+in programming at all. Anyone aged over 12 should be able
+to complete the course on his own, and thus learn the fundamentals
+of programming. For the time being, it is only available in french,
+but it will be translated into english later on.
+
+Table of contents :
+   Chapitre 0  Introduction
+   Chapitre 1  let, if, for
+   Chapitre 2  float, int, ref
+   Chapitre 3  function
+   Chapitre 4  array, char, string
+   Chapitre 5  bool, random
+   Chapitre 6  while, rec
+   Chapitre 7  expression
+About 130 exercices are part of the tutorial.
+
+As you may notice, the course currently only covers about the first half
+of general programming concepts. I may cope with the second half in the 
+future.
+
+
+The tutorial is available as text version, as PDF or PS files (about 170 
+pages),
+but also through an online interactive version : one can test and submit
+source code, that will be compiled and evaluated online.
+
+Access the tutorial : http://www.france-ioi.org/cours_caml/index.php
+
+Note : access is free to all, but if you want to submit code
+       you will need to go through a quick registration.
+
+The material is hosted by France-IOI, an organisation focused on the 
+development
+of algorithmics and programming for algorithmics in french speaking 
+countries.
+
+If you have specific questions, conctact me on : cours_caml@france-ioi.org
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Need for a built in round_to_int function</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200502/msg00491.html</cwn_url>
+    <cwn_who>Erik de Castro Lopo said</cwn_who>
+    <cwn_what>
+I am about to port some code from C to O&apos;caml. This code uses the 
+C99 function :
+
+    long int lrint (double d) ;
+
+which performs rounding on the double and then converts that to
+a long int.
+
+In O&apos;caml the only option seems to be:
+
+    let round_to_int f = int_of_float (f +. 0.5) ;;
+
+The problem is that this code on i386 produces really slow code:
+
+    804b385:    dd 44 98 fc        fldl   0xfffffffc(%eax,%ebx,4)
+    804b389:    de c1              faddp  %st,%st(1)
+    804b38b:    83 ec 08           sub    $0x8,%esp
+    804b38e:    d9 7c 24 04        fnstcw 0x4(%esp)
+    804b392:    66 8b 44 24 04     mov    0x4(%esp),%ax
+    804b397:    b4 0c              mov    $0xc,%ah
+    804b399:    66 89 44 24 00     mov    %ax,0x0(%esp)
+    804b39e:    d9 6c 24 00        fldcw  0x0(%esp)
+    804b3a2:    db 1c 24           fistpl (%esp)
+    804b3a5:    8b 04 24           mov    (%esp),%eax
+    804b3a8:    d9 6c 24 04        fldcw  0x4(%esp)
+    804b3ac:    83 c4 08           add    $0x8,%esp
+
+The killer here is the two fldcw (floating point load control word)
+instructions, around the fistpl (which actually does the float to int 
+conversion). Loading the FP control work causes a flush of the FPU
+pipeline. In code with a lot of floating point code interspersed
+with a round to int, there can be a significant slow down due to
+the fldcw instructions.
+
+The lrint function in C, replaces all the above with one fistpl
+and a single mov instruction and leaves the floating point
+control word intact. In C code that moved from:
+
+    (int) floor (f + 0.5)
+
+to
+    lrintf (f)
+
+I have seen an up to 4 fold increase in speed.
+
+I&apos;ve looked at the code for the O&apos;Caml compiler and I think I 
+know how to implement this, at least for x86 and PowerPC, the two
+architectures I have access to. If I was to supply a patch would
+it be accepted?
+
+
+I know other suggestions like this one :
+
+    http://sardes.inrialpes.fr/~aschmitt/cwn/2003.11.18.html#1
+
+were not viewed favourably, but the addition of a single function
+with an explicit behaviour is a far neater solution.
+    </cwn_what>
+    <cwn_who>Robert Roessler answered and Erik de Castro Lopo replied</cwn_who>
+    <cwn_what>
+&gt; I will preface this by a Slashdot-like &quot;IANANA&quot; (I Am Not A Numerical 
+&gt; Analyst).
+
+Nor am I. I don&apos;t play one in a TV show either.
+
+&gt; The above approach is more or less what you expect if you (as a 
+&gt; compiler code generator) a) want to do rounding following C/C++ 
+&gt; standards (&quot;Truncate (toward 0)&quot;), and b) make no assumption regarding 
+&gt; the state of the IEEE hardware rounding setting...
+
+Yes.
+
+&gt; You, on the other hand, are willing to make an assumption regarding 
+&gt; the hardware rounding mode - [presumably] that it is set to the 
+&gt; power-on default of &quot;Round to nearest, or to even if equidistant&quot;, 
+ &gt; which may not be unreasonable - it just needs to be explicit that this 
+&gt; *is* the assumption, and that you have a way of verifying (or at least 
+&gt; reason to believe) that other software components in your app&apos;s 
+&gt; environment are not invalidating this assumption.
+
+From the lrint manpage on Linux:
+
+    These functions round their argument  to  the  nearest  integer  value,
+    using  the  current rounding direction.  If x is infinite or NaN, or if
+    the rounded value is outside the range of the return type, the  numeric
+    result  is unspecified.  A domain error may occur if the magnitude of x
+    is too large.
+
+I would suggest something similar for the proposed O&apos;Caml function.
+
+&gt; The fact that the default hardware rounding mode does NOT match &quot;(int) 
+&gt; floor (f + 0.5)&quot; should also be mentioned... the &quot;+ 0.5&quot; attempts to 
+&gt; do what the hardware would call &quot;Round up (toward +infinity)&quot; 
+
+Careful, that could very easily be confused with  the C functions ceil().
+
+&gt; This could take the form of a compiler switch exactly like &quot;/QIfist&quot;, 
+
+A compiler switch is significantly more complicated than my proposal
+for a new built-in function with a well defined behaviour.
+
+The compiler switch causes all int_to_float to behave like a round
+instead of a truncate. My proposal allows a single file to have
+both behaviours.
+
+&gt; Of course, if something like this were to added to ocamlopt (for 
+&gt; target architectures using IEEE floating point), code (an additional 
+&gt; bytecode op?) emulating the same behavior could be added to the 
+&gt; runtime to maintain consistency across the interpreted and native 
+&gt; operating environments - or not.
+
+I believe that the bytecode interpreter simply uses the definitions
+supplied by ocamlopt. Once ocamlopt has this functionality there
+is not much else required to allow the interpretter to use the same
+functionality.
+    </cwn_what>
+    <cwn_who>Robert Roessler replied</cwn_who>
+    <cwn_what>
+&gt; I would suggest something similar for the proposed O&apos;Caml function.
+
+Exactly like the &quot;FIST[P]&quot; instruction without explicit control word 
+saving, setting and restoring - which is believable, since according 
+to your first post, your reference implementation is done this way.
+
+&gt; &gt;The fact that the default hardware rounding mode does NOT match &quot;(int) 
+&gt; &gt;floor (f + 0.5)&quot; should also be mentioned... the &quot;+ 0.5&quot; attempts to 
+&gt; &gt;do what the hardware would call &quot;Round up (toward +infinity)&quot; 
+&gt; 
+&gt; 
+&gt; Careful, that could very easily be confused with  the C functions ceil().
+
+Umm, 2 of the IEEE hardware rounding modes *do* seem to match floor() 
+and ceil()... it is probably not a coincidence. :)
+
+&gt; &gt;This could take the form of a compiler switch exactly like &quot;/QIfist&quot;, 
+&gt; 
+&gt; 
+&gt; A compiler switch is significantly more complicated than my proposal
+&gt; for a new built-in function with a well defined behaviour.
+&gt; 
+&gt; The compiler switch causes all int_to_float to behave like a round
+&gt; instead of a truncate. My proposal allows a single file to have
+&gt; both behaviours.
+
+Actually, emulating the VC7 &quot;/QIfist&quot; does NOT cause &quot;all int_to_float 
+to behave like a round instead of a truncate&quot; - it does exactly what 
+we are already talking about: do the int_of_float with a &quot;bare&quot; 
+FIST[P], operating in whatever rounding mode the hardware is already 
+in (presumably one we want and expect it to be in).
+
+&gt; &gt;Of course, if something like this were to added to ocamlopt (for 
+&gt; &gt;target architectures using IEEE floating point), code (an additional 
+&gt; &gt;bytecode op?) emulating the same behavior could be added to the 
+&gt; &gt;runtime to maintain consistency across the interpreted and native 
+&gt; &gt;operating environments - or not.
+&gt; 
+&gt; 
+&gt; I believe that the bytecode interpreter simply uses the definitions
+&gt; supplied by ocamlopt. Once ocamlopt has this functionality there
+&gt; is not much else required to allow the interpretter to use the same
+&gt; functionality.
+
+The bytecode interpreter has nothing to do with ocamlopt... in fact, 
+the primitive for doing int_of_float is precisely
+
+return Val_long((long) Double_val(f));
+
+which will perform a &quot;truncate&quot; operation for the conversion, since 
+that is what the C standard requires. :)
+    </cwn_what>
+    <cwn_who>Erik de Castro Lopo replied</cwn_who>
+    <cwn_what>
+&gt; Actually, emulating the VC7 &quot;/QIfist&quot; does NOT cause &quot;all int_to_float 
+&gt; to behave like a round instead of a truncate&quot; - it does exactly what 
+&gt; we are already talking about: do the int_of_float with a &quot;bare&quot; 
+&gt; FIST[P], operating in whatever rounding mode the hardware is already 
+&gt; in (presumably one we want and expect it to be in).
+
+Implementing your proposal, means that int_of_float will change
+behaviour depending on a compiler flag. I think thats a bad
+idea.
+
+My proposal leaves int_of_float just as it is and defines a new
+function:
+
+    val round_to_int : float -&gt; int
+
+which expand to a FISTPL instruction and one or two glue 
+instructions.
+    </cwn_what>
+    <cwn_who>Erik de Castro Lopo added to his original post</cwn_who>
+    <cwn_what>
+OK, I have a patch that seems to do the right thing on x86 and
+PowerPC:
+
+    http://www.mega-nerd.com/tmp/round_to_int.diff
+
+I&apos;m not 100% happy with the mods to byterun/floats.c. In order to
+use the C99 lrintf() function in caml_round_to_int() I had to
+define _ISOC9X_SOURCE etc before including &lt;math.h&gt;. The real
+solution (when using GCC) is to add -std=c99 to the command line.
+
+Using the following test program:
+
+    http://www.mega-nerd.com/tmp/round_to_int.ml
+
+with the hacked ocamlopt compiler I&apos;m getting about a 3 times speed
+improvement using round_to_int on a Pentium III. The speedup on P4
+is supposed to be even more because of the P4&apos;s deeper pipeline.
+On PowerPC, there is no speedup because PowerPC has two separate
+instructions for float to int, one which rounds and one which 
+truncates.
+
+I&apos;d be interested in any comments from the official ocaml maintainers.
+What are the chances of this going into the official distribution?
+
+I also have access to a machine with a MIPS CPU. I don&apos;t know
+MIPS assembler but I&apos;ll see what I can do.
+    </cwn_what>
+    <cwn_who>Xavier Leroy answered</cwn_who>
+    <cwn_what>
+&gt; [ &quot;round float to int&quot; primitive ]
+&gt; with the hacked ocamlopt compiler I&apos;m getting about a 3 times speed
+&gt; improvement using round_to_int on a Pentium III. The speedup on P4
+&gt; is supposed to be even more because of the P4&apos;s deeper pipeline.
+
+On the other hand, according to the P4 optimization manuals, the P4 is
+supposed to special-case this particular use of fnstcw / fldcw, so
+perhaps the situation is no worse than on the P3.  At any rate:
+
+&gt; I&apos;d be interested in any comments from the official ocaml maintainers.
+&gt; What are the chances of this going into the official distribution?
+
+Essentially zero :-(  Basically, this is a case where additional stuff is
+introduced in the machine-independent parts of ocamlopt and in every
+code generator just to work around the brain-dead x87 floating-point
+instruction set.  Every other processor (as well as the SSE2 instr.set
+on the P4) has a fast &quot;truncate float to int&quot; instruction, from which
+an efficient &quot;round to nearest int&quot; is easy to obtain (truncate (x +. 0.5)).  
+
+I spent a lot of time in the past trying to extract decent float
+performance out of the x87 instruction set, under the strict
+constraint that these performance hacks should be confined to the
+x86-specific parts of ocamlopt.  Nowadays, I no longer care about
+performance for x87: users who want good float performance should
+simply use the x86-64 architecture (with SSE2 floats), it&apos;s cheaply
+available from both AMD and Intel and works so much better for
+floats...  At the extreme, I&apos;d rather do a x86+SSE2 port (for P4 and
+P3M-class processors) than spend more time on x86+x87.
+    </cwn_what>
+    <cwn_who>Erik de Castro Lopo replied</cwn_who>
+    <cwn_what>
+&gt; On the other hand, according to the P4 optimization manuals, the P4 is
+&gt; supposed to special-case this particular use of fnstcw / fldcw, so
+&gt; perhaps the situation is no worse than on the P3.  
+
+OK, I&apos;ve just tested this. On P4 the performance hit of fnstcw / fldcw 
+is not as bad as it is with P3, but its still significant:
+
+Using this test program (compiled with my hacked version of ocamlopt):
+
+     http://www.mega-nerd.com/tmp/round_to_int.ml
+
+On a 450MHz P3:
+
+    Time int_of_float : 5.970000
+    Time round_to_int : 2.360000
+
+On a 2.8GHz P4:
+
+    Time int_of_float : 0.420000
+    Time round_to_int : 0.260000
+
+&gt; Essentially zero :-(  Basically, this is a case where additional stuff is
+&gt; introduced in the machine-independent parts of ocamlopt and in every
+&gt; code generator just to work around the brain-dead x87 floating-point
+&gt; instruction set.
+
+Obviously it is your decision, but I think round_to_int is a common 
+enough operation to warrant its own function. The ISO C Standards
+committee thought so.
+
+&gt; Every other processor (as well as the SSE2 instr.set
+
+Quite honestly I think the value of SSE and SSE2 are over sold.
+There are certain algorthims which simply can&apos;t be made to run
+as fast on SSE/SSE2 as they run on the x87 FPU.
+
+For instance, my audio sample rate converter:
+
+    http://www.mega-nerd.com/SRC/
+
+If I compile this on a P3 with gcc-3.4 using -mfpmath=sse -msse,
+the highest quality (and hence slowest) converter runs 50% slower 
+than the x87 FPU version. I have also tried re-writing the algorithm 
+in hand optimised SSE code. The best I could get (I&apos;m not an assembler 
+expert) was still 10% slower than the x87 FPU.
+
+I have just now repeated my experiment by compiling SRC on a P4 
+with -msse2 (-mfpmath=sse2 doesn&apos;t work), the converter runs 75% 
+slower than the x87 FPU version.
+
+&gt; I spent a lot of time in the past trying to extract decent float
+&gt; performance out of the x87 instruction set,
+
+&lt;snip&gt;
+
+&gt; Nowadays, I no longer care about
+&gt; performance for x87: users who want good float performance should
+&gt; simply use the x86-64 architecture (with SSE2 floats), 
+
+I&apos;d love to get my hands on one of these, but I really do doubt
+that its performance will be much better than that of the P4. 
+The main problem is that generating good SSE/SSE2 code from
+a high level language is an order of magnitude more difficult
+than generating code for the x87 FPU.
+    </cwn_what>
+  </cwn_entry>
+</cwn_body>
+</cwn>

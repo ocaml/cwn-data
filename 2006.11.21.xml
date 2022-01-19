@@ -1,0 +1,372 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+	<cwn_head>
+		<cwn_date>2006.11.21</cwn_date>
+		<cwn_prev>2006.11.14</cwn_prev>
+		<cwn_next>2006.11.28</cwn_next>
+		<cwn_date_text>November 14 to 21, 2006</cwn_date_text>
+	</cwn_head>
+	<cwn_body>
+		<cwn_entry>
+			<cwn_title>parameterized pattern and F#</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/45297eadb617f87f/8f7fc6ee8bd35e01#8f7fc6ee8bd35e01</cwn_url>
+			<cwn_who>Continuing the thread from last week, Brian asked and Don Syme answered</cwn_who>
+			<cwn_what>
+&gt; I just did a quick scan of some F# docs and 
+&gt; I saw nothing. What did you have in mind? 
+
+NET type parameters are extensional, i.e. "you can always find out what 
+'a is at runtime".  In particular in C# you can just write "typeof(T)", 
+and in F# "(type 'a)", in each case getting a System.Type value. 
+Supporting exact runtime types was a design decision we made in the 
+early design stages for .NET generics. 
+As a result all .NET languages that support generics (polymorphism) have 
+extensional polymorphism. It gets used heavily in the kind of 
+meta-activities we're all familiar with: marshalling, pretty-printing, 
+debugging (yes, Visual Studio 2005 shows you the values of "T", except 
+when they've been optimized away). It also gets used internally in some 
+libraries for adhoc optimization purposes, e.g. generating efficient 
+comparison functions for default .NET comparers based on type arguments, 
+and the F# matrix library uses it to detect when generic matrices are 
+really floating point matrices, hence thunking out to more efficient 
+matrix routines.   
+
+There are downsides to extensional polymorphism (e.g. you can wind up 
+take up extra registers passing type parameters), but they don't seem to 
+bite in practice.  At the last ML Workshop a group at Cambridge 
+University recently reported on an experiment to modify core-OCaml to 
+pass runtime types, and IIRC saw no significant performance loss. 
+
+FWIW if you're interested I'd also like to mention the huge impact OCaml 
+had on the design of .NET generics and C# 2.0, which I've never properly 
+described on this list.  It was seeing and experiencing polymorphic 
+programming in OCaml and SML that made us persevere with the long and 
+torturous process of convincing Microsoft that they should add such an 
+"experimental and academic" feature as generics to their flagship 
+runtime and languages.  Of course we were in reality just making 1970s 
+ideas work in practice, but at least now even Visual Basic has generics.
+			</cwn_what>
+			<cwn_who>Brian then asked and Don Syme answered</cwn_who>
+			<cwn_what>
+[ FWIW let's take discussions about F# off-list, e.g. to hubFS? ] 
+&gt; As a mostly Java programmer now, I have to say I'm a bit 
+&gt; envious. C# generics look a lot better to me than the Java 5 ones. 
+
+Well, this comparison point certainly helped to persuade Microsoft 
+management to do the feature. :-)   
+&gt; What I didn't notice while looking at the F# docs was a 
+&gt; way to declare a generic function/value, where by "generic" 
+&gt; here I mean in the GCaml/CLOS sense, not the Java/Ada sense. 
+&gt; Is something like that in F#, or planned? 
+
+Yes and no, though the topic often comes up.  Currently, operators are 
+overloaded through a statically-resolved version of Ada-style trait 
+constraints, which works well enough in practice. 
+Haskell-style type classes or the proposed default parameters for Scala 
+are other possible design points. These are a little less compelling 
+when you can't redesign the whole .NET library design to take advantage 
+of the feature, but still potentially worthwhile.
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>Bytecode object files structure</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/1077d71a99744f2b/bdbaebe1c41241ee#bdbaebe1c41241ee</cwn_url>
+			<cwn_who>Pierre-Etienne Meunier asked and Alain Frisch answered</cwn_who>
+			<cwn_what>
+&gt; According to the source of Ocaml, there's something called the 
+&gt; "cmo_magic_number", systematically written at the beginning of all .cmo 
+&gt; files. Does it have a real function for executing the programs, or is it just 
+&gt; a way to make sure the file contains ocaml bytecode ? 
+
+It is just a way to make sure that the file contains ocaml bytecode with 
+the expected version. 
+&gt; After that, I can't understand anything : there vaguely seems to be some 
+&gt; information related to linking or so... What is the precise structure of this 
+&gt; part ? Is there some kind of a bytecode assembler ? 
+
+The structure is a compilation unit descriptor, described in 
+bytecomp/cmo_format.mli.
+			</cwn_what>
+			<cwn_who>Yann Régis-Gianas added</cwn_who>
+			<cwn_what>
+The file tools/dumpobj.ml in the O'Caml tree may be used to parse the 
+object file. This should be a first step to understand the bytecode 
+file format.
+			</cwn_what>
+			<cwn_who>Pierre-Etienne Meunier then asked and Xavier Clerc answered</cwn_who>
+			<cwn_what>
+&gt; I'd like to write an assembler, to be able to understand how the vm   
+&gt; really 
+&gt; works. I've to work on this for a school project (a compiler, I   
+&gt; want it to 
+&gt; output caml bytecode object files). 
+
+
+If you are working on a compiler that should output files to be   
+executed by the ocaml runtime, it does not seem necessary to handle   
+cmo/cmi files as the format of bytecode file should be sufficient to   
+code your compiler. Unless you have to link with ocaml modules. 
+&gt; I've understood that the data part, after the code itself, was   
+&gt; generated using 
+&gt; output_value (I didn't know this function before). 
+
+This fonction is used by the Marshal module. It transforms any non- 
+abstract value into a chain of bytes. 
+The format of marshalling can be understood from the extern_rec   
+function of the byterun/extern.c file. 
+&gt; What I don't get now are 
+&gt; the cu_reloc, cu_primitives and cu_imports fields of the   
+&gt; compilation_unit 
+&gt; type. 
+
+You should remember that cmo files are parts that will be put   
+together (linked) in order to create a bytecode file. 
+Given this context : 
+        - cu_imports lists the name of imported (used) modules the current   
+cmo should be linked with in order to produce a bytecode file (the   
+digest of the imported modules is also kept to ensure that you link   
+with the same version you compiled against) ; 
+        - cu_primitives lists the primitives declared by the current module   
+(each 'external f : type1 -&gt; type2 = "primitive" ' will result in a   
+"primitive" entry of this list), needed to ensure that all required C   
+primitives are provided ; 
+        - cu_reloc : as each module is compiled independently, it can   
+declare some elements (e.g. global variables) and use them using a 0- 
+based index ; thus, when you link several modules together, you have   
+to relocate this information to ensure that the first module uses   
+indexes from 0 to n, the second module uses indexes from n+1 to n+m   
+and so on ... 
+Hope this helps, 
+
+Xavier Clerc 
+
+PS : I am working on some documents describing marshalling format,   
+bytecode files as well as instruction opcodes. 
+I will hopefully release them before xmas but don't hold your breath   
+as I don't have much spare time these days. 
+In the meantime, you can contact me off-list for any related question.
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>Symbolic derivative macro</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/b43815fc761517b8/06a8cc1798ca4680#06a8cc1798ca4680</cwn_url>
+			<cwn_who>Jon Harrop asked and Bruno De Fraine answered</cwn_who>
+			<cwn_what>
+&gt; Can someone point me to, or even knock up, a simple camlp4 macro that 
+&gt; demonstrates naively but statically computing the symbolic   
+&gt; derivative of an 
+&gt; OCaml expression? 
+
+Since there hasn't been an answer from anyone more knowledgeable, I'm   
+willing to give it a shot. 
+One important part of camlp4 is the quotation system. A quotation   
+allows a user function to describe how a part of the source file is   
+translated into a syntax tree. 
+
+I load an ocaml toplevel with camlp4 and the standard AST quotations.   
+Since every AST node is associated with a source code location, and   
+the quotations can't find this out by themselves, they require the   
+variable "_loc" (previously "loc") to be defined. Since I'm not   
+concerned with source locations, I define a dummy value. 
+
+$ ocaml camlp4o.cma q_MLast.cmo 
+         Objective Caml version 3.09.2 
+
+         Camlp4 Parsing version 3.09.2 
+
+# let _loc = Token.dummy_loc ;; 
+val _loc : Token.flocation = ... 
+
+I can then inspect the AST of some simple OCaml expressions using the   
+quotation "expr". As above, I've replaced occurrences of _loc with   
+"..." to keep the output readable: 
+
+# &lt;:expr&lt; 1 &gt;&gt; ;; 
+- : MLast.expr = 
+MLast.ExInt 
+(...,"1") 
+# &lt;:expr&lt; x+1 &gt;&gt; ;; 
+- : MLast.expr = 
+MLast.ExApp 
+(..., 
+MLast.ExApp 
+   (..., 
+   MLast.ExLid 
+    (..., 
+    "+"), 
+   MLast.ExLid 
+    (..., 
+    "x")), 
+MLast.ExInt 
+   (..., 
+   "1")) 
+
+To understand this latter AST, note that the expression x+1 is   
+equivalent to ((+) x) 1. 
+
+This is a good moment to mention that you can employ antiquotations   
+inside quotations to specify parts that you do not want to be   
+translated, but rather interpreted directly. Inside expressions you   
+can antiquote e.g. expressions and literal values: 
+
+# let i = &lt;:expr&lt; 1 &gt;&gt; in &lt;:expr&lt; $i$ + $i$ &gt;&gt; ;; 
+- : MLast.expr = 
+MLast.ExApp 
+(..., 
+MLast.ExApp 
+   (..., 
+   MLast.ExLid 
+    (..., 
+    "+"), 
+   MLast.ExInt 
+    (..., 
+    "1")), 
+MLast.ExInt 
+   (..., 
+   "1")) 
+# &lt;:expr&lt; $str: Sys.ocaml_version$ &gt;&gt; ;; 
+- : MLast.expr = 
+MLast.ExStr 
+(...,"3.09.2") 
+# &lt;:expr&lt; $int: string_of_int Sys.word_size$ &gt;&gt; ;; 
+- : MLast.expr = 
+MLast.ExInt 
+(...,"32") 
+
+We can then define our core derivative function as a translation from   
+one expression AST to another: 
+(Note that I choose to make "_loc" an explicit argument to make the   
+function independent from the environment) 
+
+# let rec deriv _loc x = function 
+         | MLast.ExInt (_,_) -&gt; &lt;:expr&lt; 0 &gt;&gt; 
+         | MLast.ExLid (_,n) -&gt; 
+                 let i = if n = x then "1" else "0" in 
+                 &lt;:expr&lt; $int:i$ &gt;&gt; 
+         | MLast.ExApp (_, 
+                 MLast.ExApp (_, 
+                         MLast.ExLid (_,"+"), 
+                         u), 
+                 v) -&gt; 
+                 let u' = deriv _loc x u and v' = deriv _loc x v in 
+                 &lt;:expr&lt; $u'$ + $v'$ &gt;&gt; 
+         | MLast.ExApp (_, 
+                 MLast.ExApp (_, 
+                         MLast.ExLid (_,"*"), 
+                         u), 
+                 v) -&gt; 
+                 let u' = deriv _loc x u and v' = deriv _loc x v in 
+                 &lt;:expr&lt; $u'$ * $v$ + $u$ * $v'$ &gt;&gt; 
+         | _ -&gt; failwith "Not implemented" 
+;; 
+val deriv : MLast.loc -&gt; string -&gt; MLast.expr -&gt; MLast.expr = &lt;fun&gt; 
+
+You can see this already makes correct derivatives, although without   
+algebraic simplification: 
+
+# deriv _loc "x" &lt;:expr&lt; x*(x+y) &gt;&gt; = &lt;:expr&lt; 1*(x+y) + x*(1+0) &gt;&gt; ;; 
+- : bool = true 
+
+I compare to the expected result in the above expression because the   
+actual AST expression is hardly readable. However, with a bit of a   
+workaround, it is possible to employ a printer to print an expression   
+AST in a nice form. I came up with: 
+(note that Pcaml is a module that holds references to parsers,   
+printers, etc. set by language extensions) 
+
+# #load "pr_o.cmo" ;; 
+# let print_expr e = !Pcaml.print_implem [MLast.StExp(_loc,e),_loc] ;; 
+val print_expr : MLast.expr -&gt; unit = &lt;fun&gt; 
+# print_expr (deriv _loc "x" &lt;:expr&lt; x*(x+y) &gt;&gt;) ;; 
+let _ = 1 * (x + y) + x * (1 + 0) 
+- : unit = () 
+
+Of course, you don't just want the AST of the derivative expression,   
+you also want to evaluate it. 
+
+One way to do this would be to install the "deriv" transformation   
+function as a quotation through Quotation.add. This requires the name   
+of the quotation as well as how to expand from the source text to a   
+expression/pattern AST: 
+
+# Quotation.add ;; 
+- : string -&gt; Quotation.expander -&gt; unit = &lt;fun&gt; 
+
+With file "quotation.mli" defining: 
+
+type expander = 
+   [ ExStr of bool -&gt; string -&gt; string 
+   | ExAst of (string -&gt; MLast.expr * string -&gt; MLast.patt) ] 
+; 
+
+A difficulty here is that our transformation requires the original   
+expression as an AST while it is provided as a string. So we need to   
+invoke the installed parsing functions first: 
+
+# let parse_expr s = 
+   Grammar.Entry.parse Pcaml.expr_eoi (Stream.of_string s) ;; 
+val parse_expr : string -&gt; MLast.expr = &lt;fun&gt; 
+# Quotation.add "deriv_x" (Quotation.ExAst ( 
+         (fun s -&gt; deriv _loc "x" (parse_expr s)), 
+         (fun _ -&gt; failwith "Not supported"))) ;; 
+- : unit = () 
+
+Now we can do: 
+
+# let x = 2 and y = 3 in &lt;:deriv_x&lt; x*(x+y) &gt;&gt; ;; 
+- : int = 7 
+
+Alternatively, we can install our symbolic derivative transformation   
+in the main grammar of the language using the syntax extension for   
+defining extensions: 
+
+# #load "pa_extend.cmo" ;; 
+# EXTEND 
+     Pcaml.expr: LEVEL "expr1" [ 
+       [ "deriv_x"; e = Pcaml.expr -&gt; deriv _loc "x" e ] 
+     ]; 
+END;; 
+- : unit = () 
+
+(Note that inside of the action of the grammar rule, the variable   
+"_loc" is bound to the source location of the rule; so we don't   
+employ the dummy location from the environment.) 
+
+This makes deriv_x a keyword of the language and allows for it to be   
+employed inside of expressions: 
+
+# let x = 2 and y = 3 in deriv_x x*(x+y) ;; 
+- : int = 7 
+
+EPILOGUE 
+
+When not using the toplevel, you would put the definition of function   
+"deriv" as well as the EXTEND statement in a source file named   
+"pa_deriv.ml" ("pa" because you influence the parsing phase). It can   
+then be compiled as: 
+
+$ ocamlc -c -pp 'camlp4o q_MLast.cmo pa_extend.cmo' -I +camlp4   
+pa_deriv.ml 
+
+(The -pp flag because the syntax uses AST quotations and the EXTEND   
+statement; the -I flag because we refer to types and definitions from   
+module MLast.) 
+
+To compile a source file that employs the deriv_x keyword, employ the   
+preprocessor with our extension loaded: 
+
+$ ocamlc -c -pp 'camlp4o ./pa_deriv.cmo' example.ml 
+
+To inspect the result of preprocessing manually, you load an   
+appropriate printer, e.g.: 
+
+$ camlp4o ./pa_deriv.cmo pr_o.cmo example.ml
+			</cwn_what>
+			<cwn_who>Yaron Minsky also answered</cwn_who>
+			<cwn_what>
+There is this. which is done via a functor rather than camlp4...
+http://wmfarr.blogspot.com/2006/10/automatic-differentiation-in-ocaml.html
+			</cwn_what>
+		</cwn_entry>
+	</cwn_body>
+</cwn>

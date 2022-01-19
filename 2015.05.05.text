@@ -1,0 +1,223 @@
+Hello,
+
+Here is the latest OCaml Weekly News, for the week of April 28 to May 05, 2015.
+
+1) js_of_ocaml with node
+2) OCaml art exhibition in Venice
+3) Albatross 0.1
+4) Safe UTF-8 string literals and pattern matching for OCaml
+5) ocaml-tutorial.org will expire in 60 days
+6) Other OCaml News
+
+========================================================================
+1) js_of_ocaml with node
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2015-04/msg00148.html>
+------------------------------------------------------------------------
+** Continuing the thread from last week, Mauricio Fernández said:
+
+I've got some bindings for nodejs stuff including FS operations, sockets,
+events, processes, etc.; will try to publish it tomorrow. Note that some
+nodejs functions require variadic callbacks as supported by the patches
+available at <https://github.com/ocsigen/js_of_ocaml/issues/273>
+
+The hand-written bindings look like this (just a sneak peek):
+
+node_require.eliom:
+
+    {client{
+    let require x =
+      let require = Js.Unsafe.eval_string "require" in
+        require##call(require, Js.string x)
+    }}
+
+    (* vim: set ft=ocaml: *)
+
+
+node_fs.eliom:
+
+
+    {client{
+    open Printf
+    open Lwt
+
+    class type error =
+    object
+      method message : Js.js_string Js.t Js.prop
+    end
+
+    type maybe_error = error Js.t Js.opt
+
+    class type stats =
+    object
+      method dev     : int Js.readonly_prop
+      method ino     : int Js.readonly_prop
+      method mode    : int Js.readonly_prop
+      method nlink   : int Js.readonly_prop
+      method uid     : int Js.readonly_prop
+      method gid     : int Js.readonly_prop
+      method rdev    : int Js.readonly_prop
+      method size    : float Js.t Js.readonly_prop
+      method blksize : int Js.readonly_prop
+      method blocks  : int Js.readonly_prop
+      method atime   : Js.date Js.t Js.readonly_prop
+      method mtime   : Js.date Js.t Js.readonly_prop
+      method ctime   : Js.date Js.t Js.readonly_prop
+    end
+
+    and watch_options =
+    object
+      method persistent : bool Js.t Js.prop
+    end
+
+    class type fs =
+    object
+      method existsSync : Js.js_string Js.t -> bool Js.t Js.meth
+      method exists : Js.js_string Js.t -> (bool Js.t -> unit) Js.callback -> unit Js.meth
+
+      method readFile :
+        Js.js_string Js.t ->
+        (maybe_error -> Node_net.buffer Js.t -> unit) Js.callback -> unit Js.meth
+
+      method readFileSync : Js.js_string Js.t -> Node_net.buffer Js.t Js.meth
+
+      method readdirSync : Js.js_string Js.t -> Js.js_string Js.t Js.js_array Js.t Js.meth
+
+      method statSync : Js.js_string Js.t -> stats Js.t Js.opt Js.meth
+      method lstatSync : Js.js_string Js.t -> stats Js.t Js.opt Js.meth
+
+      method mkdir :
+        Js.js_string Js.t -> int -> (maybe_error -> unit) Js.callback -> unit Js.meth
+      method mkdirSync : Js.js_string Js.t -> int -> unit Js.meth
+
+      method unlink : Js.js_string Js.t -> (maybe_error -> unit) Js.callback -> unit Js.meth
+      method unlinkSync : Js.js_string Js.t -> unit Js.meth
+
+      method watch : 'a. Js.js_string Js.t -> (#watch_options as 'a) Js.t ->
+                     (Js.js_string -> Js.js_string -> unit) Js.callback -> unit Js.meth
+    end
+
+    let fs : fs Js.t = Node_require.require "fs"
+
+
+    let err_callback1 u err =
+      match Js.Opt.to_option err with
+          None -> Lwt.wakeup_later u ()
+        | Some err -> Lwt.wakeup_later_exn u (Failure (Js.to_string err##message))
+
+    let bool_callback1 u b = Lwt.wakeup_later u (Js.to_bool b)
+
+    let wrap_async1 callback f =
+      let t, u = Lwt.wait () in
+        f (Js.wrap_callback (callback u));
+        t
+
+    let exists s = wrap_async1 bool_callback1 (fun cb -> fs##exists(Js.string s, cb))
+    let unlink s = wrap_async1 err_callback1 (fun cb -> fs##unlink(Js.string s, cb))
+
+    let read_file fname =
+      let t, u = Lwt.wait () in
+
+      let on_read err data =
+        if Js.Opt.test err then
+          Lwt.wakeup_later_exn u (Failure (sprintf "could not read %S" fname))
+        else Lwt.wakeup_later u (Js.to_string data##toString())
+      in
+        fs##readFile(Js.string fname, Js.wrap_callback on_read);
+        t
+    }}
+    (* vim: set ft=ocaml: *)
+      
+========================================================================
+2) OCaml art exhibition in Venice
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2015-04/msg00149.html>
+------------------------------------------------------------------------
+** Tao Stein announced:
+
+My exhibition opens this May 2 until May 31 at Scuola San Pasquale, Chiesa San
+Francesco della Vigna at this year's Biennale Arte.
+
+Everything was made with OCaml -- from the artwork itself to the marketing
+materials and posters now posted all over the city.
+
+Welcome to join the vernissage May 9th at 7PM. There will be traditional
+Venetian tapas and of course plenty of good wine :)
+
+More here: <http://xwm.tv/>
+      
+========================================================================
+3) Albatross 0.1
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2015-05/msg00000.html>
+------------------------------------------------------------------------
+** Helmut Brandl announced:
+
+I am pleased to announce version 0.1 of the Albatross compiler.
+
+The Albatross compiler suite is written in ocaml v4.0.
+
+What is Albatross?
+
+- A programming language with static verification (allthough version 0.1 is
+not yet able to compile real programs)
+
+- A theorem prover and a proof assistant.
+
+<http://albatross-lang.sourceforge.net>
+      
+========================================================================
+4) Safe UTF-8 string literals and pattern matching for OCaml
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2015-05/msg00008.html>
+------------------------------------------------------------------------
+** Daniel Bünzli announced:
+
+If you ever wanted to have that *safely* you may want to checkout this
+experimental ppx:
+
+<https://github.com/dbuenzli/ppx_utf8_lit>
+
+Here's the design rationale: 
+
+<https://github.com/dbuenzli/ppx_utf8_lit#rationale>
+      
+========================================================================
+5) ocaml-tutorial.org will expire in 60 days
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2015-05/msg00013.html>
+------------------------------------------------------------------------
+** Richard Jones explained:
+
+... and I don't intend to renew it.  The website has not been working
+for a few years, and much of the content moved to
+<https://ocaml.org/learn/tutorials/>
+
+If *an establised person from the OCaml community* wishes to have the
+domain name transferred to them, let me know.  Obviously you will need
+to accept the renewal fee and any other transfer charges involved.
+The domain is currently registered through GANDI.
+      
+========================================================================
+6) Other OCaml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocaml.org/>.
+
+Gamut Redivivus: OCaml App in iOS Simulator:
+  <http://psellos.com/2015/04/2015.04.example-app-gamut.html>
+
+Full Time: Software Developer (Functional Programming) at Jane Street in New York, NY; London, UK; Hong Kong:
+  <http://jobs.github.com/positions/0a9333c4-71da-11e0-9ac7-692793c00b45>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

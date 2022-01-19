@@ -1,0 +1,793 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2014.07.08</cwn_date>
+    <cwn_prev>2014.07.01</cwn_prev>
+    <cwn_next>2014.07.15</cwn_next>
+    <cwn_date_text>July 01 to 08, 2014</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>Toplevel and syntax extension</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-07/msg00008.html</cwn_url>
+      <cwn_who>Philippe Veber asked</cwn_who>
+      <cwn_what>
+Consider the following script:
+
+#use "topfind";;
+#camlp4o;;
+#require "sexplib.syntax";;
+
+open Sexplib.Std;;
+
+type t = int with sexp;;
+
+Saved as script.ml, the simple call:
+
+ocaml script.ml
+
+fails while the call:
+
+cat script.ml | ocaml
+
+succeeds. Any idea how I could fix the first call?
+      </cwn_what>
+      <cwn_who>David Sheets then asked and Philippe Veber replied</cwn_who>
+      <cwn_what>
+&gt; How does the first call fail? A difference between the two is that, in
+&gt; the second, the .ocamlinit file is used. If you are using opam with
+&gt; ocamlfind installed via it, this file will contain your Topdirs setup.
+&gt; You can try:
+&gt; 
+&gt; let () =
+&gt;   try Topdirs.dir_directory (Sys.getenv "OCAML_TOPLEVEL_PATH")
+&gt;   with Not_found -&gt; ()
+&gt; ;;
+&gt; 
+&gt; at the top of your script (after hashbang but before directives).
+
+The first call fails with a syntax error on "with sexp":
+
+[pbil:~ 18:58]$cat rien.ml
+let () =
+try Topdirs.dir_directory (Sys.getenv "OCAML_TOPLEVEL_PATH")
+with Not_found -&gt; ()
+;;
+
+#use "topfind";;
+#camlp4o;;
+#require " sexplib.syntax";;
+
+open Sexplib.Std;;
+
+type t = int with sexp;;
+
+[pbil:~ 18:58]$ocaml rien.ml
+File "rien.ml", line 12, characters 13-17:
+Error: Syntax error
+
+It seems like the sexp syntax extension is not loaded when the script
+is evaluated. But it's not really clear to me what going wrong...
+      </cwn_what>
+      <cwn_who>Fabrice Le Fessant then added</cwn_who>
+      <cwn_what>
+If I remember well, I think "ocaml" has a different behavior depending
+on what it reads from: 
+* From a pipe, it parses every sentence and execute each one
+immediatly. 
+* From a file, it tries to parse the whole file, and then executes
+everything. 
+
+In the second case, it means it will only execute the load of the
+syntax extension after parsing the whole file... which will fail,
+since the syntax extension is needed for that.
+      </cwn_what>
+      <cwn_who>Philippe Veber then asked</cwn_who>
+      <cwn_what>
+Thanks Fabrice, this perfectly explains what I observe. Is this
+behavior considered the right one? Reading from a pipe is regretfully
+not an option for me, as my script has command line arguments. Hence
+when I type:
+
+cat script.ml | ocaml --foo --bar 1
+
+the toplevel complains it knows nothing about the arguments foo and
+bar. A "--" argument would be useful but it seems not available. If
+it's so, I'll file a feature request on Mantis, since without it,
+there seems to be no way to give a script to the toplevel that both
+takes command line arguments and uses a syntax extension.
+      </cwn_what>
+      <cwn_who>Fabrice Le Fessant replied</cwn_who>
+      <cwn_what>
+You might want to split your file in two different files, a loader and
+the body:
+
+peerocaml:~% cat &gt; script_body.ml
+open Sexplib.Std;;
+type t = int with sexp;;
+peerocaml:~% cat &gt; script.ml
+#use "topfind";;
+#camlp4o;;
+#require "sexplib.syntax";;
+#use "script_body.ml"
+peerocaml:~% ocaml script.ml
+      </cwn_what>
+      <cwn_who>Romain Bardou also replied</cwn_who>
+      <cwn_what>
+You could write a wrapper which start the ocaml process, sends a string
+containing something like:
+
+module Sys =
+struct
+  include Sys
+  let argv = ... (* fill this *)
+end
+
+to the ocaml process (replace the ... by the arguments given to the
+wrapper, using the array syntax, and don't forget that the first cell
+must contain the executable path), and then pass the contents of your
+script.ml.
+
+This does not work if your script uses other modules which themselves
+use Sys.argv.
+      </cwn_what>
+      <cwn_who>Ashish Agarwal also replied</cwn_who>
+      <cwn_what>
+Yet another option is to use ocamlscript. The following works:
+
+$ cat script.ml
+#! /usr/bin/env ocamlscript
+Ocaml.ocamlflags := ["-thread"];
+Ocaml.packs := ["sexplib.syntax"]
+--
+open Sexplib.Std
+type t = int with sexp
+
+$ ./script.ml
+(* compiles without error *)
+      </cwn_what>
+   </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OCaml 2014 Call for Participation</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-07/msg00028.html</cwn_url>
+      <cwn_who>Jacques Garrigue announced</cwn_who>
+      <cwn_what>
+We have now a preliminary program for OCaml 2014,
+co-located with ICFP 2014 in Gothenburg, on September 5.
+
+We invite you to register for the workshop from the ICFP site:
+	http://icfpconference.org/icfp2014/
+
+You can find the up-to-date program at: http://ocaml.org/meetings/ocaml/2014/
+Note that this year we are working in close cooperation with the
+ML Family workshop: http://okmij.org/ftp/ML/ML14.html
+
+Jacques Garrigue
+-----
+
+OCaml 2014 - Preliminary Program
+
+09:00-09:10 - Welcome
+
+09:10-10:00 - Runtime system
+
+Multicore OCaml, by Stephen Dolan, Leo White, Anil Madhavapeddy
+(University of Cambridge)
+
+Ephemerons meet OCaml GC, by François Bobot (CEA)
+
+10:25-11:20 - Tools and libraries
+
+Introduction to 0install, by Thomas Leonard (University of Cambridge)
+
+Transport Layer Security purely in OCaml (*), by Hannes Mehnert
+(University of Cambridge), David Kaloper Meršinjak (University of
+Nottingham)
+
+OCamlOScope: a New OCaml API Search (*), by Jun Furuse (Standard
+Chartered Bank, Singapore)
+
+11:40-12:30 - OCaml News
+
+The State of OCaml (invited), Xavier Leroy (INRIA Paris-Rocquencourt)
+
+The OCaml Platform v1.0, by Anil Madhavapeddy (C), Amir Chaudhry (C),
+Jeremie Diminio (JS), Thomas Gazagnaire (C), Louis Gesbert (OCamlPro),
+Thomas Leonard (C), David Sheets (C), Mark Shinwell (JS), Leo White
+(C), Jeremy Yallop (C); (C = University of Cambridge, JS = Jane
+Street).
+
+12:30-14:00 - Lunch
+
+14:00-14:55 - Language
+
+A Proposal for Non-Intrusive Namespaces in OCaml, by Pierrick Couderc
+(I), Fabrice Le Fessant (I+O), Benjamin Canou (O), Pierre Chambart
+(O); (I = INRIA, O = OCamlPro)
+
+Improving Type Error Messages in OCaml (*), by Arthur Charguéraud
+(INRIA &amp; Université Paris Sud)
+
+Github Pull Requests for OCaml development: a field report (*), by
+Gabriel Scherer (INRIA)
+
+15:10-16:30 - Joint Poster Session (with ML Family workshop)
+
+Core.Sequence: a unified interface for sequences, by Nicolas Oury
+(Jane Street)
+
+Irminsule; a branch-consistent distributed library database, by Thomas
+Gazagnaire (C), Amir Chaudhry (C), Anil Madhavapeddy (C), Richard
+Mortier (University of Nottingham), David Scott (Citrix System), David
+Sheets (C), Gregory Tsipenyuk (C), Jon Crowcroft (C); (C = University
+of Cambridge)
+
+A Case for Multi-Switch Constraints in OPAM, by Fabrice Le Fessant
+(INRIA)
+
+LibreS3: design, challenges, and steps toward reusable libraries, by
+Edwin Török (Skylable Ltd.)
+
+Nullable Type Inference, by Michel Mauny and Benoit Vaugon
+(ENSTA-ParisTech)
+
+16:30-17:50 - Applications
+
+Coq of OCaml, by Guillaume Claret (Université Paris Diderot)
+
+High Performance Client-Side Web Programming with SPOC and Js of ocaml
+(*), by Mathias Bourgoin and Emmmanuel Chailloux (Université Pierre et
+Marie Curie)
+
+Using Preferences to Tame your Package Manager, Roberto Di Cosmo
+(D+I), Pietro Abate (D), Stefano Zacchiroli (D), Fabrice Le Fessant
+(I), Louis Gesbert (OCamlPro); (D = Université Paris Diderot, I =
+INRIA)
+
+Simple, efficient, sound-and-complete combinator parsing for all
+context-free grammars, using an oracle (*), by Tom Ridge (University
+of Leicester)
+
+17:50 - Closing
+
+(*) short presentation
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Cmdliner 0.9.5</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-07/msg00030.html</cwn_url>
+      <cwn_who>Daniel Bünzli announced</cwn_who>
+      <cwn_what>
+I'd like to announce the release of Cmdliner 0.9.5 which should be
+available shortly in opam. See the release notes for details:
+
+https://github.com/dbuenzli/cmdliner/blob/master/CHANGES.md
+
+Cmdliner is an OCaml module for the declarative definition of command
+line interfaces.
+
+Home page: http://erratique.ch/software/cmdliner
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Immutable strings</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-07/msg00031.html</cwn_url>
+      <cwn_who>Gerd Stolpmann announced</cwn_who>
+      <cwn_what>
+I've just posted a blog article where I criticize the new concept of
+immutable strings that will be available in OCaml 4.02 (as option):
+
+http://blog.camlcity.org/blog/bytes1.html
+
+In short my point is that it the new concept is not far reaching enough,
+and will even have negative impact on the code quality when it is not
+improved. I also present three ideas how to improve it.
+      </cwn_what>
+      <cwn_who>Anthony Tavener said and Gerd Stolpmann replied</cwn_who>
+      <cwn_what>
+&gt; It seems the "bytes" type would be most useful in cases where mutable and
+&gt; immutable strings are used in a mixed manner... but given these practical
+&gt; issues you raise, it could be less pleasant than it first appears. Your
+&gt; "stringlike" solution seems reasonable, but I don't have a good use-case in
+&gt; mind for mixed mutable/immutable to help me imagine the result. What are some
+&gt; scenarios where this mix of types is desired? I think even Rust doesn't
+&gt; support mutable strings -- which seems bold for its target audience, yet
+&gt; they're fine with it?
+
+I've mostly buffers in mind, as you need them for block-by-block I/O.
+Actually, I started thinking about this issue when looking again at
+OCamlnet, and how I could use "bytes" there. It's a hard case, lots of
+buffers of different types, and you really run into the problems I
+sketched in the article, as it is a common operation to copy the
+contents of one buffer into the other.
+
+That's also why I'm suggesting to use bigarrays - for interfacing with C
+these are much easier to use as buffers, as bigarrays are just malloc'ed
+memory and cannot be moved around by the GC. (And the C interface is
+needed for I/O.)
+
+So my scenario is quite low-level: I/O, and C interfaces.
+      </cwn_what>
+      <cwn_who>Alain Frisch answered the original post and Gerd Stolpmann replied</cwn_who>
+      <cwn_what>
+&gt; Thanks for your interesting post.  Your general point about not breaking 
+&gt; backward compatibility at the source level, as long as only "basic" 
+&gt; features are used, is important. ... Even if we look only at 
+&gt; industrial adoption, OCaml compete with languages more recently designed 
+&gt; and if we cannot touch revisit existing choices, the risk is real for 
+&gt; OCaml to appear "frozen", less modern, and a less compelling choice for 
+&gt; new projects.  This needs to be balanced against the risk of putting off 
+&gt; owners of "passive" code bases (on which no dedicated development team 
+&gt; work on a regular basis, but which need to be marginally modified and 
+&gt; re-compiled once in a while).
+
+It will create confusion even with actively maintained code bases. What
+could help here is very clear communication when the change will be the
+standard behavior, and how the migration will take place. Currently, it
+feels like a big experiment - hey, let's users tentatively enable it,
+and watch out for problems. That's quite naive. In particular, users
+hitting problems will probably not try out the switch (or immediately
+revert), because leaving the code base in a non-buildable state for
+longer time is not an option. (And ignoring these users would not be
+good, because it's exactly these users who are really doing string
+mutation who could profit at most from the change.)
+
+&gt; Concerning immutable strings, the migration path seems quite good to me: 
+&gt; a warning tells you about direct uses of string-mutation features (such 
+&gt; as String.set), and the default behavior does not break existing code. 
+
+That's good for now, but I'm more expecting something like: next ocaml
+version it is experimental (interfaces may still evolve). The following
+version it is recommended standard and we'll emit a warning when
+-safe-strings is not on. The version after that we'll make -safe-strings
+the default, etc. Something like that. There could also be a section in
+the manual explaining the new behavior, and how to convert code.
+
+&gt; FWIW, it was a matter of hours to go through the entire LexiFi's code 
+&gt; base to enable the new safe mode, and as always in such operations, it 
+&gt; was a good opportunity to factorize similar code.  And Jane Street does 
+&gt; not seem overly worried by the task ( see 
+&gt; https://blogs.janestreet.com/ocaml-4-02-everything-else/ ).
+
+With my current customer, I don't see any bigger problems either,
+because string mutation doesn't play a big role there (it's a compiler
+project). I see a big problem with OCamlnet, though, as it is focused on
+I/O, and the issue how to deal with buffers is quite central.
+
+&gt; As one of the problems with the current solution, you mention that 
+&gt; conversion of strings to bytes and vice versa requires a copy, which 
+&gt; incurs some performance penalty.  This is true, but the new system can 
+&gt; also avoid a lot of string copying (in safe mode).  ...
+&gt;  (Many libraries don't do such copy, and, in the good cases, 
+&gt; mention in their documentation that the strings should be treated as 
+&gt; immutable ones by the caller.  This is clearly a source of possibly 
+&gt; tricky bugs.)
+
+Right, that's the good side of it. (Although the danger is quite
+theoretical, as most programmers seem to intuitively follow the rule
+"don't mutate strings you did not create". I've never seen this kind of
+bug in practice.)
+
+&gt; Your second idea is to create a common supertype of both string and 
+&gt; bytes, to be used in contexts which can consume either type.  A minor 
+&gt; variantiation would be to introduce a third abstract type, with 
+&gt; "identity" injection from byte and string to it, and to expose the 
+&gt; "read-only" part of the string API on it.    This can entirely be 
+&gt; implemented in user-land (although it could benefit from being in the 
+&gt; stdlib, so that e.g. Lexing could expose a from_stringlike).
+
+I think it would be quite important to have that in the stdlib:
+
+ - This sets a standard for interoperability between libraries
+ - The stdlib can exploit the details of the representation
+ - It would be possible to use stringlike directly in C interfaces
+
+For instance, there is one module in OCamlnet where a regexp is directly
+run on an I/O buffer (generally, you need to do some primitive parsing
+on I/O buffers before you can extract strings, and that's where
+stringlike would be nice to have). Without stringlike, I would have to
+replace that regexp somehow.
+
+&gt;    Another 
+&gt; variant of it is to see "stringlike" as a type class, implemented with 
+&gt; explicit dictionaries.  This could be done with records:
+&gt; 
+&gt;    type 'a stringlike = {
+&gt;      get: 'a -&gt; int -&gt; char;
+&gt;      length: 'a -&gt; int;
+&gt;      sub_string: 'a -&gt; int -&gt; int -&gt; string;
+&gt;      output: out_channel -&gt; 'a -&gt; unit;
+&gt;      ...
+&gt;    }
+&gt; 
+&gt; There would be two constant records "string stringlike" and "bytes 
+&gt; stringlike", and functions accepting either kind of string would take an 
+&gt; extra stringlike argument.  (Alternatively, one could use first class 
+&gt; modules instead of records.)  There is some overhead related to the 
+&gt; dynamic dispatch, but I'm not convinced this would be unacceptable. 
+
+The overhead is quite low. If you need to call e.g. "get" several times,
+you could factor out the dictionary lookup:
+
+let get = stringlike.get in ...
+
+The (only) price is that the access cannot be inlined anymore.
+
+&gt; Your third idea (using char bigarrays) would then fit nicely in this 
+&gt; approach.
+
+Right, and it would even be possible to use that for other buffer
+representations (e.g. I have a non-contiguous buffer type called
+Netpagebuffer in OCamlnet that could also be compatible with stringlike;
+also think of ring buffers). It's a really nice idea.
+
+The downside is that I cannot imagine any easy way to support this in C
+interfaces. Well, you could have
+
+low_level_buffer : 'a -&gt; (Obj.t * int * int)
+
+that gets you a base address, an offset, and a length, but that could be
+too optimistic. Maybe C interfaces should simply dynamically check
+whether 'a is a string or bigarray, and fail otherwise. These dynamic
+checks are at least possible (maybe there could be a caml_stringlike_val
+function that does its very best).
+
+Another downside of this approach is that it introduces a lot of type
+variables.
+
+&gt; Another direction would be to support also the case of functions which 
+&gt; can return either a bytes or a string.  A typical case is Bytes.sub / 
+&gt; Bytes.sub_string.  One could also want Bytes.cat_to_string: bytes -&gt; 
+&gt; bytes -&gt; string in addition to Bytes.cat: bytes -&gt; bytes -&gt; bytes.  For 
+&gt; those cases, one could introduce a GADT such as:
+&gt; 
+&gt;   type _ is_a_string =
+&gt;      | String: string is_a_string
+&gt;      | Bytes: bytes is_a_string
+&gt;      (* potentially more cases *)
+&gt; 
+&gt; You could then pass the desired constructor to the functions, e.g.: 
+&gt; Bytes.sub: bytes -&gt; int -&gt; int -&gt; 'a is_a_string -&gt; 'a.  The cost of 
+&gt; dispatching on the constructor is tiny, and the stdlib could bypass the 
+&gt; test altogether using unsafe features internally.  Higher-level 
+&gt; functions which can return either a string or a bytes are likely to 
+&gt; produce the result by passing the is_a_string value down to lower-level 
+&gt; functions.
+
+That's also a nice idea, and it will definitely save a few string copies
+here and there.
+
+&gt;   But one could also imagine that some function behave 
+&gt; differently according to the actual type of result.  For instance, a 
+&gt; function which is likely to produce often the same strings could decide 
+&gt; to keep a (weak) table of already returned strings, or to have a 
+&gt; hard-coded list of common strings; this works only for immutable 
+&gt; results, and so the function needs to check the is_a_string constructor 
+&gt; to enable/disable these optimizations.  The "stringlike" idea could also 
+&gt; be replaced by this is_a_string GADT, so that there could be a single 
+&gt; function:
+&gt; 
+&gt;   val sub: 'a is_a_string -&gt; 'a -&gt; int -&gt; int -&gt; 'b is_a_string -&gt; 'b
+&gt; 
+&gt; 
+&gt; All that said, I think the current situation is already a net 
+&gt; improvement over the previous one, 
+
+Well, I wouldn't say so because I'm missing good migration paths for
+some important cases.
+
+&gt; and that further layers can be built 
+&gt; on top of it, if needed (and not necessarily in stdlib).
+
+Well, as pointed out, I'd really like to see one such layer in stdlib,
+because we'll otherwise have five different solutions in the library
+scene which are all incompatible to each other. (Your type class
+suggestion looks easy and will already solve most of the issues; why not
+just include it into the stdlib, it wouldn't need much: a new module
+Stringlike defining it, the records for String and Bytes and maybe char
+Bigarrays, and some extensions here and there where it is used, e.g. in
+Lexing.) IMHO, it is important to really provide practical solutions,
+and not only to theoretically have one.
+      </cwn_what>
+      <cwn_who>Markus Mottl answered the original post and Gerd Stolpmann replied</cwn_who>
+      <cwn_what>
+&gt; I agree that the new concept has some noteworthy downsides as
+&gt; demonstrated in the Lexing-example.  Your proposed solution 2
+&gt; (stringlike) would probably solve these issues from a safety point of
+&gt; view.  The downside is that the complexity of string-handling would
+&gt; increase even more, because then we would have three types to deal
+&gt; with.  I personally prefer safety over convenience, but other people's
+&gt; (especially beginner's) mileage may vary.
+
+Well, the complexity can be reduced a bit by using phantom types:
+
+type string = [`String] stringlike
+type bytes = [`Bytes] stringlike
+
+and then just define function-by-function what is permitted:
+
+val get : 'a stringlike -&gt; int -&gt; char
+val set : [`Bytes] stringlike -&gt; int -&gt; char -&gt; unit
+val sub : 'a stringlike -&gt; int -&gt; int -&gt; [`String] stringlike
+val sub_bytes : 'a stringlike -&gt; int -&gt; int -&gt; [`Bytes] stringlike
+
+etc., and the modules String and Bytes would just contain aliases of
+these functions with monomorphed typing.
+
+I don't know, though, whether we can be safe to never see the
+polymorphic typing when just using string and bytes. It would be a bit
+surprising for beginners to see that, and you sometimes would have to
+deal with unresolved type variables.
+
+&gt; The Bigarray-approach doesn't seem appealing to me.  Strings are much
+&gt; more lightweight, since they can be allocated cheaply on the
+&gt; OCaml-heap.  E.g. String.create is about 10x-100x faster than
+&gt; Bigarray.create.  That seems too big to ignore.
+
+Oh, we ignore already that Unix.read and Unix.write copy all data
+through an additional buffer because we cannot pass an OCaml string
+directly to the OS while another thread could relocate this string. So
+that copy would be eliminated. So I'd guess you are normally even faster
+with bigarrays, at least when you only look at the use as I/O buffers.
+But there might be other uses where this is different.	
+      </cwn_what>
+      <cwn_who>Jacques Garrigue then said</cwn_who>
+      <cwn_what>
+Indeed. Originally the plan was to use the above scheme for strings,
+and use polymorphism to allow more flexibility. However, this is not
+100% compatible, even if we allow to ignore the parameters, because
+of these unresolved type variables. This also becomes complicated
+when you want to take functions as parameters.
+
+The stringlike type itself is a good idea.
+In the standard library, it could be implemented as:
+   type string = private stringlike
+   type bytes = private stringlike
+However, it is only about allowing passing string and bytes arguments
+to functions in an homogeneous way.
+For the return case, the situation is more confused, because returning
+a stringlike is actually weaker than either bytes or string.
+Alain’s idea of using an extra type-only parameter (‘a is_a_type) works,
+and it doesn’t really need to be a GADT.
+But this is a bit strange to use an extra parameter where a phantom type
+on string itself would solve the problem. I.e., using your above approach
+one can be safe just writing:
+  val copy : ‘a stringlike -&gt; ‘b stringlike
+  val sub : ‘a stringlike -&gt; int -&gt; int -&gt; ‘b stringlike
+(assuming that we are always copying in sub too)
+
+One could try to mix the two approaches: i.e. have a type ‘a stringlike,
+with explicit coercions to and from bytes and string.
+Note that you can do that yourself: create your own Stringlike module,
+with the coercions
+   type ’a stringlike
+   external from_string : string -&gt; [&gt; `String] stringlike = “%identity"
+   external to_string : [`String] stringlike -&gt; string = “%identity”
+   …
+Note that you should not write “type +’a stringlike”, since you want to exploit
+the fact any stringlike must be monomorphic.
+This could of course be added to the standard library, but for compatibility
+reasons I think that string itself has to stay as an abstract (or private) type with
+no parameter. And the above kind of coercions is compiled away, so if your
+goal is performance this should not be a problem.
+      </cwn_what>
+      <cwn_who>Alain Frisch then replied, and Jacques Garrigue said</cwn_who>
+      <cwn_what>
+&gt; I mentioned that some functions could behave differently according
+&gt; to the requested result type. For instance, a function
+&gt;
+&gt; val of_bool: 'a is_a_string -&gt; bool -&gt; 'a
+&gt;
+&gt; would return string literals when 'a = String and it would copy them
+&gt; when 'a = Bytes. Similarly, a function could memoize some strings it
+&gt; produces in order to return them later again, but only when 'a =
+&gt; String, not 'a = Bytes.
+
+I see. But in that case we could also have different functions, since
+the semantics change (at least for physical equality)
+
+&gt; Even for functions such as "copy" or "sub", it makes sense to avoid
+&gt; a copy in some cases (when both the input and the output are
+&gt; immutable, and for sub, when the range covers the entire input).
+
+Ok, but in that case you will need a flag for both input and output
+strings, since there is no way to recover this information from the
+string itself.
+
+&gt; So I don't think that "'a is_a_string" can really be only a phantom
+&gt; type.
+
+I see.
+I think that both approaches have interesting applications.
+But from a type system point of view they are clearly advanced.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>ML Family workshop: First Call for Participation</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-07/msg00039.html</cwn_url>
+      <cwn_who>oleg announced</cwn_who>
+      <cwn_what>
+Higher-order, Typed, Inferred, Strict: ACM SIGPLAN ML Family Workshop
+Thursday September 4, 2014, Gothenburg, Sweden
+
+Call For Participation         http://okmij.org/ftp/ML/ML14.html
+
+Early registration deadline is August 3. Please register at
+https://regmaster4.com/2014conf/ICFP14/register.php
+
+This workshop specifically aims to recognize the entire extended ML
+family and to provide the forum to present and discuss common issues,
+both practical (compilation techniques, implementations of concurrency
+and parallelism, programming for the Web) and theoretical (fancy
+types, module systems, metaprogramming). We also encourage
+presentations from related languages (such as Scala, Rust, Nemerle,
+ATS, etc.), to exchange experience of further developing ML ideas.
+
+The workshop is conducted in close cooperation with the
+OCaml Users and Developers Workshop  http://ocaml.org/meetings/ocaml/2014/
+taking place on September 5.
+
+
+Program
+
+* Andreas Rossberg
+    1ML -- core and modules as one (Or: F-ing first-class modules)
+
+* Jacques Garrigue and Leo White
+    Type-level module aliases: independent and equal
+
+* Felix Klock and Nicholas Matsakis
+    Demo: The Rust Language and Type System
+
+* Tomas Petricek and Don Syme
+    Doing web-based data analytics with F#
+
+* Thomas Braibant, Jonathan Protzenko and Gabriel Scherer
+    Well-typed generic smart-fuzzing for APIs
+
+* Ramana Kumar, Magnus O. Myreen, Michael Norrish and Scott Owens
+    Improving the CakeML Verified ML Compiler
+
+* Leo White and Frederic Bour
+    Modular implicits
+
+* Nada Amin and Tiark Rompf
+    Implicits in Practice
+
+* Anil Madhavapeddy, Thomas Gazagnaire, David Scott and Richard Mortier
+    Metaprogramming with ML modules in the MirageOS
+
+* Katsuhiro Ueno and Atsushi Ohori
+    Compiling SML# with LLVM: a Challenge of Implementing ML on a Common
+    Compiler Infrastructure
+
+* Akinori Abe and Eijiro Sumii
+    A Simple and Practical Linear Algebra Library Interface
+    with Static Size Checking
+
+* John Reppy
+    SML3d: 3D Graphics for Standard ML
+
+
+In addition, the joint poster session with the OCaml workshop will take
+place in the afternoon on September 5. The session will include
+posters:
+
+* Nicolas Oury
+    Core.Sequence: a unified interface for sequences
+
+* Thomas Gazagnaire, Amir Chaudhry, Anil Madhavapeddy, Richard Mortier, 
+  David Scott, David Sheets, Gregory Tsipenyuk, Jon Crowcroft
+    Irminsule: a branch-consistent distributed library database
+
+* Michel Mauny and Benoit Vaugon
+    Nullable Type Inference
+
+* Edwin Toeroek
+    LibreS3: design, challenges, and steps toward reusable libraries
+
+* Fabrice Le Fessant
+    A Case for Multi-Switch Constraints in OPAM
+
+
+Program Committee
+
+Kenichi Asai             Ochanomizu University, Japan
+Matthew Fluet            Rochester Institute of Technology, USA
+Jacques Garrigue         Nagoya University, Japan
+Dave Herman              Mozilla, USA
+Stefan Holdermans        Vector Fabrics, Netherlands
+Oleg Kiselyov (Chair)    University of Tsukuba, Japan
+Keiko Nakata             Tallinn University of Technology, Estonia
+Didier Remy              INRIA Paris-Rocquencourt, France
+Zhong Shao               Yale University, USA
+Hongwei Xi               Boston University, USA
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>ocaml-lz4 1.0.0</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-07/msg00035.html</cwn_url>
+      <cwn_who>Peter Zotov announced</cwn_who>
+      <cwn_what>
+I'd like to announce the package ocaml-lz4, containing bindings to LZ4,
+a very fast lossless compression algorithm. The package will be shortly
+available in OPAM.
+
+The source code is available at &lt;https://github.com/whitequark/ocaml-lz4&gt;.
+The documentation is published at
+&lt;http://whitequark.github.io/ocaml-lz4/&gt;.
+
+Unlike JaneStreet's existing "lz4" package (which is marked as
+alpha-quality, exposes only an unsafe interface and has seen virtually
+no changes since 2012), this binding exposes a safe interface,
+supports 4.02 Bytes and has no runtime dependencies except cstubs.
+
+These bindings can also serve as an example for implementation of very
+fast FFI bindings using cstubs.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>capnp-ocaml 1.0.0</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-07/msg00042.html</cwn_url>
+      <cwn_who>Paul Pelzl announced</cwn_who>
+      <cwn_what>
+I'm pleased to announce the first release of capnp-ocaml:
+https://github.com/pelzlpj/capnp-ocaml
+
+Cap'n Proto is a multi-language serialization framework which uses
+code generation techniques in a manner similar to Protocol Buffers.
+Its distinguishing feature is that there is no explicit
+parsing/serialization step: the on-the-wire message format is also
+designed to serve as an efficient in-memory data structure
+representation.
+
+The capnp-ocaml code generator plugin emits pure OCaml code which is
+functorized over the underlying message format. At present, a 'bytes'-based
+message format is provided for ease of use with file and socket I/O.
+In the future, a Bigarray message format could be easily provided;
+this would lend itself to a straightforward method for sending and
+receiving messages via an mmap'd shared memory region.
+
+Q: Why would I want to use this over sexplib/bin-prot?
+A: These projects provide superior language-level integration, but
+capnp-ocaml is a better choice if you care about language portability.
+
+Q: Why would I want to use this over Protocol Buffers?
+A: Cap'n Proto has the clear advantage of first-class sum types, which
+are mapped to OCaml variants in a straightforward fashion. You also
+find yourself intrigued by the potential for better performance and
+zero-overhead shared-memory message passing.
+
+capnp-ocaml is available on OPAM as package "capnp".
+      </cwn_what>
+      <cwn_who>Peter Zotov then added</cwn_who>
+      <cwn_what>
+I want to note that ppx_protobuf provides an efficient mapping for
+OCaml's sum types, which would map to most well-designed protocols
+naturally.
+
+  https://github.com/whitequark/ppx_protobuf#variants
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocaml.org/&gt;.
+
+Mirage 1.2 released and the 2.0 runup begins:
+  &lt;http://openmirage.org/blog/mirage-1.2-released&gt;
+
+Making "never break the build" scale:
+  &lt;https://blogs.janestreet.com/making-never-break-the-build-scale/?utm_source=rss&amp;utm_medium=rss&amp;utm_campaign=making-never-break-the-build-scale&gt;
+
+Immutable strings in OCaml-4.02:
+  &lt;http://blog.camlcity.org/blog/bytes1.html&gt;
+
+ppx and extension points:
+  &lt;http://www.lexifi.com/blog/ppx-and-extension-points&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

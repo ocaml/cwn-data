@@ -1,0 +1,165 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2010.03.16.html">Previous week</a> <a href="index.html">Up</a> <a href="2010.03.30.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of March 16 to 23, 2010.</p><ol><li><a href="#1">Lazy modules</a></li><li><a href="#2">Building multiple configurations?</a></li><li><a href="#3">Other Caml News</a></li></ol><a name="1" /><hr /><h3>Lazy modules</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/63d04044f0588a37#">http://groups.google.com/group/fa.caml/browse_thread/thread/63d04044f0588a37#</a></p><i>Dario Teixeira asked:</i><br /><pre>
+I've come across a problem which though novel to me, I presume must be
+familiar to those with more ML baggage.  Namely, I need a module whose
+values are not known at the initialisation stage, since they can only
+be determined after reading a configuration file.  If this were a lone
+value, I would declare it as a lazy value which when forced would read
+from the configuration file.  But how can I achieve similar semantics
+with a whole module?
+
+In a sense I need a lazy module.  Also, note that I find the solution
+of declaring all values in that module as lazy a bit inelegant.
+
+I do have a solution which though hackish and relying on a language
+extension (local modules) seems to work: I create the module on demand
+via a functor parameterised over an empty sig:
+
+module Socket_maker (S: sig end) : Client.SOCKET =
+struct
+   let sockaddr = !Config.sockaddr
+   let sockdomain = !Config.sockdomain
+   let socktype = !Config.socktype
+   let sockproto = !Config.sockproto
+end
+
+let foo =
+   let module Socket = Socket_maker (struct end) in
+   ...
+
+But I wonder a) what's the penalty associated with the runtime application of
+the functor, and b) if there's some better way of doing this. Any thoughts?
+	   </pre><i>Alain Frisch replied:</i><br /><pre>
+Here is a variant of your version with first-class modules (which will be
+available in OCaml 3.12). Compared to your version, we get the benefit of
+laziness (the "functor body" is evaluated only once).
+
+
+module Config =
+ struct
+   let x = ref "XXX"
+ end
+
+module type S =
+ sig
+   val x: string
+ end
+
+let lazy_module =
+ lazy
+   (
+    let module M =
+      struct
+        let x = !Config.x
+      end
+    in
+    (module M : S)
+   )
+
+let foo () =
+ let module M = (val Lazy.force lazy_module : S) in
+ M.x
+	   </pre><i>David Allsopp said and Alain Frisch replied:</i><br /><pre>
+&gt; AFAIK local modules is a syntax extension not a compiler extension - I
+&gt; expect (not looked at it) that the syntax extension simply alpha renames
+&gt; all the local module declarations to make them unique and puts them
+&gt; globally... a very useful extension but no expressive power added.
+
+This is not true. Local modules are not lifted in any way. This is not simply
+a syntax extension. For instance, if the local module has toplevel
+side-effects (e.g. a structure item like: let () = print_endline "Hello"),
+then the side effect will occur every time the local module is evaluated.
+
+At runtime, a structure is represented simply by a block with GC tag 0,
+exactly as a record or a tuple. The block contains dynamic components of the
+structure (values, sub-modules, exceptions, classes) in the order given by its
+signature. Evaluating a structure simply evaluates its runtime components a
+build the block.
+
+A functor is represented as a function.
+
+
+&gt; The module system at present is a compile time feature (I think that's
+&gt; universally true - even with weird things like recursive modules) -
+&gt; functors are simply a way of introducing more modules so there is no
+&gt; runtime overhead in using a functor.
+
+Modules and functors are much more dynamic than what you believe. The
+introduction of first-class module did not require any change in the way
+modules are compiled.
+
+A local module which is a functor application really applies the functor at
+runtime and evaluates the functor body every time the local module expression
+is evaluated.
+	   </pre><a name="2" /><hr /><h3>Building multiple configurations?</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/93d840667c29b5f8#">http://groups.google.com/group/fa.caml/browse_thread/thread/93d840667c29b5f8#</a></p><i>Grant Olson asked:</i><br /><pre>
+I'm doing something weird here and I'm thinking there has to be a better
+way.
+
+I've got a configuration file that's a .ml file.  And I do want it to be
+an .ml file that gets included at compile time, not some .txt config
+file that gets read in at runtime.  I'm building two different versions
+of my app, with two different configurations.
+
+Basically, I want to do the same thing as a C #ifdef:
+
+#ifdef VERSION2
+  ... include version one
+#else
+  ... include version two
+#endif
+
+And then the two different builds link in two different object files
+that have the same interface, creating the two different versions of the
+app.
+
+At first I thought I could write out the "module" and "module type"
+stuff manually, giving the same module name in two differently named
+files.  But this of course creates a sub-module that isn't bound to the
+right namespace, and linking fails.
+
+What I'm doing now is using the -impl flag.  I've got two files:
+config.ml, and config.alt.  The second version builds with "-impl
+config.alt" in the list of files passed to ocamlopt instead of "config.ml"
+
+This works, but it just seems wrong.  Is there a better way for me to do
+this?
+	   </pre><i>Michael Ekstrand suggested and Grant Olson replied:</i><br /><pre>
+&gt; You could also have the two different module implementations under
+&gt; different names and have the build system symlink or copy the correct
+&gt; one in place prior to building.  In OMake, this is easy with the
+&gt; 'ln-or-cp' command.
+&gt;
+
+Exactly what I want.  Now that you've pointed it out, it seems so
+obvious.  Just copy the files and treat the copy as a build artifact.
+Thanks.
+	   </pre><i>Martin Jambon also suggested:</i><br /><pre>
+I implemented a "C preprocessor" for OCaml called cppo that lets you do that.
+ It may not be the best choice here but I think it's worth some advertising:
+
+ <a href="http://martin.jambon.free.fr/cppo.html">http://martin.jambon.free.fr/cppo.html</a>
+	   </pre><a name="3" /><hr /><h3>Other Caml News</h3><i>From the ocamlcore planet blog:</i><br /><pre>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <a href="http://planet.ocamlcore.org/">http://planet.ocamlcore.org/</a>.
+
+GADTs for the Rest of Us:
+  <a href="http://alaska-kamtchatka.blogspot.com/2010/03/gadts-for-rest-of-us.html">http://alaska-kamtchatka.blogspot.com/2010/03/gadts-for-rest-of-us.html</a>
+
+Looking for a C software for Formal Verification:
+  <a href="http://bentobako.org/david/blog/index.php?post/2010/03/17/Looking-for-a-C-software-for-Formal-Verification">http://bentobako.org/david/blog/index.php?post/2010/03/17/Looking-for-a-C-software-for-Formal-Verification</a>
+
+OCaml Unix course, the pipes chapter is translated:
+  <a href="http://forge.ocamlcore.org/forum/forum.php?forum_id=562">http://forge.ocamlcore.org/forum/forum.php?forum_id=562</a>
+      </pre><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

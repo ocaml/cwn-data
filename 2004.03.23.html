@@ -1,0 +1,621 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2004.03.16.html">Previous week</a> <a href="index.html">Up</a> <a href="2004.03.30.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of 16 to 23 March, 2004.</p><ol>
+      <li>
+        <a href="#1">OCaml Genetic Programming Framework (OGPF)</a>
+      </li>
+      <li>
+        <a href="#2">Better option to read a file</a>
+      </li>
+      <li>
+        <a href="#3">OCaml's Cathedral &amp; Bazaar</a>
+      </li>
+      <li>
+        <a href="#4">OCamlDBI, mod_caml releases</a>
+      </li>
+      <li>
+        <a href="#5">install-ocaml.sh</a>
+      </li>
+      <li>
+        <a href="#6">debugging a JIT compiler (from Ocaml bytecode to machine code [x86,etc...])</a>
+      </li>
+      <li>
+        <a href="#7">Mailing list for GODI</a>
+      </li>
+      <li>
+        <a href="#8">Memory Mapped Files and OCaml</a>
+      </li>
+      <li>
+        <a href="#9">Confluence 0.9 -- Open Source, Executable Models, Auto Documentation</a>
+      </li>
+    </ol><a name="1" /><hr /><h3>OCaml Genetic Programming Framework (OGPF)</h3><i>Brock announced:</i><br /><pre>
+Hi all. I've been working on a modular genetic programming framework and
+it works a bit so I thought I'd mention it here so that interested
+parties would be informed of its existence. Of note to non-gp folks is
+that I am trying to make this very modular through use of functors, so
+it might be a good (or bad!) example of functor usage.
+
+From the website:
+
+    The goal of OGPF is to create a modular framework for building
+    genetic programming systems in OCaml. It is also an experiment in
+    modular framework design in OCaml, making heavy use of Functors.
+    OGPF seeks to be a clean, elegant, and efficient solution to the
+    question "How do I do genetic programming in OCaml?"
+
+See <a href="http://thelackthereof.org/wiki.pl/OGPF">http://thelackthereof.org/wiki.pl/OGPF</a>
+Raw Source at <a href="http://thelackthereof.org/projects/ocaml/ogpf/">http://thelackthereof.org/projects/ocaml/ogpf/</a>
+
+I'm happy to discuss any aspect of this project (GP or functors or
+anything) here or elsewhere.
+    </pre><a name="2" /><hr /><h3>Better option to read a file</h3><i>Markus Mottl answered a question about how to read a file:</i><br /><pre>
+I usually use one of the two functions below to read in whole strings.
+Function "read_file" does the obvious: read a file as fast as possible
+into a string.
+
+Function "read_channel" reads a channel of unbounded size (as long as the
+maximum string length is not exceeded, of course).  It also takes the
+optional argument "buf_size", which you can set depending on the kind
+of channel you read from (the default 4096 bytes are somewhat optimal
+when reading from files on Linux).
+
+---------------------------------------------------------------------------
+let rec copy_lst res ofs = function
+  | [] -&gt; res
+  | (str, len) :: t -&gt;
+      let pos = ofs - len in
+      String.unsafe_blit str 0 res pos len;
+      copy_lst res pos t
+
+let read_channel ?(buf_size = 4096) =
+  let rec loop len lst ch =
+    let buf = String.create buf_size in
+    let n = input ch buf 0 buf_size in
+    if n &lt;&gt; 0 then loop (len + n) ((buf, n) :: lst) ch
+    else copy_lst (String.create len) len lst in
+  loop 0 []
+
+let read_file name =
+  let file = open_in name in
+  let size = in_channel_length file in
+  try
+    let buf = String.create size in
+    really_input file buf 0 size;
+    close_in file;
+    buf
+  with exc -&gt;
+    (try close_in file with _ -&gt; ());
+    raise exc
+---------------------------------------------------------------------------
+    </pre><a name="3" /><hr /><h3>OCaml's Cathedral &amp; Bazaar</h3><i>Foreword by the editor:</i><br /><pre>
+There has been a huge thread on the relation between the OCaml developers and
+the OCaml community. The thread started here:
+<a href="http://caml.inria.fr/archives/200403/msg00161.html">http://caml.inria.fr/archives/200403/msg00161.html</a>
+and is still active.
+
+As much more has been said than could be summarized here, I will just reproduce
+the message that started it, and the answer by Xavier Leroy. There are many
+interesting things that have been said, which you can read in the archive of the
+mailing list, following the link above.
+    </pre><i>Matt Gushee said:</i><br /><pre>
+(Sorry about the grandiose title. I have nothing suitably profound to
+ say ... just couldn't think of a better way to express the subject.)
+
+I wonder if it is possible to persuade INRIA to do anything.
+
+I have no inside information on the process at INRIA, but my impression
+from reading this list over the past year or so is:
+
+ 1) The OCaml team at INRIA care about the community, but there are too
+    few of them to meet all our needs, and I suppose their work is also
+    subject to institutional pressures that we are only vaguely aware
+    of. Maybe they are struggling to keep enough resources for OCaml
+    work.
+
+ 2) INRIA as an institution finds it convenient to release OCaml as open
+    source, but doesn't really care about the community. They benignly
+    neglect everything that doesn't relate to their research goals.
+
+ 3) OCaml-as-project (i.e. I'm talking about how OCaml is developed, not
+    what it is) is a fragile enterprise. E.g., one developer leaves, and
+    the future of Camlp4 becomes uncertain. Not good.
+
+I'm not saying you should give up hope just yet, but maybe it's time to
+consider alternatives.
+
+What if there were an "OCaml Community Library Project"--a group outside
+INRIA that would take responsibility for extending and perhaps partially
+replacing the standard library--maybe a bit like the current ExtLib
+project, only more extensive (BTW, why are there two ExtLibs?? One of
+you change the name, please! Thank you.). Maybe if that project showed
+itself to be responsible, credible, reliable, etc. etc., after a while
+it could become the de facto standard library.
+
+The idealistic scenario is a division of labor wherein INRIA continues
+to develop the parts of OCaml that are interesting to them, while other
+parts (of more interest to those of us working to create practical
+and/or commercial software) would be taken over by the community.
+
+I can't say whether this idea is feasible, or whether INRIA would be
+willing to go along with it, but maybe it's something to consider.
+    </pre><i>Several replies later, Xavier Leroy answered:</i><br /><pre>
+This discussion is heating up, so allow me to make a few points.
+
+One should carefully distinguish between the core OCaml distribution
+(the one that comes out of INRIA) and the whole OCaml programming
+environment, which includes a lot of third-party libraries and tools.
+
+The core OCaml distribution should and will remain just that: the
+core, i.e. the compilers, run-time system and the tools and libraries
+that are closely intertwined with the first two.  We at INRIA do not
+have the manpower to maintain, document and make distributions of a
+much larger software set.  (Witness the problems with the CDK.)  We are
+commited to developing and maintaining that core.  I agree we do this
+in a "cathedral" style, but this is intended and unlikely to change.
+
+For everything else, bazaar-style developments from members of this
+community are most welcome, and indeed the preferred way to enrich the
+OCaml programming environment.  A developer has an itch to scratch,
+develops and releases a library or tool, gets it listed on the Hump,
+users pick it up if it's good, discuss bugs, features and enhancements
+with the developer, etc.  There is absolutely no reason we at INRIA
+should interfere with this process: in general, we don't have the
+manpower to play a significant role, and we don't have the competences
+either (many libraries and tools require expertise in application
+domains that we're not familiar with, e.g. database interfaces).
+
+There remains a problem of how to make it easy for everyone to install
+and use these third-party contributions.  CPAN managed to do it
+through standardization on naming conventions, configuration and
+installation procedures, and a *lot* of discipline from the
+contributors.  We aren't quite at this point with OCaml, although Gerd
+Stolpmann's GODI is an impressive first step in this direction.
+Again, it's up to this community to tell whether this is a good
+approach that should be pursued, e.g. by providing GODI packaging from
+your own libraries.  One cannot just wish there would be a CPAN for
+OCaml and just wait for us INRIA folks to come up with it overnight.
+
+&gt; The problem is not simply that INRIA is too cautious, it's that there is
+&gt; no visible process for accepting enhancements to Caml or its libraries
+&gt; from outside INRIA.  INRIA very rarely responds at all, either
+&gt; positively or negatively, to proposed modifications from outsiders (the
+&gt; sole exception seems to be bug fixes).
+
+Don't attribute to malice what is generally a lack of time.  What do
+you prefer: that I pontificate on every idea proposed on this mailing
+list, or that I fix bugs?
+
+As I said above, the preferred way to contribute to Caml is through
+independent libraries and tools, not by aiming at getting your stuff
+in the core OCaml distribution.  There are good reasons why we are
+very careful indeed with what goes in it:
+
+- As Diego said, it's extremely painful to roll back a change or
+  addition that turns out to be a bad idea, because of backward
+  compatibility issues.
+
+- Maintenance and documentation takes a lot of time.  Often, it looks
+  like contributors expect us to maintain their contributed code.
+
+- Copyright issues are not trivial.  It's important for INRIA and the
+  Caml consortium to own the copyright on everything in the core
+  distribution.  Significant contributions by others would therefore
+  require copyright transfers, whose legality in the French copyright
+  law is unclear.
+
+Moreover, a *lot* of the suggested enhancements can be done equally
+well, if not better, without touching the core OCaml distribution.
+A typical example is syntactic sugar (for regexps, for hashtables, etc):
+all this can easily be done as Camlp4 syntax extensions, so don't
+expect it to end up in the (already way too rich) core language syntax.
+
+&gt; Recently there has been a long discussion on this list about enhancing
+&gt; the Unix module, and no one from INRIA has said a word about it; this is
+&gt; very discouraging.
+
+Again, this is essentially by lack of time.  If you want my opinion on
+this discussion:
+
+- Changing the organization and naming of the Unix library is out of
+the question.  Yes, it could be organized a bit more nicely, but that
+doesn't deserve breaking all the existing code that uses it.  Still,
+the Caml module system makes it easy to wrap existing code in a
+different interface, so everyone is welcome to come up with a
+differently-structued OS interface.
+
+- IPv6 support is on my to do list.  Missing POSIX syscalls can be
+added on a case by case basis if there is clear need.  Having a full
+POSIX interface just for the sake of it is low on my priorities.
+
+- Extending the Unix library is a lot harder than what most
+contributors realize, because of portability and autoconfiguration
+issues.  The world isn't just the latest Linux release.  Writing and
+testing the autoconf code for an extension (e.g. IPv6) is often harder
+than writing the C-Caml wrapper code for it.
+
+&gt; Has ocaml-lib.sourceforge.net been rejected?
+
+By whom?  It seems like ExtLib is progressing, and if it's good it
+will be widely adopted by OCaml users (just like, say, Markus Mottl's
+PCRE library was widely adopted).  I don't have anything to say on
+this matter.
+
+&gt; INRIA silently working on its own library enhancements which will be
+&gt; incompatibly replace some of the enhancements developed by the
+&gt; community?
+
+As a matter of fact, no, we're not.  But even if we were, these would
+not "replace" the work done by others, but at most compete with it.
+Users get to choose.
+
+&gt; Is there a plan for the future development of Caml?
+
+The short-term plans are stabilizing the core distribution, preserve
+compatibility, and refrain from major user-visible changes.  We are
+discussing some internal changes e.g. on the run-time representation
+of objects, but these should not change the user's view of the system.
+If GODI doesn't take up, maybe we'll invest more efforts into library
+packaging and installation frameworks.
+
+&gt; We are like the man in Kafka's novel _The Trial_, who stands for
+&gt; years at the door of the Law, and is never told whether he will be
+&gt; seen, or when, or if not, why not.
+
+Aren't you overdoing it a little bit? :-)
+    </pre><a name="4" /><hr /><h3>OCamlDBI, mod_caml releases</h3><i>Richard Jones announced:</i><br /><pre>
+After quite a long hiatus when we weren't distributing packages for
+mod_caml (instead everyone was chasing the CVS version), I'm pleased
+to announce the availability of stable packages for the latest
+OCamlDBI and mod_caml.
+
+<a href="http://savannah.nongnu.org/download/modcaml/">http://savannah.nongnu.org/download/modcaml/</a>
+
+<a href="http://www.merjis.com/developers/">http://www.merjis.com/developers/</a>
+
+What has changed:
+
+Christophe Troestler and myself split the database layer out of
+mod_caml into a separate package called OCamlDBI.  This offers a
+simple method for accessing a variety of databases through an API
+which will be familiar to Perl DBI users.  There are some source-level
+changes required - this will be the last time such changes will be
+needed.
+
+mod_caml has also been reorganized to split out the Template and
+escaping libraries, so that they could be used in other programs.  No
+source-level changes should be required.
+
+As usual, many bugs have been fixed and many features have been added.
+
+Both mod_caml and OCamlDBI are used daily on customer-facing websites
+for serious production use, validating the appropriateness of OCaml in
+these situations.
+    </pre><a name="5" /><hr /><h3>install-ocaml.sh</h3><i>Issac Trotts announced:</i><br /><pre>
+For those who would like to encourage their coworkers to install OCaml,
+here is a script that automatically grabs GODI and runs through all the
+steps to get it running:
+
+  <a href="http://mallorn.ucdavis.edu/~ijtrotts/software/install-ocaml.sh">http://mallorn.ucdavis.edu/~ijtrotts/software/install-ocaml.sh</a>
+
+The script currently requires wget, htget, or snarf.
+It has worked on some Debian and Redhat systems here.
+It has failed on a Cygwin system here, but I think that is because of a
+problem in GODI.  The tail of the bootstrap.log file says
+
+  bmake.boot: no system rules (sys.mk)
+  etc.
+
+Someone else asked about this a while back and got no response.  I guess
+no one knows...
+    </pre><i>Gerd Stolpmann added:</i><br /><pre>
+Cygwin support is under development. That means there is a GODI version
+bootstrapping under Cygwin (thanks to Eugene Kotlyarov). I have not yet
+released it because there are still some important problems with it,
+e.g. one currently cannot self-update godi_console, but it is nearly
+finished.
+    </pre><a name="6" /><hr /><h3>debugging a JIT compiler (from Ocaml bytecode to machine code [x86,etc...])</h3><i>Basile Starynkevitch announced:</i><br /><pre>
+As you might have noticed on my home page below, I coded (in C, using
+the GNU lightning library) a JIT translator (or compiler) which
+interprets Ocaml bytecode by translating it to machine code, using the
+GNU lightning library. You'll need the latest CVS version of lightning
+from <a href="http://savannah.gnu.org/projects/lightning">http://savannah.gnu.org/projects/lightning</a>
+
+The intended use should be to replace ocaml's byterun/interp.c with my
+jitinterp.c and recompile all the runtime. Details are given in my
+homepage below.
+
+**this program is coded but still buggy** so don't use it *yet*
+(except for helping me).
+
+Debugging such a machine code generating program is painful. All
+trivial tests (those under CVS in test/testinterp/) passes but a bug
+still remain, which causes a segmentation violation (later on... - not
+at the faulty JIT codepoint!).
+
+Currently, I debugged most of it using a mixture of following
+techniques (enabled only with the -DDEBUG flag).
+
+1. the generated machine code can be disassembled
+
+2. the JIT translator is able to write on a pipe, originally to a Ruby
+script (hence the JML_RBYPRINTF name in the C code). (you need a
+special startup.c to open this pipe)
+
+3. a specific tiny debugger (using the ptrace system call) has been
+coded to st breakpoint appropriately (in the generated machine code).
+
+4. I instrumented also the bytecode interpreter to print its stack and
+registers (ie bytecode program counter, stack pointer, accumulator,
+....)  and manually compare it with traces from my debugger.
+
+5. the bytecode is expected to stay fixed (this is false for C
+callbacks). If it is freed, the generated code should be freed also
+(which should be easy to code, since most of the stuff is there).
+
+My problem is that all simple tests run ok, and the few tests that
+crash have to run a significant amount, so the trace files are huge.
+
+I suspect that only one or two bug remains, like e.g. a wrong return
+from the GC on allocation, which corrupt the (Caml) stack ... The
+problem is that I lack of simple programs to exhibit it, and that the
+bug don't appear on trivial samples.
+
+I probably won't have time to work on it in the next few weeks, but
+any insight or hint is helpful. If you happen to have small test
+programs which uses a small fraction of the standard library, it
+should help also.
+
+If you would be interested by a JIT ocamlrunj program (with speedup of
+at most a factor of 2 w.r.t. to ocamlrun), please tell.
+
+If as a researcher or hacker you happen to write interpreters from
+scratch for a new super-duper language, consider using GNU lightning,
+it is very interesting and provide good results (which considerably
+easier to code with than generating machine code directly).
+
+Regards.
+
+<a href="http://cristal.inria.fr/~starynke">http://cristal.inria.fr/~starynke</a> --- all opinions are only mine
+    </pre><a name="7" /><hr /><h3>Mailing list for GODI</h3><i>Gerd Stolpmann announced:</i><br /><pre>
+There is now a mailing list for all kinds of discussions about GODI. It
+is intended for both users and developers, and of course for people that
+simply want to watch what is going on. Announcements will go primarily
+there, but I continue to summarize important changes as "GODI news" in
+caml-list.
+
+Here the relevant data:
+
+- Mail address: godi-list (at) ocaml-programming.de
+- Subscriptions: <a href="https://gps.dynxs.de/mailman/listinfo/godi-list">https://gps.dynxs.de/mailman/listinfo/godi-list</a>
+  (or godi-list-request (at) ocaml-programming.de)
+- Archives: <a href="https://gps.dynxs.de/pipermail/godi-list">https://gps.dynxs.de/pipermail/godi-list</a>
+- No moderator, everybody can post, spamoracle protects from being
+  spammed
+
+Technical questions about the list should go to gerd@gerd-stolpmann.de.
+
+What is GODI? You can read an introduction here:
+<a href="http://www.ocaml-programming.de/godi">http://www.ocaml-programming.de/godi</a>
+    </pre><a name="8" /><hr /><h3>Memory Mapped Files and OCaml</h3><i>Richard Cole asked and Basile Starynkevitch answered:</i><br /><pre>
+&gt; I wonder if anyone can give me some pointers. I'm interested in having
+&gt; all memory used by my ocaml program memory mapped so that calculations
+&gt; can be preserved from one run of an ocaml program to the next. [...]
+
+There are two separate issues here:
+
+1. first is memory mapped files, i.e. an interface to the mmap(2) &amp;
+   munmap(2) system calls. This is provided in the Bigarray module
+   (see <a href="http://caml.inria.fr/ocaml/htmlman/manual043.html">http://caml.inria.fr/ocaml/htmlman/manual043.html</a> for more)
+   thru functions like Bigarray.Array1.map_file etc...
+
+2. second issue is persistent data. Did you look at Persil on
+   <a href="http://cristal.inria.fr/~starynke/persil/">http://cristal.inria.fr/~starynke/persil/</a> which should provide what
+   you need? Persil is using the internal marshalling primitives for
+   serialisation.
+
+
+&gt; With the idea being that all values are stored in the memory mapped
+&gt; files so put_value and get_value are very fast. Serialization is ok for
+&gt; small data structures, but for 50M data structures, for which only a
+&gt; small part of the data structure is accesed, it is a pain.
+
+If the huge data structures contain some (potentially shared)
+persistent data, you don't need to serialise the data itself but only
+some persistent "pointer" to it (internally, a persistent value in
+Persil is a phantom type of only two integers: the store number, and
+the value rank within this store. So serializing such a persistent
+value is quite quick). This is what Persil does. So I'll bet that evan
+if you have a gigabyte of data, if it is organised as a "chunk" of
+many medium (or small) sized persistent values, you won't have to
+serialise 50Mbytes at once. Of course you'll need to explicitly code
+with persistent values, and get &amp; set operations on them (and also
+transactions on persistent stores).
+
+
+&gt; Of course program termination can take a long time if there are many
+&gt; dirty pages that need to be synchronised to disk. There may be some way
+&gt; to tell unix to sync dirty pages while the program is running but
+&gt; without thrashing (i.e. using all system resources).
+
+If you mean calling the msync(2) system call, I think that there is
+currently no Ocaml interface to it. The madvise(2) system call might
+also help. For reads, Linux also provide a Linux specific readahead(2)
+call. All three calls (msync, madvise, readahead) are not interfaced
+to Ocaml, but coding the C wrapper to call them from Ocaml should be
+easy.
+
+
+In Persil, updating the persistent store (if it was not done before)
+is done at exit (using the Pervasives.at_exit function), unless it was
+not done in a transactional manner. So you shouldn't lose your data.
+
+
+&gt;
+&gt; Such a persistent store does suffer from a lack of safety. i.e. killing
+&gt; the process or the machine going down could leave the store in an
+&gt; inconsistent state. If safety is required there must be algorithms
+&gt; around to provide it in conjuction with a memory mapped file, perhaps
+&gt; via checkpointing. Does referential transparency help us here?
+
+
+Persil does provide some transaction mechanism, provided that the
+underlying store (eg MySQL4) provides it. Persil also provides a
+"generic" persistent store machinery (using functors).
+
+&gt; One final question: Are most people using database backends for
+&gt; persistence? Is it the case that most data structures that one would
+&gt; want to create in Ocaml programs map fairly easily into B-tree
+&gt; structures, i.e. are maps or multimaps from a keyed domain into some
+&gt; structured domain.
+
+I think it depends upon the application. The main reasons for using a
+database include
+
+A. concurrency, and more generally ACID properties and
+transactions. Persil does provide a transactional interfaces, if and
+only if the underlying persistent store has them. I'm not sure that
+memory mapping is enough here! And writing an ACID system from scratch
+is a huge amount of work.
+
+B. compatibility with other applications. If a database is accessed by
+your Ocaml program and also by an existing Perl or Java software, you
+have to find a least common denominator.... (which might be SQL...)
+
+
+C. (closely related to B) compatibility with existing data. Usually,
+big data is already available in some RDBMS system, and you have to
+handle it thru the existing infrastructure.
+
+Persil may use MySQL4 for point A (ACIDity &amp; transactions), but the
+persistent data is marshalled into a string.
+
+________________
+
+
+There are still some difficult issues (a little related, but mostly
+orthogonal)
+
+
+* functional values: marshalling functions (ie internally closures) is
+difficult, and only currently possible within a single program which
+does not change. This means that you cannot communicate a closure from
+one program to another (even if it is inside the same compilation unit
+- but in that case, the runtime might perhaps be adapted to handle
+this specific case). I tend to believe that functional values are not
+needed in practice in persistent stores, but Ocaml objects have
+functions inside them (internally, in their class descriptor or vtable
+equivalent).
+
+
+
+* data schema evolution: suppose you serialise records like
+   type person = { name: string; age: int }
+  and later on, you want to change it to
+   type person = { name: string; age: int; mutable friends: person list }
+
+Currently, the marshalling machinery does not permit such an
+evolution. You cannot store a huge number of persons of the first type
+and read them as persons of the later type (with an empty friends list).
+
+* generating encoding &amp; decoding functions from the concrete type
+descriptions (and, in case of abstract data types, from their module
+signatures and more...). If all your types are concrete, a syntactic
+approach like IoXML at <a href="http://cristal.inria.fr/~ddr/IoXML/">http://cristal.inria.fr/~ddr/IoXML/</a> should
+help.
+    </pre><a name="9" /><hr /><h3>Confluence 0.9 -- Open Source, Executable Models, Auto Documentation</h3><i>Tom Hawkins announced:</i><br /><pre>
+This is probably the largest Confluence release to date.  The major
+features include an open source license, executable simulation
+models, automatic HTML documentation, and a new standard library.
+
+
+** Open Source License
+
+Starting with Confluence 0.9, the compiler is now released under the
+GNU General Public License and the standard libraries are covered
+with the GNU Lesser General Public License.
+
+
+** Executable Simulation Models
+
+The Confluence compiler now returns executable models providing bit
+and cycle accuracy with high simulation performance.
+
+The executable simulation models are controlled by a simple command
+and query language, making it easy to connect Confluence to any
+verification environment or programming language (SystemC, Java,
+Python, OCaml, etc.).  Because the simulation kernels run optimized
+native code, even a Perl test-bench will yield performance on par
+with compiled HDL simulation.
+
+Another added benefit of executable simulation models is IP design
+firms can deliver precise evaluation models that are ready to run and
+nearly impossible to reverse engineer.
+
+
+** Automatic HTML Documentation
+
+Confluence 0.9 also introduces cfdoc: a tool for generating HTML
+documentation from Confluence source code comments.  Similar to
+javadoc, cfdoc scans a source directory tree extracting comments from
+*.cf files.  Currently the HTML is not the most attractive, but the
+formatting and capabilities of cfdoc will continue to improve.
+
+Here's a shot of the standard library:
+
+  <a href="http://www.launchbird.com/lib/">http://www.launchbird.com/lib/</a>
+
+
+** New Standard Library (base.cf)
+
+The new standard library has been built from the ground up with more
+organization and clearer naming conventions to provide a robust
+foundation for Confluence designers.
+
+Aside from base.cf, the libraries have reserved space for higher-level
+components for DSP, communication, on-chip busing, processors,
+cryptography, and other categories.  Hopefully the open source
+community will start elaborating on these areas.
+
+
+** Download
+
+Confluence 0.9 source code and binary distributions are available at:
+
+  <a href="http://www.launchbird.com/download.html">http://www.launchbird.com/download.html</a>
+
+
+** Background
+
+Confluence is a declarative functional programming language for the
+design and verification of synchronous reactive systems including
+digital logic, hard-real-time software, and hardware-software
+co-design.
+
+From one source, Confluence generates:
+
+  - Verilog and VHDL netlists (synthesis, simulation)
+  - Cycle accurate C models   (software, simulation)
+  - NuSMV models              (formal verification)
+  - XML netlists              (custom back-end tooling)
+  - Executable Models         (open verification)
+    </pre><hr /><h3>Using folding to read the cwn in vim 6+</h3><p>Here is a quick trick to help you read this CWN if you are viewing it using vim (version 6 or greater).</p><pre>:set foldmethod=expr<br />:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'&amp;lt;1':1<br />zM</pre><p>If you know of a better way, please let me know.</p><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right">
+      <i>
+        <a href="http://alan.petitepomme.net/">Alan Schmitt</a>
+      </i>
+    </p><p align="right">
+      <script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script>
+      <script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" />
+      <script src="http://www.google-analytics.com/urchin.js" type="text/javascript" />
+      <script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script>
+    </p></body>
+</html>

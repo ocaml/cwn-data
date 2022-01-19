@@ -1,0 +1,361 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2010.03.30</cwn_date>
+    <cwn_prev>2010.03.23</cwn_prev>
+    <cwn_next>2010.04.06</cwn_next>
+    <cwn_date_text>March 23 to 30, 2010</cwn_date_text>
+  </cwn_head>
+	<cwn_body>
+	  <cwn_entry>
+	   <cwn_title>ocamldebug: User-defined printers for abstract data types?</cwn_title>
+	   <cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/119bf1877516ac00#</cwn_url>
+	   <cwn_who>Stefan Ratschan asked and Florent replied</cwn_who>
+	   <cwn_what>
+&gt; The ocamldebug manual entry for load_printer says: "The loaded file does
+&gt; not have direct access to the modules of the program being debugged."
+&gt; 
+&gt; So I have to put the whole printer definition into the loaded file. But
+&gt; then, how can one write a printer for abstract data types? External
+&gt; files do not have access to those.
+
+The printing of Big_int is possible and AFAIK Big_int is an abstract data type.
+
+The following code is part of DebugPrinter.ml in VSYML [1]:
+
+(** custom debug printer for big_int values (why is it missing in vanilla ocaml?)
+ @param value_big_int the value to be printed
+ @return unit *)
+let print_big_int (value_big_int:Big_int.big_int) =
+ Format.printf "%s" (Big_int.string_of_big_int value_big_int);;
+
+And it is loaded by the following commands in the debugger:
+load_printer build/debug/DebugPrinter.cmo
+install_printer DebugPrinter.print_big_int
+
+[1] VSYML VHDL Symbolic Simulator in OCaml
+http://users-tima.imag.fr/vds/ouchet/vsyml.ml
+	   </cwn_what>
+	  </cwn_entry>
+	  <cwn_entry>
+	   <cwn_title>no_scan_tag and int array</cwn_title>
+	   <cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/dec91861503e6353#</cwn_url>
+	   <cwn_who>ygrek asked</cwn_who>
+	   <cwn_what>
+Consider this code:
+
+open Printf
+
+let measure f =
+ let t = Unix.gettimeofday () in
+ let () = f () in
+ printf "%.4f sec" (Unix.gettimeofday () -. t)
+
+let () =
+ let gc () = for i = 1 to 10 do Gc.full_major () done in
+ let a = Array.make 4_000_000 0 in
+ measure gc;
+ printf " normal %u (%u)\n%!" (Array.length a) (Gc.stat ()).Gc.live_words;
+
+ Obj.set_tag (Obj.repr a) (Obj.no_scan_tag);
+ measure gc;
+ printf " no_scan_tag %u (%u)\n%!" (Array.length a) (Gc.stat ()).Gc.live_words;
+
+ measure gc;
+ printf " no array (%u)\n%!" (Gc.stat ()).Gc.live_words;
+ ()
+
+Output looks like :
+
+0.2281 sec normal 4000000 (4000165)
+0.0002 sec no_scan_tag 4000000 (4000165)
+0.0002 sec no array (164)
+
+So, as expected, setting No_scan_tag on the array of integers prevents GC from
+uselessly scanning the huge chunk of memory. Looks like polymorphic array
+functions still work fine and GC correctly reclaims array memory when it is
+not referenced anymore. Apparantly this trick is not allowed for float array
+as they have a special tag set. The question is - how safe is this? And even
+more, could the compiler itself set this tag?
+	   </cwn_what>
+	   <cwn_who>Damien Doligez replied</cwn_who>
+	   <cwn_what>
+&gt; So, as expected, setting No_scan_tag on the array of integers prevents GC from
+&gt; uselessly scanning the huge chunk of memory. Looks like polymorphic array
+&gt; functions still work fine and GC correctly reclaims array memory when it is
+&gt; not referenced anymore. Apparantly this trick is not allowed for float array
+&gt; as they have a special tag set.
+
+The trick is not needed for float arrays, the GC already doesn't scan
+them.
+
+&gt; The question is - how safe is this?
+
+It's safe, and will be in the forseeable future.
+
+BUT: you should use Abstract_tag and not No_scan_tag.  Abstract_tag means
+"don't make assumptions about the contents of this block", while
+No_scan_tag is just the min of all the tags that the GC is not supposed
+to scan.  Right now they are equal, but a future version of OCaml might
+have No_scan_tag = Double_array_tag, which would break your code.
+
+&gt; And even more, could the compiler itself set this tag?
+
+This is a bit tricky because you have to make sure that the static
+type of the array is "int array".  Unlike floats, a run-time test
+at allocation will not work.
+
+You should enter this as a feature wish in the BTS.
+	   </cwn_what>
+	  </cwn_entry>
+	  <cwn_entry>
+	   <cwn_title>testers wanted for experimental SSE2 back-end</cwn_title>
+	   <cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/ddb8d5d6318bef5a#</cwn_url>
+	   <cwn_who>Continuing the thread from last week, Xavier Leroy said and Dmitry Bely replied</cwn_who>
+	   <cwn_what>
+&gt;&gt;&gt; This is a call for testers concerning an experimental OCaml compiler
+&gt;&gt;&gt; back-end that uses SSE2 instructions for floating-point arithmetic.[...]
+&gt;&gt;
+&gt;&gt; I cannot provide any benchmark yet
+&gt;
+&gt; Too bad :-( I got very little feedback to my call: just one data point
+&gt; (thanks Gaetan).  Perhaps most OCaml users interested in numerical
+&gt; computations have switched to x86-64bits already?  At any rate, given
+&gt; such a lack of interest, this x86-32/SSE2 port isn't going to make it
+&gt; into the OCaml distribution.
+
+It's a pity. Probably even my (future) benchmarks won't help...
+
+&gt;&gt; but even not taking into account
+&gt;&gt; the better register organization there are at least two areas where
+&gt;&gt; SSE2 can outperform x87 significantly.
+&gt;&gt;
+&gt;&gt; 1. Float to integer conversion
+&gt;&gt; Is quite inefficient on x87 because you have to explicitly set and
+&gt;&gt; restore rounding mode.
+&gt;
+&gt; Right.  The mode change makes the conversion about 10x slower on x87
+&gt; than on SSE2.  Apparently, float-&gt;int conversion is uncommon is
+&gt; numerical code, otherwise we'd observe bigger speedups on real
+&gt; applications...
+&gt;
+&gt;&gt; 2. Float compare
+&gt;&gt; Does not set flags on x87 so
+&gt;
+&gt; The SSE2 code is prettier than the x87 code, but this doesn't seem to
+&gt; translate into a significant performance gain, in my limited testing.
+&gt;
+&gt;&gt; As for SSE2 backend presented I have some thoughts regarding the code
+&gt;&gt; (fast math functions via x87 are questionable,
+&gt;
+&gt; Most x86-32bits C libraries implement sin(), cos(), etc with the x87
+&gt; instructions, so I'm curious to know what you find objectionable here.
+
+Microsoft's implementation for P4 and above is SSE2-based. And Intel
+itself recommends to do so:
+
+[quote]
+What Is AM Library?
+===================
+Ever missed a sine or arctangent instruction among Intel Streaming
+SIMD Extensions? Ever wished there were a way to calculate logarithm
+or exponent in about a dozen cycles? Here is a new release of
+
+Approximate Math Library (AM Library) -- a set of fast routines to
+calculate math functions using Intel(R) Streaming SIMD Extensions
+(SSE) and Streaming SIMD Extensions 2 (SSE2). The Library offers
+trigonometric, reverse trigonometric, logarithmic, and exponential
+functions for packed and scalar arguments. The processing speed is
+many times faster than that of x87 instructions and even of table
+lookups. The accuracy of AM Library routines can be adequate for many
+applications. It is comparable with that of reciprocal SSE
+instructions, and is hundreds times better than what is achievable
+with lookup tables.
+
+The AM Library is provided along with the full source code and a usage sample.
+[end of quote]
+
+http://www.intel.com/design/pentiumiii/devtools/AMaths.zip
+
+Another interesting reading:
+
+http://users.ece.utexas.edu/~adnan/comm/fast-trigonometric-functions-using.pdf
+
+&gt;&gt; optimization of floating compare etc.) Where to discuss that - just
+&gt;&gt; here or there is some entry in Mantis?
+&gt;
+&gt; Why not start on this list?  We'll move to private e-mail if the
+&gt; discussion becomes too heated :-)
+
+OK
+
+1. My variant of emit_float_test (in many cases eliminates extra jump).
+
+let emit_float_test cmp neg arg lbl =
+ let opcode_jp cmp =
+   match (cmp, neg) with
+     (Ceq, false) -&gt; ("je", true)
+   | (Ceq, true)  -&gt; ("jne", true)
+   | (Cne, false) -&gt; ("jne", true)
+   | (Cne, true)  -&gt; ("je", true)
+   | (Clt, false) -&gt; ("jb", true)
+   | (Clt, true)  -&gt; ("jae", true)
+   | (Cle, false) -&gt; ("jbe", true)
+   | (Cle, true)  -&gt; ("ja", true)
+   | (Cgt, false) -&gt; ("ja", false)
+   | (Cgt, true)  -&gt; ("jbe", false)
+   | (Cge, false) -&gt; ("jae", true)
+   | (Cge, true)  -&gt; ("jb", false) in
+ let branch_opcode, need_jp = opcode_jp cmp in
+ let branch_opcode, arg0, arg1, need_jp  =
+   match arg.(1).loc with
+     Reg _ when need_jp -&gt;
+     (* swap args if it excludes jmp *)
+     let (branch_opcode_swap, need_jp_swap) =
+       opcode_jp
+         (match cmp with
+           Ceq -&gt; Ceq
+         | Cne -&gt; Cne
+         | Clt -&gt; Cgt
+         | Cle -&gt; Cge
+         | Cgt -&gt; Clt
+         | Cge -&gt; Cle) in
+     if need_jp_swap
+     then (branch_opcode, arg.(0), arg.(1), true)
+     else (branch_opcode_swap, arg.(1), arg.(0), false)
+   | _ -&gt;
+     (branch_opcode, arg.(0), arg.(1), need_jp)
+ in
+ begin match cmp with
+ | Ceq | Cne -&gt; `      ucomisd `
+ | _         -&gt; `      comisd  `
+ end;
+ `{emit_reg arg0}, {emit_reg arg1}\n`;
+ let branch_if_not_comparable =
+   if cmp = Cne then not neg else neg in
+ if need_jp then
+   if branch_if_not_comparable then begin
+     ` jp      {emit_label lbl}\n`;
+     ` {emit_string branch_opcode}     {emit_label lbl}\n`
+   end else begin
+     let next = new_label() in
+     ` jp      {emit_label next}\n`;
+     ` {emit_string branch_opcode}     {emit_label lbl}\n`;
+     `{emit_label next}:\n`
+   end
+ else begin
+   `   {emit_string branch_opcode}     {emit_label lbl}\n`
+ end
+
+2. My variant of fast math functions (see explanation above)
+
+let emit_floatspecial = function
+   "sqrt"  -&gt; `        sqrtsd  `
+ | _ -&gt; assert false
+
+3. Loading st(0) can be two instructions shorter :)
+
+             ` sub     esp, 8\n`;
+             ` fstp    REAL8 PTR [esp]\n`;
+             ` movsd   {emit_reg dst}, REAL8 PTR [esp]\n`;
+             ` add     esp, 8\n`
+
+can be written as
+
+             ` fstp    REAL8 PTR [esp-8]\n`;
+             ` movlpd  {emit_reg dst}, REAL8 PTR [esp-8]\n`;
+
+4. Unnecessary instruction in Lop(Iload(Single, addr))
+
+           `   movss   {emit_reg dest}, REAL4 PTR {emit_addressing addr
+i.arg 0}\n`;
+           `   cvtss2sd {emit_reg dest}, {emit_reg dest}\n`
+
+can be written as
+
+           `   cvtss2sd {emit_reg dest}, REAL4 PTR {emit_addressing
+addr i.arg 0}\n`
+	   </cwn_what>
+	  </cwn_entry>
+	  <cwn_entry>
+	   <cwn_title>Backtracting exceptions in toplevel</cwn_title>
+	   <cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/b4c7df2a9617afdc#</cwn_url>
+	   <cwn_who>C. Fr asked and Jake Donham replied</cwn_who>
+	   <cwn_what>
+&gt; It there a way to get a backtrace for exceptions occurring in the toplevel
+&gt; (for example, getting more information when the stack blows)? I’ve read that
+&gt; there was an equivalent of the -b option that ocamlrun uses, but I couldn’t
+&gt; find any subsequent information on it.
+
+In 3.11.x there is Printexc.record_backtrace which controls the -b
+flag, and Printexc.get_backtrace to get the trace of the last
+exception.
+
+If you want to see backtraces printed automatically in the toplevel,
+try my patch:
+
+ http://ambassadortothecomputers.blogspot.com/2010/03/updated-backtrace-patch.html
+	   </cwn_what>
+	  </cwn_entry>
+	  <cwn_entry>
+	   <cwn_title>jsonpat</cwn_title>
+	   <cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/ff73af92a0a5dbed#</cwn_url>
+	   <cwn_who>Julien Verlaguet announced</cwn_who>
+	   <cwn_what>
+I am proud to announce the first release of Jsonpat. Jsonpat is a command line
+tool that allows to write json to json tranformations, using pattern-matching,
+directly in the shell.
+
+For example given the file, myexample.json :
+{"name":"ouipk","gender":"M","age":20}
+{"name":"Cartwright",
+ "age":39 }
+{"age":24,"name":"Colbert","gender":"M"}
+
+The following command extracts the values present in the field "name":
+
+$ jsonpat -p '{name:x} -&gt; x' myexample.json
+"ouipk"
+"Cartwright"
+"Colbert"
+
+The source code and documentation can be found here:
+http://oss.wink.com/jsonpat/
+
+Comments and suggestions are more than welcome.
+	   </cwn_what>
+	  </cwn_entry>
+	  <cwn_entry>
+      <cwn_title>Other Caml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocamlcore.org/&gt;.
+
+Proof of negation and proof by contradiction:
+  &lt;http://math.andrej.com/2010/03/29/proof-of-negation-and-proof-by-contradiction/&gt;
+
+minisat2 ocaml bindings:
+  &lt;https://mancoosi.org/~abate/minisat2-ocaml-bindings&gt;
+
+Status of OCaml packages on Ubuntu Lucid Lynx (10.04 LTS): transition to OCaml 3.11.2 finished:
+  &lt;http://bentobako.org/david/blog/index.php?post/2010/03/29/Status-of-OCaml-packages-on-Ubuntu-Lucid-Lynx-%2810.04-LTS%29%3A-transition-to-OCaml-3.11.2-finished&gt;
+
+“The Whitespace Thing” for OCaml:
+  &lt;http://www.wisdomandwonder.com/link/4611/the-whitespace-thing-for-ocaml&gt;
+
+oclosure:
+  &lt;https://forge.ocamlcore.org/projects/oclosure/&gt;
+
+Updated backtrace patch:
+  &lt;http://ambassadortothecomputers.blogspot.com/2010/03/updated-backtrace-patch.html&gt;
+
+CCSS 1.2 released:
+  &lt;http://forge.ocamlcore.org/forum/forum.php?forum_id=568&gt;
+
+Inside OCaml objects:
+  &lt;http://ambassadortothecomputers.blogspot.com/2010/03/inside-ocaml-objects.html&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

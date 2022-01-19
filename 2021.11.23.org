@@ -1,0 +1,715 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[https://alan.petitepomme.net/cwn/2021.11.16.html][Previous Week]] [[https://alan.petitepomme.net/cwn/index.html][Up]] [[https://alan.petitepomme.net/cwn/2021.11.30.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of November 16 to 23, 2021.
+
+#+TOC: headlines 1
+
+
+* Multicore OCaml: October 2021
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/multicore-ocaml-october-2021/8822/1
+
+** Anil Madhavapeddy announced
+
+
+Welcome to the October 2021 [[https://github.com/ocaml-multicore/ocaml-multicore][Multicore OCaml]] monthly report! The
+[[https://discuss.ocaml.org/tag/multicore-monthly][previous updates]] along with
+this update have been compiled by me, @ctk21, @kayceesrk and @shakthimaan.
+
+As @octachron announced last month, the core team has [[https://discuss.ocaml.org/t/the-road-to-ocaml-5-0/8584][committed to an OCaml 5.0
+release]] next year with multicore and the effects runtime.
+This month has seen tremendous activity in our multicore trees to prepare an upstream-friendly version, with a number
+of changes made to make the code ready for ~ocaml/ocaml~ and reduce the size of the diff. Recall that we have been
+feeding in multicore-related changes steadily since way [[https://discuss.ocaml.org/t/multicore-prerequisite-patches-appearing-in-released-ocaml-compilers-now/4408][back in OCaml
+4.09]], and
+so we are now down to the really big pieces.  Therefore the mainline OCaml trunk code is now being continuously being
+merged into our 5.00 staging branch, and test coverage has increased accordingly.
+
+In the standard library, we continue to work and improve on thread safety by default. Since effect handlers are
+confirmed to go into 5.0 as well, they now have their own module in the stdlib as well. The multicore library
+ecosystem is also evolving with the changes to support OCaml 5.00, and in particular, Domainslib has had significant
+updates and improvements as more usecases build up. The integration of the Sandmark performance harness with
+current-bench is also actively being worked upon.
+
+We would like to acknowledge the following people for their contribution:
+- Török Edwin was able to reproduce the bug in ~Task.pool~ management [[https://github.com/ocaml-multicore/domainslib/issues/43][Domainslib#43]], and has also provided a PR to fix the same.
+- Sid Kshatriya has created [[https://github.com/ocaml-multicore/eio/pull/83][PR#83]] for ~Eio~ to use the Effect Handlers module.
+
+Our focus in November is going to continue to be on relentlessly making a 5.0 staging tree, and we are preparing for
+a series of working groups with the core OCaml teams (taking up an entire week) to conduct preliminary code review on
+the full patchset. Stay tuned for how that has gone by the start of December!
+
+As always, the Multicore OCaml updates are listed first, which contain the upstream efforts, merges with trunk,
+updates to test cases, bug fixes, and documentation improvements. This is followed by the ecosystem updates on
+Domainslib, ~Tezos~, and ~Eio~. The Sandmark and current-bench tasks are finally listed for your reference.
+
+/Editor’s note: the very long release notes can be found by following the archive link above./
+      
+
+
+
+* Robur Reproducible Builds
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/ann-robur-reproducible-builds/8827/1
+
+** Reynir Björnsson announced
+
+
+*** Robur Reproducible Builds
+
+Over the past year we in [[https://robur.coop/][Robur]] have been working towards easing deployment of reproducible
+mirage applications. The work has been funded by the Eurepean Union under the [[https://pointer.ngi.eu/][Next Generation Internet (NGI Pointer)
+initiative]]. The result is [[https://builds.robur.coop][available as a website]].
+
+The overall goal is to push MirageOS into production in a trustworthy way. We worked on reproducible builds for
+MirageOS - with the infrastructure being reproducible itself. A handful of core packages are hosted there (described
+below in this article), next to several ready-to-use MirageOS unikernels - ranging from [[https://builds.robur.coop/job/dns-primary-git/][authoritative DNS
+servers]] ([[https://builds.robur.coop/job/dns-secondary/][secondary]],
+[[https://builds.robur.coop/job/dns-letsencrypt-secondary/][let's encrypt DNS solver]]), [[https://builds.robur.coop/job/dnsvizor/][DNS-and-DHCP service (similar
+to dnsmasq)]], [[https://builds.robur.coop/job/tlstunnel/][TLS reverse proxy]],
+[[https://builds.robur.coop/job/unipi/][Unipi - a web server that delivers content from a git repository]], [[https://builds.robur.coop/job/dns-resolver/][DNS
+resolver]], [[https://builds.robur.coop/job/caldav/][CalDAV server]], and
+of course your own MirageOS unikernel.
+
+Reproducible builds are crucial for supply chain security - everyone can reproduce the exact same binary (by using
+the same sources and environment), without reproducible builds we would not publish binaries.
+
+Reproducible builds are also great for fleet management: by inspecting the hash of the binary that is executed, we
+can figure out which versions of which packages are in the unikernel - and suggest updates if newer builds are available or if a used packages has a security flaw in that version -- ~albatross-client-local update my-unikernel~
+is everything needed for an update.
+
+In the following, we'll explain in more detail two scenarios: how to deploy MirageOS unikernels using the
+infrastructure we provide, how to bootstrap and run the infrastructure for yourself. Afterwards we briefly describe
+how to reproduce a package, and what are our core packages and their relationships.
+
+*** Brief robur and MirageOS introduction
+
+MirageOS is an operating system, developed in OCaml, which produces unikernels. A unikernel serves a single purpose
+and is a single process, i.e. only has the really needed dependencies. For example, an OpenVPN endpoint does neither
+include persistent storage (block device, file system) nor user management. MirageOS unikernels are developed in
+OCaml, a statically typed and type-safe programming language - which avoids common pitfalls from the grounds up
+(spatial and temporal memory safety issues).
+
+[[https://robur.coop][Robur]] is a collective that develops MirageOS and OCaml software with open source license. It
+was started in 2017, and is part of the non-profit company [[https://techcultivation.org][center for the cultivation of
+technology]]. We received funding from several projects (prototypefund, NGI pointer),
+donations, and some commercial contracts.
+
+*** For someone who wants to run MirageOS unikernels
+
+To run a MirageOS unikernel on your laptop or computer with virtualization extensions (VT-x - KVM/BHyve), you can
+first install solo5-hvt as a [[https://builds.robur.coop/job/solo5-hvt/][package]] (take which fits your distribution),
+and [[https://builds.robur.coop/job/albatross/][albatross]].
+
+There is no configuration needed, you should start the ~albatross_console~ and the ~albatross_daemon~ service (via
+~systemctl daemon-reload ; systemctl start albatross_daemon~ on Linnux or ~service albatross_daemon start~ on
+FreeBSD). Executing ~albatross-client-local info ~ should return success (exit code 0) and no running unikernel. You
+may need to be in the albatross group, or change the permissions of the Unix domain socket (~vmmd.sock~ in
+~/run/albatross/util/~ on Linux, ~/var/run/albatross/util/~ on FreeBSD).
+
+**** Network setup
+
+To setup networking, you need a bridge interface, usually named service, that albatross will use for unikernels. To
+provide network connectivity to that bridge interface, you can either use NAT, forward public IP addresses there,
+provide a gateway that tunnels via VPN, or add your network interface to the bridge. In the following, we describe
+the setup in detail on Linux. Get in touch with us if you're interested in other platforms.
+
+Bridge setup on Linux in ~/etc/network/interfaces~:
+
+#+begin_example
+auto service
+# Host-only bridge
+iface service inet manual
+    up ip link add service-master address 02:00:00:00:00:01 type dummy
+    up ip link set dev service-master up
+    up ip link add service type bridge
+    up ip link set dev service-master master service
+    up ip link set dev service up
+    down ip link del service
+    down ip link del service-master
+#+end_example
+
+***** Routing of a subnet
+
+If your host system acts as a router for a network, enable IPv4 forwarding (~ echo "1" >
+/proc/sys/net/ipv4/ip_forward~), and setup that IP address (~up ip addr add 192.168.0.1/24 dev service~)
+
+***** Physical network interface with IP address space
+
+To put your unikernels on the same network as your host system, add that external network interface to the bridge:
+~up ip link set dev enp0s20f0 master service~.
+
+***** NAT (no public IP address, e.g. for testing on your Laptop)
+
+Setup a private network on the ~service~ bridge (~up ip addr add 192.168.0.1/24 dev service~), enable IPv4 forwarding
+(~echo "1" > /proc/sys/net/ipv4/ip_forward~), and a firewall rule (~iptables -t nat -A POSTROUTING -o enp0s20f0 -j
+MASQUERADE~).
+
+**** Unikernel execution
+
+Download the [[https://builds.robur.coop/job/traceroute/][traceroute]] unikernel ([[https://builds.robur.coop/job/traceroute/build/latest/f/bin/traceroute.hvt][direct link to unikernel
+image]]), and run it via albatross: in one
+shell, observe the console output: ~albatross-client-local console traceroute~, in a second shell create the
+unikernel: ~albatross-client-local create --net=service traceroute traceroute.hvt --arg='--ipv4=192.168.0.2/24'
+--arg='--ipv4-gateway=192.168.0.1'~
+
+That's it. Albatross has more features, such as block devices, multiple bridges (for management, private networks,
+...), restart on certain exit codes, assignment to a specific CPU. It also has remote command execution and resource
+limits (you can allow your friends to execute U unikernels with M MB memory and B MB block devices accessing your
+bridges A and B). There is a daemon to collect metrics and report them to Telegraf (to push them into Influx and view
+in nice Grafana dashboards). MirageOS unikernels also support IPv6, you're not limited to legacy IP.
+
+You can also use ~albatross-client-local update~ to ensure you're running the latest unikernel - it checks
+https://builds.robur.coop for the job and suggests to update if there is a newer binary available.
+
+*** For someone who wants to build and run MirageOS unikernels
+
+The fundamental tools for building in a reproducible way are orb and builder. On some distributions we provide binary
+packages ([[https://builds.robur.coop/job/orb/][orb]], [[https://builds.robur.coop/job/builder/][builder]]) that you can
+use. On other distributions you'll need to bootstrap them from source:
+
+- To build in a reproducible way, we developed orb, which is written in OCaml. It is an opam package available at https://github.com/roburio/orb (installation via ~opam pin add orb https://github.com/roburio/orb.git~) - once you have OCaml and [[https://opam.ocaml.org][opam]] installed.
+
+- To build builder, ~opam install builder~ is all you need to do. ~opam install builder-web~ will install the latest version of builder-web.
+
+**** Setup builder
+
+On Linux:
+
+Builder provides a systemd service (builder) that you should start. There is as well a builder-worker service that
+executes the worker process in a docker container. Check the URLs and configuration in the systemd service files, if
+necessary modify it using ~systemctl edit --full builder-worker.service~, and start it. The provided
+builder-worker.service script will build for Ubuntu 20.04 as of writing.
+
+On FreeBSD:
+
+For FreeBSD, rc scripts and an example jail.conf (and shell script to launch) are provided. Setting up a jail is
+documented in the README (using poudriere).
+
+**** Setup builder-web
+
+Builder-web needs an initial database, an initial user, and also has a service script. Use the ~builder-db migrate~
+command to create an initial database, and ~builder-db user-add --unrestricted my_user~ to create a privileged user
+~my_user~. Setup your builder to use reproducible packages from builder-web and upload results there (by setting the
+~--upload https://my_user:my_password@builds.robur.coop/upload~).
+
+**** Schedule an orb job
+
+The command ~builder-client info~ should output the schedule, queues, and running builds. To schedule a daily build,
+run ~builder-client orb-build traceroute traceroute-hvt~. This will create a new job named traceroute and pick up the
+job template (~/etc/builder/orb-build.template.PLATFORM~) and schedule that job to your worker in order to build the
+opam package traceroute-hvt.
+
+We document the commands, you can always execute it with ~--help~ to see the man page.
+
+*** Reproducing builds
+
+From a build on https://builds.robur.coop, select an operating system and distribution that has been used for a
+build. Go to the specific build, and download the "system-packages" file -- these are the exact versions of host
+system packages that were used during the build. Make sure they're installed (version variance may lead to
+non-reproducibility - orb and builder are not needed for a manual rebuild).
+
+Download the build-environment file, which contains all environment variables that were set during the build. Set
+these, and only these, in your shell.
+
+Install opam (at least in version 2.1). Then, download the opam-switch file - which includes all opam files and
+dependencies (including the OCaml compiler).  Execute ~opam switch import opam-switch --switch reproduced-unikernel~
+which will create a fresh opam switch where it will install the unikernel. This will be located in ~opam switch
+prefix~/bin/unikernel.hvt.
+
+*** Core software components in more detail
+
+**** [[https://github.com/roburio/orb][orb]]
+
+The Opam Reproducible Builder uses the opam libraries to conduct a build of an opam package using any opam
+repositories. It collects system packages, environment variables, and a full and frozen opam switch export. These
+artifacts contain the build information and can be used to reproduce the exact same binary.
+
+**** [[https://github.com/roburio/builder/][builder]]
+
+Builder is a suite of three executables: builder-server, builder-worker and builder-client. Together they
+periodically run scheduled jobs which execute orb, collecting build artifacts and information used for reproducing
+the build. The builder-worker is executed in a container or jailed environment, and communicates via TCP with the
+builder-server. The result of the build can be uploaded to builder-web or stored in the file system.
+
+**** [[https://github.com/roburio/builder-web][builder-web]]
+
+Builder-web is a web interface for viewing and downloading builds and build artifacts created by builder jobs. The
+binary checksums can be viewed and the build inputs (opam packages, environment variables, system packages) can be
+compared across builds.
+
+It uses [[https://github.com/aantron/dream][dream]] with sqlite3 as backend database. The database schema evolved over
+time, we developed migration and rollback tooling to update our live database.
+
+**** [[https://github.com/roburio/albatross][albatross]]
+
+Albatross is an orchestration system for MirageOS unikernels. It manages system resources (tap interfaces, virtual
+block devices) that can be passed to the unikernels. It reads the console output of a unikernel and provides it via a
+TCP stream. It also has remote access via TLS, where apart from inspecting the running status also new unikernels can
+be uploaded. Albatross integrates with builder-web to look up running unikernels by their hash and optionally
+updating the unikernel binary.
+
+**** [[https://github.com/solo5/solo5][solo5]]
+
+Solo5 is the tender - the application that runs in the host system as a user process, consuming the system resources,
+and delegating them to the unikernel. This is a pretty small binary with a tiny API between host and unikernel. [[https://archive.fosdem.org/2019/schedule/event/solo5_unikernels/][A
+great solo5 overview talk (FOSDEM 2019)]].
+
+*** Future
+
+We have enhancements and more features planned in the future. At the same time we are looking for feedback of the
+reproducible build and unikernel deployment system (with a security perspective, with a devops perspective, etc.). We
+are also keen to collaborate and would take new people on board.
+
+- Improving the web UI on https://builds.robur.coop/. If you're interested, please get in touch, we have funding available.
+- Supporting more distributions: tell us your favourite distribution and how to build a package, then we can integrate that into our reproducible builds infrastructure.
+- Supporting spt - the sadboxed process tender - to run unikernels without a hypervisor.
+- Data analytics: which system packages updates or opam package releases result in variance of the binaries - did the release of an opam package increase or decrease the overall build times?
+- Functional and performance tests of the unikernels: for each different build, conduct basic functional testing, and performance test - to graph in the ouput. Also includes data analytics: did the release of an opam package increase or decrease the performance of unikernels?
+- Whole system performance analysis with memory profiling, and how to integrate this into a running unikernel.
+- MirageOS 4.0 support.
+- Metrics and logging collection and dynamic adjustment of metrics and log levels.
+- DNS resolver unikernel, still missing DNSSec support.
+
+Interested? Get in touch with us via eMail to team at robur dot coop.
+      
+
+
+
+* OCaml compiler development newsletter, issue 4: October 2021
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/ocaml-compiler-development-newsletter-issue-4-october-2021/8833/1
+
+** gasche announced
+
+
+I’m happy to publish the fourth issue of the “OCaml compiler development newsletter”. (This is by no means
+exhaustive: many people didn’t end up having the time to write something, and it’s fine.)
+
+Feel free of course to comment or ask questions!
+
+If you have been working on the OCaml compiler and want to say something, please feel free to post in this thread! If
+you would like me to get in touch next time I prepare a newsletter issue (some random point in the future), please
+let me know by email at (gabriel.scherer at gmail).
+
+Previous issues:
+- [[https://discuss.ocaml.org/t/ocaml-compiler-development-newsletter-issue-3-june-september-2021/8598][OCaml compiler development newsletter, issue 3: June-September 2021]]
+- [[https://discuss.ocaml.org/t/ocaml-compiler-development-newsletter-issue-2-may-2021/7965][OCaml compiler development newsletter, issue 2: May 2021]]
+- [[https://discuss.ocaml.org/t/ocaml-compiler-development-newsletter-issue-1-before-may-2021/7831][OCaml compiler development newsletter, issue 1: before May 2021]]
+
+October 2021 was a special month for some of us, as it was the last month before the [[https://discuss.ocaml.org/t/the-road-to-ocaml-5-0/8584#the-sequential-glaciation-3][Sequential
+Glaciation]] -- a multi-months
+freeze on all features not related to Multicore, to facilitate Multicore integration.
+
+*** Xavier Leroy (@xavierleroy)
+
+Knowing that winter is coming, I tied some loose ends in preparation for release 4.14, including more deprecation
+warnings [[https://github.com/ocaml/ocaml/pull//10675][#10675]], proper termination of signal handling
+[[https://github.com/ocaml/ocaml/pull/10726][#10726]], and increasing the native stack size limit when the operating
+system allows [[https://github.com/ocaml/ocaml/pull/10736][#10736]]. The latter should mitigate the problem of “Stack
+Overflow” crashing non-tail-recursive code for large inputs that hit operating-system restrictions.
+
+I also worked on reimplementing the ~Random~ standard library module using more modern pseudo-random number
+generation (PRNG) algorithms.  In [[https://github.com/ocaml/RFCs/pull/28][RFC#28]], Gabriel Scherer proposed to change
+the random-number generation algorithm of the standard library ~Random~ module to be "splittable", to offer better
+behavior in a Multicore world. ("Splitting" a random-number generator state gives two separate states that supposedly
+produce independent streams of random numbers; few RNG algorithms support splitting, and its theory is not
+well-understood.)
+
+My first proposal was based on the Xoshiro256++ PRNG, which is fast and statistically strong:
+#[[https://github.com/ocaml/ocaml/pull/10701][10701]].  However, Xoshiro does not support full splitting, only a
+limited form called "jumping", and the discussion showed that jumping was not enough.  Then a miracle happened: at
+exactly the same time (OOPSLA conference in october 2021), Steele and Vigna proposed LXM, a family of PRNGs that have
+all the nice properties of Xoshiro and support full splitting.  I promptly reimplemented the ~Random~ module using
+LXM #[[https://github.com/ocaml/ocaml/pull/10742][10742]], and I find the result very nice.  I hope this implementation
+will be selected to replace the existing ~Random~ module.
+
+*** Tail-recursion modulo constructors
+
+Gabriel Scherer (@gasche) finished working on the TMC (Tail modulo constructor) PR
+(#[[https://github.com/ocaml/ocaml/pull/9760][9760]]) in time for the glaciation deadline, thanks to a well-placed
+full-day meeting with Pierre Chambart (@chambart), who had done the last review of the work. They managed to get
+something that we both liked, and the feature is now merged upstream.
+
+Note that this is the continuation of the TRMC work started by Frédéric Bour (@let-def) in
+#[[https://github.com/ocaml/ocaml/pull/181][181]] in May 2015 (also with major contributions from Basile Clément
+(@Elarnon)); this merge closed one of the longest-open development threads for the OCaml compiler.
+
+One may now write:
+
+#+begin_src ocaml
+let[@tail_mod_cons] rec map f = function
+| [] -> []
+| x::xs -> f x :: (map[@tailcall]) f xs
+#+end_src
+and get an efficient tail-recursive definition of map.
+
+A section of the manual is in progress to describe the feature: #[[https://github.com/ocaml/ocaml/pull/10740][10740]].
+
+(On the other hand, there was no progress on the constructor-unboxing work, which will have to wait for 5.0.)
+
+*** Progress on native code emission and linking
+
+As part of [[https://github.com/ocaml/RFCs/pull/15][RFC#15: Fast native toplevel using JIT]], there was a batch of
+small changes on native-code emission and linking, and on the native toplevel proposed by @NathanRebours and David
+@dra27: #[[https://github.com/ocaml/ocaml/pull/10690][10690]], #[[https://github.com/ocaml/ocaml/pull/10714][10714]],
+#[[https://github.com/ocaml/ocaml/pull/10715][10715]].
+
+*** Module shapes for easier tooling
+
+Ulysse Gérard, Thomas Refis and Leo White proposed a new program analysis within the OCaml compiler, designed to help
+external tools understand the structure of implementation files (implementations of OCaml modules), in particular to
+implement the "locate definition" function -- which is non-trivial in presence of ~include~, ~open~, etc.
+
+The result of their analysis is a "shape" describing the items (values, types, etc.) of a module in an
+easy-to-process yet richly-structured form.
+
+Florian Angeletti (@Octachron) allowed to merge this PR thanks to his excellent review work, running against the
+Glaciation deadline.
+
+(The authors of the PR initially wanted to add new kinds of compilation artifacts for OCaml compilation units to
+store shape information in ~.cms~ and ~.cmsi~ files, instead of the too-large ~.cmt~ files. People were grumpy about
+it, so this part was left out for now.)
+
+*** UTF-X decoding and validation support in the Stdlib
+
+In [[https://github.com/ocaml/ocaml/pull/10710][#10710]] support for UTF-X decoding and validation was added by Daniel
+Bünzli (@dbuenzli), a long-standing missing feature of the standard library. The API was carefully designed to avoid
+allocations and exceptions while providing an easy-to-use decoding interface.
+
+*** Convenience functions for ~Seq.t~
+
+The type ~Seq.t~ of on-demand (but non-memoized) sequences of values was contributed by Simon Cruanes (@c-cube) in
+2017, with only a minimal set of function, and increased slowly since. A large import of >40 functions was completed
+just in time before the glacation by François Potter (@fpottier) and Simon, thanks to reviews by @gasche, @dbuenzli
+and many others. This is work that started in February 2020 thanks to issue
+#[[https://github.com/ocaml/ocaml/issues/9312][9312]] from Yawar Amin.
+
+Behold:
+#+begin_src ocaml
+val is_empty : 'a t -> bool
+val uncons : 'a t -> ('a * 'a t) option
+val length : 'a t -> int
+val iter : ('a -> unit) -> 'a t -> unit
+val fold_left : ('a -> 'b -> 'a) -> 'a -> 'b t -> 'a
+val iteri : (int -> 'a -> unit) -> 'a t -> unit
+val fold_lefti : (int -> 'b -> 'a -> 'b) -> 'b -> 'a t -> 'b
+val for_all : ('a -> bool) -> 'a t -> bool
+val exists : ('a -> bool) -> 'a t -> bool
+val find : ('a -> bool) -> 'a t -> 'a option
+val find_map : ('a -> 'b option) -> 'a t -> 'b option
+val iter2 : ('a -> 'b -> unit) -> 'a t -> 'b t -> unit
+val fold_left2 : ('a -> 'b -> 'c -> 'a) -> 'a -> 'b t -> 'c t -> 'a
+val for_all2 : ('a -> 'b -> bool) -> 'a t -> 'b t -> bool
+val exists2 : ('a -> 'b -> bool) -> 'a t -> 'b t -> bool
+val equal : ('a -> 'b -> bool) -> 'a t -> 'b t -> bool
+val compare : ('a -> 'b -> int) -> 'a t -> 'b t -> int
+val init : int -> (int -> 'a) -> 'a t
+val unfold : ('b -> ('a * 'b) option) -> 'b -> 'a t
+val repeat : 'a -> 'a t
+val forever : (unit -> 'a) -> 'a t
+val cycle : 'a t -> 'a t
+val iterate : ('a -> 'a) -> 'a -> 'a t
+val mapi : (int -> 'a -> 'b) -> 'a t -> 'b t
+val scan : ('b -> 'a -> 'b) -> 'b -> 'a t -> 'b t
+val take : int -> 'a t -> 'a t
+val drop : int -> 'a t -> 'a t
+val take_while : ('a -> bool) -> 'a t -> 'a t
+val drop_while : ('a -> bool) -> 'a t -> 'a t
+val group : ('a -> 'a -> bool) -> 'a t -> 'a t t
+val memoize : 'a t -> 'a t
+val once : 'a t -> 'a t
+val transpose : 'a t t -> 'a t t
+val append : 'a t -> 'a t -> 'a t
+val zip : 'a t -> 'b t -> ('a * 'b) t
+val map2 : ('a -> 'b -> 'c) -> 'a t -> 'b t -> 'c t
+val interleave : 'a t -> 'a t -> 'a t
+val sorted_merge : ('a -> 'a -> int) -> 'a t -> 'a t -> 'a t
+val product : 'a t -> 'b t -> ('a * 'b) t
+val map_product : ('a -> 'b -> 'c) -> 'a t -> 'b t -> 'c t
+val unzip : ('a * 'b) t -> 'a t * 'b t
+val split : ('a * 'b) t -> 'a t * 'b t
+val partition_map : ('a -> ('b, 'c) Either.t) -> 'a t -> 'b t * 'c t
+val partition : ('a -> bool) -> 'a t -> 'a t * 'a t
+val of_dispenser : (unit -> 'a option) -> 'a t
+val to_dispenser : 'a t -> (unit -> 'a option)
+val ints : int -> int t
+#+end_src
+
+*** A few of the nice contributions from new contributors we received
+
+Dong An (@kirisky) finished a left-open PR from Anukriti Kumar (#[[https://github.com/ocaml/ocaml/pull/9398][9398]],
+#[[https://github.com/ocaml/ocaml/pull/10666][10666]]) to complete the documentation of the OCAMLRUNPARAM variable.
+
+Dong An also improved the README description of which C compiler should be available on MacOS or Windows to build the
+compiler codebase: #[[https://github.com/ocaml/ocaml/pull/10685][10685]].
+
+Thanks to Wiktor Kuchta, the ocaml toplevel now shows a tip at startup about the ~#help~ directive to get help:
+#[[https://github.com/ocaml/ocaml/pull/10527][10527]]. (Wiktor is not really a "new" contributor anymore, with many
+[[https://github.com/ocaml/ocaml/commits?author=wiktorkuchta][nice contributions]] over the last few months.)
+
+While we are at it, a PR from @sonologico, proposed in May 2020, was merged just a few months ago
+(#[[https://github.com/ocaml/ocaml/pull/9621][9621]]). It changes the internal build system for the ~ocamldebug~
+debugger to avoid module-name clashes when linking user-defined printing code. Most of the delay came from
+maintainers arguing over which of the twelve name-conflict-avoidance hacks^Wfeatures should be used.
+      
+
+
+
+* How do you read the lines of a text files…
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/how-do-you-read-the-lines-of-a-text-files/8834/1
+
+** Kim Nguyễn said
+
+
+for years I have rewritten the same while loop that accumulates in a ~string list ref~ then catches
+~End_of_file~ and returns ~List.rev~ of my accumulator (or a variant with with a tail rec function with the
+exception re-wraped as an option or more recently by matching on ~End_of_file~).
+
+For 4 years, I could simply have used ~Arg.read_arg "file.txt"~ most of the time and get the arrays of all the
+lines in ~file.txt~ with the end of line character stripped.
+
+I realized  yesterday morning this function existed (as well as ~Arg.write_arg~ and two variants that read
+strings separated by ~\000~ instead of newline) while searching for something in the documentation of the
+~Arg~ module.
+
+I hope this shaves a few bytes from everyone's programs next time someone quickly wants to grab the content of a file
+(or save a list of strings as a file). And now I'm wondering what other gems I have missed…
+      
+
+** Daniel Bünzli then added
+
+
+@K_N thanks to @nojb's
+[[https://discuss.ocaml.org/t/ocaml-compiler-development-newsletter-issue-3-june-september-2021/8598#channels-in-the-standard-library-2][work]],
+these mundane tasks finally get bearable with the upcoming ~4.14~ ~Stdlib~.
+
+For example:
+
+#+begin_src ocaml
+let lines file =
+  let contents = In_channel.with_open_bin file In_channel.input_all in
+  String.split_on_char '\n' contents
+#+end_src
+
+Or to support the widespread tool convention that filename ~-~ means stdin:
+
+#+begin_src ocaml
+let lines file =
+  let contents = match file with
+  | "-" -> In_channel.input_all In_channel.stdin
+  | file -> In_channel.with_open_bin file In_channel.input_all
+  in
+  String.split_on_char '\n' contents
+#+end_src
+      
+
+
+
+* WebAuthn - Web Authentication
+:PROPERTIES:
+:CUSTOM_ID: 5
+:END:
+Archive: https://discuss.ocaml.org/t/ann-webauthn-web-authentication/8845/1
+
+** Reynir Björnsson announced
+
+
+I am pleased to announce the release of webauthn on opam (PR pending), a server-side implentation of WebAuthn, a web
+standard published by W3C of a similar vein as U2F for (second factor) authentication using various authenticators
+such as FIDO U2F devices, android safetynet etc. Registering a new authenticator involves the client sending a public
+key among other data to the server. Authentication is then done by sending a challenge which the client responds to
+using the key.
+
+The motivation for developing this WebAuthn implementation is Google's intention of deprecating U2F in Chrome
+https://groups.google.com/a/chromium.org/g/blink-dev/c/xHC3AtU_65A
+
+Like our [[https://github.com/roburio/u2f][U2F implementation]] the library does not use any IO, and only handles the
+logic of generating challenges, verifying responses to registration challenges and authentication challenges. It is
+up to the client of the library to handle IO, user management and more. Be sure to read ~src/webauthn.mli~ and the
+demo in ~bin/~ https://github.com/roburio/webauthn/. A live demo is available at: https://webauthn-demo.robur.coop/.
+
+*** Attestation types
+
+When registering a user an attestation certificate is optionally provided. The attestation certificate is a X509
+certificate signing the public key sent during registration and contains information such as the maker and
+model(family) of the authenticator. At the moment only ~fido-u2f~ and and ~none~ are supported.
+
+The work was sponsored by skolem.tech
+      
+
+
+
+* Set up OCaml 2.0.0-beta9
+:PROPERTIES:
+:CUSTOM_ID: 6
+:END:
+Archive: https://discuss.ocaml.org/t/ann-set-up-ocaml-2-0-0-beta9/8861/1
+
+** Sora Morimoto announced
+
+
+*** Changed
+
+- Increase the allowed artifact cache size from 5GB to 10GB.
+
+https://github.com/ocaml/setup-ocaml/releases/tag/v2.0.0-beta9
+      
+
+
+
+* Windows-friendly OCaml 4.12 distribution 2nd preview release (0.2.0)
+:PROPERTIES:
+:CUSTOM_ID: 7
+:END:
+Archive: https://discuss.ocaml.org/t/ann-windows-friendly-ocaml-4-12-distribution-2nd-preview-release-0-2-0/8488/6
+
+** jbeckford announced
+
+
+0.2.6 of Diskuv OCaml is available.
+
+Some of the more significant changes are:
+
+- OCaml has been upgraded from 4.12.0 to [[https://ocaml.org/releases/4.12.1.html][4.12.1]]. Also: [[https://ocaml.org/releases/4.13.1.html][4.13.1]] is bundled but is not yet supported
+- Introduce "Vanilla OCaml" zip archives for 32-bit and 64-bit at https://gitlab.com/diskuv/diskuv-ocaml/-/releases. Contains ~ocaml.exe~, ~ocamlc.opt.exe~, the other ~ocaml*.exe~ and ~flexlink.exe~. Since the standard library directories are hardcoded by ~ocamlc -config~ as ~C:/DiskuvOCaml/OcamlSys/32/lib/ocaml~ and ~C:/DiskuvOCaml/OcamlSys/64/lib/ocaml~ the most useful scenario is continuous integration (GitHub Actions, etc.) where you can extract the archive to ~C:\DiskuvOCaml\OcamlSys\{32|64}~. The archive contains reproducible source code which is Apache v2.0 licensed. And ~ocamlc~ must be run from a x64 or x86 Native Tools Command Prompt (Visual Studio). *A similar 32/64-bit archive for Opam was and still is available*
+- Work to split DKML (Diskuv OCaml distribution) and DKSDK (Diskuv SDK) in the existing monorepo has started. DKSDK will support CMake, cross-compilation and building desktop/mobile/embedded applications, where DKML will be a full-featured OCaml distribution used with native (ie. Microsoft, Apple) compilers. DKML will primarily be Apache licensed, as it is today
+- Introduce vagrant to simplify testing Windows installations even on macOS and Linux machines. Assuming you have [[https://www.virtualbox.org/][VirtualBox]] and [[https://www.vagrantup.com/][Vagrant]] installed, just ~git clone https://gitlab.com/diskuv/diskuv-ocaml~ and do ~cd vagrant/win32 ; vagrant up ; vagrant ssh~ to open a Command Prompt terminal. Be prepared to wait 2 hours on a 2-CPU machine. From there you can do ~with-dkml dune build~, ~with-dkml ocamlc ...~, etc. to build and test your application. Or instead of ~vagrant ssh~ you can open Virtual Box, display the Windows desktop, and open the x64 Native Tools Command Prompt to hack away on your project without ~with-dkml~
+
+Known issues:
+
+- Installing from mainline China frequently errors out. A short term fix is available at [[https://gitlab.com/diskuv/diskuv-ocaml/-/issues/6#note_726814601][https://gitlab.com/diskuv/diskuv-ocaml/-/issues/6#note_726814601]]
+
+Links:
+- [[https://diskuv.gitlab.io/diskuv-ocaml/index.html#two-step-installation-instructions][Installation instructions for the latest version]]
+- [[https://gitlab.com/diskuv/diskuv-ocaml/-/releases][Release notes for all versions including upgrading instructions]]
+
+And thanks to @dbuenzli for nudging me to include Vagrant a few months ago. Vagrant is now part of the [[https://github.com/diskuv/diskuv-ocaml-ghmirror/actions/workflows/vagrant-win32.yml][automated
+GitHub Actions testing]]; the
+host virtual machine is macOS 10.15 which is the only free GitHub platform that supports nested virtualization into
+Windows. But you can use it on your Linux/macOS desktop to do your own Windows development.
+
+*** What's next?
+
+- The next version (0.3.0) includes at least one breaking change (upgrade of ocamlformat from 0.8.0 to 0.9.0)
+      
+
+
+
+* opam build and opam test: the opam plugins that simplifies your dev setup
+:PROPERTIES:
+:CUSTOM_ID: 8
+:END:
+Archive: https://discuss.ocaml.org/t/ann-opam-build-opam-test-the-opam-plugins-that-simplifies-your-dev-setup/8867/1
+
+** Kate announced
+
+
+I’m pleased to announce the first release of ~opam-build~ and ~opam-test~.
+Those two plugins are highly **experimental** for the moment but aims at a simpler workflow for developers to get
+started building and testing their projects.
+
+*** opam-build
+
+builds any project easily with just one command:
+#+begin_example
+opam build
+#+end_example
+The command will setup a local switch and install all the required dependencies, then build the project (as described
+in the opam files). So no matter your build system, calling ~opam build~ should be enough.
+
+*** opam-test
+
+~opam-test~ does the same thing as ~opam-build~ but runs the tests on top of it. Just call:
+#+begin_example
+opam test
+#+end_example
+to get started.
+
+~opam-test~ also circumvents issues with cyclic test dependencies in opam (where the tests require a package that
+needs the library it is trying to test). Such cyclic dependency is present in packages such as odoc or base. See
+https://github.com/ocaml/opam/issues/4594
+
+If your package is in such a case, ~opam-test~ allows you to use the ~post~ variable to make that work. For instance:
+
+In project A:
+#+begin_example
+run-test: ["dune" "build "-p" name "-j" jobs] {post}
+depends: [
+  "B" {with-test & post}
+]
+#+end_example
+In project B:
+#+begin_example
+depends: [
+  "A"
+]
+#+end_example
+Without the ~{post}~ variable, opam alone would not be able to run the tests as the tests are run before the
+installation of the package and this would lead to a cyclic dependency. ~opam-test~ allows you to split the
+installation from the tests and thus makes that work.
+
+*** Installation
+
+To install, simply call
+#+begin_example
+opam update
+opam install opam-build opam-test
+#+end_example
+/If the package do not exist, they might not have been merged in opam-repository yet (watch for https://github.com/ocaml/opam-repository/pull/20085). In the meantime, instead you can install it directly from the source repository:/
+#+begin_example
+opam pin add git+https://github.com/kit-ty-kate/opam-build
+#+end_example
+
+Again, these plugins are highly experimental and are looking for use-cases. If you think this can be useful, feel
+free to send some feedbacks here or on the bugtracker: https://github.com/kit-ty-kate/opam-build/issues
+      
+
+
+
+* Twenty Years of OCaml Weekly News
+:PROPERTIES:
+:CUSTOM_ID: 9
+:END:
+Archive: https://discuss.ocaml.org/t/twenty-years-of-ocaml-weekly-news/8869/1
+
+** Alan Schmitt announced
+
+
+On November 27th, 2001, I replaced David Mentré as maintainer of the OCaml Weekly News and I sent my first one. If you want a trip down memory lane, they are
+all collected [[https://alan.petitepomme.net/cwn/index.html][here]].
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[https://alan.petitepomme.net/cwn/][the archive]] or the [[https://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe [[http://lists.idyll.org/listinfo/caml-news-weekly/][online]].
+
+#+BEGIN_authorname
+[[https://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname

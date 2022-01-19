@@ -1,0 +1,320 @@
+Hello,
+
+Here is the latest OCaml Weekly News, for the week of July 12 to August 02, 2016.
+
+Sorry for the hiatus, I was away on an island with very limited internet access.
+
+1) Beta release of BuckleScript: readable JS backend for OCaml
+2) Binding OCaml to Cordova plugins: first release.
+3) angstrom
+4) registrations open for the OCaml MOOC! (with subtitles, and a broader call)
+5) Other OCaml News
+
+========================================================================
+1) Beta release of BuckleScript: readable JS backend for OCaml
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2016-07/msg00152.html>
+------------------------------------------------------------------------
+** Hongbo Zhang announced:
+
+We are glad to announce the beta release of BuckleScript[1], a backend for the
+OCaml compiler which emits JavaScript.
+
+A simple example is available here:
+<https://github.com/bloomberg/bucklescript/#a-simple-example>
+
+As examples of that vision, using BuckleScript, OCaml users can use Chrome Dev
+Tools to debug OCaml code, while Javascript users can use OCaml libraries as
+plain npm[2] packages.
+
+The project is inspired by js_of_ocaml[3], its goal is to engage OCaml with
+average JavaScript developers. For this release, its FFI ([5], [6]) is not
+complete but quite rich and stable, we encourage you to try and share feedback
+with us!
+
+Thanks -- Hongbo
+
+[1]: <https://github.com/bloomberg/bucklescript/> 
+[2]: <https://www.npmjs.com/>
+[3]: <http://ocsigen.org/js_of_ocaml/>
+[4]: <https://bloomberg.github.io/bucklescript/Differences-from-js_of_ocaml.html>
+[5]: <https://github.com/bloomberg/bucklescript/blob/master/docs/OCaml-call-JS.md> 
+[6]: <https://github.com/bloomberg/bucklescript/blob/master/docs/JS-call-OCaml.md>
+      
+========================================================================
+2) Binding OCaml to Cordova plugins: first release.
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2016-07/msg00155.html>
+------------------------------------------------------------------------
+** Danny Willems announced:
+
+I'm glad to announce the first release of bindings OCaml to Cordova plugins
+available here: <https://github.com/dannywillems/ocaml-cordova-plugin-list>.
+
+These bindings allow you to develop hybrid mobile applications (Android, iOS,
+Windows Phone, etc) in OCaml and get access to camera to take pictures,
+geolocation, file system, accelerometer, etc with a high level abstraction in
+OCaml.
+
+Combined with js_of_ocaml, you develop client hybrid mobile applications only in
+OCaml.
+
+It's very easy to use and easy to install.
+
+If you have any questions or remarks, don't hesitate to send me a message.
+      
+========================================================================
+3) angstrom
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2016-07/msg00227.html>
+------------------------------------------------------------------------
+** Spiros Eliopoulos announced:
+
+It is with great pleasure that I announce the initial release of angstrom, a
+parser-combinator library that I have been developing over the past several
+months:
+
+<https://github.com/inhabitedtype/angstrom>
+<http://opam.ocaml.org/packages/angstrom>
+
+Angstrom exposes monadic and applicative interfaces for composition, and
+supports incremental input through buffered and unbuffered interfaces. Both
+interfaces give the user total control over the blocking behavior of their
+application, with the unbuffered interface enabling zero-copy IO. Parsers are
+backtracking by default and support unbounded lookahead.
+
+Whereas many OCaml parser combinator libraries claim heritage from the Parsec[0]
+Haskell library, angstrom instead follows the design and semantics of
+attoparsec[1], hence the name[2]. For a high-level comparison of Angstrom's
+features to other parser-combinator libraries, see the table included in the
+README:
+
+<https://github.com/inhabitedtype/angstrom#comparison-to-other-libraries>
+
+The source distribution ships with a JSON parser, which I've benchmarked against
+ezjsonm and yojson. Yojson wins hands down (it benefits greatly from not having
+to support non-blocking incremental input), though the angstrom-based parser
+comes in second both in terms of latency and allocations. The results can be
+found here:
+
+<https://gist.github.com/seliopou/7487875d36914efe74f736aaa3fbed16>
+
+There are several more performance improvements in the pipeline, which should
+further reduce allocation rates, in some cases dramatically so. More on that in
+the next release, along with other developments.
+
+As always, issues and pull requests are welcomed.
+
+-Spiros E.
+
+[0]: <https://hackage.haskell.org/package/parsec>
+[1]: <https://github.com/bos/attoparsec>
+[2]: <https://en.wikipedia.org/wiki/%C3%85ngstr%C3%B6m>
+      
+** Daniel Bünzli asked and Spiros Eliopoulos replied:
+
+> Do you have a story for precise line-column and byte count tracking ? It's quite
+> important in practice to be able to give good error reports.
+
+Angstrom's targeting the use case of network protocols and serialization
+formats, a use case where line/column numbers are of dubious value, and doesn't
+really make sense when dealing with binary formats. So it will likely never
+support line/column tracking. It will however at some point report character
+position on failure. I have a local branch that implements it, though it's
+untested.
+
+> Also does the API easily allow to do best-effort decoding (after reporting an
+> error allow to resync input by discarding and restart the parsing process) ?
+
+From what I understand, this would require users to modify input rather than
+putting any correction logic into the parser itself. Angstrom does not support
+this functionality, and likely won't. In principle the only change necessary
+would be to simply surface the success continuation on failure. Everything else
+is accessible to the user (except for failure position, see above). Why it's
+valuable to do this outside of the parser is unclear to me though.
+
+>> Yojson wins hands down (it benefits greatly from not having to support
+>> non-blocking incremental input),
+
+> I guess it also benefits of not implementing the standard at all, e.g. it won't
+> check the validity of the underlying character stream.
+
+> Also regarding benchmarks it would be more interesting to have benchmarks on
+> real world examples where you convert json input to concrete ocaml data types.
+> E.g. it would be cool if you could provide a jsonm-like streaming interface
+> with angstrom and then use angstrom's combinators to parse the stream of json
+> lexeme into OCaml data structures.
+
+Doing that would seem to muddle application and library performance measurements
+within the benchmark. Arguably, constructing a generic in-memory representation
+is doing the same in essence. At least this way it's an "application" that's
+easy for benchmarks to standardize on (more or less) and implement, so that one
+can use the benchmark results to compare different libraries.
+
+But anyways, there's nothing in principle preventing it from happening. There
+parser would look something like this:
+
+skip_many (token >>| (handler : json_token -> unit))
+      
+** Daniel Bünzli then replied:
+
+> Angstrom's targeting the use case of network protocols and serialization
+> formats, a use case where line/column numbers are of dubious value,
+
+Well when you are dealing with large malformed json streams it's nice to know
+where they error? But if you target binary data only a byte count should
+suffice.
+  
+> From what I understand, this would require users to modify input rather than
+> putting any correction logic into the parser itself.
+
+No the parser itself is in charge of performing this. A very simple example of
+this is when you get an UTF-8 decode error. You want to be able to report the
+error and let the client restart the decode which is easy to do by finding a
+synchronization byte in the input. But again this may not be useful for binary
+protocols, it is however useful for decoding text and parsing languages.
+  
+> Doing that would seem to muddle application and library performance
+> measurements within the benchmark. Arguably, constructing a generic in-memory
+> representation is doing the same in essence.
+
+Not really, it can completely change the outcome of your benchmarks. For example
+jsonm allows you to completely eschew going through a generic in-memory
+representation before being able to extract the data.
+      
+========================================================================
+4) registrations open for the OCaml MOOC! (with subtitles, and a broader call)
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2016-07/msg00233.html>
+------------------------------------------------------------------------
+** Roberto Di Cosmo announced:
+
+We announced the opening of the registrations for the OCaml Mooc a little more
+than a week ago, and we got several great suggestions on how to improve the
+communication around this course.
+
+As a first point, we forgot to mention that the course is indeed in English, but
+subtitles are available, both in English and French (thanks to a great many
+volunteers, with special thanks to Jean-Francois Monin that took care of the
+french version entirely by himself!)
+
+As a second remark, we need to reach out to a wider public that does not know
+much of functional programming or OCaml, while the text of the previous
+announcement was more oriented to our own community.
+
+You will find here below an announcement text specifically designed for a
+broader community (with many thanks to Julia Lawall for her help!)
+
+Feel free to forward wherever you may see fit: let's not be shy, future
+functional programmers may hide in unexpected places!
+
+--
+Roberto Di Cosmo, Yann Regis-Gianas, Ralf Treinen, with Benjamin Canou and Gregoire Henry
+
+Learn functional programming with the OCaml programming language: registrations are open!
+-----------------------------------------------------------------------------------------
+
+Functional programming is attracting interest from a broad range of
+developers because it allows to write expressive, concise and elegant
+programs.
+
+The course "Introduction to Functional programming using the OCaml
+language" introduces gradually the central notions of functional
+programming, via a set of video courses that are complemented by a rich set
+of interesting exercises that you can perform fully in your browser... Yes,
+this means you can start learning functional programming without any
+hassle: nothing to install, nothing to tune up: the programming environment
+is just one click away!
+
+During the course, you will discover powerful mechanisms that allow to
+build and manipulate complex data structures in a clean and efficient way.
+And you will see how functions play a central role, as first-class values
+that can be freely used in any place where an expression can appear.
+
+Registrations are already open at
+
+<https://www.fun-mooc.fr/courses/parisdiderot/56002S02/session02/about>
+
+The course will start on September 26th 2016, and will run for six weeks.
+
+Your expected effort is between 2 and 6 hours per week, depending on your
+background, including the time spent watching the the short video sequences
+of the course, that total approximately an hour per week.
+
+This may seem a significant effort, but at the end of the course you will
+have actually learned a lot: the final programming project will confirm
+that you acquired a good mastery of functional programming and the ability
+to develop medium sized programs with ease.
+
+Thousands of learners attended the first run of this course that ended in
+January 2016, and the many that completed it were extremely satisfied.
+
+To introduce you to functional programming, we have chosen to use the
+OCaml programming language. OCaml is a rich, elegant, efficient programming
+language that reconciles the conciseness and flexibility of untyped
+programming languages (like Python, for example) with the safety of
+strongly typed programming languages (like Java, for example), and that has
+a vibrant user community.
+
+Facebook, Microsoft, JaneStreet, Bloomberg are some big names in industry
+that adopted OCaml to develop cutting edge applications. The research
+community uses OCaml for writing tools like the proof assistant Coq, the
+Coccinelle program transformer, the Frama-C code analyser, or the Astree
+static analyser. Several start ups use OCaml to obtain tenfold gains in
+productivity and stability of their code base.
+
+Once you have started mastering functional programming using OCaml, we are
+sure that other programming languages will never look the same to you
+again.
+
+This course will be held in English, but subtitles are already available
+both in English and in French.
+
+Prerequisites
+-------------
+
+To take full advantage of this course you should have already some basic
+knowledge of computer programming, in particular you should already know
+how to write simple computer programs in some programming language. For
+instance, you should know concepts like variables (or identifiers),
+functions (or procedures, methods), conditionals, and loops.
+      
+========================================================================
+5) Other OCaml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Here are links from many OCaml blogs aggregated at OCaml Planet,
+<http://ocaml.org/community/planet/>.
+
+The Andromeda proof assistant (Leeds workshop slides)
+ <http://math.andrej.com/2016/07/28/the-andromeda-proof-assistant-leeds-workshop-slides/>
+
+Full Time: Software Developer (Functional Programming) at Jane Street in New York, NY; London, UK; Hong Kong
+ <http://jobs.github.com/positions/0a9333c4-71da-11e0-9ac7-692793c00b45>
+
+vile 9.8r
+ <http://blog.0branch.com/posts/2016-07-28-vile-9.8r.html>
+
+Database of the Web DevOps at Ahrefs (Full-time)
+ <https://functionaljobs.com/jobs/8939-database-of-the-web-devops-at-ahrefs>
+
+MirageOS Summer Hackathon Roundup
+ <https://ocaml.io/w/Blog:News/MirageOS_Summer_Hackathon_Roundup>
+
+Cryptokit 1.11 released
+ <http://forge.ocamlcore.org/forum/forum.php?forum_id=936>
+
+Re-engineering ARP
+ <https://hannes.nqsb.io/Posts/ARP>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

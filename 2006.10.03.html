@@ -1,0 +1,1089 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2006.09.26.html">Previous week</a> <a href="index.html">Up</a> <a href="2006.10.10.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of September 26 to October 03, 2006.</p><ol>
+      <li>
+        <a href="#1">Listing toplevel bindings</a>
+      </li>
+      <li>
+        <a href="#2">out-of-heap data structures</a>
+      </li>
+      <li>
+        <a href="#3">APC</a>
+      </li>
+      <li>
+        <a href="#4">Appel aux Communications JFLA 2007</a>
+      </li>
+      <li>
+        <a href="#5">float rounding</a>
+      </li>
+      <li>
+        <a href="#6">Preview release ocamlnet-2.2test12</a>
+      </li>
+      <li>
+        <a href="#7">More problems with memoization</a>
+      </li>
+    </ol><a name="1" /><hr /><h3>Listing toplevel bindings</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/0b3a6547deb18385/f8139606d7067fe4#f8139606d7067fe4">http://groups.google.com/group/fa.caml/browse_thread/thread/0b3a6547deb18385/f8139606d7067fe4#f8139606d7067fe4</a></p><i>John Harrison asked and Oleg answered:</i><br /><pre>
+&gt; When inside the OCaml toplevel, is there any way of getting a list of 
+&gt; all (top-level) bindings of names to objects of some specified type 'a? 
+
+Yes, there is. No need to recompile anything. However, you need the 
+OCaml installation directory (after your have compiled the top-level 
+and before you did make clean). 
+First, please retrieve the following file 
+        <a href="http://pobox.com/~oleg/ftp/ML/gprint/gprint_toplevel.ml">http://pobox.com/~oleg/ftp/ML/gprint/gprint_toplevel.ml</a> 
+and adjust the paths in the "directory" directives to point to your 
+OCaml installation directory. Please run your Ocaml top-level and 
+execute all #directory and the #load directives 
+in that file up to, but not including the loading of genprintval.cmo. 
+Please do NOT change the order of the load directives! It took about 
+half an hour to find the right order.... 
+
+Next, please enter the code given in the appendix of this message. The 
+code will print the signature of the values in the 
+existing top-level environment. For example: 
+
+binding: get_value_bindings/79   
+val get_value_bindings : Env.t -&gt; (Ident.t * Types.value_description) list 
+binding: print_bindings/107   
+val print_bindings : 
+  Format.formatter -&gt; (Ident.t * Types.value_description) list -&gt; unit 
+Done 
+- : unit = () 
+
+We then can enter 
+
+# let x = 1;; 
+val x : int = 1 
+# let x = 2;; 
+val x : int = 2 
+# let y = 10;; 
+val y : int = 10 
+# print_int_toplevel Format.std_formatter 
+    (get_value_bindings (!Toploop.toplevel_env));; 
+
+binding: x/186  value: 2 
+binding: x/187  value: 2 
+binding: y/188  value: 10 
+Done 
+- : unit = () 
+
+As we can see, the type environment keeps track of all the previous 
+definitions of a name. Because "x" was defined twice, there are two 
+entries in the type environment: "x/186" and "x/187". The counter is 
+the timestamp. The top-level value environment keeps the last value, 
+however. 
+
+The function print_int_toplevel cannot, generally, be polymorphic over 
+type -- unless you're willing to assume responsibility that your type 
+representation string matches your desired type -- or you're willing 
+to use MetaOCaml. 
+
+Appendix. 
+
+open Ident;; 
+open Env;; 
+
+let get_value_bindings env = 
+   let rec get_val acc = function 
+        | Env_empty -&gt; acc 
+        | Env_value (next, ident, val_descr) -&gt; 
+                get_val ((ident,val_descr)::acc) next 
+        | Env_type (next,_,_) -&gt; get_val acc next 
+        | Env_exception (next,_,_) -&gt; get_val acc next 
+        | Env_module (next,_,_) -&gt; get_val acc next 
+        | Env_modtype (next,_,_) -&gt; get_val acc next 
+        | Env_class (next,_,_) -&gt; get_val acc next 
+        | Env_cltype (next,_,_) -&gt; get_val acc next 
+        | Env_open (next,_) -&gt; get_val acc next 
+  in get_val [] (summary env); 
+;; 
+
+let print_bindings ppf bindings = 
+  List.iter (fun (ident,val_descr) -&gt; 
+        Format.fprintf ppf "@\nbinding: "; 
+        Ident.print ppf ident; 
+        Format.fprintf ppf "@ @ @ "; 
+        Printtyp.value_description ident ppf val_descr) 
+    bindings; 
+  Format.fprintf ppf "@\nDone@."   
+;; 
+
+print_bindings Format.std_formatter 
+    (get_value_bindings (!Toploop.toplevel_env));; 
+
+let type_to_str (x : Types.type_expr) = 
+  Printtyp.type_expr Format.str_formatter x; 
+         Format.flush_str_formatter ();; 
+
+(* Print all top-level int bindings *) 
+
+let print_int_toplevel ppf bindings = 
+  let print_int_binding (ident,val_descr) = 
+   if type_to_str val_descr.Types.val_type = "int" then 
+   begin 
+    Format.fprintf ppf "@\nbinding: "; 
+    Ident.print ppf ident; 
+    Format.fprintf ppf "  value: %d" (Obj.obj (Toploop.getvalue (name ident))); 
+   end else () 
+ in 
+   List.iter print_int_binding bindings; 
+   Format.fprintf ppf "@\nDone@."   
+;; 
+
+print_int_toplevel Format.std_formatter 
+    (get_value_bindings (!Toploop.toplevel_env));;
+			</pre><a name="2" /><hr /><h3>out-of-heap data structures</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/24056e86a29de1b7/e06f1b13fee052f4#e06f1b13fee052f4">http://groups.google.com/group/fa.caml/browse_thread/thread/24056e86a29de1b7/e06f1b13fee052f4#e06f1b13fee052f4</a></p><i>Damien Doligez said, Markus Mottl answered, and Richard Jones said:</i><br /><pre>
+Markus Mottl wrote: 
+&gt; Damien Doligez wrote: 
+&gt; &gt; The GC doesn't work by checking whether something has become 
+&gt; &gt; unreachable.  It works by marking all reachable data, then deallocating 
+&gt; &gt; everything else.  There is no way to do what you want in OCaml, and 
+&gt; &gt; I don't think it can be done without a major rework of the runtime 
+&gt; &gt; system. 
+&gt; But isn't it true that the GC doesn't follow pointers that point 
+&gt; outside the OCaml-heap?  In that case it might be conceivable to copy 
+&gt; OCaml-data that must not be reclaimed into the C-heap.  Of course, 
+&gt; this would mean that pointers must not point back into the OCaml-heap 
+&gt; from there, because there is no way the GC could know then that some 
+&gt; value in the OCaml-heap is still in use, or how to update the pointer 
+&gt; in the C-heap in case the OCaml-value gets moved around, e.g. during a 
+&gt; compaction. 
+
+&gt; If the above really works, I'd be glad to know whether there is 
+&gt; already functionality to copy OCaml-structures around.  We have some 
+&gt; applications that would greatly benefit from this feature, too: they 
+&gt; require an enormous amount of static background knowledge, and have to 
+&gt; use it for small jobs which can be easily distributed.  We have 
+&gt; multi-core, multi-processor machines, and would be able to greatly 
+&gt; speed up our compute jobs if we could put these large OCaml-values 
+&gt; into a shared-memory region.  It would save us both a hell lot of 
+&gt; memory (probably in the range of GBs per machine for some jobs), and 
+&gt; also make the GC work less hard marking data that is not going to be 
+&gt; reclaimed anyway. 
+
+Really similar case to us! 
+In theory you'd have a "MARK_ANCIENT (obj)" operation.  It would copy 
+obj and everything pointed to by obj out of the OCaml heap into 
+malloc'd memory.  It would need to find everything pointing to obj and 
+update those pointers to the out-of-heap copy, or else have a proxy in 
+place of obj.  All done in C so that the garbage collector wouldn't be 
+running while this happened, and in Markus's case you'd want to move 
+out to some sort of shared memory, perhaps using something like 
+mmalloc[1]. 
+
+The problem with all this is that such an "ancient" object had really 
+better not be changed.  If it was changed such that part of it pointed 
+to a new object allocated on the Caml heap, then that new object could 
+never be reached by the GC, and so would quickly get collected, 
+resulting in a dangling pointer.  You'd have to ensure that the 
+ancient object was never changed by careful programming ... 
+
+Rich. 
+
+[1] <a href="http://www.math.utah.edu/docs/info/mmalloc_1.html">http://www.math.utah.edu/docs/info/mmalloc_1.html</a>
+			</pre><i>Richard Jones then added:</i><br /><pre>
+Here's a very lightly tested version of this idea for review: 
+
+  <a href="http://homes.merjis.com/~rich/ancient-0.0.1.tar.gz">http://homes.merjis.com/~rich/ancient-0.0.1.tar.gz</a> 
+
+If you just want to look at the interface or the code, see here: 
+
+  <a href="http://homes.merjis.com/~rich/ancient.mli">http://homes.merjis.com/~rich/ancient.mli</a> 
+  <a href="http://homes.merjis.com/~rich/ancient_c.c.txt">http://homes.merjis.com/~rich/ancient_c.c.txt</a> 
+
+It works for a very simple case; I haven't tried it for anything 
+significant yet.
+			</pre><i>Richard Jones later said:</i><br /><pre>
+Updated version which supports shared memory mappings using the
+mmalloc library (included).  I've done a bit of testing and it seems
+fairly robust so far, but I'm sure there are plenty of segfaults
+waiting to happen.
+
+In theory this version would solve Markus's and my huge infrequently-
+accessed shared structures problem, but I'm going to do a lot more
+testing at this end before making any grand claims.
+
+  <a href="http://homes.merjis.com/~rich/ancient-0.0.3.tar.gz">http://homes.merjis.com/~rich/ancient-0.0.3.tar.gz</a>
+  <a href="http://homes.merjis.com/~rich/ancient.mli">http://homes.merjis.com/~rich/ancient.mli</a>
+  <a href="http://homes.merjis.com/~rich/ancient_c.c.txt">http://homes.merjis.com/~rich/ancient_c.c.txt</a>
+			</pre><i>Xavier Leroy answered Markus Mottl:</i><br /><pre>
+&gt; But isn't it true that the GC doesn't follow pointers that point 
+&gt; outside the OCaml-heap?  In that case it might be conceivable to copy 
+&gt; OCaml-data that must not be reclaimed into the C-heap. 
+
+Yes, this is possible.  For instance, ocamlopt places structured 
+constants (e.g. constant lists) in the initialized data section 
+of the executable, outside the Caml heap. 
+&gt; Of course, 
+&gt; this would mean that pointers must not point back into the OCaml-heap 
+&gt; from there, because there is no way the GC could know then that some 
+&gt; value in the OCaml-heap is still in use, or how to update the pointer 
+&gt; in the C-heap in case the OCaml-value gets moved around, e.g. during a 
+&gt; compaction. 
+
+.. unless you register the locations of back-pointers as global roots. 
+But be careful that global roots are scanned at every GC (minor as 
+well as major), therefore a large number of such roots slow down the 
+GC significantly. 
+&gt; If the above really works, 
+
+There is one caveat: ad-hoc polymorphic primitives (structural 
+equality and comparisons, marshaling, hashing) will not work on data 
+structures that reside outside of the Caml heap.  The reason is that 
+these primitives treat out-of-heap pointers as opaque data.  There is 
+a special case (the "Is_atom" test) for pointers that correspond to 
+ocamlopt-generated static data, but extending this special case is 
+nonobvious. 
+&gt; I'd be glad to know whether there is 
+&gt; already functionality to copy OCaml-structures around. 
+
+Apparently, Richard Jones is already working on it...  Basically, it's 
+just like a copying collection with only one root.  You could draw 
+inspiration from the OCaml minor GC (Cheney-style breadth-first copying) 
+and from the marshaller (depth-first quasi-copying).
+			</pre><i>Oleg then replied:</i><br /><pre>
+&gt; There is one caveat: ad-hoc polymorphic primitives (structural 
+&gt; equality and comparisons, marshaling, hashing) will not work on data 
+&gt; structures that reside outside of the Caml heap.  The reason is that 
+&gt; these primitives treat out-of-heap pointers as opaque data.  There is 
+&gt; a special case (the "Is_atom" test) for pointers that correspond to 
+&gt; ocamlopt-generated static data, but extending this special case is 
+&gt; nonobvious. 
+
+Actually, MetaOCaml has done such an extension. The extension is 
+general purpose and backward compatible. Furthermore, no base OCaml 
+sources were harmed in the process: there is no need to recompile 
+ocamlopt or the standard library. The linking of the final executable 
+does require a few extra flags. 
+The Is_atom test in the ocamlopt-produced executables checks if the 
+address of the tested value falls within the data segment of the 
+executable. Alas, if we permit dynamic loading of ocaml-opt compiled 
+code, static data no longer reside in one segment (within one 
+continuous range of virtual addresses). Therefore, modifications are 
+necessary. 
+
+Native MetaOCaml (or, to be precise, the dynamic linking part of it) 
+has carried out such modifications. The Is_atom test now reads 
+
+CAMLextern struct DYNlimits caml_static_data_limits; /* in new ndl.c */ 
+#define Is_atom(v) \ 
+  ((((char *)(v) &gt;= caml_static_data_start \ 
+     &amp;&amp; (char *)(v) &lt; caml_static_data_end) \ 
+    || ((v) &gt;= Atom(0) &amp;&amp; (v) &lt;= Atom(255))\ 
+    || (caml_static_data_limits.used != 0 &amp;&amp; \ 
+        within_DYNlimitsP((void *)v,&amp;caml_static_data_limits)))) 
+
+The change is fully backward-compatible: if no dynamic linking is used 
+(or if the data segment is indeed contiguous), the field 
+caml_static_data_limits.used has the value 0 and Is_atom works exactly 
+as before. The additional cost then is dereferencing of a static 
+address -- which could be as few as two instructions (test and branch) 
+on some architectures. 
+
+It seems the extension can be used for maintaining `out-of-heap' OCaml 
+structures. One can have as many such heaps as needed. One merely need 
+to register the range of these extra-heap addresses. 
+
+The code can be found in the directory natdyn of the current MetaOCaml 
+distribution, specifically files mlvalues.h and ndl.c. The Makefile 
+contains the necessary voodoo to get the changes take effect.
+			</pre><a name="3" /><hr /><h3>APC</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/620aae39ad318628/348bef409d1440ac#348bef409d1440ac">http://groups.google.com/group/fa.caml/browse_thread/thread/620aae39ad318628/348bef409d1440ac#348bef409d1440ac</a></p><i>malc announced:</i><br /><pre>
+&gt; At <a href="http://www.boblycat.org/~malc/apc/">http://www.boblycat.org/~malc/apc/</a> you will find a small and not 
+&gt; entirely usual CPU load monitor written in OCaml. Perhaps it would be 
+&gt; useful to someone. 
+
+
+There were few serious bugs in the first version (mostly showcasing 
+on SMP, though not limited to it), those have been, hopefully, fixed. 
+Updated version is available at aforementioned web page. Sorry for 
+inconvenience.
+			</pre><a name="4" /><hr /><h3>Appel aux Communications JFLA 2007</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/05908e2557056ec5/221eb8634ced98ac#221eb8634ced98ac">http://groups.google.com/group/fa.caml/browse_thread/thread/05908e2557056ec5/221eb8634ced98ac#221eb8634ced98ac</a></p><i>Pierre-Etienne Moreau announced:</i><br /><pre>
+(This message is intentionally written in French) 
+* MERCI DE FAIRE CIRCULER *            * MERCI DE FAIRE CIRCULER * 
+
+DEUXIEME APPEL AUX COMMUNICATIONS       DEUXIEME APPEL AUX COMMUNICATIONS 
+
+                         JFLA'2007 (<a href="http://jfla.inria.fr/">http://jfla.inria.fr/</a>) 
+
+                Journées Francophones des Langages Applicatifs 
+                         Organisées par l'INRIA 
+
+                         27-30 janvier 2007 
+
+        JFLA'2007 est la dix-huitième conférence francophone organisée autour des 
+langages applicatifs et des techniques de certification basées sur la 
+démonstration. 
+
+  Ces nouvelles journées se tiendront les 
+
+             27-30 janvier 2007. 
+
+  Elles auront lieu à la montagne, à Aix-les-Bains. 
+
+        Toujours centrée sur l'approche fonctionnelle de la programmation, la 
+conférence a depuis l'an dernier élargi son spectre aux techniques et outils 
+complémentaires qui élèvent niveau de qualité des logiciels (systèmes d'aide à 
+la preuve, réécriture, tests, démonstration automatique, vérification). 
+
+        Les JFLA réunissent concepteurs et utilisateurs dans un cadre agréable 
+facilitant la communication; ces journées ont pour ambition de couvrir le 
+domaine des langages applicatifs, en y incluant les apports d'outils d'autres 
+domaines qui autorisent la construction de systèmes logiciels plus sûrs. 
+L'enseignement de l'approche fonctionnelle du développement logiciel 
+(spécification, sémantiques, programmation, compilation, certification) est 
+également un sujet concernant fortement les JFLA.   
+
+C'est pourquoi des contributions sur les thèmes suivants sont particulièrement 
+recherchées (liste non exclusive) : 
+
+- Langages fonctionnels : sémantique, compilation, optimisation, 
+   mesures, tests, extensions par d'autres paradigmes de programmation. 
+
+- Spécification, prototypage, développements formels d'algorithmes. 
+
+- Utilisation industrielle des langages fonctionnels. 
+
+- Assistants de preuve : implémentation, nouvelles tactiques, 
+   développements présentant un intéret technique ou méthodologique. 
+
+- Enseignement dans ses aspects liés à l'approche fonctionnelle 
+   du développement. 
+
+Orateurs invités 
+---------------- 
+  Hassan Aït Kaci (ILOG). 
+  Andrew Tolmach (projet Gallium, INRIA Rocquencourt). 
+
+Cours 
+----- 
+  Horatiu Cirstea (LORIA, Université Nancy 2). 
+  Marc Pouzet (LRI, Université Paris-Sud 11). 
+
+Comité de programme 
+------------------- 
+         Pierre-Etienne Moreau, Président (LORIA, INRIA Lorraine) 
+         Sandrine Blazy, Vice-Président (CEDRIC, INRIA Rocquencourt) 
+         Judicaël Courant (Verimag) 
+         Alain Frisch (INRIA Rocquencourt) 
+         Jean-Louis Giavitto (IBISC, Evry) 
+         Delia Kesner (PPS, Université Paris 7) 
+         Jean-François Monin (Verimag) 
+         Virgile Prevosto (CEA) 
+         Alan Schmitt (INRIA Rhones-Alpes) 
+         Benjamin Werner (LIX, INRIA Futur) 
+
+Soumission 
+---------- 
+Date limite de soumission : 10 octobre 2006 
+
+Les soumissions doivent être soit rédigées en français, soit 
+présentées en français. Elles sont limitées à 15 pages A4. Le style 
+latex est imposé et se trouve sur le site WEB des journées à l'adresse 
+suivante : 
+
+          <a href="http://jfla.inria.fr/2007/actes.sty">http://jfla.inria.fr/2007/actes.sty</a> 
+
+La soumission est uniquement électronique, selon la méthode détaillée   
+dans : 
+
+          <a href="http://jfla.inria.fr/2007/instructions-fra.html">http://jfla.inria.fr/2007/instructions-fra.html</a> 
+
+Les soumissions sont à envoyer aux présidents du comité de programme, 
+avec pour titre de votre message ``SOUMISSION JFLA 2007'', à l'adresse 
+suivante : 
+
+              Pierre-Etienne.Moreau@loria.fr 
+
+Les intentions de soumission envoyées le plus tôt possible à l'adresse 
+ci-dessus seront les bienvenues. 
+
+Dates importantes 
+----------------- 
+10 octobre 2006    : Date limite de soumission 
+15 novembre 2006   : Notification aux auteurs 
+10 décembre 2006   : Remise des articles définitifs 
+15 janvier 2007    : Date limite d'inscription aux journées 
+27-30 janvier 2007 : Journées 
+
+Pour tout renseignement, contacter 
+---------------------------------- 
+Marie-Françoise Loubressac 
+INRIA Rocquencourt 
+Bureau des Cours et Colloques 
+Domaine de Voluceau - BP 105 
+78153 Le Chesnay Cedex 
+Tél.: +33 (0) 1 39 63 56 00 - Fax : +33 (0) 1 39 63 56 38 
+email : Marie-Francoise.Loubressac@inria.fr 
+
+<a href="http://jfla.inria.fr/2007/">http://jfla.inria.fr/2007/</a> 
+			</pre><a name="5" /><hr /><h3>float rounding</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/8cced5418a89870a/b50ade009a60d66f#b50ade009a60d66f">http://groups.google.com/group/fa.caml/browse_thread/thread/8cced5418a89870a/b50ade009a60d66f#b50ade009a60d66f</a></p><i>Gerd Stolpmann asked and Gerd Stolpmann answered:</i><br /><pre>
+&gt; I'm using Ocaml for an interval arithmetic application.  I'm   
+&gt; curious about 
+&gt; what the Ocaml parser/compiler does to float constants.  May I assume 
+&gt; that for any constant I enter, eg. 3.1415... (for N digits of pi), that 
+&gt; the compiler will give me a closest machine representable number? 
+&gt; i.e., if I bound a constant by the previous and next floating point   
+&gt; value to 
+&gt; that given me by the compiler, 
+&gt; will it always be the case that my original (mathematical) constant   
+&gt; lies in that interval? 
+
+Don't think so. float_of_string is a wrapper around the strtod C 
+function, and the standard for this function does not require that. I 
+found this interesting note about how different OS implement string to 
+float conversion: 
+<a href="http://www.wrcad.com/linux_numerics.txt">http://www.wrcad.com/linux_numerics.txt</a> 
+
+To be sure your constants are the best possible you probably have to use 
+float_of_bits... 
+			</pre><i>Xavier Leroy also answered:</i><br /><pre>
+&gt; I'm using Ocaml for an interval arithmetic application.  I"m  curious 
+&gt; about what the Ocaml parser/compiler does to float constants. 
+
+The lexer, parser and most of the compilers actually keep them as 
+strings, just like they were given in the source code.  Conversion to 
+IEEE binary representation occurs: 
+- For the bytecode compiler ocamlc, when the bytecode is generated. 
+The conversion is performed by the float_of_string function, which is 
+a thin wrapper around the C library strtod() function, as Gerd 
+Stolpmann said. 
+
+- For the native-code compiler ocamlopt, some ports go the 
+float_of_string route, but most output the literal as a string in the 
+generated assembly code, letting the assembler do the conversion. 
+The assembler is likely to use strtod() or atof(), though. 
+
+&gt; May I assume 
+&gt; that for any constant I enter, eg. 3.1415... (for N digits of pi), that 
+&gt; the compiler will give me a closest machine representable number? 
+&gt; i.e., if I bound a constant by the previous and next floating point 
+&gt; value to that given me by the compiler, will it always be the case 
+&gt; that my original (mathematical) constant lies in that interval? 
+
+As Gerd said, the C standards do not guarantee this, so it really 
+depends on how well-implemented your C library is.
+			</pre><a name="6" /><hr /><h3>Preview release ocamlnet-2.2test12</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/0ea12ab4f10b7e4c/ef4234c30f16f015#ef4234c30f16f015">http://groups.google.com/group/fa.caml/browse_thread/thread/0ea12ab4f10b7e4c/ef4234c30f16f015#ef4234c30f16f015</a></p><i>Gerd Stolpmann announced:</i><br /><pre>
+Hi lists, 
+there is a new preview release of the upcoming ocamlnet-2.2 library: 
+
+<a href="http://www.ocaml-programming.de/packages/ocamlnet-2.2test12.tar.gz">http://www.ocaml-programming.de/packages/ocamlnet-2.2test12.tar.gz</a> 
+
+Developers interested in the upcoming 2.2 version can have look at it, 
+and experienced developers are invited to test it, and to help finding 
+the remaining bugs and problems. This version is already close to the 
+final release. 
+
+In the rest of this (long) email, I'll explain certain aspects of this 
+version: 
+
+1. What's new in ocamlnet-2.2 
+2. Release notes 
+3. How you can help testing 
+4. Resources 
+5. Credits 
+
+Gerd 
+
+------------------------------------------------------------ 
+1. What's new in ocamlnet-2.2 
+------------------------------------------------------------ 
+
+Ocamlnet now includes equeue, netclient, and rpc 
+
+These libraries were previously distributed as separate software 
+packages. All four libraries form now together the new ocamlnet-2.2. 
+This allows much deeper integration of their functionality. 
+
+Building servers with Netplex 
+
+The framework Netplex simplifies the development of server applications 
+that require the parallel execution of requests. It focuses on 
+multi-processing servers but also allows multi-threading servers. 
+Netplex manages the start and stop of processes/threads, and dynamically 
+adapts itself to the current workload. Netplex allows it to integrate 
+several network protocols into one application, and as it also supports 
+SunRPC as protocol, one can consider it even as component architecture. 
+Furthermore, it has infrastructure to read configuration files and to 
+log messages. 
+
+Ocamlnet includes add-ons for Netplex to build SunRPC servers, web 
+servers, and web application servers (the latter over the protocols AJP, 
+FastCGI, or SCGI). 
+
+The revised API for web applications 
+
+The library netcgi2 is a revised version of the old cgi API (now also 
+called netcgi1). The changes focus on restructuring the library in order 
+to improve its modularity. It is hoped that beginners find more quickly 
+the relevant functions and methods. The API is essentially the same, but 
+the support for cookies has been enhanced. The connectors allowing a web 
+server to talk with the application have been completely redeveloped - 
+all four connectors (CGI, AJP, FastCGI, SCGI) support the same features. 
+The connector for SCGI is new. The connector for AJP has been upgraded 
+to protocol version 1.3. There are Netplex add-ons for the connectors. 
+
+The old API is still available, but its features are frozen. It is 
+recommended to port applications to netcgi2. 
+
+Improvements for SunRPC applications 
+
+It is now possible to use the SunRPC over SSL tunnels. All features are 
+available, including asynchronous messages. As a side effect of this, 
+the SunRPC implementation is now transport-independent, i.e. it is 
+sufficient to implement a few class types to run RPC over any kind of 
+transport. 
+
+Furthermore, a few details have been improved. SunRPC servers can now 
+implement several RPC programs or program versions at the same time. 
+SunRPC clients can now connect to their servers in the background. A few 
+bugs have been fixed, too. 
+
+Shared memory 
+
+As multi-processing has become quite important due to Netplex, Ocamlnet 
+supports now the inter-process communication over shared memory. The 
+implementation is brand-new and probably not very fast, but shared 
+memory makes sometimes things a lot easier for multi-processing 
+applications. 
+
+Old things remain good 
+
+Of course, this version of Ocamlnet supports the long list of features 
+it inherited from its predecessors. This includes an enhanced HTTP 
+client, a Telnet client, a (still incomplete) FTP client, a POP client, 
+and an SMTP client. The shell library is an enhanced version of 
+Sys.command. The netstring library is a large collection of string 
+routines useful in the Internet context (supports URLs, HTML, mail 
+messages, date strings, character set conversions, Base 64, and a few 
+other things). 
+
+------------------------------------------------------------ 
+2. Release notes 
+------------------------------------------------------------ 
+
+Stability 
+
+In general, the stability of this version is already excellent. About 90 
+% of the code has been taken over from previous versions of ocamlnet, 
+equeue, netclient, and rpc, and this means that this code is already 
+mature. About 10 % of the code has been newly developed: 
+
+- netcgi2 is a revised version of the cgi library. Large parts 
+  are completely new. The stability is unclear yet. 
+
+- netplex is the new server framework. Fortunately, it could already 
+  be used in a production environment, and it has proven excellent 
+  stability there. 
+
+- netcgi2-plex combines netcgi2 and netplex. Stability is unclear. 
+
+- nethttpd has now the option to use netcgi2 as cgi provider 
+  (configure option -prefer-netcgi2). This is mostly untested. 
+
+- netshm adds shared memory support. The stability is unclear 
+  yet. 
+
+- equeue-ssl and rpc-ssl add SSL support to the RPC libraries. 
+  Stability is unclear. 
+
+The project would profit most if these libraries were tested by 
+independent developers. 
+
+Known Problems 
+
+There are known problems in this preview release: 
+
+- There is no good concept to manage signals. This is currently done 
+  ad-hoc. For now, this does not make any problems, or better, there 
+  is always the workaround that the user sets the signal handlers 
+  manually if any problems occur. 
+
+- The new cookie implementation of netcgi2 should replace the old 
+  one in netstring. Users should be prepared that Netcgi.Cookie 
+  will eventually become Nethttp.Cookie in one of the next releases. 
+
+- In netcgi2-plex, the "mount_dir" and "mount_at" options are not yet 
+  implemented. 
+
+- In netclient, aggressive caching of HTTP connections is still 
+  buggy. Do not use this option (by default, it is not enabled). 
+
+- The FTP client is still incomplete. 
+
+------------------------------------------------------------ 
+3. How you can help testing 
+------------------------------------------------------------ 
+
+It would be great if experienced developers tested the libraries, 
+especially the new and revised ones. Discussions should take place in 
+the Ocamlnet mailing list (see resources section below). 
+
+It is important to know that this version of Ocamlnet also includes the 
+libraries formerly distributed as equeue, netclient, and rpc. If you 
+upgrade an O'Caml installation, you _must_ remove old versions of these 
+libraries prio to the installation of the new Ocamlnet. 
+
+For GODI users, there is a convenient way of installing ocamlnet2. First 
+install GODI as usual (either for O'Caml 3.08 or 3.09). Then, change 
+godi.conf, and add the line 
+
+GODI_BUILD_SITES += <a href="http://www.ocaml-programming.de/godi-build/branch-ocamlnet2/">http://www.ocaml-programming.de/godi-build/branch-ocamlnet2/</a> 
+
+update packages and rebuild. You can install 
+
+godi-ocamlnet 
+godi-ocamlnet-gtk1 
+godi-ocamlnet-gtk2 
+godi-ocamlnet-tcl 
+godi-ocamlnet-ssl 
+
+where the latter four packages contain add-ons that need further 
+libraries to be installed. The packages 
+
+godi-equeue*, godi-rpc, godi-netclient 
+
+are only fake packages that include godi-ocamlnet as predecessors. 
+
+------------------------------------------------------------ 
+4. Resources 
+------------------------------------------------------------ 
+
+On online version of the reference manual can be found here: 
+<a href="http://ocamlnet.sourceforge.net/manual-2.2/">http://ocamlnet.sourceforge.net/manual-2.2/</a> 
+
+The current development version is available in Subversion: 
+
+<a href="https://gps.dynxs.de/svn/lib-ocamlnet">https://gps.dynxs.de/svn/lib-ocamlnet</a> 
+
+Note that the ocamlnet file tree in Sourceforge refers to 
+ocamlnet-1 only. 
+
+There is a mailing list for Ocamlnet development: 
+
+<a href="http://sourceforge.net/mail/?group_id=19774">http://sourceforge.net/mail/?group_id=19774</a> 
+
+In case of problems, you can also contact me directly: 
+Gerd Stolpmann &lt;gerd@gerd-stolpmann.de&gt; 
+
+------------------------------------------------------------ 
+5. Credits 
+------------------------------------------------------------ 
+
+A number of people and institutions helped creating this new version: 
+
+- Christophe Troestler wrote the revised CGI library 
+
+- The California State University sponsored the development 
+  of Netplex and the SSL support for SunRPC. Special thanks 
+  to Eric Stokes who convinced the University, and David 
+  Aragon for his business support. 
+
+- All companies who hired me this year and made it possible 
+  that I can make a living from O'Caml development. Without 
+  that it would have been impossible to put so much energy 
+  into this. Special thanks go to Yaron Minsky and Mika 
+  Illouz. 
+
+(The movie ended. Rewind and watch again!)
+			</pre><a name="7" /><hr /><h3>More problems with memoization</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/4540feb573f9a04c/61d7af24a7665633#61d7af24a7665633">http://groups.google.com/group/fa.caml/browse_thread/thread/4540feb573f9a04c/61d7af24a7665633#61d7af24a7665633</a></p><i>Diego Olivier FERNANDEZ PONS asked:</i><br /><pre>
+I wrote the following (classical) memoized code for the fibonacci   
+function and I have been unsuccessfully trying to generalize it with a   
+higher order function. 
+
+let rec fib = function 
+   | 0 -&gt; 0 
+   | 1 -&gt; 1 
+   | n -&gt; fib_mem (n - 1) + fib_mem (n - 2) 
+and fib_mem = 
+   let table = ref [] in 
+     function n -&gt; 
+       try 
+        List.assoc n !table 
+       with Not_found -&gt; 
+        let f_n = fib n in 
+          table := (n, f_n) :: !table; 
+          f_n 
+
+# val fib : int -&gt; int = &lt;fun&gt; 
+# val fib_mem : int -&gt; int = &lt;fun&gt; 
+
+It works: fib 35 answers instantaneously. 
+
+Now I want to achieve the same result with a higher order function   
+[make_memo] and apply it to fib 
+
+let make_mem = function f -&gt; 
+   let table = ref [] in 
+     function n -&gt; 
+       try 
+        List.assoc n !table 
+       with Not_found -&gt; 
+        let f_n = f n in 
+          table := (n, f_n) :: !table; 
+          f_n 
+
+#val make_mem : ('a -&gt; 'b) -&gt; 'a -&gt; 'b 
+
+Very well. Notice that it has one less parameter than the code posted   
+by Andrej Bauer which has type memo_rec : (('a -&gt; 'b) -&gt; 'a -&gt; 'b) -&gt;   
+'a -&gt; 'b. The only difference is the line 
+
+let f_n = f n in ... 
+with respect to 
+let f_n = f g n in ... where g is the anonymous function itself 
+
+in the same way Bauer's [fib_memo] uses an extra parameter [self] 
+
+let fib_memo = 
+   let rec fib self = function 
+     | 0 -&gt; 1 
+     | 1 -&gt; 1 
+     | n -&gt; self (n - 1) + self (n - 2) 
+   in 
+     memo_rec fib 
+
+Now I try to apply make_mem to but it does not work 
+
+let rec fib = function 
+   | 0 -&gt; 0 
+   | 1 -&gt; 1 
+   | n -&gt; fib_mem (n - 1) + fib_mem (n - 2) 
+and fib_mem = make_mem fib 
+
+# This kind of expression is not allowed as right-hand side of `let rec' 
+
+Ok... usually one only need to expand to avoid the problem 
+
+let rec fib = function 
+   | 0 -&gt; 0 
+   | 1 -&gt; 1 
+   | n -&gt; fib_mem (n - 1) + fib_mem (n - 2) 
+and fib_mem = function n -&gt; 
+   let f = make_mem fib in 
+     f n 
+
+# val fib : int -&gt; int = &lt;fun&gt; 
+# val fib_mem : int -&gt; int = &lt;fun&gt; 
+
+But know fib 35 takes several minutes to be computed ! 
+
+I believe I understand why: I am computing a different fib_mem for   
+each value of n and applying it just after, while I wanted a single   
+fib_mem to be used for all computations. In the process, the   
+tabulation vanishes. 
+
+The only work around I found is to lift the table argument in [make_mem] 
+
+let make_mem = fun table f -&gt; 
+   function n -&gt; 
+     try 
+       List.assoc n !table 
+     with Not_found -&gt; 
+       let f_n = f n in 
+        table := (n, f_n) :: !table; 
+        f_n 
+
+# val make_mem : ('a * 'b) list ref -&gt; ('a -&gt; 'b) -&gt; 'a -&gt; 'b = &lt;fun&gt; 
+
+And build fib in the following way 
+
+let fib_mem = function n -&gt; 
+   let table = ref [] and 
+       fib = function 
+        | 0 -&gt; 0 
+        | 1 -&gt; 1 
+        | n -&gt; fib_mem (n - 1) + fib_mem (n - 2) 
+   in make_mem table fib n 
+
+# fib_mem 35: instantaneous 
+
+The problem is that the memoization is much more intrusive, which is   
+what I was trying to avoid.
+			</pre><i>Jon Harrop suggested:</i><br /><pre>
+I believe you want to "untie the knot" of recursion, creating an higher-order, 
+auxiliary fibonacci function fib_aux that accepts the recursive call as an 
+argument: 
+# let rec fib_aux fib = function 
+    | 0 | 1 as n -&gt; n 
+    | n -&gt; fib(n - 1) + fib(n - 2);; 
+val fib_aux : (int -&gt; int) -&gt; int -&gt; int = &lt;fun&gt; 
+
+You can recover the ordinary fibonacci function using the Y combinator: 
+
+# let rec fib n = fib_aux fib n;; 
+val fib : int -&gt; int = &lt;fun&gt; 
+
+You can write a higher-order memoization function that accepts an argument 
+with the type of fib_aux: 
+
+# let memoize f = 
+    let m = Hashtbl.create 0 in 
+    let rec f' n = 
+      try Hashtbl.find m n with Not_found -&gt; 
+        let x = f f' n in 
+        Hashtbl.replace m n x; 
+        x in 
+    f';; 
+val memoize : (('a -&gt; 'b) -&gt; 'a -&gt; 'b) -&gt; 'a -&gt; 'b = &lt;fun&gt; 
+
+Now you can memoize recursive functions easily: 
+
+# memoize fib_aux 35;; 
+- : int = 9227465
+			</pre><i>Martin Jambon corrected:</i><br /><pre>
+&gt; I believe you want to "untie the knot" of recursion, creating an higher-order, 
+&gt; auxiliary fibonacci function fib_aux that accepts the recursive call as an 
+&gt; argument: 
+&gt; # let rec fib_aux fib = function 
+&gt;    | 0 | 1 as n -&gt; n 
+&gt;    | n -&gt; fib(n - 1) + fib(n - 2);; 
+&gt; val fib_aux : (int -&gt; int) -&gt; int -&gt; int = &lt;fun&gt; 
+
+
+Since the point is to make the function not recursive, I think you 
+shouldn't use "let rec" :-)
+			</pre><i>Diego Olivier FERNANDEZ PONS then said:</i><br /><pre>
+Your solution is similar to Andrej Brauer's one which is exactly what   
+I was trying to avoid because it is too much intrusive. When you break   
+the recursion in two functions you change the type of [fib] from 
+[fib : int -&gt; int] to [fib : (int -&gt; int) -&gt; int -&gt; int)]. 
+In my first example you keep the type of [fib] and add a second   
+function [fib_mem]. You can use anyone indifferently and hide the   
+latter with the .mli 
+val fib : int -&gt; int = &lt;fun&gt; 
+val fib_mem : int -&gt; int = &lt;fun&gt; 
+
+When you compare your solution with what I am trying to do you see   
+there is a big difference in locality and transparency 
+
+let rec fib = function 
+   | 0 -&gt; 0 
+   | 1 -&gt; 1 
+   | n -&gt; fib (n - 1) + fib (n - 2) 
+
+transformed into 
+
+let rec fib = function 
+   | 0 -&gt; 0 
+   | 1 -&gt; 1 
+   | n -&gt; fib_mem (n - 1) + fib_mem (n - 2) 
+and fib_mem = make_mem fib 
+
+The latter could even be done automatically by a source to source   
+transformation (if it worked).
+			</pre><i>Oleg then said:</i><br /><pre>
+&gt; The latter could even be done automatically by a source to source 
+&gt; transformation (if it worked). 
+
+
+But it almost does: 
+let make_mem = fun table f -&gt; 
+  function n -&gt; 
+    try 
+      List.assoc n !table 
+    with Not_found -&gt; 
+      let f_n = f n in 
+      table := (n, f_n) :: !table; 
+      f_n 
+;; 
+
+let rec fib = function 
+  | 0 -&gt; 0 
+  | 1 -&gt; 1 
+  | n -&gt; mem fib (n - 1) + mem fib (n - 2) 
+and mem = make_mem (ref []) 
+;; 
+
+ fib 35;; 
+ - : int = 9227465 
+instantaneous. 
+
+The biggest difference is replacing "fib_mem" in your code with 
+"mem fib" in mine. The same number of characters in either case... 
+And yes, this can be done via camlp4... OTH, with camlp4 it is quite 
+trivial to convert a let rec expression to the one involving open 
+recursion. So, we can write something like 
+
+let fib n = funM MyModule n -&gt; let rec fib function 0 -&gt; 1 ... in fib n;; 
+
+and, depending on what MyModule actually implements, obtain either the usual 
+or the memoized Fibonacci (or even partially unrolled to any desired degree).
+			</pre><i>Andrej Bauer also answered:</i><br /><pre>
+&gt; In my first example you keep the type of [fib] and add a second function 
+&gt; [fib_mem]. You can use anyone indifferently and hide the latter with the 
+&gt; .mli 
+&gt; val fib : int -&gt; int = &lt;fun&gt; 
+&gt; val fib_mem : int -&gt; int = &lt;fun&gt; 
+
+If you want to keep the same type for fib, and have the memoized one, as 
+well as to have locality you can do something like this: 
+let make_memo f = ... 
+
+let rec make_rec f x = f (make_rec f) x 
+
+let fib, fib_mem = 
+   let fib' self = function 
+     | 0 -&gt; 0 
+     | 1 -&gt; 1 
+     | n -&gt; self (n - 1) + self (n - 2) 
+   in 
+     make_rec fib', make_mem fib' 
+
+(You will notice that make_rec is just the Y combinator.) 
+
+&gt; When you compare your solution with what I am trying to do you see there 
+&gt; is a big difference in locality and transparency 
+
+I fail to see this big difference, frankly, since all you're doing is 
+just a beta-reduction of what Jon and I suggested. 
+A recursive function _is_ the fixed point of a non-recursive one with an 
+"extra" argument. You may hide this fact if you wish, but I think it's 
+more honest to admit it to yourself. The "untied" version of fib has the 
+advantage that you can do many cool things to it: memoizing is just one 
+possibility.
+			</pre><i>skaller then said:</i><br /><pre>
+&gt; A recursive function _is_ the fixed point of a non-recursive one with an 
+&gt; "extra" argument. You may hide this fact if you wish, but I think it's 
+&gt; more honest to admit it to yourself. The "untied" version of fib has the 
+&gt; advantage that you can do many cool things to it: memoizing is just one 
+&gt; possibility. 
+
+There is, however, a good reason this is not practical in general: 
+for a recursion of N entities (either functions or polymorphic 
+variants in Ocaml can be 'open-recursioned') you need an 
+extra N arguments .. and the result is unreadable, as well 
+as possibly incurring a performance hit. 
+I wonder if one can add compiler support: for example given 
+
+   let rec fib x = match x with 
+     | 0 -&gt; 0 
+     | 1 -&gt; 1 
+     | n -&gt; fib (n - 1) + fib (n - 2) 
+
+The compiler silently generates: 
+
+   let @fib fib' x = match x with 
+     | 0 -&gt; 0 
+     | 1 -&gt; 1 
+     | n -&gt; fib' (n - 1) + fib' (n - 2) 
+
+   let fib = make_rec @fib 
+
+and now you have fib as written .. but you ALSO can do: 
+
+   let fib = make_mem @fib 
+
+to create a memoised version. 
+
+That's for one argument and can clearly be done easily 
+by the compiler (in fact, camlp4). 
+
+However the extension to multiple arguments is not clear. 
+Maybe labelled arguments would help, perhaps using 
+a record. 
+
+Andrei said: 
+
+"You may hide this fact if you wish, but I think it's 
+more honest to admit it to yourself." 
+
+but I think this is misleading: there's a good 
+reason NOT to open the recursions. There's a fundamental 
+principle of software design: the open/closed principle (OOSC) 
+which is not obeyed by either the closed or open form. 
+
+We need a form that is simultaneously closed and ready to 
+use but which is also open and amenable to extension. 
+
+FYI: the case that most interests me at the moment is neither 
+type recursion nor functional recursion -- I'm interested 
+in whether it is possible to design an open-recursive grammar, 
+this seems to need both recursive data types *and* recursive 
+functions in open/closed form. 
+
+Interestingly in this case I have actually implemented one 
+already, allowing Felix to extend it's own parser by combining 
+an Ocamlyacc parser with an executable RD parser .. but 
+this really isn't the same as systematic static extension 
+where, for example you write a basic grammar, and then 
+extensions to it.
+			</pre><i>Don Syme said:</i><br /><pre>
+You may be interested in the approach to this kind of problem discussed 
+in <a href="http://dx.doi.org/10.1016/j.entcs.2005.11.038">http://dx.doi.org/10.1016/j.entcs.2005.11.038</a> (see also tech report 
+at <a href="http://research.microsoft.com/users/dsyme/papers/valrec-tr.pdf">http://research.microsoft.com/users/dsyme/papers/valrec-tr.pdf</a>). 
+Under that approach you get to write the code in a natural way as shown 
+below: fib_mem is defined recursively, but the "cache" function has the 
+natural "(a -&gt; b) -&gt; (a -&gt; b)" type and is abstract and reusable (no 
+details as to the nature of the internal table are revealed).   
+
+let cache f = 
+  let table = ref [] in 
+  fun n -&gt; 
+     try 
+       List.assoc n !table 
+     with Not_found -&gt; 
+       let f_n = f n in 
+          table := (n, f_n) :: !table; 
+          f_n 
+
+let rec fib_mem = 
+   cache (function 
+            | 0 -&gt; 0 
+            | 1 -&gt; 1 
+            | n -&gt; fib_mem (n - 1) + fib_mem (n - 2)) 
+
+The use of a computation on the right of a "let rec" is allowed by 
+systematically introducing initialization holes using lazy values and 
+forces.  There are disadvantages to this approach, as it introduces a 
+potential for initialization unsoundness somewhat similar to those in 
+most designs and implementations of recursive modules.  However the 
+paper argues that in the balance it is not unreasonable for a strict 
+language to accept this in order to gain modularity and localize the 
+potential for unsoundness.  It is even more compelling when often 
+working with abstract APIs such as Java and .NET GUI libraries. 
+
+While this isn't OCaml, and may not ever be the right design for OCaml, 
+I've found it a useful technique to know even when doing C#, C++ and 
+OCaml programming, as a broad range of recursion puzzles can be 
+addressed by modelling the problem the "natural" way (e.g. more like 
+Haskell) and then using a translation that introduces initialization 
+holes systematically.  The translation of your sample into OCaml using 
+"lazy" initialization holes is shown below (for single recursion you can 
+also just use a "option ref").  Note "cache" does not change, 
+maintaining the property that the caching function is abstract and 
+reusable. 
+
+let (!!) x = Lazy.force x 
+let rec fib_mem' = lazy 
+   cache (function 
+            | 0 -&gt; 0 
+            | 1 -&gt; 1 
+            | n -&gt; !!fib_mem' (n - 1) + !!fib_mem' (n - 2)) 
+
+let fib_mem = !!fib_mem' 
+
+FWIW it is well known that laziness can be used in essentially this way, 
+e.g. see Michel Mauny's early papers on laziness in OCaml.  However I've 
+not seen a paper that argues the case for making this the default 
+interpretation of "let rec" in a strict language.
+			</pre><hr /><h3>Using folding to read the cwn in vim 6+</h3><p>Here is a quick trick to help you read this CWN if you are viewing it using vim (version 6 or greater).</p><pre>:set foldmethod=expr<br />:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'&amp;lt;1':1<br />zM</pre><p>If you know of a better way, please let me know.</p><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right">
+      <i>
+        <a href="http://alan.petitepomme.net/">Alan Schmitt</a>
+      </i>
+    </p><p align="right">
+      <script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script>
+      <script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" />
+      <script src="http://www.google-analytics.com/urchin.js" type="text/javascript" />
+      <script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script>
+    </p></body>
+</html>

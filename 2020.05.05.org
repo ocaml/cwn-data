@@ -1,0 +1,283 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[http://alan.petitepomme.net/cwn/2020.04.28.html][Previous Week]] [[http://alan.petitepomme.net/cwn/index.html][Up]] [[http://alan.petitepomme.net/cwn/2020.05.12.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of April 28 to May 05, 2020.
+
+#+TOC: headlines 1
+
+
+* Lwt now has let* syntax
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/lwt-now-has-let-syntax/5651/1
+
+** Anton Bachin announced
+
+
+[[https://github.com/ocsigen/lwt][Lwt]] now has ~let*~ and ~let+~ syntax, which can be used like this:
+
+#+begin_src ocaml
+open Lwt.Syntax
+
+let () =
+  let request =
+    let* addresses = Lwt_unix.getaddrinfo "google.com" "80" [] in
+    let google = Lwt_unix.((List.hd addresses).ai_addr) in
+
+    Lwt_io.(with_connection google (fun (incoming, outgoing) ->
+      let* () = write outgoing "GET / HTTP/1.1\r\n" in
+      let* () = write outgoing "Connection: close\r\n\r\n" in
+      let* response = read incoming in
+      Lwt.return (Some response)))
+  in
+
+  let timeout =
+    let* () = Lwt_unix.sleep 5. in
+    Lwt.return None
+  in
+
+  match Lwt_main.run (Lwt.pick [request; timeout]) with
+  | Some response -> print_string response
+  | None -> prerr_endline "Request timed out"; exit 1
+#+end_src
+
+This is now released in Lwt [[https://github.com/ocsigen/lwt/releases/tag/5.3.0][5.3.0]]. Thanks to Rahul Kumar for
+adding ~let*~, and @CraigFe for adding ~let+~!
+      
+
+** Thomas Coopman asked
+
+
+Awesome this looks great.
+
+2 quick questions:
+
+1. I don't see this new version documented on ocsigen yet? Is that a build that needs to be done manually?
+2. Is ~ppx_lwt~ still recommend for some usecases like ~try%~? For what cases is one preferred over the other?
+      
+
+** Anton Bachin replied
+
+
+Good questions :slight_smile:
+
+1. The docs generation is blocked on an Ocsigen "internal" package ~wikidoc~, which has not been updated to support 4.08. So, effectively, ~let*~ is exactly what is preventing docs generation for the time being. I'll post the docs as soon as that is fixed.
+2. ~ppx_lwt~ is probably still the recommended way, because of better backtraces, and things like ~try%lwt~. ~let*~ is nice for people that don't want to use the PPX. They can still benefit from a monadic syntax.
+      
+
+
+
+* JOSE 0.3.0 - Now with 100% more encryption
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/ann-jose-0-3-0-now-with-100-more-encryption/5667/1
+
+** Ulrik Strid announced
+
+
+I recently released a version 0.3.0 of JOSE.
+
+https://github.com/ulrikstrid/reason-jose \\
+https://ulrikstrid.github.io/reason-jose
+
+It now includes some of the JWE (JSON Web Encryption) spec. A huge thank you goes out to @hannes for helping me
+implementing one of the gnarlier combinations of decryption that I could then use as a base for encryption and more
+~alg~ and ~enc~.
+
+I also refactored the JWK (JSON Web Keys) implementation to unify and simplify the representation. It is now possible
+to use a private key for anything a public key can do since it's a superset.
+
+A special thanks to @anmonteiro for helping me with the design and reviewing my code.
+      
+
+
+
+* Are there learning materials for OCaml for those with no programming experience?
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/are-there-learning-materials-for-ocaml-for-those-with-no-programming-experience/5684/1
+
+** Aaron Christianson asked
+
+
+OCaml is a language with some advanced features, but a very gentle learning curve. It seems like it would be
+well-suited to teaching beginners to program (a few tricky error messages notwithstanding), but I haven't seen many
+resources targeted at teaching programming from scratch. Does anyone here know any?
+      
+
+** Daniel Bünzli replied
+
+
+There is [[http://ocaml-book.com/][*OCaml from the Very Beginning*]] written by @JohnWhitington.
+      
+
+** Nicolás Ojeda Bär also replied
+
+
+An excellent (free) book is "LE LANGAGE CAML" https://caml.inria.fr/pub/distrib/books/llc.pdf.
+      
+
+** Pierre also replied
+
+
+There's also [[https://www.cs.cornell.edu/courses/cs3110/2020sp/][CS3110]] from Cornell University. Here's [[https://www.cs.cornell.edu/courses/cs3110/2019sp/textbook/][the
+textbook]]. It's pretty great!
+      
+
+
+
+* The recent evolution of utop, lambda-term, zed and underneath projects
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/the-recent-evolution-of-utop-lambda-term-zed-and-underneath-projects/5687/1
+
+** ZAN DoYe announced
+
+
+Hi, dear OCaml guys! We've been keeping quiet for more than one year though utop, lambda-term, zed and some related projects were still evolving during the period of time. This is because of two reasons:
+
+1. The new feature had nothing to do with the fields where most OCaml developers are working on:
+
+   https://aws1.discourse-cdn.com/standard11/uploads/ocaml/original/2X/a/a30d5fb6fc075a50801b387299cc820965d48ca0.png
+
+   https://aws1.discourse-cdn.com/standard11/uploads/ocaml/original/2X/9/91b88f0c492702212f00f17af1bf0e18ee1a463b.png
+
+    Recognizing, editing, fuzzy searching for Character Variation(mainly for ancient CJK characters).
+
+    Nevertheless, the new feature brought us a good side effect – the long-existing [[https://github.com/ocaml-community/lambda-term/issues/2][Issue with asian charset]] was resolved. UTop users will notice the refinement naturally, so no announcement was needed.
+
+2. I didn't deem the first few new editions of zed 2 and lambda-term 2 stable enough.
+
+*** 3.0 era
+
+This time, we are entering zed 3, lambda-term 3 era. The features introduced since zed 2, lambda-term 2 are quite
+stable now and the new feature coming to us will have a bit more impact, especially to vim users. So it's worthwhile
+to draft an announcement:
+
+**** VI Editing Mode
+https://aws1.discourse-cdn.com/standard11/uploads/ocaml/original/2X/c/ca11924046977d89d4345ad135977c6960470edc.gif
+
+OCaml guys, hope you enjoy this.
+
+*** List of notable changes:
+
+- zed 2:
+  - wide, combined glyph(Character Variation, IPA, CJK ...)
+  - add wanted_column support for wide width character
+
+- lambda-term 2:
+  - wide, combined glyph(Character Variation, IPA, CJK …)
+  - add horizontal scrolling support for wide width character
+
+- zed 3:
+  - add new actions for convenience
+
+- lambda-term 3:
+  - ~LTerm_read_line~: add initial support for vi editing mode:
+  - motions:
+    - h l 0 ^ $
+    - j k gg G
+    - w W e E b B ge gE
+    - f F t T
+    - aw iw aW iW
+    - include or inner ( ), [ ], { }, < >, ' and "
+    - generic quote: aq? iq? where ? could be any character
+    - bracket matching: jump back and forth between matched brackets
+  - delete, change, yank with motions
+  - paste: p P
+  - line joining: J
+
+for a full list of the changes, please visit the homepages of each project.
+
+*** Projects underneath:
+  - [[https://bitbucket.org/zandoye/charinfo_width/][charInfo_width]]: Determine column width for a character
+  - [[https://github.com/kandu/mew][mew]] & [[https://github.com/kandu/mew_vi][mew_vi]]: Modal editing witch & Its VI interpreter complement. In a word, modal editing engine generators.
+
+*** What's next
+
+**** VI Editing Mode
+
+1. Visual mode
+
+   https://aws1.discourse-cdn.com/standard11/uploads/ocaml/original/2X/7/7cc45010710ad28d8d1e859e9b28806469ef8080.gif
+2. register support and more vi compatible
+
+**** CJKV
+
+We've recorded more then 100 thousand entries about the structure of CJK characters, what is a character consists of,
+how are the sub-assemblies glue together etc. And as a complement to charInfo_width, we may release a new project
+called charInfo_structure ;)
+      
+
+
+
+* Looking for "lovely, idiomatic" examples of Ocaml used for shell-scripting in the manner of Perl/Python (but esp. Perl)
+:PROPERTIES:
+:CUSTOM_ID: 5
+:END:
+Archive: https://discuss.ocaml.org/t/looking-for-lovely-idiomatic-examples-of-ocaml-used-for-shell-scripting-in-the-manner-of-perl-python-but-esp-perl/5703/1
+
+** Chet Murthy announced
+
+
+I wonder if there are people who have written nontrivial Ocaml code for shell-scripting, that they think exemplifies
+the right way to do it.  I've been a Perl hacker for 25yr, and so when I reach for Ocaml to write stuff that should
+be Perl shell-scripts, I always find it a bit painful, and there's a significant overhead to getting the job done.
+Some of that is applying ocaml to a new domain, but some of it is that I'm just not using the right idioms and tools
+(and there are so many to choose from).
+
+So if anybody has good pointers, I'd appreciate learning about them.
+      
+
+** Bikal Lem
+
+
+Haven't tried it myself, but this looks promising ... https://github.com/janestreet/shexp.
+
+At least it has the great Sean Connery in its README so possibly worth delving a bit. :)
+      
+
+** Hezekiah Carty
+
+
+[[https://erratique.ch/software/bos][bos]] seems like it can do a lot of what you're looking for. It's at least worth
+taking a look, though it may not be at Perl levels of concise for this kind of task.
+      
+
+** Martin Jambon
+
+
+I tried to summarize my take on the subject into this gist:
+https://gist.github.com/mjambon/bb07b24f89fa60c973735307ce9c6cb9
+
+I'm not aware of the existence of such tool, but this is how I might design it. This should be reminiscent of
+camlp4's quotation and anti-quotation system, which allows alternating between two syntaxes within a source file.
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[http://alan.petitepomme.net/cwn/][the archive]] or the [[http://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe [[http://lists.idyll.org/listinfo/caml-news-weekly/][online]].
+
+#+BEGIN_authorname
+[[http://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname

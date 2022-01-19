@@ -1,0 +1,367 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+	<cwn_head>
+		<cwn_date>2007.09.25</cwn_date>
+		<cwn_prev>2007.09.18</cwn_prev>
+		<cwn_next>2007.10.02</cwn_next>
+		<cwn_date_text>September 18 to 25, 2007</cwn_date_text>
+	</cwn_head>
+	<cwn_body>
+		<cwn_entry>
+			<cwn_title>coThreads 0.10</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/c0bb621b9d3c91ad/34ffa30420633f18</cwn_url>
+			<cwn_who>Continuing the thread from last week, Erik de Castro Lopo said</cwn_who>
+			<cwn_what>
+What wasn't mentioned in this announcement was the existance of a 
+mailing list. I posted to the mailing list: 
+
+    http://sourceforge.net/mailarchive/forum.php?forum_name=cothreads-discuss
+
+but I suspect that I may be the only person on the list :-).
+			</cwn_what>
+			<cwn_who>Vu Ngoc San asked and Zheng Li answered</cwn_who>
+			<cwn_what>
+&gt; this looks like something I'd be very happy to use. Have you tried compiling 
+&gt; lablgtk2 with it ? 
+
+&gt; (so that I could get rid of the following:) 
+&gt; [ 
+&gt; The files /usr/lib/ocaml/3.10.0/process/thread.cmi 
+&gt; and /usr/lib/ocaml/3.10.0/lablgtk2/gtkThread.cmi 
+&gt; make inconsistent assumptions over interface Thread 
+&gt; ] 
+
+
+I'm not sure what you're trying to do, but the reason of error seems obvious: 
+lablgtk2 seems to have been compiled with the Thread module of system threads 
+or VM thread (both come with OCaml's standard distribution), while you're 
+linking them with other modules compiled against the Thread module of process 
+engine. 
+
+The Thread module interfaces from the three engines differ with each 
+other! Note that this is not the problem from coThreads, it's a problem of 
+standard Threads library: 
+
+ - The Thread interfaces of system threads and VM threads coming with the 
+   standard distribution *already* differ with each other, so that the objects 
+   compiled with system Thread won't be able to mix with objects compiled with 
+   VM thread, vice versa. (The problem is the same as in your case) 
+
+ - We have no way to unify the three of them without modifying the files from 
+   original distribution, which is exactly what we manage to avoid. 
+
+On the other hand, the Cothread module (a super set of the Thread interface) is 
+provided to achieve object-level compatibility, so that the objects compiled 
+with different engines can mix. All other modules from Threads and coThreads, 
+e.g. Mutex, Event, don't have this problem. 
+
+You'd like to read the compatibility page for more explanation: 
+http://cothreads.sourceforge.net/doc/compatibility
+			</cwn_what>
+			<cwn_who>skaller asked and Zheng Li answered</cwn_who>
+			<cwn_what>
+First note that the naming convention follows the standard threads library in 
+OCaml: Threads and coThreads (both with 's') refer to the library (*.cm(x)a); 
+Thread and Cothread (neither with 's') are modules (*.cm[ox]) inside. 
+
+&gt; &gt; The Thread module interfaces from the three engines differ with each 
+&gt; &gt; other! Note that this is not the problem from coThreads, it's a problem of 
+&gt; &gt; standard Threads library: 
+
+&gt; Why don't you just use a different module name? 
+
+
+The different module name *is* Cothread, a compatible super set of Thread 
+module. Use this module instead if you want to have object-level 
+compatibility. In short, all the three engines have the two libraries with 
+isomorphic structures (quite simple) : 
+
+&lt;code&gt; 
+  threads.cm(x)a = threads.cm[ox], mutex.cm[ox], condition.cm[ox], event.cm[ox] 
+cothreads.cm(x)a = threads.cm[ox], mutex.cm[ox], condition.cm[ox], event.cm[ox], cothread.cm[ox], stm.cm[ox] 
+&lt;/code&gt; 
+
+See, we also provide the compatible "threads.cm(x)a" for the process 
+engine. Think about the following scenario: 
+
+ - If you're working on legacy code, you don't care STM and don't care 
+   object-level compatibility, the only thing you're interested is to running 
+   your code with process to speedup, then the only thing to change in your 
+   Makefile is the include path e.g. "-I +threads" -&gt; "-I +process", you can 
+   still using Thread module and "threads.cma", they are present in process 
+   engine. 
+
+ - You have several projects, some of them using traditional Threads, some 
+   using coThreads, you don't want to bother to remember that. So simply 
+   changing all linking library from threads.cma to cothreads.cma is fine, 
+   because coThreads library contains every modules in Threads library. 
+
+ - You have some legacy code written in standard Threads, and you'd like to 
+   have it run with processes. Though you don't care about the newly introduced 
+   modules of coThreads, you do want to have a single copy of object files for 
+   each engines. In such case, you need to add one line to any source code 
+   which makes use of the Thread module: 
+
+   module Thread = Cothread 
+
+   because Thread module (the only module in Threads and coThreads) don't have 
+   object-level compatibility, and change any occurrence of “threads.cm(x)a” to 
+   “cothreads.cm(x)a” in your Makefile. 
+
+For more explanation, see http://cothreads.sourceforge.net/doc/compatibility
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>backtrace patch</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/18dbd1af12850ea6/dae67dcbbf62ee4c#dae67dcbbf62ee4c</cwn_url>
+			<cwn_who>Jake Donham announced</cwn_who>
+			<cwn_what>
+Here is a little patch to get access to stack traces inside a running 
+program, for use with long-running servers. It is like Markus Mottl's 
+patch but uses the standard backtrace mechanism. It works with both 
+bytecode and native code. 
+
+Patch and instructions here: 
+
+  http://skydeck.com/blog/programming/stack-traces-in-ocaml/ 
+
+I hope that you find it useful.
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>poll for ocamldbi users</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/c3a05db36df020f2/eb86d8c8ece9ba3c#eb86d8c8ece9ba3c</cwn_url>
+			<cwn_who>Stefano Zacchiroli announced</cwn_who>
+			<cwn_what>
+  We are considering to remove ocamldbi [1] from Debian for various 
+reasons (upstream development idle for some time, not yet ported to 
+sqlite3, popcon score quite low). Before doing so however we are trying 
+to figure out how many users are still using it by other means than 
+popcon. 
+
+So, here it goes, if someone here is actively using ocamldbi 
+(preferably on Debian but not strictly necessary) can she please send me 
+a private mail stating so?  Even mails stating thinks like «I was using 
+it but I stopped doing so for this and that ...» would help. 
+
+Many thanks in advance, 
+Cheers. 
+
+[1] http://cvs.savannah.gnu.org/viewvc/modcaml/ocamldbi/
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>Recherche d'un expert en TAO</cwn_title>
+			<cwn_who>Serge Leblanc (serge.leblanc@wanadoo.fr) said</cwn_who>
+			<cwn_what>
+Dans le cadre d'une startup en cours de constitution, nous recherchons une
+personne compétente en TAO (Traduction Assistée par Ordinateur) et en Ocaml.
+Elle devra être ne mesure de mener à terme un projet de création d'un service
+Internet d'aide à la traduction utilisant OcamlDuce, et Ocsigen.
+
+En plus des compétences requises (dans les grammaires et l'analyse des langues
+naturelles), pour la réalisation des traducteurs "langue native &lt;-&gt; pivot
+linguistique", elle devra être capable de maintenir et poursuivre les travaux
+d'Alain Frisch réalisés dans OcamlDuce.
+
+Je me tiens à votre disposition pour tous compléments d'information sur ce
+projet pour lequel nous souhaitons regrouper les meilleurs talents.
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>OCaml NAE releases cf-0.9</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/c032c177dd934688/762a355e5fa8cd16#762a355e5fa8cd16</cwn_url>
+			<cwn_who>james woodyatt announced</cwn_who>
+			<cwn_what>
+This is to announce the release of the OCaml Network Application   
+Environment (OCaml NAE) Core Foundation library version 0.9 (cf-0.9). 
+
+Download the source and ocamldoc output from the project page on   
+SourceForge: 
+
+        &lt;http://sourceforge.net/projects/ocnae&gt; 
+
+This is a maintenance release to fix bugs and improve compatibility   
+with OCaml-3.10.0. 
+
+===== OCaml NAE Core Foundation (cf) library ===== 
+
+This distribution is the Objective Caml Network Application   
+Environment (NAE) 
+Core Foundation library, which is a collection of miscellaneous   
+extensions to 
+the Objective Caml standard library. 
+
+Highlighted features include: 
+
+- Functional streams and stream processors (extended). 
+- Functional bootstrapped skew-binomial heap. 
+- Functional red-black binary tree (associative array). 
+- Functional sets based on red-black binary tree. 
+- Functional real-time catenable deque. 
+- Functional LL(x) parsing using state-exception monad. 
+- Functional lazy deterministic finite automaton (DFA). 
+- Functional lexical analyzer (using lazy DFA and monadic parser). 
+- Functional substring list manipulation (message buffer chains). 
+- Gregorian calendar date manipulation. 
+- Standard time manipulation. 
+- System time in Temps Atomique International (TAI). 
+- Unicode transcoding. 
+- Universal resource identifier (URI) manipulation. 
+
+Additionally, the following noteworthy features are provided for   
+compatibility 
+with earlier versions of this library.  Further developments to these   
+features 
+are expected to move to a new, separate [Nx] library.  These features   
+are not 
+expected to improve in the [Cf] library for the version 0.x series,   
+and they 
+will be removed in the 1.x series. 
+
+- Extended socket interface (supports more options, and UDP w/ 
+multicast). 
+- I/O event multiplexing (with Unix.select). 
+
+Note: see the ISSUES file for a list of open problems in this release. 
+
+===== Version 0.9 ===== 
+
+Highlights of the changes: 
+
++ Compatibility with OCaml-3.10+beta. 
++ Fix bug in Cf_rbtree.nearest_(incr|decr) functions. 
++ Minor performance improvement. 
++ Minor bugs in tests fixed. 
++ Noted that socket extensions and event multiplexing are moving to the 
+   forthcoming Nx library. 
+
+===== Required Components ===== 
+
+This library requires the following external components: 
+
+- Objective Caml (v3.10.0 or newer) 
+- Findlib (tested with v1.1.2p1) 
+
+Principal development was on Mac OS X 10.4 w/ XCode 2.4.1 using GCC   
+4.0.  Other 
+platforms with POSIX-like environments should require a minimal   
+porting effort. 
+
+One major open issue: the extended socket interface is broken under   
+WIN32. 
+
+(The author invites help porting the library to other environments.)
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>new journal announcement</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/53134f3d53d0ec73/66411582eb0b0e05#66411582eb0b0e05</cwn_url>
+			<cwn_who>Andrea Asperti announced</cwn_who>
+			<cwn_what>
+                   JOURNAL OF FORMALIZED REASONING 
+                      http://jfr.cib.unibo.it/ 
+
+                         ISSN: 1972-5787 
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ 
+
+Charter and Scope: 
+
+The journal encourages submission of papers describing significant 
+formalization efforts in any area, including classical math, 
+constructive math, formal algorithms, and program verification. 
+The emphasis of the journal is on proof techniques and methodologies 
+and their impact on the formalization process. In particular, the 
+journal provides a forum for comparing alternative approaches, 
+enhancing reusability of solutions and offering a clear view of the 
+current state of the field. 
+
+------------------------------------------------------------------ 
+Editorial Board: 
+
+Andrea Asperti, University of Bologna 
+Jeremy Avigad, Carnegie Mellon University 
+Michael Beeson, San Jose State University 
+Thierry Coquand, Chalmers University 
+Herman Geuvers, Radboud University 
+Georges Gonthier, Microsoft reasearch 
+John Harrison, Intel Corporation 
+Xavier Leroy, INRIA Paris 
+Cesar Munoz, NASA LaRC 
+Christine Paulin-Morhing, INRIA Saclay and Universite Paris-Sud 
+Natarajan Shankar, SRI International 
+Peter Sewell, University of Cambridge 
+Carlos Simpson, Nice University 
+Andrzej Trybulec, University of Bialystok 
+Freek Wiedijk, Radboud University 
+
+-------------------------------------------------------------------- 
+Editorial Policy: 
+
+The Journal of Formalized Reasoning is a purely electronic publication. 
+The Journal provides immediate open access to its content on the 
+principle that making research freely available to the public supports 
+a greater global exchange of knowledge. 
+
+The Journal encourages the submission of interesting, insightful, and 
+informative papers, preferably accompanied by formal scripts. Although 
+the journal is not meant to become a repository for proof scripts, an 
+effort will be made to ensure that the "experimental data" backing 
+formalisation papers will remain accessible. 
+Each new contribution must be original, and not submitted before different 
+journals for consideration. 
+Detailed instructions can be found at the journal home page 
+&lt;http://jfr.cib.unibo.it/&gt;.
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>New Vim annot plugin</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/b8606628519fafbc/15439280d8a1b896#15439280d8a1b896</cwn_url>
+			<cwn_who>Vincent Aravantinos announced</cwn_who>
+			<cwn_what>
+A new vim plugin to handle annot files is available at: 
+
+http://www.vim.org/scripts/script.php?script_id=2025 
+
+Differences with previous plugins: 
+- ocamlbuild is handled (even if you change the '_build' to another   
+name, but cross fingers in this case) 
+- no more need for python support, only vim inside 
+- little bonus : handling of latin1 accents, of parenthesized   
+expressions, lists, arrays (no need for visual mode) 
+
+see details on the page.
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>Reference on the OCaml VM</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/eb4d052bf88a0c33/edb538137ceadd54#edb538137ceadd54</cwn_url>
+			<cwn_who>Mathias Kende asked and Xavier answered</cwn_who>
+			<cwn_what>
+&gt; I would like to know if there are references on the OCaml VM other   
+&gt; than 
+&gt; the source code of bytecomp/byterun, I found none on the OCaml   
+&gt; website. 
+&gt; My aim would be to write a small compiler that would target the OCaml 
+&gt; runtime systems. 
+
+
+While developping OCaml-Java, I had to reverse-engineer this   
+information. 
+I produced two pdf files available at http://cadmium.x9c.fr/ 
+downloads.html : 
+        - caml-formats.pdf describes both the marshalled data format and the   
+bytecode file format; 
+        - caml-instructions.pdf describes all the instructions used by the   
+OCaml VM. 
+
+Hope this helps, 
+
+Xavier 
+PS: I would be happy to hear about every mistake you find in these   
+documents
+			</cwn_what>
+		</cwn_entry>
+	</cwn_body>
+</cwn>

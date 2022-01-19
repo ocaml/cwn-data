@@ -1,0 +1,381 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of June 18 to 25, 2013.
+
+1) 0.3 release of dolog
+2) The HoTT book
+3) Anonymous sum types in functors
+4) Ocaml on windows
+5) Other Caml News
+
+========================================================================
+1) 0.3 release of dolog
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-06/msg00121.html>
+------------------------------------------------------------------------
+** François Berenger announced:
+
+A new version is available in OPAM:
+# opam list dolog
+dolog 0.3 the dumb, but colorful, OCaml logger
+
+The only new feature is that logging levels
+can be colored in unix terminals.
+
+The feature is turned off by default
+(for compatibility, because it won't
+work everywhere and also because it is a little toyish).
+
+The API is there:
+<https://github.com/UnixJunkie/dolog/blob/master/log.mli>
+      
+========================================================================
+2) The HoTT book
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-06/msg00125.html>
+------------------------------------------------------------------------
+** Oliver announced:
+
+The HoTT book
+
+<http://audrey.fmf.uni-lj.si/hott.html>
+      
+========================================================================
+3) Anonymous sum types in functors
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-06/msg00131.html>
+------------------------------------------------------------------------
+** David Allsopp asked:
+
+I couldn't think of a better way to describe what I'm trying to do, so
+forgive the possibly strange subject!
+
+In:
+
+module IntSet = Set.Make(struct type t = int let compare = compare end)
+
+the resulting signature is:
+
+sig
+  type elt = int
+  type t
+  ...
+
+but in:
+
+module FlagSet = Set.Make(struct type t = A | B let compare = compare end)
+
+the resulting signature is:
+
+sig
+  type elt
+  type t
+  ...
+
+i.e. the constructors are hidden (I can see why, but presumably it is a
+special case in the type checker?) and the module is essentially useless. I
+don't want to define the type external to the module - the idea is that I'd
+be able to write Flag1Set.add Flag1Set.CommonFlag Flag1Set.empty and
+Flag2Set.add Flag2Set.CommonFlag Flag2Set.empty, etc.
+
+I can work around this by writing:
+
+module FlagSet =
+  struct
+    type flag = A | B
+    include Set.Make(struct type t = flag let compare = compare end)
+  end
+
+where the resulting signature is:
+
+sig
+  type flag = A | B
+  type elt = flag
+  type t
+  ...
+
+but I'm wondering:
+
+a) Is there a way to do it where you can end up with type elt = A | B (I
+think the answer is no?)
+
+b) Is there a syntactically lighter way to write the module definition?
+      
+** Xavier Leroy replied:
+
+> a) Is there a way to do it where you can end up with type elt = A | B (I
+> think the answer is no?)
+
+No, because that wouldn't quite respect the generativity of sum type
+definitions, but you can get close, see below.
+
+> b) Is there a syntactically lighter way to write the module definition?
+
+I would recommend naming your anonymous "struct":
+
+module Flag = struct
+  type t = A | B
+  let compare = compare
+  (* Other useful operations over flags, e.g. *)
+  let to_string = function A -> "A" | B -> "B"
+end
+
+module FlagSet = Set.Make(Flag)
+
+Then you get
+
+FlagSet: sig
+  type elt = Flag.t
+  type t
+  ...
+end
+
+The good thing about this solution is that it gives you a natural
+place to put additional operations over flags, like "to_string" above,
+shall you ever need them.
+
+> the idea is that I'd
+> be able to write Flag1Set.add Flag1Set.CommonFlag Flag1Set.empty and
+> Flag2Set.add Flag2Set.CommonFlag Flag2Set.empty, etc.
+
+Why not "Flag1Set.add Flag1.CommonFlag Flag1Set.empty"? Flags morally
+come from Flag1, not from Flag1Set.
+
+As an aside, some ML-like module systems require functor arguments to
+be module names or paths, e.g. Coq's. OCaml accepts anonymous structs
+as arguments, and does the best it can with them, but if the struct
+contains generative type definitions, some information is necessarily
+lost.
+      
+** Jacques Garrigue also replied:
+
+Xavier described the official solution.
+However, since 3.12 you can also do some trickery.
+This is going to be heavier, so this is probably a bad idea, but if you really need it, here it is:
+
+module FlagSet = struct
+  type elt = A | B
+  include (Set.Make (struct type t = elt let compare = compare end) : Set.S with type elt := elt)
+end
+      
+========================================================================
+4) Ocaml on windows
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-06/msg00138.html>
+------------------------------------------------------------------------
+** Bikal Gurung asked:
+
+I am looking to use ocaml to implement a project for my employer. However, the
+environment is Windows OS. I am using cygwin and so far it seems to work but
+curious on experiences others have on using ocaml on windows - both as a
+development and deployment platform. Also has anyone tried using opam on
+windows? Does it work?
+      
+** Later in the thread, Bikal Gurung said and Jonathan Protzenko replied:
+
+> Thank you for your response. I have installed the official windows
+> port of ocaml at <http://protz.github.io/ocaml-installer/> . However, it
+> mentions that MinGW/Msys is no longer supported. I rather use
+> Mingw/Msys as well.
+There are quite a few things that make working with msys painful, which 
+is the reason why I switched the installer to cygwin. The installer 
+still is a 32-bit native windows program, and still generates 32-bit 
+native windows programs. It's just that cygwin is an easy way to get a 
+toolchain and a unix-like development environment, which ocaml kind of 
+needs in order to work right (without it, you only get bytecode 
+compilation).
+- The main problem is that OCaml is, by default, configured to search 
+executables from the toolchain with the i686-pc-mingw-whatever prefix, 
+that is, the one that the mingw-w64 compilers have, when installed 
+through cygwin.
+- The second biggest problem is with flexdll which, IIRC, hardcodes the 
+use of the mingw-w64 compilers (32-bit compilers from the mingw-w64 
+project). Msys, on the other hand, uses the mingw compilers (the 
+original mingw project), and the location of the libraries / 
+executables is slightly different, or maybe flexdll doesn't auto-detect 
+the right locations for crt2.o and friends, meaning it's painful as you 
+have to manually export FLEXLINKFLAGS. At some point, it became almost 
+impossible to have that combination working. I think flexdll started to 
+hardcode the i686-pc-mingw prefix at some point, and there's no 
+ready-made, easy to install mingw-w64/msys bundle available, as far as 
+I know.
+- OCamlbuild relies on bash being available in the path to run its 
+external commands ; an easy way to have this is to have a cygwin 
+development environment. This is a know issue that no one has stepped 
+up to fix on windows.
+- Finally, the quoting conventions, IIRC, are subtly different between 
+mingw/msys and cygwin, and OCaml is tailored to cygwin.
+
+For all these reasons, cygwin sounds like a better choice for you 
+working environment on windows. But I believe msys is still possible. 
+If there's something that prevents you from having it work properly, I 
+think we (the team) would be happy to know about it.
+      
+** Adrien Nader then added:
+
+> - The second biggest problem is with flexdll which, IIRC, hardcodes the 
+> use of the mingw-w64 compilers (32-bit compilers from the mingw-w64 
+> project). Msys, on the other hand, uses the mingw compilers (the 
+> original mingw project), and the location of the libraries / 
+> executables is slightly different, or maybe flexdll doesn't auto-detect 
+> the right locations for crt2.o and friends, meaning it's painful as you 
+> have to manually export FLEXLINKFLAGS. At some point, it became almost 
+> impossible to have that combination working. I think flexdll started to 
+> hardcode the i686-pc-mingw prefix at some point, and there's no 
+> ready-made, easy to install mingw-w64/msys bundle available, as far as 
+> I know.
+
+Well, msys doesn't really require one toolchain or another: you can have
+mingw-w64 (either i686-w64-mingw32 or x86_64-w64-mingw32) with msys
+afaik.
+However msys comes from mingw.org which is the "main" site for
+i686-pc-mingw32 so that doesn't make things very balanced.
+
+Note that there is a very recent "MSYS2" project which is updated in
+pretty much every respect (newer GCC, forked from a newer Cygwin which
+has 64b support, ...). It's very very recent and might become a variant
+of cygwin but so far there are differences in the behaviour wanted from
+it compared to cygwin which means that having the two of them merged
+will involve some work and discussions.
+
+> - OCamlbuild relies on bash being available in the path to run its 
+> external commands ; an easy way to have this is to have a cygwin 
+> development environment. This is a know issue that no one has stepped 
+> up to fix on windows.
+
+Cygwin, or msys.
+
+However with msys you need bash and coreutils (ocamlbuild uses "cp" in a
+few places for instance, but that's trivial to fix) and all the deps
+(regex, termcap, and several others).
+An "easy" way to install msys would probably be mingw-get from
+mingw.org, which for its default repos would use the toolchain from
+mingw.org too (fun stuff).
+
+Btw, the issue is that windows' exec*() functions take an array of
+strings, then merges all these strings and had that new string to the
+process on startup. This means that in order to have the arguments split
+as you had hoped them to be, you need to apply some rules (which I don't
+have at hand right now).
+
+Generally speaking, I'd like to have some more code in mingw-w64 to
+alleviate the need for bash.
+
+> - Finally, the quoting conventions, IIRC, are subtly different between 
+> mingw/msys and cygwin, and OCaml is tailored to cygwin.
+
+Can you elaborate on that? I've used msys for ocaml in the past and
+haven't had issues.
+      
+** David Allsopp also replied to Bikal Gurung's question:
+
+> Thank you for your response. I have installed the official windows port of 
+> ocaml at
+> <http://protz.github.io/ocaml-installer/> . However, it mentions that 
+> MinGW/Msys is no longer supported.
+> I rather use Mingw/Msys as well.
+
+I meant I use the MinGW port of the compiler rather than the MSVC port - I 
+compile it using the mingw-w64 compilers provided with Cygwin. I only use 
+Cygwin to compile OCaml and related libraries (again, principally for 
+historical reasons, I develop using a normal command shell with GnuWin32 to 
+provide Unix commands). Building using Cygwin (i.e. the supported way) has 
+the benefit that when you get stuck, others are likely to (be able to) help! 
+:o) Do you have a particular to want to use MSYS rather than Cygwin?
+
+> It seems ocamlbuild requires cygwin to work, has this been your experience 
+> too? If I build the latest
+> ocaml from trunk - 4.02dev+fp will ocaml and other tools/utilities still 
+> work on pure MingWg/Msys
+> environment?
+
+Yes. Because I use GnuWin32 (which has its bin folder in my PATH) I prefer 
+not to put C:\cygwin\bin in my PATH but symlink through the required 
+utilities in C:\Dev\OCaml\bin (C:\Dev\OCaml is my installation root for 
+OCaml) - my OCaml installation requires bash.exe (for ocamlbuild), cpp.exe 
+(for ocamlnet) and i686-w64-mingw32-ar.exe + i686-w64-mingw32-as.exe + 
+i686-w64-mingw32-dlltool.exe + i686-w64-mingw32-gcc.exe + 
+i686-w64-mingw32-ranlib.exe for ocamlopt.
+
+> With regards to ocaml libraries, have you tried the Jane Street packages? 
+> Core, core_kernel ? 
+
+No - I'd got the impression that their library was very Unix-oriented (though 
+I think core_kernel may now address that?) Again, it's mainly laziness - I've 
+been using OCaml for long enough that I already have my own core library so 
+while switching to a supported one may be great, nothing's broken (yet!). The 
+libraries I do use are: findlib, extlib, calendar, pcre, csv, batteries, 
+pgocaml, camlzip, ssl, cryptokit, ocamlnet, json-wheel, json-static, 
+spiderCaml, ocamlsha, ocamldap with natively compiled C libraries (for 
+openssl, zlib, etc.) where appropriate.
+      
+** Adrien Nader said and Gerd Stolpmann replied:
+
+> I believe opam on windows is pretty far away.
+> 
+> The issues can be summarized in a few words: source-based package
+> manager for ocaml on pure windows.
+> For this to fully work, you need a perfect toolchain where everything
+> works wonderfully.
+
+I can quickly report what I did to get GODI working on Windows. It is  
+of course not "pure Windows": You need Cygwin for doing builds, but  
+that's "only" because almost all build utilities are Unix-ish, and it  
+would be very hard to build anything without having some shell and the  
+usual file utilities at hand. (AFAIK the only build utility that works  
+in a pure Windows environment is omake.)
+
+So GODI assumes a mixed Windows environment, and this is in deed  
+doable. ocaml and all compiled code run on native Windows here, and for  
+executing build scripts there is Cygwin. This solves the utility  
+question, but you get in return some new problems, like the different  
+calling conventions. All GODI core utilities have e.g. built-in support  
+for translating Cygwin paths forth and back, so they can operate on  
+Cygwin paths although they are native Windows programs. Another problem  
+are the strange Windows rules for splitting a command-line into words.  
+As generic fallback when there are too many "bad characters" in the  
+command line I simply generate a temporary script that is then executed  
+with bash. There are probably more such tricks I currently do not  
+remember.
+
+So this mixed mode is actually doable, and works so well that many GODI  
+packages can be built on Windows without any special porting effort. If  
+you look at WODI, the special adaption of GODI for Windows, you will  
+mostly find additional C libraries (because you cannot link against the  
+libraries coming with Cygwin).
+
+We could go further and replace Cygwin completely only if we had a  
+substitute for the shell utilities. That's the core of the problem, and  
+it's a hard one, because many scripts assume 100% POSIX behavior, and  
+e.g. using Windows command-line conventions is out of question.
+      
+========================================================================
+5) Other Caml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocaml.org/>.
+
+Forge downtime on 22/06 19:16 to 23/06 14:00 (UTC+0200):
+  <https://forge.ocamlcore.org/forum/forum.php?forum_id=879>
+
+Making it easier for beginners to learn OCaml:
+  <http://gallium.inria.fr/blog/making-it-easier-for-beginners-to-learn-ocaml>
+
+The HoTT book:
+  <http://math.andrej.com/2013/06/20/the-hott-book/>
+
+Senior software developer/Functional programmer at Vector Fabrics (Full-time):
+  <http://functionaljobs.com/jobs/154-senior-software-developer-functional-programmer-at-vector-fabrics>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

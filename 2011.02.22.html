@@ -1,0 +1,149 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2011.02.15.html">Previous week</a> <a href="index.html">Up</a> <a href="2011.03.01.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of February 15 to 22, 2011.</p><p /><ol><li><a href="#1">Encoding objects using recursive first-class modules</a></li><li><a href="#2">LablGLES for Android</a></li><li><a href="#3">Kaputt 1.1 release</a></li><li><a href="#4">Compiling Windows native code</a></li><li><a href="#5">Other Caml News</a></li></ol><a name="1" /><hr /><h3>Encoding objects using recursive first-class modules</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2011-02/msg00101.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2011-02/msg00101.html</a></p><i>Jacques Garrigue explained:</i><br /><pre>
+There has been some excitement about the possibilities of first-class
+modules.
+One application is to use them as objects, as is already done in the
+amthing project (using interesting syntactic sugar).
+This may interest some people that the relation to objects doesn't
+stop at the concrete object level: combining them with recursive
+modules, one can also easily encode classes, with virtual methods and
+inheritance.
+The basic idea is to turn classes (or rather "traits") into functors
+from the final object to a list of methods.
+Here is a bit of code demonstrating this.
+This code is rather verbose, but using 3.13 features and amthing
+syntax it can be made much lighter.
+
+Jacques Garrigue
+
+(* Signature for points, all methods must be functions *)
+module type Point = sig
+  val get_x : unit -&gt; int
+  val move : int -&gt; unit
+end
+
+(* The Point class, with state x *)
+(* Needs to be a functor, to allow creating new state *)
+module PointF(X : sig end) = struct
+  let x = ref 0
+  let get_x () = !x
+  let move d = x := !x + d
+end
+
+(* Create a new point *)
+let new_point () = (module PointF(struct end) : Point)
+
+(* Signature for the Show trait *)
+module type Show = sig
+  val show : unit -&gt; string
+end
+
+(* Implementation for the Show trait *)
+module ShowF(P : Point) = struct
+  let show () = Printf.sprintf "x = %i" (P.get_x ())
+end
+
+(* Signature for the ShowPoint class *)
+module type ShowPoint = sig include Point include Show end
+
+(* ShowPoint class *)
+module ShowPointF(P : ShowPoint) = struct
+  include PointF(P)
+  include ShowF(P)
+end
+
+(* Create a new ShowPoint object, by tying the knot *)
+let new_showpoint () =
+  let module M = struct
+    module rec SP : ShowPoint = ShowPointF(SP)
+  end in (module M.SP : ShowPoint)
+
+(* Play with it *)
+let sp = new_showpoint ()
+let a =
+  let module SP = (val sp : ShowPoint) in
+  SP.move 2; SP.show ()
+
+(* One can coerce to a supertype *)
+let sp_as_p = (module (val sp : ShowPoint) : Point)
+      </pre><a name="2" /><hr /><h3>LablGLES for Android</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2011-02/msg00116.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2011-02/msg00116.html</a></p><i>Jeffrey Scofield announced:</i><br /><pre>
+For those interested in using OpenGL ES from OCaml, I've just made a
+small update to my LablGLES patches so that they compile and link under
+the NDK on Android.  Thanks to Paul Snively for contributing the Android
+modifications.
+
+Instructions for downloading and building LablGLES are here:
+
+    <a href="http://psellos.com/ocaml/lablgles-build.html">http://psellos.com/ocaml/lablgles-build.html</a>
+
+Glossary:
+
+LablGL is an OCaml interface to OpenGL, created by Jacques Garrigue and
+others.
+
+LablGLES is a set of patches that change LablGL into an interface to
+OpenGLES rather than OpenGL.
+
+OpenGLES is a subset of OpenGL intended for embedded use (in cell phones
+and the like).  Notably, it is supported by iPhone, iPad, and Android
+devices.
+      </pre><a name="3" /><hr /><h3>Kaputt 1.1 release</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2011-02/msg00118.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2011-02/msg00118.html</a></p><i>Xavier Clerc announced:</i><br /><pre>
+This post announces the 1.1 release of the Kaputt project, whose goal is to 
+provide
+a comprehensive testing framework for the Objective Caml language.
+
+Home page: <a href="http://kaputt.x9c.fr">http://kaputt.x9c.fr</a>
+
+Main changes since 1.0:
+  - update for Objective Caml 3.12.0
+  - new build system (ocamlbuild-based)
+  - assertion builders for data containers
+  - generators for functions (both total and partial)
+  - enumerators for file contents (chars, bytes, lines, and marshalled values)
+  - additional shell commands, and possibility to configure shell syntax
+  - enhanced big array, and big num support
+  - fix for possible non-termination on unsatisfiable precondition
+  - implementation of reduction (to try to produce smaller counterexamples)
+  - bug #51: unportable use of 'which'
+  - bug #57: tests fail on 64-bit platform
+      </pre><a name="4" /><hr /><h3>Compiling Windows native code</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2011-02/msg00124.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2011-02/msg00124.html</a></p><i>Deep in this thread, Vu Ngoc San said:</i><br /><pre>
+incidentally, I've just installed ocaml+SDL on windows Vista and XP,
+using Mingw and flexlink, and I can compile both bytecode and nativecode.
+
+I put up a blog post for this, maybe it can help you (?)
+
+<a href="http://blogperso.univ-rennes1.fr/san.vu-ngoc/index.php/post/2011/02/20/Ocaml-and-SDL-on-windows">http://blogperso.univ-rennes1.fr/san.vu-ngoc/index.php/post/2011/02/20/Ocaml-and-SDL-on-windows</a>
+      </pre><a name="5" /><hr /><h3>Other Caml News</h3><i>From the ocamlcore planet blog:</i><br /><pre>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <a href="http://planet.ocamlcore.org/">http://planet.ocamlcore.org/</a>.
+
+OCamlEditor 1.6.0:
+  <a href="http://caml.inria.fr/cgi-bin/hump.cgi?contrib=721">http://caml.inria.fr/cgi-bin/hump.cgi?contrib=721</a>
+
+Kaputt 1.1:
+  <a href="http://caml.inria.fr/cgi-bin/hump.cgi?contrib=675">http://caml.inria.fr/cgi-bin/hump.cgi?contrib=675</a>
+
+Kaputt 1.1:
+  <a href="https://forge.ocamlcore.org/forum/forum.php?forum_id=773">https://forge.ocamlcore.org/forum/forum.php?forum_id=773</a>
+
+Not-so-phantom types:
+  <a href="http://www.sairyx.org/2011/02/not-so-phantom-types/">http://www.sairyx.org/2011/02/not-so-phantom-types/</a>
+
+Various news: Gentoo package, FAQ, upcoming version, OCaml planet, thanks!:
+  <a href="http://odns.tuxfamily.org/2011/02/18/various-news-gentoo-package-faq-upcoming-version-ocaml-planet-thanks/">http://odns.tuxfamily.org/2011/02/18/various-news-gentoo-package-faq-upcoming-version-ocaml-planet-thanks/</a>
+
+lablgtk-react:
+  <a href="https://forge.ocamlcore.org/projects/lablgtk-react/">https://forge.ocamlcore.org/projects/lablgtk-react/</a>
+      </pre><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

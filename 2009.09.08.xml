@@ -1,0 +1,330 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2009.09.08</cwn_date>
+    <cwn_prev>2009.09.01</cwn_prev>
+    <cwn_next>2009.09.15</cwn_next>
+    <cwn_date_text>September 01 to 08, 2009</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>Dynamic loading of native code : what about librairies and packs ?</cwn_title>
+      <cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/cf68c5465cda89ed/9c767ce0eec07e0b</cwn_url>
+      <cwn_who>Continuing this old thread, Pierre-Loïc Garoche asked</cwn_who>
+      <cwn_what>
+I am still having some problems with the dynamic loading of native code. Allow
+me to give you an extremely simple example to illustrate my problem. I hope
+you can clarify my understanding of it.
+
+My problem concerns the dynamic loading of native code where the dynamic code
+loaded depends on another library.
+
+Basically there are three files:
+- main.ml, dynamically loading the plugin
+- plugin.ml, the loaded code that depends on the external lib
+- mylib.ml, the external lib
+
+///////
+main.ml:
+let _ = print_string "main\n"
+let _ = Dynlink.loadfile "MyPlugin.cmxs"
+
+compiled with ocamlopt -o MyProg dynlink.cmxa main.ml
+
+///////
+mylib.ml:
+let _ = print_string "mylib\n"
+let myval : (int , int) Hashtbl.t = Hashtbl.create 13
+
+compiled with ocamlopt -a -linkall -o mylib.cmxa mylib.ml
+
+//////
+plugin.ml:
+let _ = print_string "plugin\n"
+let cst = Mylib.myval
+
+compiled and linked to build a shared library with
+ocamlopt -shared -linkall -o MyPlugin.cmxs mylib.cmxa plugin.ml
+
+Running it gives me the following error
+error loading shared library: blabla/MyPlugin.cmxs: undefined symbol: 
+camlHashtbl__create_79
+
+
+Remark1 : Of course, building a standalone plugin works:
+ocamlopt -o PluginSelf mylib.cmxa plugin.cmx
+
+Remark2: If I don't rely on an external module and replace myval by an integer
+or any other self defined type value, it works as well.
+
+Remark3: The linkall option does not seems to have an impact on such simple
+example.
+
+
+Question: How should I link it to rely on external libraries and produce a
+valid MyPlugin.cmxs ?
+
+Any hint or comment will be greatly appreciated !
+      </cwn_what>
+      <cwn_who>Christophe Troestler suggested</cwn_who>
+      <cwn_what>
+You should reference « Hashtbl » in your main program :
+
+ main.ml:
+ module ForLinking_1 = Hashtbl
+ let () = print_string "main\n"
+ let () = Dynlink.loadfile "MyPlugin.cmxs"
+
+BTW, if you want your program to work in both bytecode and native
+code, you should use:
+
+ Dynlink.loadfile (Dynlink.adapt_filename "MyPlugin.cmo")
+      </cwn_what>
+      <cwn_who>Alain Frisch also added</cwn_who>
+      <cwn_what>
+You need to ensure that the main program is linked with all the modules that
+are needed by the dynamically loaded modules (including the modules from the
+standard library). Linking the main program with -linkall should solve your
+problem.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Windows Vista/7 specific functions</cwn_title>
+      <cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/0f878746f238e961#</cwn_url>
+      <cwn_who>Reed Wilson asked</cwn_who>
+      <cwn_what>
+I am going to be writing a native-code 64-bit program which takes advantage of
+some Windows Vista-only features (transactional NTFS), and I was wondering how
+to get it working in OCaml. I have made numerous interfaces to Windows XP
+functions, but the problem is that the NTFS transactional functions are only
+available through MSVS 2008 and the Vista/7 SDKs, which OCaml seems to not
+compile with. I tried using the new Windows 7 SDK tools to compile the program
+to native code, but it kept giving me errors with not being able to find
+bufferoverflowu.lib.
+
+Does anybody know if there is any way to compile a 64-bit OCaml with the newer
+Windows SDKs, or failing that, to at least tell OCaml how to properly link
+things with them?
+      </cwn_what>
+      <cwn_who>David Allsopp replied</cwn_who>
+      <cwn_what>
+Having hacked away with the Win64 port before I thought I’d have a go. The
+first thing I noticed is that Microsoft have finally released the x86 and x64
+compilers in the same package (this was a pain if you wanted to build MSVC and
+MSVC64 ports as you needed two SDKs to do it...) – though I haven’t tried
+building the 32-bit MSVC port from this SDK yet.
+
+Here’s what I did (you’ll have to excuse my idiosyncratic way of copying
+binary files into the OCaml tree – these can be replaced with PATH changes if
+you want. I copy things around so that ocamlopt always works without needing a
+special build environment or vast compiler suites permanently in my PATH).
+
+The build is slightly complicated because you need to build flexdll directly.
+
+Make sure you have Cygwin base with with Devel\make and Devel\subversion added
+
+I installed the Win7 SDK to C:\Dev\WinSDK (though it still irritatingly puts
+the compilers in C:\Program Files (x86)\Microsoft Visual Studio 9.0\VC). I
+didn’t bother installing Documentation, Samples or the IA64 libraries.
+
+Add the following to your LIB environment variable:
+  C:\Program Files (x86)\Microsoft Visual Studio 9.0\VC\lib\amd64;C:\Dev\WinSDK\lib\x64
+
+Add the following to your INCLUDE environment variable:
+  C:\Program Files (x86)\Microsoft Visual Studio 9.0\vc\include;C:\Dev\WinSDK\Include
+
+Set OCAMLLIB to C:\Dev\OCaml-MSVC64\lib
+
+A whole load of files now get copied to C:\Dev\OCaml-MSVC64\bin:
+From C:\Cygwin\bin, copy cygpath.exe and cygwin1.dll (needed by flexlink)
+
+Extract flexdll.h, default.manifest and flexlink.exe from the flexdll 0.19 x86
+binaries (latest flexlink tool – doesn’t need to be x64)
+
+From C:\Program Files (x86)\Microsoft Visual Studio\9.0\VC\bin\amd64, copy:
+  1033\clui.dll (this needs to be in C:\Dev\OCaml-MSVC64\bin\1033)
+  ml64.exe, cl.exe, c1.dll, c2.dll, cvtres.exe, link.exe and mspdb80.dll
+
+From C:\Dev\WinSDK\Bin\x64, copy mt.exe
+
+Or workaround that stupidity by having C:\Cygwin\bin and the other directories
+in your PATH
+
+Start Bash (possibly as Administrator depending on permissions set on C:\Dev)
+
+I placed the ocaml 3.11.1 tarball in C:\Dev\Src-MSVC64
+
+Note that the sed instruction not only sets PREFIX but it also removes
+bufferoverflowu.lib from EXTRALIBS – apparently this is no longer needed in
+this version of the SDK (presumably the compiler has started to include all
+the required support natively or perhaps the runtime now has it).
+
+$ cd /cygdrive/c/Dev/Src-MSVC64
+$ svn co svn://frisch.fr/flexdll/trunk flexdll-dev
+$ cd flexdll-dev
+$ make CHAINS=msvc flexdll_msvc.obj flexdll_initer_msvc.obj
+$ cp *.obj /cygdrive/c/Dev/OCaml-MSVC64/bin
+$ cd ..
+$ tar -xzf ocaml-3.11.tar.gz
+$ cd ocaml-3.11
+$ cp config/m-nt.h config/m.h
+$ cp config/s-nt.h config/s.h
+$ sed -e '20s/=.*$/=C:\/Dev\/OCaml-MSVC64/' -e '92s/=.*/=/' config/Makefile.msvc64 &gt; config/Makefile
+$ make -f Makefile.nt world opt opt.opt install
+
+And you should have a fully working MSVC64 build with the Win7 SDK Compilers
+(and therefore be able to link against the newer libraries). If you wish,
+quite reasonably, to be a purist and have everything 64-bit you can now go
+back to flexdll-dev and say:
+
+$ sed -i -e 's/"afxres.h"/&lt;windows.h&gt;/' version.rc
+$ rc version.rc
+$ cvtres /nologo /machine:amd64 /out:version_res.obj version.res
+$ make version.ml
+$ ocamlopt -o flexlink.exe -ccopt "-link version_res.obj" version.ml coff.ml cmdline.ml create_dll.ml reloc.ml
+$ cp flexlink.exe /cygdrive/c/Dev/OCaml-MSVC64/bin
+
+And you’ll have flexlink.exe as a 64-bit executable as well.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Documentation to start</cwn_title>
+      <cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/fb701323404c7d0f#</cwn_url>
+      <cwn_who>vernade asked and Philip answered</cwn_who>
+      <cwn_what>
+&gt; I just downloaded ocaml (and caml-light) . I am looking for documentation on pdf 
+&gt; or any format that I can easily download , read and print. I need basic 
+&gt; information. All I found was on line and the "help" didn't come with the file I 
+&gt; downloaded to install ocaml and caml-light. 
+
+a first place to start is: 
+http://caml.inria.fr/pub/docs/manual-ocaml/ 
+http://www.ocaml-tutorial.org/ 
+
+Installation is quite easy on fedora 11: 
+just do a 'yum install' 
+      </cwn_what>
+      <cwn_who>David Mentre also replied</cwn_who>
+      <cwn_what>
+As you probably speak French, take a look at "Le Langage Caml" book: 
+  http://caml.inria.fr/pub/distrib/books/llc.pdf 
+
+It is dedicated to Caml Light but code examples can be adapted fairly 
+easily to OCaml. 
+
+It is a very good book! 
+      </cwn_what>
+      <cwn_who>Ashish Agarwal also replied</cwn_who>
+      <cwn_what>
+I would recommend Jason Hickey's excellent book [1]. You can also look at 
+the OCaml manual [2], but in my opinion this is better as reference. 
+The easiest way to install OCaml depends on the OS you are using, but GODI 
+[3] is a good choice for most systems. 
+
+[1] http://files.metaprl.org/doc/ocaml-book.pdf 
+[2] http://caml.inria.fr/pub/docs/manual-ocaml 
+[3] http://godi.camlcity.org 
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Camomile library tutorial/examples?</cwn_title>
+      <cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/70cd9f6b3cf970bb#</cwn_url>
+      <cwn_who>Morozov Matvey asked and Dmitry Grebeniuk replied</cwn_who>
+      <cwn_what>
+&gt; Recently I tried to add some unicode support to my project (for instance I 
+&gt; need to convert Cyrillic characters from uppercase to lowercase and vice 
+&gt; versa). 
+
+I don't know of any good documentation on Camomile, but here is a 
+code that converts line from terminal to uppercase and lowercase, 
+assuming that your terminal's encoding is utf8. 
+
+===== camotest.ml ===== 
+open Printf 
+module PREF = CamomileLibrary.Default.Camomile 
+module CE = PREF.CharEncoding 
+module CM = PREF.CaseMap.Make(PREF.UTF8) 
+
+let _ = 
+  try 
+    while true do printf "&gt; %!"; 
+      let line = input_line stdin in 
+      let up = CM.uppercase line 
+      and low = CM.lowercase line 
+      in printf "ORIG : %s\nUPPER: %s\nLOWER: %s\n%!" line up low 
+    done 
+  with 
+  | End_of_file -&gt; () 
+===== / camotest.ml ===== 
+
+$ ocamlfind ocamlc -package camomile -linkpkg camotest.ml -o camotest 
+$ ./camotest
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OCaml on Android</cwn_title>
+      <cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/b3a3712071801aa5#</cwn_url>
+      <cwn_who>Keigo Imai announced</cwn_who>
+      <cwn_what>
+I built an O'Caml cross-compiler for Google Android!
+
+The porting step is available at
+http://sites.google.com/site/keigoattic/ocaml-on-android
+
+The example shows that Unison is invoked from android's shell.
+(Since Android app works on java VM, we cannot build Android application
+diretly with O'Caml yet. But anyway, it works!)
+
+The patch itself is not so big, and nothing special (removing reference to
+unsupported functions, modify 'ar' to '$(AR)', and so on), so I encourage you
+to extend it for your use, such as adapting it to O'Jacare or OCaml-Java.
+
+Acknowledgements:
+ARM-EABI with software floating-point support[1] saved much time.
+Many thanks to Xavier!
+
+ [1] http://caml.inria.fr/mantis/view.php?id=3746
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>ocamlfind and GODI packaging sprint this Wednesday, 9/9</cwn_title>
+      <cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/afbdc48c94caa3d0#</cwn_url>
+      <cwn_who>Hezekiah M. Carty announced</cwn_who>
+      <cwn_what>
+There will be an informal GODI packaging sprint for OCaml libraries
+this Wednesday, 9/9, with coordination taking place via IRC (#ocaml on
+Freenode).  Some information (documentation, ideas for libraries to
+package) is available here:
+
+http://ocamlsprint.couch.it/ocamlfind_and_GODI_packaging
+
+The site is a wiki, so please feel free to add links to packaging
+documentation, ideas for libraries to package or other relevant
+information.
+
+Everyone is welcome!  The plan is to continue the packaging efforts
+throughout the day.  If you are interested, please drop by for as long
+or short a time as you like.
+
+Many thanks to bluestorm for suggesting and initiating this effort!
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other Caml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocamlcore.org/&gt;.
+
+Constructive stone: finite sets:
+  &lt;http://math.andrej.com/2009/09/07/constructive-stone-finite-sets/&gt;
+
+Constructive gems and stones:
+  &lt;http://math.andrej.com/2009/09/07/constructive-gems-and-stones/&gt;
+
+ocamlviz: First version available:
+  &lt;http://forge.ocamlcore.org/forum/forum.php?forum_id=412&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

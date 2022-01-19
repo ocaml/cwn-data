@@ -1,0 +1,401 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[http://alan.petitepomme.net/cwn/2020.12.08.html][Previous Week]] [[http://alan.petitepomme.net/cwn/index.html][Up]] [[http://alan.petitepomme.net/cwn/2020.12.22.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of December 08 to 15, 2020.
+
+#+TOC: headlines 1
+
+
+* MirageOS 3.10 released
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/ann-mirageos-3-10-released/6941/1
+
+** Hannes Mehnert announced
+
+
+we're pleased to announce MirageOS 3.10:
+
+IPv6 and dual (IPv4 and IPv6) stack support https://github.com/mirage/mirage/pull/1187
+https://github.com/mirage/mirage/issues/1190
+
+Since a long time, IPv6 code was around in our TCP/IP stack (thanks to @nojb who developed it in 2014).
+Some months ago, @hannesm and @MagnusS got excited to use it. After we managed to fix some bugs and add
+some test cases, and writing more code to setup IPv6-only and dual stacks, we are eager to share this
+support for MirageOS in a released version. We expect there to be bugs lingering around, but duplicate
+address detection (neighbour solicitation and advertisements) has been implemented, and (unless
+"--accept-router-advertisement=false") router advertisements are decoded and used to configure the IPv6
+part of the stack. Configuring a static IPv6 address is also possible (with
+"--ipv6=2001::42/64").
+
+While at it, we unified the boot arguments between the different targets: namely, on Unix (when using
+the socket stack), you can now pass "--ipv4=127.0.0.1/24" to the same effect as the direct stack: only
+listen on 127.0.0.1 (the subnet mask is ignored for the Unix socket stack).
+
+A dual stack unikernel has "--ipv4-only=BOOL" and "--ipv6-only=BOOL" parameters, so a unikernel binary
+could support both Internet Protocol versions, while the operator can decide which protocol version to
+use. I.e. now there are both development-time (stackv4 vs stackv6 vs stackv4v6) choices, as well as the
+run-time choice (via boot parameter).
+
+I'm keen to remove the stackv4 & stackv6 in future versions, and always develop with dual stack
+(leaving it to configuration & startup time to decide whether to enable ipv4 and ipv6).
+
+Please also note that the default IPv4 network configuration no longer uses 10.0.0.1 as default gateway
+(since there was no way to unset the default gateway https://github.com/mirage/mirage/issues/1147).
+
+For unikernel developers, there are some API changes in the Mirage module
+- New "v4v6" types for IP protocols and stacks
+- The ipv6_config record was adjusted in the same fashion as the ipv4_config type: it is now a record of a network (V6.Prefix.t) and gateway (V6.t option)
+
+Some parts of the Mirage_key module were unified as well:
+- Arp.ip_address is available (for a dual Ipaddr.t)
+- Arg.ipv6_address replaces Arg.ipv6 (for an Ipaddr.V6.t)
+- Arg.ipv6 replaces Arg.ipv6_prefix (for a Ipaddr.V6.Prefix.t)
+- V6.network and V6.gateway are available, mirroring the V4 submodule
+
+If you're ready to experiment with the dual stack: below is a diff for our basic network example (from
+mirage-skeleton/device-usage/network) replacing IPv4 with a dual stack, and the tlstunnel unikernel
+commit
+https://github.com/roburio/tlstunnel/commit/2cb3e5aa11fca4b48bb524f3c0dbb754a6c8739b
+changed tlstunnel from IPv4 stack to dual stack.
+
+#+begin_src diff
+diff --git a/device-usage/network/config.ml b/device-usage/network/config.ml
+index c425edb..eabc9d6 100644
+--- a/device-usage/network/config.ml
++++ b/device-usage/network/config.ml
+@@ -4,9 +4,9 @@ let port =
+   let doc = Key.Arg.info ~doc:"The TCP port on which to listen for
+incoming connections." ["port"] in
+   Key.(create "port" Arg.(opt int 8080 doc))
+
+-let main = foreign ~keys:[Key.abstract port] "Unikernel.Main" (stackv4
+@-> job)
++let main = foreign ~keys:[Key.abstract port] "Unikernel.Main"
+(stackv4v6 @-> job)
+
+-let stack = generic_stackv4 default_network
++let stack = generic_stackv4v6 default_network
+
+ let () =
+   register "network" [
+diff --git a/device-usage/network/unikernel.ml
+b/device-usage/network/unikernel.ml
+index 5d29111..1bf1228 100644
+--- a/device-usage/network/unikernel.ml
++++ b/device-usage/network/unikernel.ml
+@@ -1,19 +1,19 @@
+ open Lwt.Infix
+
+-module Main (S: Mirage_stack.V4) = struct
++module Main (S: Mirage_stack.V4V6) = struct
+
+   let start s =
+     let port = Key_gen.port () in
+-    S.listen_tcpv4 s ~port (fun flow ->
+-        let dst, dst_port = S.TCPV4.dst flow in
++    S.listen_tcp s ~port (fun flow ->
++        let dst, dst_port = S.TCP.dst flow in
+         Logs.info (fun f -> f "new tcp connection from IP %s on port %d"
+-                  (Ipaddr.V4.to_string dst) dst_port);
+-        S.TCPV4.read flow >>= function
++                  (Ipaddr.to_string dst) dst_port);
++        S.TCP.read flow >>= function
+         | Ok `Eof -> Logs.info (fun f -> f "Closing connection!");
+Lwt.return_unit
+-        | Error e -> Logs.warn (fun f -> f "Error reading data from
+established connection: %a" S.TCPV4.pp_error e); Lwt.return_unit
++        | Error e -> Logs.warn (fun f -> f "Error reading data from
+established connection: %a" S.TCP.pp_error e); Lwt.return_unit
+         | Ok (`Data b) ->
+           Logs.debug (fun f -> f "read: %d bytes:\n%s" (Cstruct.len b)
+(Cstruct.to_string b));
+-          S.TCPV4.close flow
++          S.TCP.close flow
+       );
+
+     S.listen s
+#+end_src
+
+Other bug fixes include https://github.com/mirage/mirage/issues/1188 (in
+https://github.com/mirage/mirage/pull/1201) and adapt to charrua 1.3.0 and arp 2.3.0 changes
+(https://github.com/mirage/mirage/pull/1199).
+      
+
+
+
+* Exception vs Result
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/exception-vs-result/6931/18
+
+** Continuing this thread, Vladimir Keleshev announced
+
+
+A bit late to the party, but here's an overview of error handling methods that I did a while ago:
+
+[[https://keleshev.com/composable-error-handling-in-ocaml][Composable Error Handling in OCaml
+(keleshev.com)]]
+
+It compares the following approaches:
+- Exceptions
+- Result type with strings for errors
+- Result type with custom variants for errors
+- Result type with polymorphic variants for errors
+      
+
+
+
+* Release: scikit-learn, Numpy, Scipy for OCaml, 0.3.1
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/ann-release-scikit-learn-numpy-scipy-for-ocaml-0-3-1/6942/1
+
+** Ronan Le Hy announced
+
+
+I've just released an update of OCaml wrappers for scikit-learn:
+- documentation: https://lehy.github.io/ocaml-sklearn/
+- code: https://github.com/lehy/ocaml-sklearn
+- ~opam install sklearn~
+
+These bindings also come with bindings for Numpy (~opam install np~) and Scipy (~opam install scipy~).
+
+Scikit-learn is all of these things:
+- Simple and efficient tools for predictive data analysis
+- Accessible to everybody, and reusable in various contexts
+- Built on NumPy, SciPy, and matplotlib
+- Open source, commercially usable - BSD license
+
+Scikit-learn is robust, well-engineered and covers most basic machine learning use cases. As a
+professional data scientist I use it extensively from Python. I built these wrappers because I felt
+challenged by my friend @UnixJunkie's funny R wrappers.
+
+I don't depend personally on these packages and maintain/improve them without any guarantees. They have
+many unpolished corners. However, they have tests and I don't expect them to add too many bugs to
+scikit-learn. Contributions and bug reports are welcome (but be aware that the bindings are generated
+from a big hairy Python script).
+
+Many thanks to everybody involved in opam!
+      
+
+
+
+* OCaml 4.10.2
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/ann-ocaml-4-10-2/6945/1
+
+** octachron announced
+
+
+The OCaml team has the pleasure of celebrating the birthday of Grace Hopper by announcing
+the release of OCaml version 4.10.2.
+
+This exceptional release makes OCaml 4.10 available on the new macOS/arm64 platform,
+and fixes some compatibility issues for the mingw64 and FreeBSD/amd64 platform.
+
+If OCaml 4.10.1 already works on your platform of choice, this release should be
+completely transparent to you (and can be safely ignored).
+
+Note that those fixes were backported from OCaml 4.12: further improvement to the support
+of the macOS/arm64 platform will happen on the 4.12 branch.
+
+The release is available as a set of OPAM switches,
+and as a source download here:
+
+https://github.com/ocaml/ocaml/archive/4.10.2.tar.gz \\
+https://caml.inria.fr/pub/distrib/ocaml-4.10/
+
+*** OCaml 4.10.2
+
+- [[https://github.com/ocaml/ocaml/issues/9938][9938]], [[https://github.com/ocaml/ocaml/issues/9939][9939]]: Define __USE_MINGW_ANSI_STDIO=0 for the mingw-w64 ports to prevent their C99-compliant snprintf conflicting with ours. (David Allsopp, report by Michael Soegtrop, review by Xavier Leroy)
+
+**** Supported platforms:
+
+- [[https://github.com/ocaml/ocaml/issues/9699][9699]], [[https://github.com/ocaml/ocaml/issues/10026][10026]]: add support for iOS and macOS on ARM 64 bits Backported from OCaml 4.12.0 (GitHub user @EduardoRFS, review by Xavier Leroy, Nicolás Ojeda Bär and Anil Madhavapeddy, additional testing by Michael Schmidt)
+
+**** Code generation and optimization
+
+- [[https://github.com/ocaml/ocaml/issues/9752][9752]], [[https://github.com/ocaml/ocaml/issues/10026][10026]]: Revised handling of calling conventions for external C functions. Provide a more precise description of the types of unboxed arguments, so that the ARM64 iOS/macOS calling conventions can be honored. Backported from OCaml 4.12.0 (Xavier Leroy, review by Mark Shinwell and Github user @EduardoRFS)
+
+- [[https://github.com/ocaml/ocaml/issues/9969][9969]], [[https://github.com/ocaml/ocaml/issues/9981][9981]]: Added mergeable flag tqo ELF sections containing mergeable constants.  Fixes compatibility with the integrated assembler in clang 11.0.0. Backported from OCaml 4.12.0 (Jacob Young, review by Nicolás Ojeda Bär)
+      
+
+** Anil Madhavapeddy
+
+
+There is also a [[https://github.com/ocaml/opam/releases/tag/2.0.7][macos/arm64 binary of opam]]
+available from the releases page for your convenience, and opam repository has been updated to
+understand the new tier-1 constraints imposed by macos/arm (i.e. the only working compilers there are
+4.10.2 and 4.12.0~dev, and ~opam init~ will now do the right thing).
+
+There will be a number of packages that are broken due to the shift to ~/opt/homebrew~ from
+~/usr/local~ for Homebrew/ARM (due to the need to keep them simultaneously installed on the same Mac),
+so please feel free to submit PRs to opam-repository to fix this stuff.
+
+We'll shortly have Mac (both Intel and ARM) testing up and running on opam-repository, so CI will catch
+up with reality once more, thanks to furious hacking by @patricoferris to extend our ocurrent-based CI
+infrastructure to support the unique vagaries of the Mac environment (notably, a total lack of native
+containers).  We have it working locally, and are just upstreaming it now.
+      
+
+
+
+* BAP 2.2.0 Release
+:PROPERTIES:
+:CUSTOM_ID: 5
+:END:
+Archive: https://discuss.ocaml.org/t/ann-bap-2-2-0-release/6950/1
+
+** Ivan Gotovchits announced
+
+
+We are proud to announce the 2.2.0 release of the Carnegie Mellon University [[https://github.com/BinaryAnalysisPlatform/bap][Binary Analysis
+Platform]]. BAP is the framework and toolkit for analyzing programs in their machine code
+representation. This update has a lot of [[https://github.com/BinaryAnalysisPlatform/bap/releases/tag/v2.2.0][new features]] despite that originally it was more as a
+maintenance version. Special thanks to @XVilka and [[https://github.com/Phosphorus15][@Phosphorus15]]  for contributing Thumb/ThumbV2
+lifter and radare2 integration. We would also like to thank [[https://forallsecure.com/][ForAllSecure]] for open-sourcing and
+contributing to us their x86 floating-point lifter. The new version of BAP is also much more efficient
+and we now have a much better symbolization facility (so we're no longer really dependent on the
+presence of external tools). Another nice addition is a new REPL powered by [[https://github.com/ocaml-community/ocaml-linenoise][ocaml-linenoise]], see the
+demo below.
+
+https://asciinema.org/a/358996
+      
+
+
+
+* Liquidshop 1.0, Jan. 17th and 18th, 2021
+:PROPERTIES:
+:CUSTOM_ID: 6
+:END:
+Archive: https://discuss.ocaml.org/t/ann-liquidshop-1-0-jan-17th-18th-2021/6951/1
+
+** Romain Beauxis announced
+
+
+We are happy to announce that we'll be holding Liquidshop 1.0 these coming Jan. 17th & 18th, our first
+ever (online) conference and workshops on liquidsoap and other related technologies and projects!
+
+Liquidsoap is a statically typed scripting language with specialized primitives and operators for
+creating media streams used for media processing, online streaming and a lot more. It is written in
+OCaml and has been maintained for over a decade now.
+
+We will have 3 different tracks for the event, namely:
+- Showcases: short presentations about a website / radio / art installation that you built using Liquidsoap or other related tools
+- Tech talks: in-depth presentation of a technology related to Liquidsoap and streaming in general
+- Workshops: user-centered freeform discussions about your project or issues around Liquidsoap and streaming
+
+If you're interested to participate, wether as an attendee or a presenter, make sure to register via
+our website at: http://www.liquidsoap.info/liquidshop/ or directly via the form available at:
+https://forms.gle/HdGNLz5qM3HVU1ub7
+
+We are super excited for this event. We have already secured a couple of interesting speakers and we
+would love to get to know the community better, see what y'all are doing with liquidsoap and other
+releated projects, community radios, live video, weird installations, etc. and meet with everyone.
+
+Also, if you have any suggestion about the best technical solutions to organize such an event, we'd be
+happy to hear about them.
+
+Finally, if any of y'all have some specific topics to discuss and would like to learn more about
+liquidsoap, this will be a great place to connect!
+      
+
+
+
+* Opium 0.20.0
+:PROPERTIES:
+:CUSTOM_ID: 7
+:END:
+Archive: https://discuss.ocaml.org/t/ann-opium-0-20-0/6955/1
+
+** Thibaut Mattio announced
+
+
+I'm pleased to announce a new version of [[https://github.com/rgrinberg/opium][Opium]] web framework
+(0.20.0) is available on Opam.
+
+Here's the changelog:
+
+*** Added
+
+- New ~Auth~ module to work with ~Authorization~ header ([[https://github.com/rgrinberg/opium/pull/238][#238]])
+
+- New ~basic_auth~ middleware to protect handlers with a ~Basic~ authentication method ([[https://github.com/rgrinberg/opium/pull/238][#238]])
+
+- New ~Response.of_file~ API for conveniently creating a response of a file ([[https://github.com/rgrinberg/opium/pull/244][#244]])
+
+- Add a package ~opium-graphql~ to easily create GraphQL server with Opium ([[https://github.com/rgrinberg/opium/pull/235][#235]])
+
+- Add a function ~App.run_multicore~ that uses pre-forking and spawns multiple processes that will handle incoming requests ([[https://github.com/rgrinberg/opium/pull/239][#239]])
+
+*** Fixed
+
+- Fix reading cookie values when multiple cookies are present in ~Cookie~ header ([[https://github.com/rgrinberg/opium/pull/246][#246]])
+
+Happy hacking :slight_smile:
+      
+
+
+
+* Set up OCaml 1.1.5
+:PROPERTIES:
+:CUSTOM_ID: 8
+:END:
+Archive: https://discuss.ocaml.org/t/ann-set-up-ocaml-1-1-5/6971/1
+
+** Sora Morimoto announced
+
+
+This release reduces build time by up to 2 minutes by exporting modified ~OPAMJOBS~ environment
+variable.
+
+https://github.com/avsm/setup-ocaml/releases/tag/v1.1.5
+      
+
+
+
+* Other OCaml News
+:PROPERTIES:
+:CUSTOM_ID: 9
+:END:
+** From the ocamlcore planet blog
+
+
+Here are links from many OCaml blogs aggregated at [[http://ocaml.org/community/planet/][OCaml Planet]].
+
+- [[https://www.ocamlpro.com/2020/12/01/memthol-exploring-program-profiling/][Memthol: exploring program profiling]]
+- [[https://blog.janestreet.com/growing-the-hardcaml-toolset-index/][Growing the Hardcaml toolset]]
+- [[https://rescript-lang.org/blog/editor-support-release-1-0][ Editor Plugin for VSCode and Vim Officially Released!]]
+- [[https://blog.janestreet.com/announcing-our-market-prediction-kaggle-competition-index/][Announcing Our Market Prediction Kaggle Competition]]
+- [[http://math.andrej.com/2020/11/24/homotopy-io/][Every proof assistant: introducing homotopy.io – a proof assistant for geometrical higher category theory]]
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[http://alan.petitepomme.net/cwn/][the archive]] or the [[http://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe [[http://lists.idyll.org/listinfo/caml-news-weekly/][online]].
+
+#+BEGIN_authorname
+[[http://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname

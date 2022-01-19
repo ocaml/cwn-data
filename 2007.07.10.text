@@ -1,0 +1,326 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of July 03 to 10, 2007.
+
+1) Incremental, undoable parsing in OCaml as the general parser inversion
+2) Chess III Arena 0.5
+3) pattern guards v0.2
+4) An OCaml toplevel IRC bot
+
+========================================================================
+1) Incremental, undoable parsing in OCaml as the general parser inversion
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/e9d9af9cfa9ee738/b8713f4ce5aa7bab#b8713f4ce5aa7bab>
+------------------------------------------------------------------------
+** Oleg said (and received many answers that may be read at the archive):
+
+This message is to show that the incremental parsing in OCaml is a
+solved problem -- essentially for any parser. Moreover, the procedure
+to convert from a regular parser to an incremental one is independent
+of the parser implementation. The incremental parsing lets us parse
+from a stream that is only partially known. The parser may
+report what it can and will ask for more input. When more input is
+supplied, the parsing resumes. No OS threads are required. The
+solution to control inversion is to use delimited continuations --
+which are designed for the purpose of giving fine control over
+continuations in direct-style programs.
+
+skaller wrote:
+> This problem is not restricted to parsers .. it's a general
+> problem with Ocaml and also C, C++, and most other languages.
+>
+> My language Felix solves this problem for procedures with
+> user space threading .. but it doesn't work with functions.
+> [And the builtin GLR parser is purely functional:]
+
+The solution below works especially well with functions. That is, if
+the parser maintains no visible state, the parsing is not only
+incremental but is also undoable and restartable. If, after ingesting
+the current chunk of input the parser reported a problem, we can `go
+back' and supply a different.
+
+> Other languages like Scheme and I think Haskell and MLton
+> have more general solutions because they're not restricted
+> to the archaic concept of a linear stack.
+
+Linear or segmented stack is an implementation detail. The central
+issue is delimited continuations. In fact, OCaml has a rare
+distinction of being the first system with widely available native
+delimited continuations (the native implementation of `control' was
+announced for Scheme48 back at ICFP02, but it was not included in the
+Scheme48 distribution). So, OCaml is well ahead of the pack.
+
+The solution is illustrated below. For simplicity, we'll be using
+Genlex.make_lexer of OCaml 3.09 as our parser (it is quite
+inconvenient for me at the moment to upgrade to OCaml 3.10).  Code
+fragments (cut and pasted from the eshell buffer) are given below
+within [[ ... ]] brackets.
+
+First, preliminaries:
+
+[[
+
+(* Open the DelimCC library
+  <http://pobox.com/~oleg/ftp/Computation/Continuations.html#caml-shift>
+*)
+open Delimcc;;
+let shift p f = take_subcont p (fun sk () ->
+  push_prompt p (fun () -> (f (fun c -> 
+    push_prompt p (fun () -> push_subcont sk (fun () -> c))))))
+;;
+
+open Stream;;
+open Printf;;
+]]
+
+First, we define the lexer and demonstrate non-incremental parsing. We
+apply the lexer to a sample stream and print out the produced tokens.
+We use the standard library Stream.iter function.
+
+[[
+let lexer = Genlex.make_lexer ["+";"-";"*";"/";"let";"="; "("; ")"];;
+
+let stream_fn1 str = fun pos ->
+  (* printf "stream_fn1: asked for char #%d\n" pos; *)
+  if pos < String.length str then Some str.[pos] else None;;
+
+let show_token_stream = Stream.iter (function 
+  | Genlex.Kwd s    -> printf "Stream elem: Kwd %s\n" s
+  | Genlex.Ident s  -> printf "Stream elem: Ident %s\n" s
+  | Genlex.Int d    -> printf "Stream elem: int %d\n" d
+  | Genlex.Float f  -> printf "Stream elem: float %g\n" f
+  | Genlex.String s -> printf "Stream elem: \"%s\"\n" s
+  | Genlex.Char c   -> printf "Stream elem: '%c'\n" c
+);;
+]]
+
+Evaluating
+[[
+let test1 = show_token_stream (lexer (Stream.from (stream_fn1 
+   "let x = 1 + 2 in (* comment *) \"xxx\" ^ x")));;
+]]
+
+produces the expected result
+
+	Stream elem: Kwd let
+	Stream elem: Ident x
+	Stream elem: Kwd =
+	Stream elem: int 1
+	Stream elem: Kwd +
+	Stream elem: int 2
+	Stream elem: Ident in
+	Stream elem: "xxx"
+	Stream elem: Ident ^
+	Stream elem: Ident x
+	val test1 : unit = ()
+
+
+We now invert the parser, in the following two lines:
+[[
+type stream_req = ReqDone | ReqChar of int * (char option -> stream_req);;
+let stream_inv p = fun pos -> shift p (fun sk -> ReqChar (pos,sk));;
+]]
+
+That is it. If we wish to ask the user for chunks (rather than
+characters) of data, we need a simple buffering layer.
+
+[[
+let rec filler buffer buffer_pos = function ReqDone -> ReqDone
+  | ReqChar (pos,k) as req ->
+  let pos_rel = pos - buffer_pos in
+  let _ = 
+    (* we don't accumulate already emptied buffers. We could. *)
+    assert (pos_rel >= 0) in
+  if pos_rel < String.length buffer then
+    (* desired char is already in buffer *)
+    filler buffer buffer_pos (k (Some buffer.[pos_rel])) 
+    else
+    (* buffer underflow. Ask the user to fill the buffer *)
+    req
+;;
+
+
+let cont str (ReqChar (pos,k) as req) = filler str pos req;;
+let finish (ReqChar (pos,k)) = filler "" pos (k None);;
+
+]]
+
+We are all set. Please compare the iterator below with test1 above.
+The composition "show_token_stream (lexer (Stream.from" is exactly as
+before. We merely replaced the stream function stream_fn with
+stream_inv. In calculus terms, we replaced "x" with "x+dx".
+
+[[
+let test2c0 = 
+  let p = new_prompt () in
+  push_prompt p (fun () ->
+    filler "" 0 (
+    show_token_stream (lexer (Stream.from (stream_inv p))); ReqDone));;
+]]
+
+Now, the result is 
+          val test2c0 : stream_req = ReqChar (0, <fun>)
+
+That is, the parser is suspended, awaiting the character number 0. We
+now feed the parser chunks of input. The chunks do
+not have to contain complete lexems. For example, a comment may start
+in one chunk and end in another. 
+
+[[
+let test2c1 = cont "let x = 1 + 2 " test2c0;;
+]]
+	Stream elem: Kwd let
+	Stream elem: Ident x
+	Stream elem: Kwd =
+	Stream elem: int 1
+	Stream elem: Kwd +
+	Stream elem: int 2
+	val test2c1 : stream_req = ReqChar (14, <fun>)
+
+The parser ate the chunk, produced some tokens, and waits for more
+input.
+
+[[
+let test2c2 = cont "in (* com " test2c1;;
+]]
+
+	Stream elem: Ident in
+	val test2c2 : stream_req = ReqChar (24, <fun>)
+
+Here, the chunk contains a non-terminating comment.
+
+[[
+let test2c3 = cont "ment *) " test2c2;;
+]]
+	val test2c3 : stream_req = ReqChar (32, <fun>)
+
+[[
+let test2c4 = cont "\"xx" test2c3;;
+]]
+	val test2c4 : stream_req = ReqChar (35, <fun>)
+
+[[
+let test2c5 = cont "x\" " test2c4;;
+]]
+	Stream elem: "xxx"
+	val test2c5 : stream_req = ReqChar (38, <fun>)
+
+Finally the parser produced something, because it got the matching
+double quote.
+
+[[
+let test2c6 = cont " ^ x" test2c5;;
+]]
+
+	Stream elem: Ident ^
+	val test2c6 : stream_req = ReqChar (42, <fun>)
+[[
+let test2c7 = finish test2c6;;
+]]
+
+	Stream elem: Ident x
+	val test2c7 : stream_req = ReqDone
+
+And we are finished. As we said earlier, the parser can be
+restartable and undoable. Suppose, we have changed our mind and
+decided to continue parsing after the checkpoint test2c6:
+
+[[
+let test2c71 = cont "yx * 10" test2c6;;
+let test2c8  = finish test2c71;;
+]]
+
+	Stream elem: Ident xyx
+	Stream elem: Kwd *
+	val test2c71 : stream_req = ReqChar (49, <fun>)
+	Stream elem: int 10
+	val test2c8 : stream_req = ReqDone
+
+and so we get an `alternative' parse, of an alternative stream. We can go
+back to any checkpoint test2c1, test2c2, etc. and continue parsing
+from that point.
+			
+========================================================================
+2) Chess III Arena 0.5
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/5fde7433a85023ea/eb6dc6575d69c8ab#eb6dc6575d69c8ab>
+------------------------------------------------------------------------
+** Grant Olson announced:
+
+Chess III Arena 0.5 is my first (allegedly) non-trivial app in OCaml.  It is 
+a fully functional chess game, although it lacks some desirable features 
+such as a computer opponent and network play at this point in time.  It uses 
+Quake III player models as the pieces. 
+
+Binaries for windows and source for other platforms are available at: 
+
+<http://members.verizon.net/~olsongt/c3a/> 
+
+I've also detailed some of the things I like about OCaml on that page, since 
+I don't write enough to have a blog, but I imagine I'm preaching to the 
+choir on this list.
+			
+========================================================================
+3) pattern guards v0.2
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/4a0481f245410860/016e76d7a51559c8#016e76d7a51559c8>
+------------------------------------------------------------------------
+** Jeremy Yallop announced:
+
+Following useful feedback from skaller, Brian Hurt and Arnaud Spiwack 
+on caml-list last week, I'm happy to announce a second release of 
+`patterns', an OCaml extension providing general-purpose additions to 
+pattern matching.  This release includes a single feature: "pattern 
+guards"; others will be made available in the near future. 
+
+You can download `patterns' from 
+
+    <http://code.google.com/p/ocaml-patterns/> 
+
+The main changes in this release are 
+
+   * A new design which allows with-bindings within top-level or-patterns 
+   * Fewer warnings in generated code 
+   * More efficient code generated in many cases 
+   * Documentation 
+
+For more details see the documentation at 
+
+    <http://code.google.com/p/ocaml-patterns/wiki/PatternGuards> 
+
+Comments, as always, are very welcome.
+			
+========================================================================
+4) An OCaml toplevel IRC bot
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/c2efb7fbbbc57095/edf94fe14926b0e5#edf94fe14926b0e5>
+------------------------------------------------------------------------
+** Continuing the thread from last week, Richard Jones said:
+
+There's a web page for the bot now: 
+
+<http://et.redhat.com/~rjones/xavierbot/> 
+
+Interested to see if anyone can break the security.
+			
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

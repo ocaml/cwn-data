@@ -1,0 +1,199 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of April 20 to 27, 2010.
+
+1) polymorphic (<)
+2) Module type of a structure returned by functor
+3) Other Caml News
+
+========================================================================
+1) polymorphic (<)
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/b45266905862cb1b#>
+------------------------------------------------------------------------
+** Jacques Le Normand asked and Martin Jambon replied:
+
+> Hello caml-list, 
+> Why doesn't (<) check for physical equality before traversing the 
+> structures? 
+
+If I remember correctly it used to be the case in older versions of OCaml, but 
+it changed because of the standard behavior expected from NaN float values. 
+The comparison of a NaN value with any other float should always return false, 
+and therefore the structural comparison of any data structure containing a NaN 
+with itself should also return false: 
+
+# let x = Some [ nan ];; 
+val x : float list option = Some [nan] 
+
+# x = x;; 
+- : bool = false 
+
+# x == x;; 
+- : bool = true 
+
+The solution to your problem is to use Pervasives.compare instead of the 
+comparison operators: 
+
+# compare x x;; 
+- : int = 0 
+      
+========================================================================
+2) Module type of a structure returned by functor
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/75a8815a6b511e72#>
+------------------------------------------------------------------------
+** Dawid Toton asked and Vincent Aravantinos replied:
+
+> I've found that I have more fundamental problem. What is the exact meaning 
+> of the following line?
+> 
+> module type Foo = functor (X:X) -> sig val foo : X.t end
+> 
+> (1) Foo is not a functor, but it is a type of some functors that map modules 
+> to modules
+> (2) Foo is a mapping from modules to module types
+> 
+> Currently I think that it (1) is true and (2) is false. Let me know if I'm 
+> wrong.
+
+You're right.
+
+> It means that there is no easy way to get module type of what results from
+> functor application. I think that the solution is to separately define
+> signature of results of the functor and use "with type" clauses to recreate
+> all result module types that are needed.
+
+That's exactly the way to go (BTW is it such a pain? maybe your "with type" is
+easily inferred but not easily written?)
+
+> This is not very bad, but I'm still wondering if "module type of..." of 3.12
+> will provide elegant solution for this.
+
+I can't remember this point...
+      
+** Andreas also replied:
+
+That's right. A construct for (2), sometimes referred to as "parameterized 
+signatures", does not exist in OCaml directly. However, you can encode it 
+using a functor with a nested signature in its result: 
+
+  module FooOf (X : X) = 
+  struct 
+    module type S = sig val foo : X.t end 
+  end 
+
+Now, for example: 
+
+  module F (X : X) (Y : FooOf(X).S) = ... 
+      
+** Jacques Garrigue also replied:
+
+You are mixing two things: the signature of a functor (which cannot be
+applied to anything, since it is a signature, not a functor), and a
+functor returning a signature.
+Using ocaml 3.11, you have to wrap the returned signature inside a
+structure:
+
+(* Signature wrapped inside a structure *)
+module MakeEdgeSig (Big : Big) = struct
+ module type S = sig val foo : Big.t option end
+end
+module MakeEdge (Big : Big) = struct let foo = None end
+
+module Add_boilerplate (Small:Small) =
+ struct type t = Small.t type u = t end
+
+module ConvenientEdgeSig (Small:Small) = MakeEdgeSig (Add_boilerplate (Small))
+module ConvenientEdge (Small:Small) = MakeEdge (Add_boilerplate (Small))
+
+module SmallX = struct type t = int end
+module EdgeX = ConvenientEdge (SmallX)
+(* Build the corresponding signature *)
+module type EdgeX = ConvenientEdgeSig(SmallX).S
+
+module Algorithm (EdgeX : EdgeX) = struct let doit = EdgeX.foo end
+
+> 3. Will the "module type of..." feature of 3.12 help with this? I can
+> imagine e.g.:
+>
+> module type EdgeX = (module type of (ConvenientEdge (SmallX)))
+
+Indeed, if your only goal is to obtain this specific signature, this
+does the trick. But if you want to specify signatures independently of
+implementations, you can also use the new destructive substitution
+mechanism.
+
+(* Requires ocaml 3.12 *)
+(* New signature Edge, parameterized with t *)
+module type Edge = sig type t val foo : t option end
+
+(* Edge with type t := Big.t  ==  sig val foo : Big.t option end *)
+module MakeEdge (Big : Big) : Edge with type t := Big.t =
+ struct let foo = None end
+
+module Add_boilerplate (Small:Small) =
+ struct type t = Small.t type u = t end
+
+module ConvenientEdge (Small:Small) : Edge with type t := Small.t =
+ MakeEdge(Add_boilerplate (Small))
+
+module SmallX = struct type t = int end
+module EdgeX = ConvenientEdge (SmallX)
+(* Build the result signature by instantiating Edge signature *)
+module type EdgeX = Edge with type t := SmallX.t
+(* Alternative approach, obtain the same signature from EdgeX itself *)
+module type EdgeX' = module type of EdgeX
+
+module Algorithm(EdgeX : EdgeX) = struct let doit = EdgeX.foo end
+      
+========================================================================
+3) Other Caml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocamlcore.org/>.
+
+Is OCaml?s standard library its weakest link?:
+  <http://www.wisdomandwonder.com/article/4730/is-ocamls-standard-library-its-weakest-link>
+
+React 0.9.2:
+  <http://erratique.ch/software/react>
+
+Properly Bound:
+  <http://alaska-kamtchatka.blogspot.com/2010/04/properly-bound.html>
+
+Slides up for the OCaml Users Conference 2010:
+  <http://rwmj.wordpress.com/2010/04/23/slides-up-for-the-ocaml-users-conference-2010/>
+
+The elusive Binary Search:
+  <http://alaska-kamtchatka.blogspot.com/2010/04/elusive-binary-search.html>
+
+transparently open compressed files ocaml (now with bz2 support):
+  <https://mancoosi.org/~abate/transparently-open-compressed-files-ocaml-now-bz2-support>
+
+CUFP 2010 is coming!:
+  <http://ocaml.janestcapital.com/?q=node/76>
+
+Effective ML:
+  <http://ocaml.janestcapital.com/?q=node/75>
+
+RHEL 6 public beta 1:
+  <http://rwmj.wordpress.com/2010/04/21/rhel-6-public-beta-1/>
+
+Random art in Python:
+  <http://math.andrej.com/2010/04/21/random-art-in-python/>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

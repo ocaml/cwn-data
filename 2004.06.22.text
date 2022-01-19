@@ -1,0 +1,966 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of 08 to 22 June, 2004.
+
+Sorry for not sending the CWN last week, I was abroad with no internet access.
+
+
+1) MLGame library
+2) More or bignums/ints
+3) troubles with polymorphic variant in class
+4) otags 3.07.1
+5) OCaml compared as a scripting language
+6) string_of_float -> float_of_string locale dependency bug
+7) ocamllex/yacc and camlp4
+8) Great Programming Language Shootout Revived
+9) Implementing DSLs in OCaml/CamlP4
+10) Missinglib 0.4.1
+11) Interface between Ocaml and C++
+12) mod_caml's bytecode restriction due to Apache or just CGI dyn'linking?
+13) Parse crazy HTML, output XML
+
+========================================================================
+1) MLGame library
+------------------------------------------------------------------------
+** Lukasz Lew announced:
+
+I'm please to announce MLGame library 0.112, available here:
+<http://mlgame.sourceforge.net/>
+
+MLGame is a library designed to help developers create 2d games by
+providing a high level interface for graphics, network, etc.
+
+Features
+
+    * Sprites with collision (per pixel or per rect)
+    * Contexts (parts of screen may display parts of world)
+    * Network (high level protocol with callbacks)
+    * Console and Menu (based on a parser with variables, aliases, ...)
+    * Binding keys to game actions
+
+---
+
+Some time ago we stopped developing it.
+Now it seems that some more work is needed.
+If You are ready to continue our work, contact us.
+
+Regards,
+Cezary Kaliszyk       cek@students.mimuw.edu.pl
+Lukasz Lew          l.lew@students.mimuw.edu.pl
+Dominik sidorek d.sidorek@students.mimuw.edu.pl
+    
+========================================================================
+2) More or bignums/ints
+------------------------------------------------------------------------
+** John Hughes said:
+
+I've read the May interchange in CWN that started with the question
+
+> I have made a web search to understand which kind of support for                                   
+> bignums is available for OCaml...                                                                  
+
+and found it interesting. I'll be teaching a few weeks of ML as part
+of a first-year course at Brown University, and we've used SML in
+previous years. SML/NJ works OK, but we'd like a debugger, so I've
+looked at OCaml as a possible alternative. I was a little depressed
+to find (by trial and error) that "int" doesn't mean "integer" but
+rather "element of Z/nZ for some very large n, represented with
+integer notation, including negative signs."
+    
+I think I can live with this if only there's some way to write
+something like this (pseudo-ML/Java):
+
+fun fact(0) = 1
+  | fact(n) = try {                                                                                  
+                 n * fact(n-1)
+              }
+              catch (IntegerOverflow e) ...
+
+
+What I don't think I can bear is to use the sorts of "bignum"-like
+libraries that make me write things like
+
+ y = x bigadd big-unit
+
+to mean
+
+ y = x + 1
+
+because our students will actually be writing some code that has
+a good deal of arithmetic in it.
+
+---
+
+So the questions are
+
+1. Is there a way to catch overflow exceptions within an entire
+   computation?
+2. Is there a way to tell OCaml that ints really are either
+   (a) bignums or
+   (b) overflow-protected ints (as in SML/NJ, for instance)
+
+Perhaps the implicit third question is
+
+3. Is there a reasonable debugger for some dialect of ML that has
+what I might call "protected integers"?
+
+Thanks very much in advance.
+    
+** Jacques Garrigue answered:
+
+> 1. Is there a way to catch overflow exceptions within an entire
+>    computation?
+
+Not that I know of.
+
+> 2. Is there a way to tell OCaml that ints really are either
+>    (a) bignums or
+>    (b) overflow-protected ints (as in SML/NJ, for instance)
+
+No. Old Caml had (a), but this is more than 10 years ago.
+Note however that you may redefine operators if you want to:
+
+exception Int_overflow
+
+let (+) a b =
+  let c = Pervasives.(+) a b in
+  if a < 0 && b < 0 && c >= 0 || a > 0 && b > 0 && c <= 0
+  then raise Int_overflow;
+  c
+
+This is going to be pretty slow, but if this is for beginners this
+shouldn't matter too much.
+And it won't change the behaviour of other operations in the library,
+but you don't want to: they may depend on the rollover behaviour.
+
+> Perhaps the implicit third question is
+>
+> 3. Is there a reasonable debugger for some dialect of ML that has
+> what I might call "protected integers"?
+
+I don't know, but it should be possible to hack ocamlrun to check for
+overflows. Combined with C primitives, you could also set whether an
+exception should be raise or not.
+A bit more painful than the above approach, but this should run
+faster.
+    
+** Brian Hurt answered as well:
+
+> I was a little depressed
+> to find (by trial and error) that "int" doesn't mean "integer" but
+> rather "element of Z/nZ for some very large n, represented with
+> integer notation, including negative signs."
+
+Yep.  Generally mod 2^n for some n.  This is because this is what the
+hardware supplies for fast integer arithemetic.  "Fixing" this, so that
+ints are real (mathematical) integers entails a *huge* performance cost,
+for very little gain.
+
+>
+> I think I can live with this if only there's some way to write
+> something like this (pseudo-ML/Java):
+>
+> fun fact(0) = 1
+>   | fact(n) = try {
+>                  n * fact(n-1)
+>               }
+>               catch (IntegerOverflow e) ...
+>
+
+There are two problems with this: 1) most CPUs don't support throwing
+exceptions on integer overflows, because 2) the CPU throwing an exception
+is incredibly expensive (two complete pipeline drains (the same cost as a
+mispredicted branch), and two task switches (into and back out of the
+OS)).
+
+You might be able to modify the ocaml compiler to add overflow checking
+code.  Most CPUs have a "jump on overflow" instruction.  But currently, an
+integer add takes at most 2 instructions (the second instruction to deal
+with the tag bit), and often only one.  This change would cause an add
+instruction to take at least two, maybe three, instructons- for a
+signifigant performance hit (this is assuming that the throwing the
+exception code is factored out).
+
+How big of a performance hit, I don't know.  I note that on the Great
+Language Shootout page, SML/NJ has a much lower performance score than
+Ocaml or MLton.
+
+Note that the numeric people have exactly the same problem, and are more
+likely to hit it than your average code.
+
+>
+> What I don't think I can bear is to use the sorts of "bignum"-like
+> libraries that make me write things like
+>
+>  y = x bigadd big-unit
+>
+> to mean
+>
+>  y = x + 1
+>
+> because our students will actually be writing some code that has
+> a good deal of arithmetic in it.
+
+Define new operators.
+    
+** Xavier Leroy answered as well:
+
+> 1. Is there a way to catch overflow exceptions within an entire
+>    computation?
+> 2. Is there a way to tell OCaml that ints really are either
+>    (a) bignums or
+>    (b) overflow-protected ints (as in SML/NJ, for instance)
+
+Solution (a) is problematic because of literals.  It's easy to
+redefine the infix `+' operator to mean "bignum addition", and
+similarly for other arithmetic operators, but OCaml has no syntax for
+bignum literals, e.g. to get the bignum 123 one needs to type
+Int 123 or num_of_string "123".  A Camlp4 syntax extension could
+possibly do the job, however.
+
+Solution (b) is much easier, provided you don't care much for
+performance (probably true for an intro course).  Stick the following
+definitions in, say, CS101.ml
+
+  exception Overflow
+
+  let ( + ) a b =
+    let c = a + b in
+    if (a lxor b) lor (a lxor (lnot c)) < 0 then c else raise Overflow
+
+  let ( - ) a b =
+    let c = a - b in
+    if (a lxor (lnot b)) lor (b lxor c) < 0 then c else raise Overflow
+
+  let ( * ) a b =
+    let c = a * b in
+    if Int64.of_int c = Int64.mul (Int64.of_int a) (Int64.of_int b)
+    then c else raise Overflow
+
+  let ( / ) a b =
+    if a = min_int && b = -1 then raise Overflow else a / b
+
+[Note that the definition of ( * ) above assumes a 32-bit processor.
+ Something even less efficient is required to work both on 32- and 64-bit
+ architectures.]
+
+Compile this source to CS101.cmo and make sure that the module CS101 is
+linked and opened in the students' code.  For instance, with the
+interactive toplevel loop, make them stick
+
+   #load "/path/to/CS101.cmo";;
+   #directory "/path/to";;
+   open CS101;;
+
+in $HOME/.ocamlinit, and voila, every time they start ocaml, they get
+overflow-protected integers.
+
+Don't even think of modifying the OCaml bytecode interpreter so that
+the arithmetic operations of the abstract machine perform overflow
+detection: some code in the standard library and the compilers rely on
+modulo arithmetic.
+    
+** Manos Renieris added:
+
+I think you also need
+
+    let ( ~- ) x = if x <> min_int then -x else raise Overflow
+
+(~- is unary minus, commonly typed in as "-")
+
+You still get
+    -1073741824=1073741824
+being true if you type in the exact literals. I think fixing this
+requires tweaking the parser.
+    
+========================================================================
+3) troubles with polymorphic variant in class
+------------------------------------------------------------------------
+** François-Xavier Houard asked:
+
+I'm working on an ocaml GUI library -more information about it later, on
+the list ;)
+
+I'm now working on an introspecting side of this GUI library; in a GUI,
+every composant can have some child, and have a father.
+The choice I'v made is to have a class for every type of composant, and
+an object for every composant, for example, I have a window class, a
+frame class (inheriting window), a button class, a panel class, etc.
+
+So, as every composant can have different type of father, every object
+is parametrized by the type of his father, for example, a button in a
+panel in a window is, for the moment, typed as
+window panel button
+as the button class looks like that:
+class ['a] button (father:'a)
+.....
+and the panel too,etc
+
+I find it nice, cause every widget has got his "genealogic tree" in his
+type.
+  
+What I wan't now is to store every widget child in a list.
+as every child should be from a different type, and as I wan't the user
+to be able to add his own widget-class later, I first thought of the use
+of polymorphic variant, like that:
+        
+class ['a] button (father:'a) =
+object(self)
+  val f = father
+  val mutable childs = [`Whatever]
+  method add_child (x) = childs <- x::childs
+  method get_variant  = `A self
+end;;
+
+but caml tells me that:
+The method add_child has type ([> `Whatever ] as 'a) -> unit where 'a
+is unbound
+
+This could be solved by adding a 'b parameter to my class:
+
+class ['a, 'b] button (father:'a) =
+object(self)
+  val f = father
+  val mutable childs = [`Whatever]
+  method add_child (x:'b) = childs <- x::childs
+  method get_variant :'b = `A self
+end;;
+
+but this may make my class type unreadable:
+
+[> 'Whatever | `Window of window ] window [> 'Whatever | `Window of
+window | `Panel of panel ] panel [> 'Whatever | `Window of window |
+`Panel of panel | `Button of button ] button
+
+So, I have 2 questions:
+_ Why should an open type as [>`Whatever] be parameter of a class ?? As
+far as I know it, [>`Whatever] is equivalent to [>`Whatever | `Foo of
+bar | `Foobar of foobar ], isn't it ?? so what problem would it make for
+the inheritage stuff (which are the reason of the use of parameter)
+_Is there another way to make it ??? (yes, i know coca-ml, but, another
+way ??)
+    
+** Skaller answered:
+
+> The method add_child has type ([> `Whatever ] as 'a) -> unit where 'a
+> is unbound
+
+> _Is there another way to make it ???
+
+The notation [> `X] does not denote a type, but a family
+of types (all types containing variant `X). Alternatively
+you might say it is a type constraint.
+
+But a list must have elements of a definite type.
+You can define the type as for ordinary variants:
+
+type widget = [ `Whatever | `Window of window | `Button of button]
+
+and now make a widget list.
+
+Unfortunately, you cannot add child widgets to a button
+like this:
+
+class button = object
+  val mutable (childs:widget list)
+  method add_child x = childs <- x::childs
+end
+
+because button isn't defined yet .. and neither
+is window... so you can't define widget.
+        
+Unfortunately the obvious way to fix this doesn't
+work due to a syntactic problem in Ocaml:
+  
+type widget = ...
+and class window = ...
+and class button = ...
+
+is what you need: mutual recursion. But it isn't allowed
+to mutually recurse types and classes (not even class types).
+
+So a direct solution is unfortunately impossible.
+You must add a type parameter to each class like this:
+
+class ['w] button' = ... (childs: 'w list)
+class ['w] window' = .. .(childs: 'w list) ...
+
+and now you can define:
+  
+type 'w widget' = [`Window of ['w] window' | ...
+  
+Because these things all use a parameter,
+they can all be defined without any mutual
+recursion. So now you do this:
+
+(* fixpoint *)
+type widget = 'w widget' as 'w
+
+which effectively solves the type equation
+'w = 'w widget (and names the result widget).
+Now define non-polymorphic classes:
+
+class button = [widget] button'
+class window = [widget] window'
+
+This is not so bad for a single parameter 'w.
+For multiple parameters the notation soon becomes
+too unwieldy to be practical.
+    
+** François-Xavier Houard replied:
+
+But the answer you gave me, which I find quite nice, don't allow my user
+to add his own class....
+I could do the stuff with a parametrized module (the parameter given by
+the user would contain the variant used in the program... Including the
+ones of my library!!), or, even uglier, use a close variant in my
+module, which would be like:
+[ Window of window | Frame of frame | User_variant of 'a ]
+
+And 'a, the parameter of the module, given by the user, would also be a
+variant...
+
+module SillyModule =
+struct
+        type t = [ MyWindow of myWindow | MyText of myText ];;
+end
+;;
+module myGui = Gui (SillyModule);;
+let a = new Window;;
+let x = new myText a;;
+let l = a#get_child in
+match l with
+h::t -> (match h with
+                myGui.User_variant v ->
+                        ( match v with
+                            MyText t -> .......
+                            | _ ->
+                        )
+                | _ -> raise Not_found
+        )
+.....
+
+
+Who the hell would use this ???
+
+So, if I can't find a better solution, i could still try to find a
+sado-m(l)asochist mailing list, to find potential users !
+
+;))
+
+Let's be more serious. What you said is fine, but, please, tell me there
+is an easier solution to make it work with user defined class...
+Please....
+    
+** Damien Doligez proposed:
+
+You don't really need to obfuscate your own code:
+
+  match a#get_child with
+  | MyGui.User_variant (MyText t) :: tt -> .......
+  | _ -> raise Not_found
+  ....
+    
+** Skaller also proposed:
+
+Here is another solution: visitor pattern.
+
+class 'w window = object (self)
+  val mutable childs: 'w list
+  ...
+  method iter (f:'w -> unit) =
+    List.iter f childs
+end
+
+.... user now can write:
+  
+type 'w mywidgets' = [`A of 'w a_kind' | `B of 'w b_kind' .. ]
+  
+class ['w] a_kind' = object .....
+class a_kind = widget a_kind' ...
+
+etc etc as before. Now the *user* must unify all the types
+with a variant, but the class doesn't need to know
+what is is until it is instantiated.
+
+One way or the other there is no alternative to unifying
+all the widget types with a sum (variant) or an abstraction
+(class supertypes) or both.
+
+Typical GUI like GTK do both (there are run time
+tests for kinds of widgets, so you can do button
+specific things on any kind of button etc).
+    
+** Nakata Keiko answered the original message:
+
+I hope this would be of some help.
+
+module type Ct = sig type t end
+
+module type Crec =
+  sig
+    module T : Ct
+    class button : object method add_child : T.t -> unit end
+  end
+
+module COt(Crec : Crec) =
+  struct type t = [`Whatever|`Button of Crec.button]
+  end
+
+module CO(Crec : Crec) =
+  struct
+    module T = COt(Crec)
+    class button =
+      object
+        val mutable children : T.t list = [`Whatever]
+        method add_child x = children <- x::children
+      end
+  end
+module rec X : (Crec with module T = COt(X)) = CO(X)
+
+As I done, you can specify the type of elements of the list "children"
+inside "COt".
+The above code is taken from
+<http://caml.inria.fr/archives/200403/msg00344.html>
+    
+========================================================================
+4) otags 3.07.1
+------------------------------------------------------------------------
+** Cuihtlauac Alvarado announced:
+
+Otags 3.07.1 is out:
+
+  <http://perso.rd.francetelecom.fr/alvarado/soft/otags-3.07.1.tar.gz>
+  
+Thanks to Hendrick Tews, main contributor of this release.
+    
+========================================================================
+5) OCaml compared as a scripting language
+------------------------------------------------------------------------
+** Richard Jones said:
+
+It may interest people to know that OCaml was compared to other
+computer languages for scripting:
+
+<http://merd.sourceforge.net/pixel/language-study/scripting-language/>
+
+It comes out somewhere in the middle.  A file utils library and extlib
+could help.
+    
+** Florian Hars replied:
+
+>I think it'd be possible to assemble a very capable scripting language
+>without affecting the core language at all.
+
+Isn't this what cash is about (minus the regexp stuff and the camlp4 sugar)?
+<http://pauillac.inria.fr/cash/>
+    
+========================================================================
+6) string_of_float -> float_of_string locale dependency bug
+------------------------------------------------------------------------
+** Evgeny Chukreev asked and Xavier Leroy answered:
+
+> /tmp% echo $LANG
+> ru_RU.KOI8-R
+>
+> /tmp% ocaml -I /usr/local/lib/ocaml/3.07/camomile/ bigarray.cma camomile.cma
+>         Objective Caml version 3.07+2
+>
+> # float_of_string "0,";;
+> - : float = 0.
+> # string_of_float 0,;;
+> Syntax error
+> # string_of_float 0.;;
+> Fatal error: exception Failure("float_of_string")
+
+Do you have the same error if you don't load camomile.cma?  From a
+quick test here, I believe not.
+
+The Caml runtime system does depend on the LC_NUMERIC locale begin set
+to its default value "C", but it ensures that this is the case by never
+calling setlocale(LC_ALL, "") nor setlocale(LC_NUMERIC, "").
+
+Third-party libraries can invalidate this invariant by calling e.g.
+setlocale(LC_ALL, "").  Two possibilities:
+
+- The library doesn't really need LC_ALL, e.g. it would be enough
+  to set LC_CTYPE or LC_COLLATE and leave LC_NUMERIC unchanged.
+  In this case, the library should be fixed.
+
+- The library really needs to set LC_NUMERIC, in which case it's
+  impossible to use that library with the Caml toplevel.
+
+The C library API for internationalization is largely broken, and as
+you can see there is nothing we can do to work around the fact that
+the current locale is a global variable for the whole program.
+    
+========================================================================
+7) ocamllex/yacc and camlp4
+------------------------------------------------------------------------
+** John Goerzen asked and Luc Maranget answered:
+
+> Quick question: why are ocamllex and ocamlyacc not implemented with
+> camlp4?  They seem to be doing exactly what camlp4 is there for, and I
+> think would serve as great camlp4 examples (plus being able to extend
+> *their* syntax could be very powerful indeed.)
+
+Hello,
+
+First there is history, ocamllex and ocamlyacc predate camlp4, thus
+they were not written with camlp4 initially.
+
+Second there is bootstrap. Since the lexer and parser of ocamlc itself
+are written with ocamllex/ocamlyacc, Making these tools to depend on
+camlp4 would include camlp4 in the bootstrap cycle of ocamlc.
+The resulting situation would complicate bootstraping ocamlc.
+
+Of course there could be camlp4 versions of ocamllex/ocamlyacc in
+addition to ocamllex/ocamlyacc versions of ocamllex/ocamlyacc. Well,
+nobody ever thought about doing that, I guess.
+    
+** Pierre Weis added:
+
+I would add two points to Luc's answer:
+
+ 1) ocamllex and ocamlyacc implementation technologies are damned fast
+and it is difficult to compete with them using streams.
+
+ 2) Semantics differences between Yacc and functionnal parsing are
+large and complex, so that implementing the precise Yacc semantics
+with its reduce/reduce and shift/reduce conflicts and the default
+conflicts resolution that Yacc also implements could not be a trivial
+task.
+
+Last but not least, the actual ocamllex/ocamlyacc implementations work
+pretty well, so that there is no clear necessity to rewrite them.
+
+In conclusion: pure Camlp4 implementation of ocamllex/ocamlyacc is
+still an interesting and challenging progamming task for the next few
+years, if you (or someone else) had the will and time to provide two
+``great camlp4 examples'' to the rest of us...
+
+Happy hacking :)
+    
+** Alain Frisch added:
+
+>  1) ocamllex and ocamlyacc implementation technologies are damned fast
+> and it is difficult to compete with them using streams.
+
+As I understand it, the question was about implementing ocamllex/ocamlyacc
+frontend (parsing the specifications) and backend (producing OCaml code)
+using Camlp4, not about implementing lexers/parsers using Camlp4 grammars.
+
+I wrote a pa_ocamllex some time ago (and it is included in the OCaml
+distribution), but it is no longer in sync with new ocamllex features
+(capture variables).
+
+Using Camlp4 to parse the specifications has several advantages: simpler
+build procedure (no intermediate file to be generated), support for
+alternative syntaxes (e.g. the revised syntax).
+    
+========================================================================
+8) Great Programming Language Shootout Revived
+------------------------------------------------------------------------
+** Brian Hurt said:
+
+Thought I'd point this article out for the people who've stopped reading
+slashdot:
+<http://developers.slashdot.org/article.pl?sid=04/06/16/1622211&mode=nested&tid=126&tid=156&tid=185&tid=90>
+
+The original GPLS was the best advertising Ocaml ever had.  It's why I
+learned Ocaml- I discovered the original GPLS and started noticing Ocaml
+ranking among the top scorers for fastest execution, least memory used,
+and fewest lines of code, and said to myself "I've got to check that
+language out- obviously there's something going on there."
+
+What's starting to happen, now that the project has started up again, is
+advocates/supporters of other languages have started to submit improved
+versions of the code for their languages.  For example, I notice that
+Ocaml has dropped from it's #1 place in least lines of code to #2, with
+Ruby taking the lead.
+  
+I don't think we need to make a big thing out of this (hey, #2 across the
+board is pretty damned good- we're beating both Java and C++ across the
+board, in fact the only other language that comes close to Ocaml's
+performance is, unsurprisingly, version of SML- MLton and SML/NJ).  But if
+you have some spare time, and want to help out Ocaml's marketing, wander
+over.
+    
+** ... and many people replied ...:
+
+You can find the rest of this thread starting at:
+<http://caml.inria.fr/archives/200406/msg00234.html>
+    
+========================================================================
+9) Implementing DSLs in OCaml/CamlP4
+------------------------------------------------------------------------
+** Richard Jones asked:
+
+Are there any decent tutorials on using OCaml/Camlp4 as a
+Domain-Specific Language (DSL)?  I was intrigued by
+<http://www.venge.net/graydon/talks/mkc/html/index.html> but it was fair
+to say that I didn't really understand the finer points of what he was
+talking about.
+    
+** Walid Taha answered:
+
+I like that talk, and especially that discussion on safety.  MetaOCaml
+provides safer support essentially the same approach.  Good starting
+points would be:
+
+        <http://www.cs.rice.edu/~taha/publications/journal/dspg04b.pdf>
+and     <http://www.cs.rice.edu/~taha/publications/journal/dspg04a.pdf>
+    
+========================================================================
+10) Missinglib 0.4.1
+------------------------------------------------------------------------
+** John Goerzen announced:
+
+Missinglib 0.4.1 is now ready.  It represents major new effort since
+0.0.1 was announced on caml-list.  This library is designed to provide
+all those useful but missing features that the standard library
+lacks.  Its pieces are designed to be used independent of each other,
+so you do not have to subscribe to the "Missinglib way" just to use a
+few of its functions (though its pieces do complement each other).
+        
+The "crown jewels" of Missinglib include the ConfigParser, a flexible
+framework for reading and generating configuration files; and
+Streamutil, which provides many elegant stream-related functions such
+as map, filter, map_stream, and of_channel_lines.
+
+ [ Please add missinglib to the Humps.  Thanks. ]
+
+Here is an excerpt from the README (API docs are at the URLs below):
+
+Author: John Goerzen <jgoerzen@complete.org>
+URL: gopher://quux.org/1/devel/missinglib
+     <http://quux.org/devel/missinglib>
+
+-------------------------
+What is Missinglib?
+-------------------------
+
+It's a collection of OCaml-related utilities.  The following modules are
+are provided:
+
+Compose                 Utilities for chaining functions together
+
+Composeoper             Haskell-like operators for chaining functions
+
+ConfigParser            System for parsing configuration files
+                        These configuration files can have multiple
+                        sections and resemble .INI files.  This module
+                        is designed to be mostly compatible with
+                        Python's ConfigParser module.
+
+Hashtbloper             Hash table convenience operators
+
+Hashtblutil             Hash table utilities
+
+Lexingutil              Lexing-related utilities
+
+Listutil                List-manipulation utilities
+                        Functions are provided to help extract
+                        portions of lists and be more convenient
+                        for association lists.  Also, lists of strings
+                        or chars can be written directly to output channels.
+
+Slice                   Underlying API for Slice operators
+
+Sliceoper               Flexible subparts of arrays, lists, and strings
+
+Streamutil              Stream parser, conversion, and creation utilities
+                        Provides features to create streams the yield
+                        the lines of an input channel, the blocks of an
+                        input channel, convert finite
+                        streams to lists, map and filter streams
+                        (similar to those functions on lists), and
+                        fold streams.
+
+Strutil                 String-related utilities
+                        Includes functions to strip whitespace from
+                        the beginning or end of strings, to split
+                        strings into lists by whitespace or a custom
+                        delimeter, etc.
+
+Unixutil                Operating system utilities
+                        Includes functions to process directories
+                        (possibly recursively), test for file
+                        existence, and an implementation of "rm"
+                        with "-r" and "-f" options.
+
+The entire library has no prerequisites save the OCaml standard library and
+findlib and is designed to install without complexity on a variety of
+systems.  It could also easily be embedded within your own source trees
+so that users need not have it installed beforehand.
+
+** THIS IS CURRENTLY ALPHA-QUALITY CODE; MAJOR API FLUCTUATIONS MAY YET OCCUR.
+    
+========================================================================
+11) Interface between Ocaml and C++
+------------------------------------------------------------------------
+** Gu Nu asked and Art Yerkes answered:
+
+> Does anybody know how to deal with C++ classes, such
+> as vectors, maps, in Ocaml? It seems that currently
+> Ocaml can  only support the interoperation of C. So
+> the first step is to try encapusuate a C++ class with
+> C interface, then write C interface for Ocaml.
+> However, it is so inconvient for std classes. Does
+> anybody has any better ideas?
+
+The SWIG module for Ocaml has support for a few STL
+types.  If you use those interfaces as a guide, you
+could add support for more if the automatic wrapping
+doesn't suit.
+
+SWIG isn't perfect for everyone but some needs are
+met very well, including using templates.
+
+Look at <http://www.swig.org/>
+    
+** Eray Ozkural then asked and Art Yerkes answered:
+
+> How does it handle convert C++ templates to ocaml code, I wonder. I had a
+> design in my mind, but it required quite a bit of monkeying around. What's
+> their solution?
+
+The current solution is to specify which specializations of a given template
+will be needed, after which the specialized template classes are treated as
+ordinary classes.
+    
+========================================================================
+12) mod_caml's bytecode restriction due to Apache or just CGI dyn'linking?
+------------------------------------------------------------------------
+** James Leifer asked:
+
+I had a question about mod_caml's design.  I understand from the web
+page that confining CGIs to bytecode isn't particularly onereous.  The
+argument that most of the overhead is in talking with the db makes
+perfect sense.
+
+Yet for some applications, native would be useful.  For example, for
+read-only data that changes only a few times a day, one can pack it in
+Ocaml hash tables and get high perfomance queries right in Ocaml.  In
+such a setup where Ocaml handles both the page layout *and* the
+functionality of a db, native code looks a lot more attractive.
+
+So... Is the limitation to use bytecode due to the desire to support
+*dynamic* linking of CGIs or for other reasons?  If only the former,
+then could one simply forgo this feature and *statically* link all the
+natively compiled CGIs together with the mod_caml glue to make a
+library that gets delivered to Apache?  If the price is that I have to
+restart Apache when changing my CGIs I would be willing to pay it.
+    
+** Richard Jones answered:
+
+> So... Is the limitation to use bytecode due to the desire to support
+> *dynamic* linking of CGIs or for other reasons?
+
+Basically, yes.  We would need a version of Dynlink supporting native
+code.
+
+> If only the former, then could one simply forgo this feature and
+> *statically* link all the natively compiled CGIs together with the
+> mod_caml glue to make a library that gets delivered to Apache?  If
+> the price is that I have to restart Apache when changing my CGIs I
+> would be willing to pay it.
+
+'Tis possible.  However I don't have any applications where having
+natively compiled CGIs would make any noticable difference, so this
+isn't the sort of thing which Merjis would develop.  However if you
+have patches ...
+    
+** Basile Starynkevitch said:
+
+Sorry for the shameless plug - but I think that ocamljit can be used
+to accelerate a bit such Ocaml propulsed web pages.
+
+The GNUmakefile of ocamljit not only build the ocamljitrun executable
+(a replacement for ocamlrun), but also a libcamljitrun.a which should
+be a replacement for libcamlrun.a and hence might be useable (at least
+on x86/linux) with mod_caml.
+
+I suppose that mod_caml don't fork a process for every HTTP request
+(in contrast to a pure CGI approach). This is particularily
+appropriate for ocamljit since the overhead of bytecode to native
+machine code translation is much less relevant here. (On pure CGI
+short runs with ocamljitrun the translation time might be significant
+- a few tenths of seconds for a "big" bytecode file).
+
+Feel free to ask me about any practical problems of using ocamljit
+with mod_caml (I didn't try, but believe it should be trivial).
+
+Ocamljit is available on
+<http://cristal.inria.fr/~starynke/ocamljit.html> and requires a recent
+(ie CVS or future 3.08) ocaml system (source tree with built stuff)
+    
+** James Leifer asked and Basile Starynkevitch answered:
+
+> So, ocamljit plays well with dynamic .cmo linking?
+
+Yes, it was designed to mimic as much as possible the bytecode interpreter.
+
+The main misfeature of ocamljit is lack of [ocaml] debugger support -
+because the few debug related bytecodes are not supported by it (in
+the case yu run into them, you got a loud fatal error!)
+    
+========================================================================
+13) Parse crazy HTML, output XML
+------------------------------------------------------------------------
+** Richard Jones asked and Gerd Stolpmann answered:
+
+> I have a bunch of HTML documents from an external source which I do
+> not control.  They aren't valid XML, by any means.  I need to read
+> them in, do a "best effort" to build a DOM, do various manipulations
+> over the DOM (such as removing <script> tags, replace <B> with
+> <strong>, etc.), and output an XHTML fragment.  I also need to do this
+> from an OCaml program.
+>
+> Example input:
+>
+> ---
+> This is <B>the sort of document</B> which I have to parse.<br>
+> <br>
+> <br>
+> ---
+>
+> Desired output:
+>
+> ---
+> <p>
+> This is <strong>the sort of document</strong> which I have to parse.
+> </p>
+> ---
+>
+> The problem is the parsing phase.  Both PXP and XmlLight will only
+> parse valid XML (as far as I can see).  Is there any simple pure OCaml
+> library for parsing HTML and producing a DOM?
+
+The Nethtml of ocamlnet can do this (ocamlnet.sourceforge.net).
+    
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

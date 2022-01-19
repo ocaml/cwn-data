@@ -1,0 +1,408 @@
+<?xml version="1.0" encoding="ISO-8859-15"?>
+<cwn>
+<cwn_head>
+  <cwn_date>2004.01.13</cwn_date>
+  <cwn_prev>2004.01.06</cwn_prev>
+  <cwn_next>2004.01.20</cwn_next>
+  <cwn_date_text>06 to 13 January, 2004</cwn_date_text>
+</cwn_head>
+<cwn_body>
+  <cwn_entry>
+    <cwn_title>Encoding existential types without modules</cwn_title>
+    <cwn_who>Daniel Bünzli said</cwn_who>
+    <cwn_what>
+I think this may be usefull to others (e.g. to port some clever haskell
+code). Below, I give two examples that show how to encode existential
+types in ocaml without using modules. This is done by adapting to ocaml
+the encoding given by Pierce in [1]. It uses polymorphic record fields.
+
+The examples are a little bit silly but their aim is to show the
+concept of the encoding.
+The first example is a counter abstract datatype. The second one is a
+datatype that can hold a list of composable function, that is a type
+that expresses something like
+
+ type (&apos;a, &apos;b) funlist = Nil of (&apos;a -&gt;&apos;b) | Cons of exists &apos;c. (&apos;a -&gt;
+&apos;c) * (&apos;c,&apos;b) funlist
+
+I usually need three types to encode an existential type. Does anybody
+see a simpler way of doing that ?
+
+Daniel
+
+[1] Benjamin C. Pierce, Types and Programming Languages, section 24.3
+
+
+--- Abstract counter datatype
+
+(* The type expressed by the three types below is :
+   type packed_counter =
+      exists &apos;x. { create : &apos;x; get : (&apos;x -&gt; int); inc : (&apos;x -&gt; &apos;x)}
+*)
+type &apos;x counter = { create : &apos;x;  get : (&apos;x -&gt; int); inc : (&apos;x -&gt; &apos;x) }
+type &apos;t counter_scope = { bind_counter : &apos;x. &apos;x counter -&gt; &apos;t }
+type packed_counter = { open_counter : &apos;t. &apos;t counter_scope -&gt; &apos;t }
+
+(* Creating a package from a counter implementation *)
+let pack_counter impl = { open_counter = fun scope -&gt;
+scope.bind_counter impl }
+
+(* Using a package with a scoped expression *)
+let with_packed_counter p e = p.open_counter e
+
+(* Two different implementations of the counter *)
+let int_impl = { create = 1 ; get = (function i -&gt; i) ; inc = (fun i -&gt;
+i+1) }
+let float_impl = { create = 1.0; get = (function i -&gt; (int_of_float i))
+;
+                   inc = (fun i -&gt; i +. 1.0) }
+
+let counter = pack_counter int_impl
+let counter&apos; = pack_counter float_impl
+
+(* An expression using an abstract counter *)
+let expr =
+  { bind_counter = fun counter -&gt; (* counter is bound to the &lt;&lt;
+interface &gt;&gt; *)
+    (counter.get (counter.inc counter.create)) }
+
+let result = with_packed_counter counter expr
+let result&apos; = with_packed_counter counter&apos; expr
+
+(*
+   This doesn&apos;t type, the counter type is abstract !
+   let expr =
+   { bind_counter = fun counter -&gt;
+     (counter.get (counter.inc (counter.get counter.create))) }
+*)
+
+(*
+   This doesn&apos;t type, the abstract type tries to escape its scope !
+   let expr = { bind_counter = fun counter -&gt; (counter.create) }
+*)
+
+
+--- Lists of composable functions.
+
+module Funlist : sig
+
+(* The funlist datatype *)
+type (&apos;a, &apos;b) t
+
+(* Constructors *)
+val nil : (&apos;a, &apos;a) t
+val cons : (&apos;a -&gt; &apos;b) -&gt; (&apos;b, &apos;c) t -&gt; (&apos;a, &apos;c) t
+
+(* Applying a value to a composition *)
+val apply : (&apos;a, &apos;b) t -&gt; &apos;a -&gt; &apos;b
+
+end = struct
+
+(* The type expressed by the four types below is :
+   type (&apos;a, &apos;b) t = Nil of (&apos;a -&gt; &apos;b)
+                   | Cons of exists &apos;c. (&apos;a -&gt; &apos;c) * (&apos;c, &apos;b) t  *)
+
+type (&apos;a, &apos;b) t = Nil of (&apos;a -&gt; &apos;b) | Cons of (&apos;a, &apos;b) packed_list
+and (&apos;a, &apos;b, &apos;c) list_data = (&apos;a -&gt; &apos;c) * (&apos;c, &apos;b) t
+and (&apos;a, &apos;b, &apos;z) list_scope = { bind_list : &apos;c. (&apos;a, &apos;b, &apos;c) list_data
+-&gt; &apos;z}
+and (&apos;a, &apos;b) packed_list = { open_list : &apos;z. (&apos;a, &apos;b, &apos;z) list_scope -&gt;
+&apos;z }
+
+(* Packing and unpacking lists *)
+let pack_list h t = { open_list = fun scope -&gt; scope.bind_list (h,t) }
+let with_packed_list p e = p.open_list e
+
+(* Constructors *)
+let nil = Nil(fun x -&gt; x)
+let cons h t = Cons(pack_list h t)
+
+
+(* The following type is introduced to avoid the problem of polymorphic
+recursion that comes while attempting a naive implementation of the
+apply
+funtion. The idea was taken from Laufer, Odersky, Polymorphic Type
+Inference
+and Abstract Data Types, 1994. *)
+
+(* The type expressed by the three types below is :
+    type &apos;b packed_apply = exists &apos;a. (&apos;a, &apos;b) t * &apos;a
+*)
+type (&apos;a, &apos;b) apply_data = (&apos;a, &apos;b) t * &apos;a
+type (&apos;b, &apos;z) apply_scope = { bind_apply : &apos;a. (&apos;a, &apos;b) apply_data -&gt;
+&apos;z}
+type &apos;b packed_apply = { open_apply : &apos;z. (&apos;b, &apos;z) apply_scope -&gt; &apos;z}
+
+(* Packing and unpacking applications *)
+let pack_apply l x = { open_apply = fun scope -&gt; scope.bind_apply (l,x)
+}
+let with_packed_apply p e = p.open_apply e
+
+let rec apply&apos; a =
+  with_packed_apply
+    a { bind_apply = function
+      | Nil id, x -&gt; id x
+      | Cons l, x -&gt;
+          with_packed_list
+            l { bind_list = function h,t -&gt; apply&apos; (pack_apply t (h x))}}
+
+let apply l x = apply&apos; (pack_apply l x)
+
+end
+
+(* Example of use *)
+let twice x = 2*x
+let double x = (x, x)
+let list = Funlist.cons twice (Funlist.cons (( = ) 4) (Funlist.cons
+double Funlist.nil))
+let a, b = Funlist.apply list 2
+    </cwn_what>
+    <cwn_who>Jean-Christophe Filliatre answered</cwn_who>
+    <cwn_what>
+&gt; I usually need three types to encode an existential type. Does anybody
+&gt; see a simpler way of doing that ?
+
+I guess  you really need  these three types  (at least before  we have
+rank-2 polymorphism  in ocaml). As a  attempt to justify  this, let us
+try to make a more generic, functorized, code from your first example.
+It takes  the first of your  three types as argument  (&apos;a counter) and
+returns the third one (packed_counter) as a result (so obviously these
+two types you need).
+
+The functor looks like
+
+        module Make(X : sig type &apos;a t end) : sig
+          type t (* the existential type exists &apos;a. &apos;a t *)
+          val pack : &apos;a X.t -&gt; t
+          ...
+        end = struct
+          ...
+        end
+
+To be  able to use  the abstract  type t, we  would like to  provide a
+function similar to your with_packed_counter, of type
+
+        val use : (&apos;a. &apos;a X.t -&gt; &apos;b) -&gt; t -&gt; &apos;b
+
+Since we do not have  rank-2 polymorphism, your solution introduces an
+intermediate record type, as the type of the first argument.
+
+Finally we get this:
+
+        module Make(X : sig type &apos;a t end) : sig
+          type t
+          val pack : &apos;a X.t -&gt; t 
+          type &apos;a user = { f : &apos;b. &apos;b X.t -&gt; &apos;a }
+          val use : &apos;a user -&gt; t -&gt; &apos;a
+        end = struct
+          type &apos;a user = { f : &apos;b. &apos;b X.t -&gt; &apos;a }
+          type t = { pack : &apos;a. &apos;a user -&gt; &apos;a }
+          let pack impl = { pack = fun user -&gt; user.f impl }
+          let use f p = p.pack f
+        end
+
+and it seems  that we can&apos;t avoid the three  types solution. Note that
+for other examples requiring the returned type to be polymorphic (e.g. 
+the compositional list example) you need to write another functor.
+    </cwn_what>
+    <cwn_who>Daniel Bünzli also said</cwn_who>
+    <cwn_what>
+Thanks for your feedback.
+
+Besides, I would just like to point out that the way I solved the
+problem of polymorphic recursion for the apply function in the example
+of the list of composable function cannot be applied in general.
+
+A general way to solve the problem of polymorphic recursion was given
+by Brian Rogoff in a previous post [1]. Applying this solution gives
+the following (much simpler and maybe more efficient) code.
+
+Daniel
+
+[1] http://caml.inria.fr/archives/200208/msg00334.html
+
+module Funlist : sig
+
+(* The funlist datatype *)
+type (&apos;a, &apos;b) t
+
+(* Constructors *)  
+val nil : (&apos;a, &apos;a) t
+val cons : (&apos;a -&gt; &apos;b) -&gt; (&apos;b, &apos;c) t -&gt; (&apos;a, &apos;c) t
+
+(* Applying a value to a composition *)
+val apply : (&apos;a, &apos;b) t -&gt; &apos;a -&gt; &apos;b
+
+end = struct 
+(* List of composable functions.
+
+   The intended type expressed by the four types below is :
+   type (&apos;a, &apos;b) t = Nil of (&apos;a -&gt; &apos;b)
+                   | Cons of exists &apos;c. (&apos;a -&gt; &apos;c) * (&apos;c, &apos;b) t
+*)
+type (&apos;a, &apos;b) t = Nil of (&apos;a -&gt; &apos;b) | Cons of (&apos;a, &apos;b) packed_list
+and (&apos;a, &apos;b, &apos;z) list_scope = { bind_list : &apos;c. (&apos;a -&gt; &apos;c) * (&apos;c, &apos;b) t
+-&gt; &apos;z}
+and (&apos;a, &apos;b) packed_list = { open_list : &apos;z. (&apos;a, &apos;b, &apos;z) list_scope -&gt;
+&apos;z }
+
+(* Packing and unpacking lists *)
+let pack_list h t = { open_list = fun scope -&gt; scope.bind_list (h,t) }
+let with_packed_list p e = p.open_list e
+
+(* Constructors *)
+let nil = Nil(fun x -&gt; x)
+let cons h t = Cons(pack_list h t)
+
+(* Type to handle the polymorphic recursion of the apply function *)
+type poly_rec = { apply : &apos;a &apos;b. poly_rec -&gt; (&apos;a, &apos;b) t -&gt; &apos;a -&gt; &apos;b }
+let apply&apos; r l x = match l with
+| Nil id -&gt; id x
+| Cons l -&gt;
+    with_packed_list l { bind_list = function h,t -&gt; r.apply r t (h x) }
+
+let poly_rec = { apply = apply&apos; }
+let apply l x = apply&apos; poly_rec l x
+
+end
+
+(* Example of use *)
+let twice x = 2*x
+let double x = (x, x)
+let list = Funlist.cons twice (Funlist.cons (( = ) 4) (Funlist.cons
+double Funlist.nil))
+let a, b = Funlist.apply list 2
+    </cwn_what>
+    <cwn_who>Brian Rogoff answered</cwn_who>
+    <cwn_what>
+I blame Jacques Garrigue for that trick! He is entitled to transfer the blame
+to whomever he chooses. ;-)
+
+You may also want to consider using the recursive module feature introduced in
+OCaml 3.07 for this too. Unfortunately, you can&apos;t (yet, Xavier says he&apos;s
+working on it)  apply it directly to Funlist on account of your nil. That would
+be best, but by wrapping apply I think you can do it like so:
+
+module Funlist : sig
+
+(* The funlist datatype *)
+  type (&apos;a, &apos;b) t
+
+(* Constructors *)
+  val nil : (&apos;a, &apos;a) t
+  val cons : (&apos;a -&gt; &apos;b) -&gt; (&apos;b, &apos;c) t -&gt; (&apos;a, &apos;c) t
+
+ (* Applying a value to a composition *)
+  val apply : (&apos;a, &apos;b) t -&gt; &apos;a -&gt; &apos;b
+
+ end = struct 
+(* List of composable functions.
+
+     The intended type expressed by the four types below is :
+     type (&apos;a, &apos;b) t = Nil of (&apos;a -&gt; &apos;b)
+                     | Cons of exists &apos;c. (&apos;a -&gt; &apos;c) * (&apos;c, &apos;b) t
+ *) 
+   type (&apos;a, &apos;b) t = Nil of (&apos;a -&gt; &apos;b) | Cons of (&apos;a, &apos;b) packed_list
+   and (&apos;a, &apos;b, &apos;z) list_scope = { bind_list : &apos;c. (&apos;a -&gt; &apos;c) * (&apos;c, &apos;b) t
+                                   -&gt; &apos;z}
+   and (&apos;a, &apos;b) packed_list = { open_list : &apos;z. (&apos;a, &apos;b, &apos;z) list_scope -&gt;
+     &apos;z }
+
+         (* Packing and unpacking lists *)
+   let pack_list h t = { open_list = fun scope -&gt; scope.bind_list (h,t) }
+   let with_packed_list p e = p.open_list e
+
+ (* Constructors *)
+   let nil = Nil(fun x -&gt; x)   
+   let cons h t = Cons(pack_list h t)
+
+   module rec PolyRec : sig val apply : (&apos;a, &apos;b) t -&gt; &apos;a -&gt; &apos;b end =
+     struct
+       let apply l x =
+         match l with
+         | Nil id -&gt; id x
+         | Cons l -&gt;
+             with_packed_list
+           l { bind_list = function h,t -&gt; PolyRec.apply t (h x) }
+     end
+   let apply = PolyRec.apply
+
+ end
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Adding an ocaml interpreter to my C program</cwn_title>
+    <cwn_who>Kip Macy asked and Richard Jones answered</cwn_who>
+    <cwn_what>
+&gt; It is possible to add many scripting languages as configuration
+&gt; languages for an arbitrary C program. One can transfer control
+&gt; to the interpreter, let it use the C bindings to modify program  
+&gt; state, and then get control back. I&apos;ll give perl as an example:
+[...]
+&gt; I don&apos;t see any obvious way of doing this with ocaml.
+
+It&apos;s documented here (right at the bottom, in the &quot;Advanced&quot; section):
+
+http://caml.inria.fr/ocaml/htmlman/manual032.html
+
+Basically, you call caml_main, which runs your initialization code
+(written in OCaml), which registers C callbacks, which your C can then
+execute by calling callbackN ().
+
+What the manual doesn&apos;t tell you is that none of this stuff works at
+all if your C code is contained in a dynamically linked library (.so
+file), unless you undertake some pretty horrific hacks.  Particularly
+if you plan to use the OCaml Dynlink module at the same time.  See the
+code in my mod_caml project[1] for details.
+
+Also, it only works for bytecode.  (And it only works for compiled
+code - linking in the toplevel so you can parse ML directly is a
+different thing entirely).
+
+&gt; I&apos;m using perl as a powerful macro language for gdb by just doing:
+&gt; (gdb) sourceperl mycoreanalyser.pl
+&gt; &lt;OUTPUT&gt;
+
+You might also be interested in [2].
+
+Rich.
+
+[1] http://www.merjis.com/developers/mod_caml/
+[2] http://www.merjis.com/developers/perl4caml/
+    </cwn_what>
+    <cwn_who>Damien Doligez answered another question about this</cwn_who>
+    <cwn_what>
+&gt;Actually, perhaps I didn&apos;t describe it too well, but the OCaml case is
+&gt;probably quite a bit simpler than Perl.  What would be really nice for
+&gt;OCaml would be some way to have all the identifiers properly prefixed,
+&gt;eg. with caml_ and CAML_.  Even if was an optional
+&gt;-DCAML_CLEAN_SYMBOLS or something, that would be a huge help.     
+
+Just check out the CVS version.  I spent some of my Christmas holidays
+implementing exactly that.
+
+Every global symbol exported by the runtime system now starts with
+&quot;caml_&quot;, with the only exception of &quot;main&quot;, and every global symbol
+produced by ocamlopt now starts with &quot;caml&quot;.
+
+The change is transparent: any C source that interfaces with OCaml
+still works as before, thanks to a bunch of #defines in a new
+header file (compatibility.h), which is included from the other
+caml header files.  In your code that uses the new names directly,
+you can #define CAML_NAME_SPACE before including the header files,  
+and then compatibility.h is not included.
+
+I may have broken some of the native-code ports in the process,
+so if you have one of the more exotic architectures, please try
+the CVS version and report any problems you find.  It was tested
+on PPC/MacOSX, i386/Linux, alpha/Tru64Unix, and IA64 (I don&apos;t know
+which OS).
+
+We still need to do it to the pieces of C code in otherlibs.
+
+We haven&apos;t done it for the macros, because name space pollution
+is much less problematic at that level.
+    </cwn_what>
+  </cwn_entry>
+</cwn_body>
+</cwn>

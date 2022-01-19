@@ -1,0 +1,519 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of September 22 to 29, 2009.
+
+1) Cache algorithms: implementation or library available?
+2) OC4MC : OCaml for Multicore architectures
+3) New release 2.21 of htmlc
+4) LablGtk 2.14.0
+5) Ebuild for OCaml Batteries included
+6) xpath or alternatives
+7) pa_polyrec: syntax for polymorphic recursion
+8) Other Caml News
+
+========================================================================
+1) Cache algorithms: implementation or library available?
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/2f3207bee5591cc2#>
+------------------------------------------------------------------------
+** Hugo Ferreira asked:
+
+I would like to know if anyone has or knows of an Ocaml
+library or open-source code implementation of some cache
+algorithms (example: least recently used).
+
+Basically I need to cache a function that maps a list
+of ordered integers into a value (float, integer). I
+would like something that allows setting a maximum size
+of the map and automatically discards the data.
+      
+** Martin Jambon suggested:
+
+There are so many possible access patterns and trade-offs:
+
+- speed requirements?
+- memory requirements?
+- constant size or just bounded?
+- is the probability of accessing an element a function of time?
+
+I see two frequent use cases:
+
+a.  some elements are accessed more frequently than others regardless of time
+b.  recently-accessed elements have a higher probability of being accessed
+
+Alain Frisch provides an implementation of roughly a hash table in which
+buckets hold only one element, which looks great at least for case (a):
+
+ <http://alain.frisch.fr/soft.html#memo>
+      
+** Gerd Stolpmann also suggested:
+
+Maybe the Wink cache server is interesting for you:
+
+<http://oss.wink.com/cache/>
+
+It is an LRU cache with a maximum size, and entries can also expire by
+time. If you are more looking for a local cache module, you can pick the
+relevant parts out of the cache_server.ml implementation.
+      
+** Jan Kybic also suggested:
+
+I have written something similar some time ago. I am attaching the
+code, maybe you will find it useful but beware that I have written it
+just for my own purposes, so the code might be hard to read, there are
+very little comments, you will probably have to modify it, and I do
+not have time to provide support.
+
+The idea is that as long as there is enough memory, the function
+values are cached (memoized). When the memory gets tight, the
+"cheapest" entries are forgotten. For this purpose, the function
+evaluations are timed.
+
+(Editor note: as the code is quite long, please follow this link to read it:
+<http://groups.google.com/group/fa.caml/msg/547c9d4a7a6f501f>.)
+      
+** Dario Teixeira also suggested:
+
+The Ocsigen folks have also developed a caching module for Ocsimore.
+It may be interesting to you if your app uses Lwt..  The module is
+called 'Cache':  <http://ocsigen.org/ocsimore/sources/>
+      
+========================================================================
+2) OC4MC : OCaml for Multicore architectures
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/19a97f2b6e9812c4#>
+------------------------------------------------------------------------
+** Philippe Wang announced:
+
+This is some additional "noise" about "OCaml for Multicore architectures" (or
+"Ok with parallel threads GC").
+----------------------------
+
+Dear list,
+
+We have implemented an alternative runtime library for OCaml, one that allows
+threads to compute in parallel on different cores of now widespread CPUs.
+
+This project will be presented at IFL 2009
+(<http://blogs.shu.edu/projects/IFL2009/>).
+
+A testing version available online at
+<http://www.algo-prog.info/ocmc/>
+It works with OCaml 3.10.2 for Linux x86-64bit, we haven't met any bugs with
+the latest build (it doesn't *unexpectedly* crash, not yet).
+
+Hope you'll enjoy,
+
+--
+Mathias Bourgoin, Adrien Jonquet, Emmanuel Chailloux, Benjamin Canou, Philippe
+Wang
+      
+** The editor says:
+
+This announcement started a huge conversation. Next follow some additional
+technical information and Xavier Leroy's position about this patch. If you
+want to read the whole discussion, please follow the archive link above.
+      
+** Philippe Wang later added:
+
+A few words on the GC's design (that uses stop&copy algorithm several times) :
+
+Heaps :
+- a set of pages are used to give threads the possibility to allocate
+memory without interfering with other threads, such as there is no
+mutex locking at local memory allocation. Each thread borns with an
+empty page, when it's full, the thread takes another one.
+- a big heap is shared between all, there is a mutex over it to
+prevent parallel memory allocation into this one.
+
+Collection :
+- when there are no pages left, a collection stops-the-world and
+copies living values (of the pages) to the shared heap
+- when the shared heap is full, a collection stops-the-world and
+copies all living values (pages+shared heap) to a new shared heap
+(which can be grow if need be)
+
+Special operations :
+- if there is a blocking operation (e.g. mutex lock or I/O operation),
+the mechanism is roughly the same as original INRIA OCaml's : it tells
+the GC that there is no need to stop it when stopping the world.
+- if there is a thread with no allocation and no blocking operation,
+the behaviur is the same as INRIA OCaml.
+
+The number of pages, the size of a page, and the size of the shared
+heap can be changed before running a program by setting some
+environment variables (cf. last lines README file included in the
+distribution package).
+      
+** Jon Harrop asked and Philippe Wang replied:
+
+> Are values such as float arrays copied in their entirety or are they allocated
+> outside the shared heap and only a pointer to them is copied?
+
+They should be in a heap (page or shared). We don't allocate many
+things outside the heaps.
+
+> Is the copy operation parallelized?
+
+Nope. When the world is stopped for the collection, everything is done
+sequentially until the world is resumed.
+I don't think it's relevant to parallelize the copy operation (hell to
+implement&debug, then I don't think that performance would be very
+interesting because we would probably need a write mutex on the
+destination heap)
+
+> Is there a write barrier but no read barrier? If so, what exactly does the
+> write barrier do?
+
+There is a lock when a thread is created because we need to update the
+list of existing threads and we have to give it a page.
+Then, each time a thread wants memory, it checks if the world needs to
+be stopped. If the world needs to be stopped, it means that there is a
+necessary collection waiting for the world to be stopped.
+There is lock if a thread needs to allocate memory in the shared heap
+so that two threads don't end up using the same space for different
+things.
+If two threads want to write in the same block, it's up to the
+programmer to prevent (or allow) such a thing with a mutex (or
+whatever other mechanism).
+
+>> Special operations :
+>> - if there is a blocking operation (e.g. mutex lock or I/O operation),
+>> the mechanism is roughly the same as original INRIA OCaml's : it tells
+>> the GC that there is no need to stop it when stopping the world.
+>
+> Can users mark external calls in their bindings as blocking so the GC will
+> treat them appropriately?
+
+Yes, it's the same as INRIA OCaml : enter_blocking_operation /
+leave_blocking_operation functions.
+It's mandatory that in the section between entrance and exit, the
+thread is not accessing anything allocated in a Caml heap.
+If there is need to write some value returned by the blocking
+operation, it should be written in a C side value (on C stack or with
+C malloc) and put back to Caml heap after exit (and then C free if C
+malloced).
+      
+** Addressing the potential inclusion of the patch, Xavier Leroy said:
+
+That would be suicidal.  I definitely do not want to belittle the work
+of Philippe and his teammates -- what they did is an amazing hack
+indeed --, but you need to keep in mind the difference between a
+proof-of-concept experiment and a product.
+
+In a proof-of-concept experiment, you implement the feature want to
+experiment with and keep everything else as simple as possible
+(otherwise there is little chance that you'll complete the
+experiment).  That's exactly what Philippe et al did, and rightly so:
+their GC is about the simplest you can think of, they didn't bother
+adapting some features of the run-time system, they target AMD64/Unix
+only, etc.  Now they have a platform they can experiment with and make
+measurements on: mission accomplished.
+
+In a product, you'd need something that is essentially a drop-off
+replacement for today's OCaml and can run, say, Coq with at most a 10%
+slowdown.  That's a long way to go (I'd say a couple of years of work).
+For example, single-generation stop-and-copy GC is known to have
+terrible performance (both in running time and in latency) for
+programs that have large data sets and allocate intensively.  This is
+true in the sequential case and even worse in a stop-the-world
+parallel setting, by Amdahl's law.  Note that the programs I mentioned
+above are exactly those that the Caml user community cares most about
+-- not matrix multiply nor ray tracers, Harrop's propaganda
+notwithstanding -- and those for which OCaml has been delivering
+top-class performance for the last 12 years -- again, Harrop's
+propaganda notwithstanding.
+
+On your way to a product, you'd need to independently-collectable
+generations (which means some work on the compiler as well), plus a
+parallel or even better concurrent major collector.  And of course a
+lot more work on the runtime system and C interface to make everything
+truly reentrant while remaining portable.  And probably some kind of
+two-level scheduler for threads.  And after all that work
+you'd end up with an extremely low-level and unsafe parallel
+programming model that you'd need to tame by developing clever
+libraries that mere mortals can use effectively (Apple's Grand Central
+was mentioned on this thread; it's a good example)...
+
+In summary, Philippe and his coauthors do deserve a round of applause,
+but please keep a cool head.
+      
+** Benjamin Canou then said:
+
+One of our main goals for OC4MC is to serve as a parallel and shared memory
+low-level concurrency implementation, on top of which higher level research
+concurrency libraries and language extensions can be built. And as most of us
+agree, multicores, and soon manycores, are hard to program, in particular
+because of the memory bandwidth. So there probably are experiments to be done
+to help this at the language level, now that we have this parallel runtime.
+Moreover, and to answer a question that appeared in this thread, we provide
+our simple GC, but we separated the GC algorithm from the runtime, so OC4MC is
+also a low-level playground to experiment with your own GCs and choose the one
+you want to use at linking.
+
+To sum up, let's see OC4MC as an experimentation platform that leverages some
+restrictions of OCaml, but of course neither as a drop-in replacement for the
+official distribution nor as the future of OCaml. We do not claim that the
+ideal solution to bring shared memory parallelism to OCaml is, as OC4MC does,
+only to replace the runtime (and that INRIA can just replace the official
+runtime by our hacked one). However, from a pragmatic (and optimistic) point
+of view, the modifications to the compiler have been kept very lightweight,
+yet sufficient to break binary compatibility. So if the excitement continues
+around OC4MC as in this thread, maybe these modifications could be integrated
+into the distribution since they really do not touch the core of the compiler
+and cannot cause a lot of maintenance overhead.
+
+I will add that we did not made this experiment to beat F# or python's
+hashtables, so I will not comment on that here. The point about performance is
+that it should be *predictable*. We now have rewritten and debugged most of
+the memory related behaviors present in the original runtime in a more generic
+(and OC4MC friendly) way to achieve this, and if it's not the case for some
+particular cases, we'll be glad to (try to) fix these bugs.
+
+On the maintenance side, as Philippe said, we already have some half working
+version with ocaml 3.11.x, but partly because of the changes made to the
+native runtime in this release and partly because of [1], porting the patch is
+not trivial.
+
+Cheers and have fun experimenting with OC4MC (so it will compensate the amount
+of debugging we spent on it ;-) ).
+      
+========================================================================
+3) New release 2.21 of htmlc
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/34b0b84f90bde6d8#>
+------------------------------------------------------------------------
+** Pierre Weis announced:
+
+Htmlc, a general purpose text file generator with a programmatic approach in
+the spirit of functional programming. (<http://htmlc.inria.fr/>)
+
+I am pleased to announce the 2.21 version of Htmlc, a convenient tool to
+generate and manage text files of any kind, in particular computer programs
+or documentation.
+
+Htmlc can act as a fast general purpose preprocessor for all of your text
+files. Being reliable and having a clean semantics, Htmlc always behaves as
+expected and produces the results you wanted :)
+
+As its name indicates, Htmlc greatly helps to create and modify a set of WEB
+pages in order to maintain the common look of those pages and factorize the
+repetive parts of their HTML code.
+
+This version is a development and bug fix release and documentation has been
+improved.
+
+Htmlc expanses on the fly ``$id'' variables written in the source document:
+the binding for $id could be written in the document or in an Htmlc
+environment source file (and guess what ? the syntax to define id is
+ ``let id = value;;'',
+so that environment files for Htmlc are valid Caml implementation files :).
+
+Htmlc let you define and then apply functions to produce new text or edit the
+text source at hand. You can define the functions either directly in the text
+being processed or in an external standalone file, loaded on request.  Try
+"htmlc -print_env" to figure out the initial environment when processing
+begins.
+
+Htmlc allows the automatic insertion of the result of arbitrary Unix commands
+into the generated pages.
+
+Htmlc encourages the usage of simple HTML templates that lowerize the burden
+of writing the HTML pages.
+
+Htmlc is also very convenient to produce the final HTML page result of a CGI
+program from static templates and execution environments created on the fly
+by the CGI.
+
+Htmlc is still evolving from its initial satus of SSI static resolver to the
+plain HTML page compiler we are all dreaming of. So, please, don't hesitate
+to send your constructive remarks and contributions !
+
+Htmlc home page is <http://htmlc.inria.fr/>
+Htmlc source files can also be uploaded via nonymous ftp at
+<ftp://ftp.inria.fr/INRIA/cristal/caml-light/bazar-ocaml/htmlc-2.21.0.tgz>
+      
+========================================================================
+4) LablGtk 2.14.0
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/5f98782de1d62af9#>
+------------------------------------------------------------------------
+** Jacques Garrigue announced:
+
+Following a number of improvements in the repository, here is a new
+release of LablGtk2, the ocaml interface to the Gtk+ GUI library and
+friends (glade, rsvg, gnomecanvas, gnomedruid, panel, gtkspell,
+gtksourceview2.)
+
+This release is still based on the gtk+-2.12.x series, but the name is
+updated so that we do not look lagging (gtk+ is already at 2.16.6...)
+It will work with older versions too.
+
+You can find it at:
+
+ <http://wwwfun.kurims.kyoto-u.ac.jp/soft/olabl/lablgtk.html>
+
+There is a (semi-)binary releases for windows, with glade, gnomecanvas
+and rsvg support, that can be used directly with the OCaml MSVC or mingw
+ports. ocamlopt is supported too.
+
+The main change is the update to gtksourceview2, but there are many
+smaller improvements too. For instance, we ship a patch that allows you
+to build a working unison on top of the quartz version of gtk.
+      
+========================================================================
+5) Ebuild for OCaml Batteries included
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/746727291fc3ddca#>
+------------------------------------------------------------------------
+** Ivan Chernetsky announced:
+
+If there are anyone interested in it, please go to
+<http://github.com/ichernetsky/gentoo-overlay>
+It is a result of quick and dirty attempt, but it's usable anyway.
+      
+========================================================================
+6) xpath or alternatives
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/48e05d49b0f21b8a#>
+------------------------------------------------------------------------
+** Richard Jones asked:
+
+I need to do some relatively simple extraction of fields from an XML
+document.  In Perl I would use xpath, very specifically if $xml was an
+XML document[1] stored as a string, then:
+
+   my $p = XML::XPath->new (xml => $xml);
+   my @disks = $p->findnodes ('//devices/disk/source/@dev');
+   push (@disks, $p->findnodes ('//devices/disk/source/@file'));
+
+This isn't type safe or pretty, but it is very easy to use for quick
+and dirty extraction.
+
+What is the OCaml equivalent for this sort of code?
+
+Alain Frisch has a library called Xpath
+(<http://alain.frisch.fr/soft.html#xpath>), but unfortunately this
+relies on the now obsolete wlex program.
+
+Is there a completely alternative way to do this?  Better still, in 3
+lines of code??
+
+Rich.
+
+[1] for XML doc, see: <http://libvirt.org/formatdomain.html>
+      
+** Yaron Minsky suggested:
+
+I don't have the code in front of me, but I've done something like   
+this using the list monad. i.e., using bind (= concat-map) and map   
+chained together, along with a couple operators I wrote for lifting   
+bits of XML documents into lists, by say returning the subnodes of the   
+present node as a list. 
+
+It was quite effective.  I got the inspiration from a similar tool we   
+have for navigating s-expressions, which we should release at some   
+point... 
+      
+** Till Varoquaux also suggested:
+
+There are a few projects out here:
+
+xtisp
+<http://www.xtisp.org>
+
+xstream
+<http://yquem.inria.fr/~frisch/xstream/>
+
+and of course the good old cduce/xduce/ocamlduce. All in all naive
+querying is not hard and tree automata:
+
+(e.g.) <http://www.grappa.univ-lille3.fr/~filiot/tata/>
+
+can provide a good middle ground between efficiency and simplicity.
+The problem you might run into is that XML is a tricky format to deal
+with and some of these tools will choke up on complex files
+(namespaces,switching character encoding, weird entities in the DTD
+etc..).
+      
+========================================================================
+7) pa_polyrec: syntax for polymorphic recursion
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/5a97eeeefef2ad41#>
+------------------------------------------------------------------------
+** Jeremy Yallop announced:
+
+I'm pleased to announce the initial release of pa_polyrec, a syntax extension 
+for polymorphic recursion in OCaml.
+
+  <https://forge.ocamlcore.org/projects/pa-polyrec/>
+
+There are several methods for encoding polymorphic-recursive functions in
+OCaml; this extension allows them to be written directly, using a natural
+syntax. For example, given the following type of perfectly-balanced trees we
+might wish to write a function for summing the leaves.
+
+ type 'a perfect = Zero of 'a | Succ of ('a * 'a) perfect
+
+In standard OCaml such a function can be written as follows:
+
+ let sump f =
+   (object (o)
+       method sump : 'a. ('a -> int) -> 'a perfect -> int =
+         fun f -> function
+          | Zero x -> f x
+          | Succ x -> o#sump (fun (a, b) -> f a + f b) x
+    end)#sump f
+
+ let sum_perfect = sump id
+
+Using pa_polyrec one can write the function in the following less obfuscated
+style:
+
+ let rec sump : 'a. ('a -> int) -> 'a perfect -> int =
+   fun f -> function
+    | Zero x -> f x
+    | Succ x -> sump (fun (a, b) -> f a + f b) x
+
+ let sum_perfect = sump id
+
+Note that the type variable 'a in the type of the function is quantified: this
+is what differentiates polymorphic-recursive functions from standard OCaml
+recursive function definitions.
+
+More complex usage is supported, including mutual recursion. A number of
+examples are included in the distribution, including several modules from
+Chris Okasaki's thesis "Purely Functional Data Structures" and code from
+Richard Bird and Ross Paterson's paper "de Bruijn notation as a nested
+datatype".
+      
+========================================================================
+8) Other Caml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocamlcore.org/>.
+
+ssh.ocamlcore.org is alive:
+  <http://forge.ocamlcore.org/forum/forum.php?forum_id=432>
+
+pa_polyrec 0.1 released:
+  <http://forge.ocamlcore.org/forum/forum.php?forum_id=431>
+
+LablGTK2 2.14.0:
+  <http://caml.inria.fr/cgi-bin/hump.cgi?contrib=304>
+
+Cameleon 1.9.19:
+  <http://caml.inria.fr/cgi-bin/hump.cgi?contrib=467>
+
+Jane Street Summer Project round-up:
+  <http://ocaml.janestcapital.com/?q=node/68>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

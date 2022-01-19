@@ -1,0 +1,267 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+	<cwn_head>
+		<cwn_date>2009.05.19</cwn_date>
+		<cwn_prev>2009.05.12</cwn_prev>
+		<cwn_next>2009.05.26</cwn_next>
+		<cwn_date_text>May 12 to 19, 2009</cwn_date_text>
+	</cwn_head>
+	<cwn_body>
+		<cwn_entry>
+			<cwn_title>Ocamlopt x86-32 and SSE2</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/2a00d837b64efaf5/d1712ada74e6002f</cwn_url>
+			<cwn_who>Continuing the thread from last week, Xavier Leroy said</cwn_who>
+			<cwn_what>
+This is an interesting discussion with many relevant points being
+made.  Some comments:
+
+Matteo Frigo:
+&gt; Do you guys have any sort of empirical evidence that scalar SSE2 math is
+&gt; faster than plain old x87?
+&gt; I ask because every time I tried compiling FFTW with gcc -m32
+&gt; -mfpmath=sse, the result has been invariably slower than the vanilla x87
+&gt; compilation.  (I am talking about scalar arithmetic here.  FFTW also
+&gt; supports SSE2 2-way vector arithmetic, which is of course faster.)
+
+gcc does rather clever tricks with the x87 float stack and the fxch
+instruction, making it look almost like a flat register set and
+managing to expose some instruction-level parallelism despite the
+dependencies on the top of the stack.  In contrast, ocamlopt uses the
+x87 stack in a pedestrian, reverse-Polish-notation way, so the
+benefits of having "real" float registers is bigger.
+
+Using the experimental x86-sse2 port that I did in 2003 on a Core2
+processor, I see speedups of 10 to 15% on my few standard float
+benchmarks.  However, these benchmarks were written in such a way that
+the generated x87 code isn't too awful.  It is easy to construct
+examples where the SSE2 code is twice as fast as x87.
+
+More generally, the SSE2 code generator is much more forgiving towards
+changes in program style, and its performance characteristics are more
+predictable than the x87 code generator.  For instance, manual
+elimination of common subexpressions is almost always a win with SSE2
+but quite often a loss with x87 ...
+
+Pascal Cuoq:
+&gt; According to &lt;http://en.wikipedia.org/wiki/SSE2&gt;, someone using a Via C7
+&gt; should be fine.
+
+Richard Jones:
+&gt; AMD Geode then ...
+
+Apparently, recent versions of the Geode support SSE2 as well.
+Low-power people love vector instruction sets, because it lets them do
+common tasks like audio and video decoding more efficiently, ergo with
+less energy.
+
+Sylvain Le Gall:
+&gt; If INRIA choose to switch to SSE2 there should be at least still a way
+&gt; to compile on older architecture. Doesn't mean that INRIA need to keep
+&gt; the old code generator, but should provide a simple emulation for it. In
+&gt; this case, we will have good performance on new arch for float and we
+&gt; will still be able to compile on old arch. 
+
+The least complicated way to preserve backward compatibility with
+pre-SSE2 hardware is to keep the existing x87 code generator and bolt
+the SSE2 generator on top of it, Frankenstein-style.  Well, either
+that, or rely on the kernel to trap unimplemented SSE2 instructions
+and emulate them in software.  This is theoretically possible but I'm
+pretty sure neither Linux nor Windows implement it.
+
+David Mentre:
+&gt; Regarding option 2, I assume that byte-code would still work on i386
+&gt; pre-SSE2 machines? So OCaml programs would still work on those machines.
+
+You're correct, provided the bytecode interpreter isn't compiled in
+SSE2 mode itself (see below for one reason one might want to do this).
+However, packagers would still be unhappy about this: packaged OCaml
+applications like Unison or Coq are usually compiled to native-code
+(the additional speed is most welcome in the case of Coq...).
+Therefore, packagers would have to choose between making these
+applications SSE2-only or make them slower by compiling them to bytecode.
+
+Dmitry Bely:
+&gt; [Reproducibility of results between bytecode and native]
+&gt; I wouldn't be so sure. Bytecode runtime is C compiler-dependent (that
+&gt; does use x87 for floating-point calculations), so rounding errors can
+&gt; lead to different results.
+
+That's right: even though it stores all intermediate float results in
+64-bit format, a bytecode interpreter compiled in default x87 mode still
+exhibits double rounding anomalies.  One would have to compile it with
+gcc in SSE2 mode (like MacOS X does by default) to have complete
+reproducibility between bytecode and native.
+
+&gt; Floating point is always approximate...
+
+I used to believe strongly in this viewpoint, but after discussion
+with people who do static analysis or program proof over float
+programs, I'm not so sure: static analysis and program proof are
+difficult enough that one doesn't want to complicate them even further
+to take extended-precision intermediate results and double rounding
+into account...
+
+To finish: I'm still very interested in hearing from packagers.  Does
+Debian, for example, already have some packages that are SSE2-only?
+Are these packages specially tagged so that the installer will refuse
+to install them on pre-SSE2 hardware?  What's the party line?
+			</cwn_what>
+			<cwn_who>Sylvain Le Gall then replied</cwn_who>
+			<cwn_what>
+&gt; The least complicated way to preserve backward compatibility with
+&gt; pre-SSE2 hardware is to keep the existing x87 code generator and bolt
+&gt; the SSE2 generator on top of it, Frankenstein-style.  Well, either
+&gt; that, or rely on the kernel to trap unimplemented SSE2 instructions
+&gt; and emulate them in software.  This is theoretically possible but I'm
+&gt; pretty sure neither Linux nor Windows implement it.
+
+I was thinking (if it is possible) to use simple "function call" for
+doing float operation. This will be very inefficient, but will provide a
+very simple compatible layer. 
+
+&gt; To finish: I'm still very interested in hearing from packagers.  Does
+&gt; Debian, for example, already have some packages that are SSE2-only?
+&gt; Are these packages specially tagged so that the installer will refuse
+&gt; to install them on pre-SSE2 hardware?  What's the party line?
+
+The more obvious package I see, is the linux kernel or the libc6:
+http://packages.debian.org/lenny/linux-image-2.6.26-2-486
+http://packages.debian.org/lenny/linux-image-2.6.26-1-686-bigmem
+http://packages.debian.org/lenny/libc6
+http://packages.debian.org/lenny/libc6-i686
+
+AFAIK, there is no way for the package manager to do a real difference
+(no tag). However, the installer has some clue about which one to choose
+and install the best one for linux and libc6. Once installed, it is
+always updated in the good way, because the arch is embeded into the
+package name.
+
+I think linux and libc6 should be considered as exceptions, because they
+really provide an important benefit for overall optimization.
+
+For other package, if there is possible optimization, a version with and
+without optimization is embedded into the package and chosen at runtime.
+Example libavcodec provide i686 and i486 version:
+http://packages.debian.org/sid/i386/libavcodec52/filelist
+
+So in conclusion, there is always a "default" non SSE2 alternative for
+package that can provide an optimized version. I don't know any package
+that are SSE2-only.
+
+Im my opinion, Debian will probably refuse to ship a package that only
+provide SSE2-only version (but I am talking from my point of view).
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>Job Announcement in Paris (CDuce and Ocsigen)</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/632cf54350451087#</cwn_url>
+			<cwn_who>Vincent Balat announced</cwn_who>
+			<cwn_what>
+Position available: research engineer
+
+The PPS laboratory (&lt;http://www.pps.jussieu.fr&gt;) is recruiting an Research Engineer
+for 2 years (22 months) possessing a good skill in (Ca)ML programming. The
+position will be available in fall 2009.
+
+Keywords: CDuce, Ocsigen, Web-services, Ocaml
+
+
+Task:
+The recruited person will be integrated to the ANR national project
+Codex (&lt;http://codex.saclay.inria.fr&gt;) and will be asked to work on
+the CDuce language [1], in particular:
+- its use with the Ocsigen Web server [2]
+- import export and composition of Web services
+- integration with XProc [3]
+- Maintenance of the CDuce distribution
+Depending on its skill and background, the recruited person may be given
+research oriented task such as but not limited to the extension of
+CDuce with polymorphic functions.
+
+
+About PPS:
+
+PPS is a A-ranked CNRS laboratory of the University Paris Diderot Paris 7.
+One of its main research topics is the the study of the programming languages
+and distributed system and their logical foundations. The research activity is
+coupled with an important software development activity spanning from the
+Web (Ocsigen, CDuce, Xduce, Polipo) to parallel programming (CPC, Lwt, OcamlP3L), from networks (Babel) to the management of software packages (Edos, Mancoosi) and proof assistants (Coq).
+
+
+Required skills:
+
+- Expertise in OCaml programming
+- Knowledge of Web standards
+- Engineer or PhD degree (master is sufficient under some conditions)
+
+Contacts:
+Giuseppe Castagna and Vincent Balat:
+{Giuseppe.Castagna || Vincent.Balat} @ pps.jussieu.fr
+
+
+[1] http://www.cduce.org
+[2] http://www.ocsigen.org
+[3] http://www.xproc.org
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>New ML jobs</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/a36a4b1f13b4ff56#</cwn_url>
+			<cwn_who>Mehdi Ben Soltane announced</cwn_who>
+			<cwn_what>
+Some of you already know MLstate, a young company which develops a new
+functional language for web development termed OPA (public release at the end
+of the year), and which codebase includes lots of OCaml.
+
+We are proud to announce that we seek to expand our nineteen-people team with
+three new positions:
+
+- *Product owner*. You manage one or several functional web-applications
+  developed in-house, which means: You maintain the backlog, manage junior
+  developers and/or trainees, you write OPA or OCaml code yourself and finally
+  you meet the clients to make sure the apps suit their needs.
+
+- *Sysadmin*. You manage the internal and external networks of the company.
+  You love to play with OS, you have deep knowledge of software tools, and you
+  write functional applications to replace your initial quick and dirty Perl
+  hacks… and you will know how to handle load. OPA will be of course the
+  language of choice to develop nice web interfaces to do your job.
+
+- *Junior Application developer*. You love functional programming and already
+  have a pretty good level with personal projects. Your job will be to develop
+  webservices, with a functional style!
+
+If you think that one the positions could be yours, send your CV to careers at
+mlstate dot com to maybe join our friendly Paris-based office (no proxy at
+this time). We will make sure that the compensation package is interesting
+according to your profile.
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>Other Caml News</cwn_title>
+			<cwn_who>From the ocamlcore planet blog</cwn_who>
+			<cwn_what>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocamlcore.org/&gt;.
+
+FP-Syd #14.:
+  &lt;http://www.mega-nerd.com/erikd/Blog/FP-Syd/fp-syd-14.html&gt;
+
+What do Haskellers have against exhaustiveness?:
+  &lt;http://ocaml.janestreet.com/?q=node/64&gt;
+
+A Polymorphic Question:
+  &lt;http://alaska-kamtchatka.blogspot.com/2009/05/polymorphic-question.html&gt;
+
+libsndfile 1.0.20.:
+  &lt;http://www.mega-nerd.com/erikd/Blog/CodeHacking/libsndfile/rel_20.html&gt;
+
+Okasaki's Random Access Lists:
+  &lt;http://alaska-kamtchatka.blogspot.com/2009/05/okasakis-random-access-lists.html&gt;
+
+Presenting the 2009 JSSP projects:
+  &lt;http://ocaml.janestreet.com/?q=node/63&gt;
+			</cwn_what>
+		</cwn_entry>
+	</cwn_body>
+</cwn>

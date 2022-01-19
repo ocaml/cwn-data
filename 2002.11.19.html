@@ -1,0 +1,201 @@
+<html><body>
+
+<a href="2002.11.12.html">Previous week</a> &nbsp; <a href="index.html">Up</a> &nbsp; <a href="2002.11.26.html">Next week</a>
+<pre>
+Hello,
+
+Here is the latest Caml Weekly News, week 12 to 19 November, 2002.
+
+1) <a href="#1">exuberant ctags for ocaml</a>
+2) <a href="#2">Aqua (non-X) labltk on Mac OS 10</a>
+3) <a href="#3">The need for opcode GRAB?</a>
+4) <a href="#4">Even at compile time 2*2=4!</a>
+
+<a name="1"/>======================================================================
+1) exuberant ctags for ocaml
+----------------------------------------------------------------------
+Alan Schmitt asked:
+
+I was wondering if someone uses exuberant ctags with ocaml ...
+
+Michal Moskal answered:
+
+I'm using OCaml-otags, that, with little patche, works very nice 
+with vi. Another patch is need to compile it with ocaml 3.05+.
+You can find the patches in question in:
+
+<a href="ftp://ftp.nest.pld.org.pl/test/SRPMS/ocaml-otags-3.04.3-2.src.rpm">ftp://ftp.nest.pld.org.pl/test/SRPMS/ocaml-otags-3.04.3-2.src.rpm</a>
+
+(or in cvs.pld.org.pl).
+
+and Cuihtlauac Alvarado announced:
+
+Latest release :
+
+<a href="http://perso.wanadoo.fr/cuihtlauac.alvarado/otags-3.06.5.tar.gz">http://perso.wanadoo.fr/cuihtlauac.alvarado/otags-3.06.5.tar.gz</a>
+
+vi & stdout patches should be ok.
+
+<a name="2"/>======================================================================
+2) Aqua (non-X) labltk on Mac OS 10
+----------------------------------------------------------------------
+Trevor Jim explained:
+
+I managed to get labltk working in Mac OS 10 with the Aqua (non-X)
+version of Tk.  It's a bit clunky but maybe someone who knows more
+about these things can clean it up.
+
+Here's how it goes:
+(see the rest of this long message at
+<a href="http://caml.inria.fr/archives/200211/msg00163.html">http://caml.inria.fr/archives/200211/msg00163.html</a>)
+
+<a name="3"/>======================================================================
+3) The need for opcode GRAB?
+----------------------------------------------------------------------
+Blair Zajac asked and Alan Schmitt shamelessly suggested:
+
+&gt; What is the grab/restart trick?  Is there a URL to an explanation?
+&gt; 
+&gt; I didn't find anything definitive through Google.
+&gt; 
+&gt; Best,
+&gt; Blair
+
+A long time ago, in a research building far far away, Didier Le Botlan
+and me started a small project to explain how ocaml worked, under the
+hood. We haven't done anything about for a long time, and it's barely
+started but if you want to have a look, here are the html pages:
+<a href="http://pauillac.inria.fr/~lebotlan/docaml_eng.html">http://pauillac.inria.fr/~lebotlan/docaml_eng.html</a>
+
+And if anyone wants to contribute, I'd be glad to restart the project.
+The sourceforge project page is at:
+<a href="http://www.sf.net/projects/docaml/">http://www.sf.net/projects/docaml/</a>
+
+<a name="4"/>======================================================================
+4) Even at compile time 2*2=4!
+----------------------------------------------------------------------
+Jakob Lichtenberg wondered:
+
+Fellow O'Caml hackers,
+
+I have this complicated module 'fourLib.ml' that binds the value 'four' to
+the *computed* value of four:
+---
+let four = (Printf.printf "Now we do the complicated calculation of
+2*2...\n";
+            let res = 2*2
+            in res);
+---
+
+A sample application 'sixteen.ml':
+---
+let _ = Printf.printf "4 * 4  is %d" (FourLib.four * FourLib.four);   
+---
+
+
+I wish to package/compile my 'fourLib' so that I can avoid doing the
+complicated calculation '2*2' each and every time I load 'fourLib'.  (I am
+sure that you can imagine an even more requiring computational task than
+evaluating '2*2'.)
+
+
+Currently I build as follows:
+  &gt; ocamlc -c fourLib.ml
+  &gt; ocamlc  -c sixteen.ml
+  &gt; ocamlc -o sixteen fourLib.cmo sixteen.cmo
+
+Unfortunately 2*2 is first calculated when I run the application:
+  &gt; ./sixteen
+  Now we do the complicated calculation of 2*2...
+  4 * 4  is 16
+---
+
+1. I am willing to rewrite the library, the way stuff is build, etc....  I
+basically just want ocaml to evaluate 2*2 before the final linking.  Is my
+only hope to serialize Four.four and then load it?
+
+
+2. Can I build a new top-level interactive environment 'ocaml_with_fourLib'
+where this module is 'pre-loaded'.  Again, the actual calculation of 2*2
+should be done when I build ocaml_with_fourLib - not when I start it.
+
+Alessandro Baretta answered:
+
+I wish to suggest one possibility.
+
+1) You write a module defining the type of the datastructure
+you wish to precompute and load
+2) You write a program importing the above module, which
+computes the datastructure and marshals it to a file. You
+run this program.
+3) You write a library which, upon being loaded, searches
+the filesystem for the appropriate file, unmarshals it and
+binds the precomputed data to an identifier.
+4) You write your programs referring to the the identifier
+exported by #3.
+
+eg.
+
+module: type_of_four.ml  
+*********************
+type four = int
+
+
+module: compute_four.ml
+**********************
+open Type_of_four
+
+let four:four = 2 * 2
+
+let _ = Marshal.to_channel (open_out "foo") four []
+
+
+module: four.ml
+***************
+open Type_of_four
+
+let (four:four) = Marshal.from_channel (open_in "foo")
+
+
+module: sixteen.ml
+******************
+open Four
+
+let sixteen = four * four
+
+Daniel de Rauglaudre answered as well:
+
+There is no difference between "load" a module and "start" it: the fact
+of loading it is starting it.
+
+In some cases, you could resolve your problem with Camlp4, if your
+computation can be done at parse time. We can imagine a syntax
+extension, e.g. "compute" followed by an expression, ask the
+preprocessor to evalutate it and build the syntax tree of the
+result. For example:
+    compute (2*2)
+would generate at parse time:
+    4
+
+But this could not work:
+    let x = 2 in
+    compute(x*x)
+because the preprocessor does not know what is "x".
+
+On the other hand, if "x" is defined as a directive to the preprocessor,
+for example with "DEFINE x = 2" (new syntax extension pa_macro.cmo), it
+could work.
+
+======================================================================
+Old cwn
+----------------------------------------------------------------------
+
+If you happen to miss a cwn, you can send me a message
+(alan.schmitt@inria.fr) and I'll mail it to you, or go take a look at
+the archive (<a href="http://pauillac.inria.fr/~aschmitt/cwn/">http://pauillac.inria.fr/~aschmitt/cwn/</a>). If you also wish
+to receive it every week by mail, just tell me so.
+
+======================================================================
+
+Alan Schmitt
+</pre></body></html>

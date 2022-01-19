@@ -1,0 +1,576 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of 01 to 08 November, 2005.
+
+1) The best way to circumvent the lack of Thread.kill ?
+2) Camomile-0.6.3
+3) otags 3.09.0 released
+4) HDCaml 0.2.0
+5) strftime/strptime and asctime
+6) Enhanced Ocaml Documentation Version 3.09
+7) Get a page from the Web
+8) Sexplib - library for S-expression conversions
+
+========================================================================
+1) The best way to circumvent the lack of Thread.kill ?
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/31022>
+------------------------------------------------------------------------
+** Julien Narboux asked:
+
+I just encountered the Thread.kill "not implemented" exception.
+
+A google search gives me this answer from Xavier Leroy on the caml 
+weekly news (<http://sardes.inrialpes.fr/~aschmitt/cwn/2003.05.20.html>) :
+
+"The general solution is to avoid using Thread.kill.  Terminating another
+thread at arbitrary times is an inherently unsafe operation: the
+killed thread may be holding mutexes, for instance.  There's a good
+explanation of the problems in the Java documentation:
+<http://java.sun.com/j2se/1.4.2/docs/guide/misc/threadPrimitiveDeprecation.html>
+explaining why they "deprecated" their equivalent of Thread.kill."
+
+Here is the relevant part of this web page :
+
+"Most uses of stop should be replaced by code that simply modifies some 
+variable to indicate that the target thread should stop running. The 
+target thread should check this variable regularly, and return from its 
+run method in an orderly fashion if the variable indicates that it is to 
+stop running. (This is the approach that JavaSoft's Tutorial has always 
+recommended.) To ensure prompt communication of the stop-request, the 
+variable must be volatile (or access to the variable must be synchronized)."
+
+My problem is that I don't want to pollute my target thread with checks 
+for a variable.
+
+Indeed, I am writing a graphical user interface for an automated theorem 
+prover.
+I have a function f which decides if a theorem is true or not. It can 
+terminate quickly or take ages, and I want to have an "interrupt" button 
+in the graphical user interface so the user can stop the computation if 
+he wants to. I do not want to have GUI related code in the automated 
+theorem proving part of the program, it would not be clean imho.
+
+What is the best solution ? start a new process and use the kill at the 
+operating system level ?
+(to make things even worse I need something which works on linux, 
+windows and macosx)
+    
+** Richard Jones suggested, Julien Narboux said, and Jacques Garrigue said:
+
+Julien Narboux wrote:
+> Richard Jones wrote:
+> > How about forking off the theorem prover as a separate process?  You
+> > can communicate the result back to the main program using either a
+> > status code or a pipe (depending on how complex the result structure
+> > is).  The interrupt button just kills the forked process.
+>
+> Yes, but the problem is that under the native windows port (see 
+> <http://caml.inria.fr/pub/docs/manual-ocaml/manual035.html>) :
+> 
+> "kill, pause not implemented (no inter-process signals in Windows)"
+
+The workaround I found a long time ago is to embed a thread in the
+forked process that waits for "signals" on a pipe.
+
+If you look at byterun/startup.c and byterun/win32.c you will
+see that it is started when there is a CAMLSIGPIPE in the environment.
+This is used by otherlibs/labltk/browser/shell.ml on windows.
+
+This already works on any bytecode application.
+For native code, you could just link that bit of C code, and start it
+by hand.
+
+Another way to do it, which is used by ocamlwin, is to send SIGINT
+through then win32 function GenerateConsoleCtrlEvent. But this will
+just interrupt, not kill. And I didn't know that function at that
+time...
+    
+** Gerd Stolpmann answered the OP:
+
+> I just encountered the Thread.kill "not implemented" exception.
+
+This operation is insane, better it would be removed entirely.
+
+What could be worth of discussion is a Thread.send_exception that will
+cause that a certain thread raises a certain exception the next time it
+executes O'Caml code. This won't work if the thread is blocked, however.
+(There is machinery to handle such asynchronous events in the O'Caml
+runtime.)
+
+For Unix (including MacOS X) you can implement send_exception yourself
+by sending a signal to the thread, and defining a signal handler that
+just raises an exception.
+
+In Windows there are no signals. An extension of the O'Caml runtime
+would be needed to get this behaviour.
+
+> What is the best solution ? start a new process and use the kill at the 
+> operating system level ?
+
+Which is unavailable in Windows.
+
+> (to make things even worse I need something which works on linux, 
+> windows and macosx)
+
+There is a hack that works (Xavier forgive):
+
+exception User_interrupt
+
+let do_something() =
+  ignore(7 * 6)
+;;
+
+let compute() =
+  try
+    while true do
+      do_something()
+    done;
+    assert false
+  with
+    | User_interrupt ->
+	prerr_endline "Thread interrupted!"
+;;
+
+let vt_signal =
+  match Sys.os_type with
+    | "Win32" -> Sys.sigterm
+    | _ -> Sys.sigvtalrm
+;;
+
+let interrupt = ref None;;
+
+let force_interrupt old_action_ref n =
+  (* This function is called just before the thread's timeslice ends *)
+  if Some(Thread.id(Thread.self())) = !interrupt then
+    raise User_interrupt;
+  match !old_action_ref with
+    | Sys.Signal_handle f -> f n
+    | _ -> failwith "Not in threaded mode"
+;;
+
+let main() =
+  (* Install the signal handler: *)
+  let old_action_ref = ref Sys.Signal_ignore in
+  let old_action = 
+    Sys.signal vt_signal (Sys.Signal_handle (force_interrupt old_action_ref)) in
+  old_action_ref := old_action;
+  (* Fire up the compute thread: *)
+  let t = Thread.create compute () in
+  (* Wait for user: *)
+  print_string "Press Return: ";
+  flush stdout;
+  let _ = read_line() in
+  interrupt := Some (Thread.id t);
+  (* Wait until the thread terminates: *)
+  Thread.join t
+;;
+
+main();;
+    
+** Gerd Stolpmann added:
+
+> let do_something() =
+>   ignore(7 * 6)
+> ;;
+
+Just an addition: This function is too primitive for ocamlopt (it won't
+check for pending events). Use
+
+let rec do_something() =
+  ignore(7 * 6); flush stdout
+;;
+
+instead.
+    
+** David Teller said and Alessandro Baretta answered:
+
+>  I would have figured that the best way to properly kill a thread would
+> be to have some form of channel (i.e. Events.t)-based communication
+> between threads -- and then killing the channel.
+> 
+>  Trouble is that, as I've just realized, there is no such facility as
+> killing/sending an exception through a channel. Does anyone know why ?
+
+Event.channel is a type constructor which takes an argument identifying 
+the type of objects that are sent over the channel. You can send thunk 
+computations ((unit -> 'a) Event.channel), which may very well raise an 
+exception. Or you can simply send an exception (exn Event.channel). 
+Finally, you can send "()" on a channel (unit Event.channel), whose sole 
+  purpose is to communicate soft-kill requests.
+    
+** David Teller then said and Alessandro Baretta answered:
+
+>  A (unit Event.channel) or a (exn Event.channel), combined with 
+> (Event.poll), or perhaps a simple (bool Event.channel), would indeed
+> permit soft-killing a thread during a synchronization phase meant
+> explicitly for that purpose. A thunk computation could even generalize
+> this to actual communications, at the price of a somewhat strange type.
+> 
+>  However, in my mind, all these solutions are the channel equivalent of
+> manual error-handling -- something akin to a function returning an ('a
+> option) instead of an 'a because the result None is reserved for errors.
+> I'm still slightly puzzled as to why this distant killing/raising is not
+> a core feature of channels. After all, unless I'm mistaken, channels are
+> a manner of implementing continuations. I tend to believe I should be
+> able to raise an error (a hypothetical Event.raise/Event.kill) instead
+> of returning/passing a value (as in Event.send).
+> 
+>  Or did I miss something ?
+
+"Channel" is maybe an inappropriate term for this strange object. An 
+Event.channel is more like a single-slot mailbox to pass a message to 
+someone. Any number of Threads (zero upwards) can be waiting for 
+messages on a channel. There is no obligation that there be exactly one 
+thread to kill on the other side. What would happen is try to send a 
+hard-kill event on a channel where there is nobody on the other side? 
+What if the there is more than one thread?
+
+You are trying to find a way around killing a thread with Thread.kill, 
+but there is really no way to cleanly kill a thread asynchronously. A 
+clean exit requires some cooperation from the killed thread.
+    
+** David Teller then said:
+
+Let me rephrase. I don't want to kill just any thread, I want to send an
+exception to whoever is actually synchronising on a channel. Perhaps any
+exception can be "distantly thrown", or perhaps only one specific kind.
+Something like
+
+ let sender c =
+   ignore Event.sync (Event.send c 1);
+      (**Event.send passes an information,
+         while Event.sync may pass control.*)
+   ignore Event.sync (Event.send c 2);
+   ignore Event.sync (Event.send c 4);
+   ignore Event.sync (Event.kill c)
+
+ and receiver f c =
+   f Event.sync (Event.receive c);
+       (**Event.receive receive an information,
+          while Event.sync may pass control.*)
+   f Event.sync (Event.receive c);
+   f Event.sync (Event.receive c);
+   f Event.sync (Event.receive c); 
+	(*Actually, this operation throws 
+          Event.Closed_channel*)
+   f Event.sync (Event.receive c)
+
+ in
+   let c = Event.new_channel ()
+   in
+     ignore (Thread.create sender c);
+     try
+       receiver print_int c
+     with
+       x -> (*...*)
+
+ In the case of more than two threads waiting for communication on a
+single channel, I would say that they all should receive the exception
+during their next Event.sync.
+
+ I agree that this is quite close to your idea of sending thunk
+functions, but the additional indirection strikes me as odd for
+something which to me looks like a primitive. 
+    
+========================================================================
+2) Camomile-0.6.3
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/31065>
+------------------------------------------------------------------------
+** Yoriyuki Yamagata announced:
+
+I am pleased to announce Camomile-0.6.3, a comprehensive Unicode
+library for OCaml.  This release is to support OCaml 3.09.  To reduce
+the complexity of Makefile, the support for unpacked library is
+dropped.  Now, all modules in Camomile is under Camomile modules.  So,
+for example, UTF8 modules is accessed by the name Camomile.UTF8.
+
+You can download Camomile-0.6.3 from
+<http://prdownloads.sourceforge.net/camomile/camomile-0.6.3.tar.bz2?download>
+
+By the way, I am in Italy(Turin) by January.  Is there OCaml related
+meeting(formal or informal)? I would glad to meet someone in Europe
+who are interested in OCaml.
+    
+========================================================================
+3) otags 3.09.0 released
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/31071>
+------------------------------------------------------------------------
+** Hendrik Tews announced:
+
+I would like to announce the release of otags version 3.09.0 for
+ocaml 3.09.0. otags generates tags files for both emacs and
+vi/vim from ocaml sources. 
+
+The new version is available at
+<http://wwwtcs.inf.tu-dresden.de/~tews/otags/otags-3.09.0.tar.gz>
+The README file is online at 
+<http://wwwtcs.inf.tu-dresden.de/~tews/otags/README>
+
+NEW in this release:
+- change of maintainer: the former maintainers Cuihtlauac
+  Alvarado and Jean-Francois Monin are not longer keen on
+  maintaining otags, so I took over.
+- fixed native compilation of camlp4 extensions
+- new option -no-mli-tags generates only one entry for every mli
+  file
+- new options -bindir -libdir to set otags search path for
+  executables and camlp4 modules (most useful for automated
+  testing) 
+
+LICENCE: GPL 2
+    
+========================================================================
+4) HDCaml 0.2.0
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/31078>
+------------------------------------------------------------------------
+** Tom Hawkins announced:
+
+HDCaml is a hardware description language embedded in OCaml.  Given a 
+digital design in HDCaml, the tools will output a synthesizable Verilog 
+netlist with PSL assertions for verification.
+
+Though HDCaml is still in early beta, 0.2 has undergone a major cleanup 
+of the API.  All comments are welcome.  To download...
+
+   <http://www.confluent.org/>
+
+To generate the [undocumented] example...
+
+ > ocaml hdcaml.cma
+         Objective Caml version 3.09.0
+
+# Hdcaml.Example.all_prims ();;
+    
+** Ray Heasman asked and Tom Hawkins answered:
+
+> Is confluence still going to be around? I haven't used it for a few
+> months, but I really liked it. I actually wrote useful stuff for work in
+> it. I stuck with an older version though, because I needed a consistent
+> environment.
+
+It's not going to disappear, but I am no longer actively developing it. 
+  However, I'm more than willing to fix the occasional bug.
+
+> 
+> 
+>>Though HDCaml is still in early beta, 0.2 has undergone a major cleanup 
+>>of the API.  All comments are welcome.  To download...
+>>
+
+> 
+> I have no experience with ocaml, though I intend to play some day. Is
+> there any reason I should use HDCaml instead of confluence? Also, I tend
+> to prefer VHDL over verilog (I am a bondage-and-discipline programmer),
+
+I think you just answered your own question.  Unlike Confluence, OCaml 
+has an excellent type system that catches a vast majority of bugs at 
+compile time.  OCaml's type system is far stronger than that of C++, 
+Java, and even VHDL.  And unlike these languages, OCaml's compiler is 
+smart enough to infer types automatically -- type declarations are 
+usually optional.
+
+OCaml and Haskell programmers have an expression: "Once it compiles, it 
+usually just works!"
+
+> so I am not overjoyed that HDCaml only does verilog.
+
+The HDCaml Verilog generator is only 90 lines of code.  In time, HDCaml 
+will write out VHDL, SystemC, and other popular netlist formats.  Maybe 
+you would like to write the VHDL back-end?  There is no better way to 
+learn a new language than writing a real application.
+
+> 
+> I'm interested if you have some sort of game plan in mind. I started
+> losing the plot when you moved to the FNF and generating stuff for
+> verification tools.   I have generally worked on small fry designs
+> (largest has been 70000 gates) in a pretty informal FPGA environment. I
+> like the idea of verification, but I feel you are so far ahead of me
+> that I don't even understand what you are trying to do anymore. An
+> overview would be very very interesting to me.
+
+The real benefit of HDCaml is that it is embedded in a real [powerful] 
+general purpose programming language.  Most of the development tools are 
+already in place, including:
+
+- Compiler (ocamlc)
+- Interactive Interpreter (ocaml)
+- Debugger (ocamldebug)
+- Profiling (ocamlprof)
+- Source Code Documentation Generator (ocamldoc)
+- Standard Libraries (the basic data structures are all ready written)
+
+The other benefit is, the language that describes hardware is the same 
+language that can analyze and transform hardware descriptions.  What 
+kind of analysis and transformations are possible?  Obviously, we need 
+some netlist generators (transforming the intermediate circuit 
+representation into VHDL).  Here are a few other examples:
+
+- Custom Reports
+   - How many flops, multipliers, and memories are in my design?
+- Custom Lint Checks
+   - Does my circuit have any combinational loops?
+- Custom Optimizations
+   - Remove all null effect logic in a circuit.
+   - Replace register enables with clock-gating.
+- Circuit Visualization
+   - Writing the circuit to Graphviz dot.
+- Manipulate the Design Hierarchy
+   - Expand or collapse design levels.
+   - Merge two asynchronous circuits.
+- Rough timing estimation.
+
+Most of these "plug-ins" are trivial, requiring only about 30-80 lines 
+of OCaml.  We can take this a step further by starting to simulate and 
+verify circuits within OCaml.  Here are some possibilities:
+
+- Converting a circuit into a simulatable object.
+- Stimulus generation.
+   - Directed testing.
+   - Constrained random.  (Possibly another OCaml embedded language?)
+- Co-simulate with real firmware.  (OCaml can interface with C.)
+- VCD generation.  (We all like to look at waveforms.)
+- Model checking.
+- Automated theorem proving.
+   - HOL Light
+   - MetaPRL
+
+In short, you'll have a unified environment for design and verification.
+    
+========================================================================
+5) strftime/strptime and asctime
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/31091>
+------------------------------------------------------------------------
+** Joshua Smith asked and Shawn Wagner answered:
+
+> This has come up on the list before (even by me once), but
+> I'm was wondering if anyone (like the maintainers) would have any
+> interest in a patch to the 3.09 codebase to add strptime, strftime and
+> asctime?  It would probably work in the 3.08 code, too, but I figure
+> the most current version is the place to start.
+
+All three of these functions are already in the annex library
+(<http://raevnos.pennmush.org/code/annexlib/>), not that it wouldn't be nice
+to have them in the standard library too
+    
+========================================================================
+6) Enhanced Ocaml Documentation Version 3.09
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/31106>
+------------------------------------------------------------------------
+** Hendrik Tews announced:
+
+I would like to announce the 
+
+                 The Enhanced Ocaml Documentation 
+                          Version 3.09
+   available via <http://wwwtcs.inf.tu-dresden.de/~tews/htmlman-3.09>
+
+The enhanced documentation contains the original html version of
+the ocaml reference manual with the following changes:
+
+- Changes (wrt version 3.08) are tagged with icons and color 
+
+- meta symbols of the grammar are "hot" and refer to their
+  definition. 
+
+- additional appendix containing just the grammar rules
+    
+========================================================================
+7) Get a page from the Web
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/31116>
+------------------------------------------------------------------------
+** Martin Chabr asked and Karl Zilles answered:
+
+> I have been looking for ways to get a page in HTML
+> from the Web, using an OCaml program, something like
+> the following Python snippet:
+> 
+> import urllib
+> URL = "<http://www.ibm.com>"
+> url = urllib.urlopen(URL)
+> html = url.read()
+> 
+> You supply the URL and receive the page in HTML. Is
+> there anything simple like that in OCaml?
+
+I use the Ocaml binding to the curl library.  It has worked well for me 
+and it can handle high level details like maintaining cookies across 
+calls (for session continuity and logins):
+
+<http://sourceforge.net/projects/ocurl/>
+    
+** Florian Weimer suggested:
+
+You could use the Netclient library:
+
+let s = Http_client.Convenience.http_get "<http://www.ibm.com>" in
+  output_string stdout s
+
+(Compile with: ocamlfind ocamlc -package netclient -linkpkg file.ml)
+    
+** Eric Cooper added:
+
+Here are two other ways: the ocamlnet package has an HTTP client,
+or you can use Unix.open_process_in with "curl" or "wget".
+    
+========================================================================
+8) Sexplib - library for S-expression conversions
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/31123>
+------------------------------------------------------------------------
+** Markus Mottl announced:
+
+we'd like to announce the availability of "Sexplib", which is a
+library for handling S-expressions.  It features a syntax extension
+for OCaml using the Camlp4-preprocessor, which generates efficient
+code derived from type definitions to convert OCaml-values to
+S-expressions and vice versa.  Errors during conversions are reported
+fairly exactly and readably.
+
+This syntax extension supports all extensional type constructions
+(tuples/products, sum types, record types, variant types) together
+with polymorphism.  Other datatypes (objects; abstract ones) require
+user-defined converters, which can be added very easily.
+
+The parsing and pretty-printing functions for S-expressions together
+with the automatically generated converters make this library very
+useful for a variety of purposes, e.g. for representing datastructures
+in human-readable form, for debugging, etc.  We are using it for
+handling fairly large and complex software configurations, and have
+found this representation and functionality extremely helpful in
+practice.
+
+The Sexplib-library itself was initially derived from Martin Sandin's
+Tywith-library, and is available free of charge under the
+LGPL-license.  You can download it from the following site:
+
+  <http://www.janestcapital.com/ocaml>
+
+We, the Quant-group at Jane St. Capital, are in the process of setting
+up this site to publish free software developed at our company.  We
+hope you will find a lot more useful libraries there in the near
+future.
+    
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

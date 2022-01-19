@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2015.04.21</cwn_date>
+    <cwn_prev>2015.04.14</cwn_prev>
+    <cwn_next>2015.04.28</cwn_next>
+    <cwn_date_text>April 14 to 21, 2015</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>Suggested way to determine platform specific capabilities in build system?</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-04/msg00082.html</cwn_url>
+      <cwn_who>Malcolm Matalka asked and Daniel Bünzli replied</cwn_who>
+      <cwn_what>
+&gt; What is the current suggested way to determine what, roughly, autoconf
+&gt; would do for you? I have some platform specific functionality to be
+&gt; included (or excluded) depending on the OS.
+
+I don't know if there's a suggested way but here are various ways to proceed.
+
+If you are using ocamlbuild, you can use `Sys.win32` since 4.01.0 or
+`Sys.os_type = "Win32"` to determine if you are on windows and otherwise get
+the (stripped and lowercased) result of `uname -s`, see e.g (but it's missing
+the win bit):
+
+https://github.com/dbuenzli/tsdl/blob/master/myocamlbuild.ml#L6
+
+If you are using Makefiles you may want include
+`$(ocamlc -where)/lib/ocaml/Makefile.config` and use the `$SYSTEM` variable.
+
+If this is only needed for C stubs you can also try solve this at the CPP
+level — but I guess this can be quite brittle — see e.g (here again missing
+the win bit as it's undefined for now):
+
+https://github.com/dbuenzli/mtime/blob/master/src-os/mtime_stubs.c#L11-L21
+
+In any case make sure the value can be overridden from the command line for
+cross compilation scenarios.
+      </cwn_what>
+      <cwn_who>Thomas Gazagnaire then added</cwn_who>
+      <cwn_what>
+See also the system detection functions in opam-depext:
+
+https://github.com/ocaml/opam-depext/blob/master/depext.ml#L76
+      </cwn_what>
+      <cwn_who>Ivan Gotovchits also suggested</cwn_who>
+      <cwn_what>
+oasis, look at setup.data and setup.ml
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OCaml-openmaple</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-04/msg00089.html</cwn_url>
+      <cwn_who>Maxence Guesdon announced</cwn_who>
+      <cwn_what>
+I started OCaml-openmaple, bindings to the Openmaple C library:
+  https://github.com/zoggy/ocaml-openmaple
+
+This is still work in progress but you can give it a try.
+It uses the excellent OCaml-ctypes library.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Timeout</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-04/msg00099.html</cwn_url>
+      <cwn_who>Rodolphe Lepigre asked and Benjamin Greenman</cwn_who>
+      <cwn_what>
+&gt; I was wondering: is there a standard way to stop a computation after, say,
+&gt; a given number of milliseconds (or seconds) in OCaml?
+&gt; 
+&gt; For instance I would like to have a function
+&gt; 
+&gt; exception Timeout
+&gt; val exec : int -&gt; ('a -&gt; 'b) -&gt; 'a -&gt; 'b
+&gt; 
+&gt; such that [exec t f x] computes [f x] but raises [Timeout] in case the
+&gt; computation did not end before [t] milliseconds (or seconds).
+&gt; 
+&gt; My guess would be that I need to use some Unix signals magic. Has anyone
+&gt; come up with a clean solution to this problem?
+
+Here's a small function I use, taken from the book "Developing Applications
+with Objective Caml"
+http://caml.inria.fr/pub/docs/oreilly-book/html/book-ora168.html
+
+exception Timeout
+let sigalrm_handler = Sys.Signal_handle (fun _ -&gt; raise Timeout)
+let timeout (time : int) (f : 'a -&gt; 'b) (arg : 'a) =
+   let old_behavior = Sys.signal Sys.sigalrm sigalrm_handler in
+   let reset_sigalrm () = ignore (Unix.alarm 0); Sys.set_signal Sys.sigalrm old_behavior in
+   ignore (Unix.alarm time) ;
+   let res = f arg in reset_sigalrm () ; res
+      </cwn_what>
+      <cwn_who>Rodolphe Lepigre then said</cwn_who>
+      <cwn_what>
+Great, thank you!
+
+I only see one problem: when [Timeout] is raised, the signal handler is not
+reset. This can be fix by doing something like:
+
+  try let res = f arg in reset_sigalrm (); res
+  with e -&gt; (reset_sigalrm (); raise e)
+
+This will have the advantage of transmitting other exceptions to the caller
+as well.
+
+Also, I guess [Unix.alarm time] should also be in the [try ... with ...].
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocaml.org/&gt;.
+
+Mid/Senior Software Development Engineer at Lookingglass Cyber Solutions (Full-time):
+  &lt;http://functionaljobs.com/jobs/8810-mid-senior-software-development-engineer-at-lookingglass-cyber-solutions&gt;
+
+Senior/Principal Software Development Engineer at Lookingglass Cyber Solutions (Full-time):
+  &lt;http://functionaljobs.com/jobs/8809-senior-principal-software-development-engineer-at-lookingglass-cyber-solutions&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

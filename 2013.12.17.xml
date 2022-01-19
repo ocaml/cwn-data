@@ -1,0 +1,358 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2013.12.17</cwn_date>
+    <cwn_prev>2013.12.10</cwn_prev>
+    <cwn_next>2013.12.24</cwn_next>
+    <cwn_date_text>December 10 to 17, 2013</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>opam-installer (beta)</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-12/msg00068.html</cwn_url>
+      <cwn_who>Daniel Bünzli asked, said, then Louis Gesbert announced</cwn_who>
+      <cwn_what>
+&gt; &gt; Manual Package Management™, the file format of .install is very
+&gt; &gt; simple you could perfectly develop have a command line tool that reads
+&gt; &gt; it and issues the appropriate cp commands,
+&gt; 
+&gt; In fact, thanks to Louis Gesbert, this tool already seems to exist since 17 days:
+&gt; 
+&gt; https://github.com/ocaml/opam/pull/1026
+
+Hah, Daniel, you're too fast, it actually just landed into OPAM trunk just now !
+So here is the official announcement :)
+
+OPAM now installs together with a small opam-installer script designed
+just towards that goal: it handles .install files, and can be used to
+install or remove any package that generates them, independently of
+OPAM. Hopefully this will help the acceptation of this format as a
+standard, both easing the programmer's (and build-system writer's) work
+and providing better integration with the packaging system.
+
+Additionally, opam-installer can generate shell-scripts that could be
+used, for example, for distributing to targets which don't have the
+tool.
+
+This is still in beta stage, all reports welcome.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>ocamlbuild plugins and external libraries</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-12/msg00074.html</cwn_url>
+      <cwn_who>Gregory Malecha asked and Gabriel Scherer replied</cwn_who>
+      <cwn_what>
+&gt; I have several ocamlbuild plugins that are very similar and I'm trying
+&gt; to figure out how to refactor them. I pulled out a bunch of definitions
+&gt; into another file (coq_paths.ml) and then said 'open Coq_paths' in '
+&gt; myocamlbuild.ml'. But when I do this, ocamlbuild can no longer build the
+&gt; plugin, not even if foo.cmo already exists in the _build directory.
+&gt; 
+&gt; After hacking on this for a long time (and digging through the
+&gt; ocamlbuild sources) I found that you can write a Makefile that will
+&gt; build myocamlbuild.cmo using ocamlbuild without a plugin, and then
+&gt; manually link this against ocamlbuild.cmo and to produce a custom
+&gt; version of ocamlbuild that uses the plugin (this is exactly what
+&gt; ocamlbuild does). My question is: 'is there any nicer way to do this?'
+&gt; I'm including my Makefile below:
+&gt; 
+&gt; OCAMLBUILDDIR=$(shell ocamlfind query ocamlbuild)
+&gt; 
+&gt; all: _build/coq_builder
+&gt; @ ./_build/coq_builder -no-plugin coq.otarget
+&gt; 
+&gt; _build/coq_builder: myocamlbuild.ml coq_paths.ml
+&gt; @ echo "building builder...."
+&gt; @ ocamlbuild -cflags -I,`ocamlfind query ocamlbuild` -no-plugin
+&gt; myocamlbuild.cmo
+&gt; @ ocamlc.opt unix.cma -I $(OCAMLBUILDDIR) $
+&gt; (OCAMLBUILDDIR)/ocamlbuildlib.cma \
+&gt; _build/coq_paths.cmo _build/myocamlbuild.cmo \
+&gt; $(OCAMLBUILDDIR)/ocamlbuild.cmo -o _build/coq_builder
+&gt; @ echo "done"
+&gt; 
+&gt; clean:
+&gt; ocamlbuild -clean
+
+Since 4.01, ocamlbuild supports a new (experimental) option
+"-plugin-tag" that allows to specify (built-in) ocamlbuild tags to use
+when compiling myocamlbuild.ml. If you package coq-paths using findlib,
+you can then use
+
+ocamlbuild -use-ocamlfind -plugin-tag "package(coq-path)" ...
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Dead code detection</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-12/msg00078.html</cwn_url>
+      <cwn_who>Pierre-Yves Strub asked</cwn_who>
+      <cwn_what>
+Does any of you know a tool for doing dead code detection?
+      </cwn_what>
+      <cwn_who>Simon Cruanes replied</cwn_who>
+      <cwn_what>
+I don't use such a tool but I remember that Ocamlpic contains something
+similar for shrinking bytecode files. See
+http://www.algo-prog.info/ocaml_for_pic/web/index.php?id=OCAPIC:OCamlClean
+
+It would be great to have such a standalone tool on opam, though.
+      </cwn_what>
+      <cwn_who>Fabien Renaud also suggested</cwn_who>
+      <cwn_what>
+You can try https://github.com/Michaaell/dead-code-detection (which
+requires OCaml 4).
+      </cwn_what>
+      <cwn_who>Alain Frisch also suggested</cwn_who>
+      <cwn_what>
+At LexiFi, we use two different techniques for detecting dead code:
+
+ - Bisect, for a dynamic notion of "dead code" (i.e. code which is not
+exercised by our testsuite).
+
+ - A custom static detection tool, which parses .cmt and .cmi files to
+detect exported components (values, exceptions, etc) used by no other
+module in the project.  This is of course combined with the existing
+compiler warnings on locally unused and non-exported declarations.
+
+The next version of OCaml will make it extremely simple to implement
+such a static detection tool.  This is because of the new -keep-locs
+compiler flag, which allows us to keep the location of exported values
+in .cmi files, and thus retrieve the same locations on references to
+such values in .cmt files.  It makes it very easy to create the link
+between an exported value and its references in external modules, even
+if this goes through e.g. module inclusions.  As a proof of concept of
+this approach, we can already try the tool
+experimental/frisch/unused_exported_values.ml in the trunk:
+
+http://caml.inria.fr/cgi-bin/viewvc.cgi/ocaml/trunk/experimental/frisch/unused_exported_values.ml?revision=HEAD&amp;view=markup
+
+(-keep-locs also gives "for free" a jump-to-definition feature, just by
+parsing .cmt or .annot files.)
+      </cwn_what>
+      <cwn_who>Oliver also suggested</cwn_who>
+      <cwn_what>
+-w flags for
+    suspicious comment
+    partially applied function
+    overriden methods
+    non-unit statement
+    overriden instance variables
+  * suspicious unused variables
+  * all other unused variables
+
+Especially unused variables may show lurking code,
+that was once written in an intermediate state of
+code development, and never be used again since then.
+      </cwn_what>
+      <cwn_who>Yoann Padioleau also suggested</cwn_who>
+      <cwn_what>
+I made a tool using the .cmt format that visualizes code dependencies:
+https://github.com/facebook/pfff/wiki/CodeGraph
+https://github.com/facebook/pfff/blob/master/main_codegraph.ml
+https://github.com/facebook/pfff/wiki/Main
+
+It also highlights dead code (at different granularities, dead
+directories,
+dead files, dead functions, etc).
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>InvarGenT: GADTs-based invariant/postcondition generation</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-12/msg00085.html</cwn_url>
+      <cwn_who>Lukasz Stafiniak announced</cwn_who>
+      <cwn_what>
+I am pleased to release the first version of InvarGenT, a system that
+performs full type inference for a type system with GADTs, and also
+generates new GADTs to serve as existential types. In addition to
+algebraic types, the first version handles linear arithmetic
+constraints.
+
+https://github.com/lukstafi/invargent/releases/tag/v1.0
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Symbolizer for caml-inspect</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-12/msg00088.html</cwn_url>
+      <cwn_who>Peter Zotov announced</cwn_who>
+      <cwn_what>
+Caml-inspect is a useful tool, but the way it displays closures (just
+a memory address) is awful. I wrote a symbolizer for caml-inspect
+generated
+dot files.
+
+Code and examples are in this gist:
+https://gist.github.com/whitequark/7924109
+
+I hope someone else will find this useful.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OASIS v0.4.0</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-12/msg00094.html</cwn_url>
+      <cwn_who>Sylvain Le Gall announced</cwn_who>
+      <cwn_what>
+I am pleased to announce that OASIS v0.4.0 has been released.
+
+This new release contains a lot of fixes contributed by users who
+kindly send me back their patches and pull-request.
+
+* Migrate the source repository to https://github.com/ocaml/oasis
+* Fix a lot of code style issues (e.g. blank at the end of the line)
+and create a test to check that the style of generated files is
+correct. Some related tools has been fixed asi well, for the best
+formatting use ocamlmod &gt;= 0.0.7 and ocaml-data-notation &gt;= 0.0.10.
+* Port all tests to OUnit 2.0, which allows to run all tests faster.
+* Run some tests with a fake bytecode only setup, so that we can
+always check that bytecode and nativecode tests are passing.  (Closes:
+#1306)
+* Fix a missing dependency on ocamlbuild package and inclusion of
+ocambuildlib.cma in builtin-plugins.cma.
+
+* Introduce a framework to create features.
+ * Add fields AlphaFeatures and BetaFeatures to list the experimental
+features you want to use in your _oasis
+ * Using AlphaFeatures and BetaFeatures is only allowed if OASISFormat
+is set to the latest OASIS version. There is no backward compatiblity
+for experimental features. For example, if you are using OASIS 0.4.X,
+OASISFormat must be set to 0.4.
+* AlphaFeatures represents features not fully completed that maybe
+very unstable, quickly evolving and even removed in future release.
+* BetaFeatures represents features almost finished that needs to
+mature a bit before being published.
+
+Read more of this announcement here:
+http://le-gall.net/sylvain+violaine/blog/index.php?post/2013/12/11/Release-of-OASIS-0.4.0
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>cryptodbm.0.8: key-value database with encryption</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-12/msg00096.html</cwn_url>
+      <cwn_who>Didier Le Botlan announced</cwn_who>
+      <cwn_what>
+Cryptodbm.0.8 is an ocaml library built on top of both the great
+cryptokit package and the dbm library.
+
+It offers a serverless key-value database with encryption.
+
+Install with: opam install cryptodbm
+
+API &amp; presentation:
+http://cryptodbm.forge.ocamlcore.org/Cryptodbm.html
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Lablqt</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-12/msg00102.html</cwn_url>
+      <cwn_who>Kakadu announced</cwn_who>
+      <cwn_what>
+From today lablqt is available in opam. With it you can create user
+interfaces in declarative manner in QML and connect it with OCaml
+using `mocml` code generator and `lablqml` ocamlfind package. Qt 5.2
+is required for compilation
+
+More information you can get at [1]. There is mine opam repo where
+demo application is included. It is called QOCamlBrowser --
+application similar to default ocamlbrowser.
+
+All comments will be appreciated.
+
+Kind regards,
+Dmitrii Kosarev aka Kakadu
+
+[1] http://kakadu.github.io/lablqt
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>SDL2 bindings, testers and feedback welcome</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-12/msg00105.html</cwn_url>
+      <cwn_who>Daniel Bünzli announced</cwn_who>
+      <cwn_what>
+I have written thin bindings to SDL 2 using ocaml-ctypes. The binding
+is finished but should be considered unstable: it was not thoroughly
+tested and may still change as it has not been *used* yet. The purpose
+of this unstable release is to:
+
+1) Iron out the install procedure and test on a variety of platforms.
+2) Get feedback about the design of the binding (see below). 
+
+More precisely, apart from the eventual bugs, I'm interested in
+getting feedback in the following areas:
+
+* I used an 'a result = [ `Error | `Ok of 'a ] rather than an exception 
+for functions that return error codes/null is error. I tend to lean
+on exceptionless designs but I'm still unsure whether it is a good
+idea that case. One of the problems is that SDL doesn't make a clear
+distinction (at the signature level *and* in the documentation)
+between programming errors (invalid_arg), exceptional errors
+(e.g. out of memory) and non-exceptional errors (e.g. could not
+access/setup a resource).
+
+* The signature/approach of certain binding functions may be disputable 
+or may need change to achieve reasonable performance. 
+
+* Testing the binding to the joystick/game controller/force feedback api, 
+I have none of these things in my hands.
+
+I welcome discussions/ideas about these points and the general design
+of the binding on github's issue tracker (&lt;http://github.com/dbuenzli/tsdl&gt;)
+
+Note that the philosophy of the binding is to be "thin", that is a
+mostly type-safe(r), minimal, hopefully efficient, one-to-one
+binding. This means that I'm not interested in prettyfing the C API
+like OCamlSDL does. I expect tsdl code to look like C SDL code
+(including the inconsistent naming schemes) and the binding to be used
+by programmers to build higher-level, more OCaml friendly, abstractions.
+
+To install (only tested on osx and linux so far) you'll need at least SDL 2.0.1
+installed on your system. Then:
+
+opam repo add erratique-u http://erratique.ch/software/opam/unreleased
+opam update &amp;&amp; opam install tsdl 
+
+On osx 10.8.5 with OCaml 4.01.0 there's a heisenbug I couldn't track so far
+(see [1] for more info). Use 4.00.1 instead for now but note that the binding 
+takes a long time to compile (~8 min on my machine) with that. 
+
+If you want to hack the sources:
+
+  git clone http://github.com/dbuenzli/tsdl 
+  cd tsdl &amp;&amp; ./build test.native &amp;&amp; ./test.native
+
+The documentation of the binding is here:
+
+  http://erratique.ch/software/tsdl/doc/Tsdl
+
+Best,
+
+Daniel
+
+[1] http://lists.ocaml.org/pipermail/ctypes/2013-December/000027.html
+
+P.S. If anyone wonders, the existing OCamlSDL is a very good binding
+to SDL 1.X, but SDL 2.0 is an entirely new, incompatible, API. Besides
+SDL 2.0 changed to a zlib license, tsdl is under BSD3, OCamlSDL is
+LGPL.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocaml.org/&gt;.
+
+Writing a Planner to solve a tricky programming optimization problem:
+  &lt;http://rwmj.wordpress.com/2013/12/14/writing-a-planner-to-solve-a-tricky-programming-optimization-problem/&gt;
+
+Farewell, Wojciech Meyer:
+  &lt;http://gallium.inria.fr/blog/wojciech-meyer&gt;
+
+OASIS v0.4.0 release:
+  &lt;https://forge.ocamlcore.org/forum/forum.php?forum_id=891&gt;
+
+Release of OASIS 0.4.0:
+  &lt;http://le-gall.net/sylvain+violaine/blog/index.php?post/2013/12/11/Release-of-OASIS-0.4.0&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

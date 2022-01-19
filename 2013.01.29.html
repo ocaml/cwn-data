@@ -1,0 +1,411 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2013.01.22.html">Previous week</a> <a href="index.html">Up</a> <a href="2013.02.05.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of January 22 to 29, 2013.</p><ol><li><a href="#1">beta-release of OPAM</a></li><li><a href="#2">Portable timeout function</a></li><li><a href="#3">omonad-0.0.1</a></li><li><a href="#4">OCaml 4.00.1 for Android: OPAM packages</a></li><li><a href="#5">Working Group: the future of syntax extensions in OCaml, after camlp4</a></li><li><a href="#6">If I wanted to write SWIG in OCaml, what library would I need?</a></li><li><a href="#7">Datalog-0.1</a></li><li><a href="#8">CWN archive links</a></li><li><a href="#9">Other Caml News</a></li></ol><a name="1" /><hr /><h3>beta-release of OPAM</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2013-01/msg00155.html">https://sympa.inria.fr/sympa/arc/caml-list/2013-01/msg00155.html</a></p><i>Continuing the thread from last week, Thomas Gazagnaire announced:</i><br /><pre>
+I've created a FAQ with these two questions on OPAM wiki: 
+<a href="https://github.com/OCamlPro/opam/wiki/FAQ">https://github.com/OCamlPro/opam/wiki/FAQ</a>
+
+Feel free to edit and contribute!
+
+(once we get sufficiently nice contents, this can automatically go somewhere 
+on opam.ocamlpro.com as the other wiki pages).
+      </pre><a name="2" /><hr /><h3>Portable timeout function</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2013-01/msg00164.html">https://sympa.inria.fr/sympa/arc/caml-list/2013-01/msg00164.html</a></p><i>Samuel Mimram asked and Daniel Bünzli replied:</i><br /><pre>
+&gt; I would like to implement a "timeout" function of type:
+&gt; 
+&gt; float -&gt; ('a -&gt; 'b) -&gt; 'a -&gt; 'b option
+&gt; 
+&gt; which takes a maximum number n of seconds to run, a function f, an
+&gt; argument x, and returns Some (f x) if the computation ends before n
+&gt; seconds and None otherwise. Of course, there is a simple
+&gt; implementation using Unix.setitimer, but apparently it does not work
+&gt; under windows because of signals implementation (and I don't have
+&gt; access to a windows machine...). Since this is a pretty standard idom
+&gt; I expected to find it implemented in some library, but could not find
+&gt; one. Also, I'd rather not heavily change the code (i.e. monadic
+&gt; threads are not really an option here, and a small function would be
+&gt; appreciated).
+&gt; 
+&gt; Extra points if your solution also works with js_of_ocaml! :)
+
+This looks very similar to a question I asked a few years ago. You can read 
+these threads [1,2]. 
+
+I'm afraid but I think there's little hope that you'll find what you are 
+looking for (but I'd love the proven wrong). 
+
+Best,
+
+Daniel
+
+[1] <a href="https://groups.google.com/d/topic/fa.caml/lga2GNq3n7U/discussion">https://groups.google.com/d/topic/fa.caml/lga2GNq3n7U/discussion</a>
+[2] <a href="https://groups.google.com/forum/?fromgroups=#!topic/fa.caml/rwndTEzAWvE">https://groups.google.com/forum/?fromgroups=#!topic/fa.caml/rwndTEzAWvE</a>
+      </pre><i>Gerd Stolpmann replied:</i><br /><pre>
+I think this is not possible without changes in the OCaml runtime -
+what we would need here is an emulation of signals under Windows, so
+that a timer thread could be started that finally sends the signal to
+the compute thread. However, such an emulation would be limited to
+pure computations, and would not be able to interrupt system calls (no
+support from Windows).
+
+As long as you know that your compute functions allocate memory, it
+will do garbage collections, and you could set a GC hook:
+
+exception Timeout
+
+let timer tmo f x =
+  let t0 = Unix.gettimeofday() in
+  let alarm = ref None in
+  Gc.major();
+  try
+    let al =
+      Gc.create_alarm
+        (fun () -&gt;
+           let t1 = Unix.gettimeofday() in
+           if t1 -. t0 &gt; tmo then raise Timeout
+        ) in
+    alarm := Some al;
+    let r = f x in
+    Gc.delete_alarm al;
+    alarm := None;
+    Some r
+  with Timeout -&gt;
+    ( match !alarm with
+        | Some al -&gt; Gc.delete_alarm al
+        | None -&gt; ()
+    );
+    None
+
+But this does not work if the function does not allocate enough memory
+(and also note that there are several race conditions in "timer").
+
+&gt; Extra points if your solution also works with js_of_ocaml! :)
+
+I don't think that there is any support in js_of_ocaml for completely
+asynchronous events (i.e. something like the regular check for signals
+the standard runtime does).
+      </pre><i>Samuel Mimram then added:</i><br /><pre>
+Thanks for all your answers! I really appreciated the Gc.create_alarm
+hack, which does the job alright for now, but is quite imprecise. I
+have submitted a feature request for addition to the standard library
+[1], we'll see...
+
+Cheers,
+
+Samuel.
+
+[1] <a href="http://caml.inria.fr/mantis/view.php?id=5908">http://caml.inria.fr/mantis/view.php?id=5908</a>
+      </pre><a name="3" /><hr /><h3>omonad-0.0.1</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2013-01/msg00172.html">https://sympa.inria.fr/sympa/arc/caml-list/2013-01/msg00172.html</a></p><i>Wojciech Meyer announced:</i><br /><pre>
+I'm pleased to pre-release a small syntax extension for monadic programming
+called omonad.
+
+The major difference between omonad and pa_monad[_custom] is that omonad
+does not use Camlp4 and is based on -ppx flag implemented on the current
+trunk of the toolchain.
+
+The monadic code can look like this:
+
+  let compute c =
+    Exception.(perform begin
+      a &lt;-- return (1+2);
+      b &lt;-- return (a+4);
+      return (b + a * c)
+    end)
+  in
+  let computation =
+    Exception.(perform begin
+      a &lt;-- compute 10;
+      b &lt;-- return (a - 37);
+      c &lt;-- (perform begin
+        d &lt;-- return 1;
+        return (d - 1)
+      end);
+      let divisor = b + c in if divisor = 0
+        then fail "Division by zero!"
+        else return (80 / divisor);
+      return (a+b)
+    end)
+  in
+  try print_int (Exception.run computation)
+  with Exception.Error str -&gt; Printf.printf "Computation terminated with: '%s'\n" str
+
+There is not much syntactical difference between pa_monad[_custom] and
+omonad, so it brings to a light the same monadic programming
+convenience and experience.
+
+Tarball:          <a href="http://danmey.org/omonad-0.1.0.tar.gz">http://danmey.org/omonad-0.1.0.tar.gz</a>
+Git repository:   <a href="https://github.com/danmey/omonad">https://github.com/danmey/omonad</a>
+Issue &amp; features: <a href="https://github.com/danmey/omonad/issues">https://github.com/danmey/omonad/issues</a>
+
+OPAM packaging will follow up shortly.
+      </pre><a name="4" /><hr /><h3>OCaml 4.00.1 for Android: OPAM packages</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2013-01/msg00173.html">https://sympa.inria.fr/sympa/arc/caml-list/2013-01/msg00173.html</a></p><i>Jérôme Vouillon announced:</i><br /><pre>
+I have packaged an OCaml 4.00.1 cross-compiler for Android as well as
+Android versions of the Lwt library and of the Unison file
+synchronizer. The OPAM repository is at the following address:
+
+<a href="https://github.com/vouillon/opam-android-repository/">https://github.com/vouillon/opam-android-repository/</a>
+
+You can use the command below to add this repository to the list of
+repositories used by OPAM:
+
+opam repo -add android <a href="https://github.com/vouillon/opam-android-repository.git">https://github.com/vouillon/opam-android-repository.git</a>
+
+The following command will list the available packages:
+
+opam list | grep android
+
+Contributions (additional packages, ...) are welcome.
+
+Many thanks to Keigo Imai for its OCaml 3.12 cross-compiler.
+      </pre><a name="5" /><hr /><h3>Working Group: the future of syntax extensions in OCaml, after camlp4</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2013-01/msg00182.html">https://sympa.inria.fr/sympa/arc/caml-list/2013-01/msg00182.html</a></p><i>Alain Frisch announced:</i><br /><pre>
+There is a growing opinion that camlp4 is overly complex considering the 
+benefits it brings to OCaml developers.  I would personally go as far as 
+to say that the future of OCaml and the OCaml community would be 
+brighter if camlp4 could be removed from our "basic ecosystem".  In 
+particular, most of the current uses of camlp4 to create syntax 
+extensions could probably be replaced by the new "-ppx" technology (see 
+below) and small extensions to the compilers.
+
+A lot needs to happens for this camlp4-free OCaml ecosystem to become a 
+reality and we have to come up with a solid transition plan.  A new 
+community-driven working group, chaired by Leo White and me, is being 
+set up today to elaborate this plan.  If this topic is of interest to 
+you, please join our mailing list:
+
+   <a href="http://lists.ocaml.org/listinfo/wg-camlp4">http://lists.ocaml.org/listinfo/wg-camlp4</a>
+
+Some of the most important tasks for our new working group will be:
+
+  - Gather information from the community about the use of camlp4.
+    (Please consider sharing information about your use of camlp4
+    and camlp4-based extensions, even if you don't plan to participate
+    to the working group discussions!)
+
+  - Finalize support for -ppx and make technical proposals for
+    extensions of the OCaml compilers in order to enable a transition of
+    camlp4-based extensions to -ppx (in particular, we need to come up
+    with a concrete syntax for generic extension points in the grammar).
+
+  - Write some "canonical" examples of extensions based on -ppx and
+    provide information and support to developers of extensions for
+    switching from camlp4 to -ppx.
+
+  - Discuss integration of -ppx with existing tools (findlib, build
+    systems, etc).
+
+  - Find a solution in the community for the future of camlp4
+    (in particular, discuss how / how long / by who it will be
+    maintained).
+
+  - Discuss longer-terms plans beyond -ppx, including extra language
+    support, to facilitate light syntactic meta-programming for OCaml
+    (Leo has some clever ideas!).
+
+The discussion on the mailing list will start in a few days, to give 
+some time for interested people to join.  In the meanwhile, Leo has 
+written a blog post to get the discussion started:
+
+  <a href="http://www.lpw25.net/2013/01/23/camlp4-alternative-part-1.html">http://www.lpw25.net/2013/01/23/camlp4-alternative-part-1.html</a>
+
+You can also read about -ppx:
+
+  <a href="http://www.lexifi.com/blog/syntax-extensions-without-camlp4">http://www.lexifi.com/blog/syntax-extensions-without-camlp4</a>
+  <a href="http://www.lexifi.com/blog/syntax-extensions-without-camlp4-lets-do-it">http://www.lexifi.com/blog/syntax-extensions-without-camlp4-lets-do-it</a>
+
+Some projects have already started to replace camlp4 by -ppx:
+
+   bisect (supports both camlp4 and ppx since version 1.3)
+   sedlex (unicode-friendly lexer generator, successor of ulex)
+   omonad (syntax for monadic code, similar to pa_monad)
+
+Many thanks to Anil Madhavapeddy and to OCamlLabs for setting up the 
+working group and its mailing list!
+      </pre><i>rixed asked and Alain Frisch replied:</i><br /><pre>
+&gt; Are we interrested here striclty in _pre_processing or is runtime code
+&gt; generation also on topic?
+
+Runtime code generation, and meta-programming a la MetaOCaml are indeed 
+quite a different story, and they are not specifically in the scope of 
+the working group.  I can imagine that some outcomes of this 
+de-camlp4-ifcation might benefit to such projects, though.  For 
+instance, a more liberal concrete syntax (with attributes/quotations) 
+might allow, say,  MetaOCaml, to use directly the official parser, thus 
+avoiding problems related to the fact that it currently needs a custom 
+parser. For instance, I guess that camlp4 extensions cannot be directly 
+used by MetaOCaml users (except if someone decided to port Camlp4 to 
+MetaOCaml).  Discussions related to these syntactic aspects are very 
+much welcome in the new mailing list.
+      </pre><a name="6" /><hr /><h3>If I wanted to write SWIG in OCaml, what library would I need?</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2013-01/msg00197.html">https://sympa.inria.fr/sympa/arc/caml-list/2013-01/msg00197.html</a></p><i>Martin DeMello asked and Yoann Padioleau replied:</i><br /><pre>
+&gt; No, I'm not planning on rewriting all of SWIG, but that was the
+&gt; easiest way to explain what I wanted :) I'm looking for a library that
+&gt; can work with C header files, including preprocessor directives, and
+&gt; spit out a data structure that I can use to generate language
+&gt; bindings. C++ support not necessary.
+
+I know this project. <a href="https://forge.ocamlcore.org/projects/cowboy/">https://forge.ocamlcore.org/projects/cowboy/</a>
+      </pre><i>Wojciech Meyer suggested and Martin DeMello replied:</i><br /><pre>
+&gt; You could just try caml-idl:
+&gt;
+&gt; <a href="http://caml.inria.fr/pub/old_caml_site/camlidl/">http://caml.inria.fr/pub/old_caml_site/camlidl/</a>
+
+I don't want to write OCaml bindings, I want to see if OCaml provides
+a nicer way to write a binding generator than libclang does (I'm
+betting the answer is yes). I took a look at cowboy, but it's pretty
+undocumented, and depends on yacfe which is likewise undocumented :(
+      </pre><i>David Mentré also suggested:</i><br /><pre>
+Frama-C allows to work on C files but won't support preprocessor
+(regular cpp is used).
+  <a href="http://frama-c.com/">http://frama-c.com/</a>
+
+It is documented (see "Plug-In Development Guide"):
+  <a href="http://frama-c.com/support.html">http://frama-c.com/support.html</a>
+      </pre><a name="7" /><hr /><h3>Datalog-0.1</h3><p>Archive: <a href="https://sympa.inria.fr/sympa/arc/caml-list/2013-01/msg00202.html">https://sympa.inria.fr/sympa/arc/caml-list/2013-01/msg00202.html</a></p><i>Simon Cruanes announced:</i><br /><pre>
+I'm pleased to announce the first (alpha) release of Datalog, a small
+fixpoint engine for the Datalog fragment of logic
+(<a href="http://en.wikipedia.org/wiki/Datalog">http://en.wikipedia.org/wiki/Datalog</a>) written in OCaml. The library is
+designed to be used to compute fixpoints of rules, incrementally. It is
+available under the BSD license at <a href="https://github.com/c-cube/datalog">https://github.com/c-cube/datalog</a>.
+
+Both a command-line fixpoint computation tool and a functorial library
+are provided. Input files have a prolog-like syntax, but without
+function symbols. The command line tool works like this (the example
+computes the transitive closure of a graph, and then cliques within this
+transitive closure):
+
+$ cat tests/clique10.pl
+reachable(X,Y) :- edge(X,Y).
+reachable(X,Y) :- edge(X,Z), reachable(Z,Y).
+same_clique(X,Y) :- reachable(X,Y), reachable(Y,X).
+edge(0, 1).  % edge from 0 to 1
+edge(1, 2).
+edge(2, 3).
+edge(3, 4).
+edge(4, 5).
+edge(5, 0).
+edge(5, 6).
+edge(6, 7).
+edge(7, 8).
+edge(8, 9).
+edge(9, 10).
+edge(10, 7).
+
+$ ./datalog_cli.native tests/clique10.pl -pattern 'same_clique(1,X)'
+% start datalog
+% parse file tests/clique10.pl
+% process 15 rules
+% computing fixpoint...
+% done.
+% facts matching pattern same_clique(1, X1):
+same_clique(1, 0).
+same_clique(1, 1).
+same_clique(1, 3).
+same_clique(1, 2).
+same_clique(1, 5).
+same_clique(1, 4).
+% max_heap_size: 126976; minor_collections: 0; major collections: 0
+
+The library provides a functor that allows one to create rules (Datalog
+clauses), and add them to a structure that computes their fixpoint
+incrementally (i.e., the fixpoint is updated after each rule is
+inserted). Callbacks can be associated to symbols, to be called whenever
+a fact is derived.
+
+Feedback, comments, or bug reports are very welcome!
+      </pre><i>Yoann Padioleau asked and Simon Cruanes replied:</i><br /><pre>
+&gt; How does it compare in terms of performance with other datalog engines?
+
+So, I benchmarked it against the Lua datalog engine
+(<a href="http://www.ccs.neu.edu/home/ramsdell/tools/datalog/">http://www.ccs.neu.edu/home/ramsdell/tools/datalog/</a>) on two kinds of
+problems (that can already be found in the tests/ directory, with
+scripts to generate problems of any size):
+
+- graph: a transitive reflexive relation on a graph, 'reachable()', an a
+relation 'edge()' that describes a graph of size n. The graph is a big
+cycle (ie E_i -&gt; E_{i+1}, and E_n -&gt; E_1). The transitive closure is
+therefore a clique of size n. The query is 'reachable(X,Y)?', which
+returns n^2 facts.
+
+- induction (bad name): two mutually recursive predicates, p(i) :- q(i),
+p(i-1) and q(i) :- p(i-1), q(i-1) for i from 1 to n, and initial facts
+p(0) and q(0). The query is 'P(X)?', and returns n facts.
+
+The respective command lines used to benchmark are as follow
+('datalog_cli' is in OCaml, 'datalog' is the lua engine):
+
+$ time datalog_cli tests/graph500.pl -pattern 'reachable(X,Y)' &gt; /dev/null
+$ time echo 'reachable(X,Y)?' | datalog tests/graph500.pl -i &gt; /dev/null
+
+$ time datalog_cli tests/induction100.pl -pattern 'p(X)' &gt; /dev/null
+$ time echo 'p(X)?' | datalog tests/induction100.pl -i &gt; /dev/null
+
+I could not find an easy way to measure the computation time, without
+printing the solution (which is also heavy); however, in both cases the
+full solution is printed.
+
+So, here are the respective times (total time) on a Intel i5 3.2GHz,
+with 4GB of RAM:
+
+problem          datalog_cli  datalog
+--------------------------------------------
+graph200.pl      0.289s       0,798s
+graph500.pl      3.005s       5.092
+graph1000.pl     19.151s      21.138s
+graph1500.pl     52.509s      51.589s
+graph2000.pl     151.04s      OOM (swapped, became too slow)
+induction200.pl  0.024s       0.138s
+induction500.pl  0.021s       0.750s
+induction1000.pl 0.066s       2.997s
+induction1500.pl 0.075s       6.911s
+induction2000.pl 0.134s       12.856s
+
+So, the OCaml library looks competitive with the Lua SLD-resolution
+engine. I believe it performs better on the 'induction' examples because
+of the memorization of intermediate results. On the other hand, it
+always compute the whole fixpoint, whereas SLD-resolution can focus on
+what is needed for the query.
+      </pre><a name="8" /><hr /><h3>CWN archive links</h3><i>The editor asks you:</i><br /><pre>
+Dear CWN readers,
+
+I have recently discovered that messages tend to lose their formatting
+on the official Caml mailing list archive. I am thus tempted to now
+link to the gmane archive of the list. 
+
+Pro: the messages are better formatted (compare for instance
+<a href="http://thread.gmane.org/gmane.comp.lang.caml.general/56621">http://thread.gmane.org/gmane.comp.lang.caml.general/56621</a> with
+<a href="https://sympa.inria.fr/sympa/arc/caml-list/2013-01/msg00172.html">https://sympa.inria.fr/sympa/arc/caml-list/2013-01/msg00172.html</a>).
+
+Con: it's not the official archive.
+
+If you feel strongly for or against it, please drop me a line at
+alan.schmitt@polytechnique.org.
+      </pre><a name="9" /><hr /><h3>Other Caml News</h3><i>From the ocamlcore planet blog:</i><br /><pre>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <a href="http://planet.ocaml.org/">http://planet.ocaml.org/</a>.
+
+ocurl:
+  <a href="https://forge.ocamlcore.org/projects/ocurl/">https://forge.ocamlcore.org/projects/ocurl/</a>
+
+The failures of Debian (and its derivatives):
+  <a href="http://bentobako.org/david/blog/index.php?post/2013/01/28/The-failures-of-Debian-%28and-its-derivatives%29">http://bentobako.org/david/blog/index.php?post/2013/01/28/The-failures-of-Debian-%28and-its-derivatives%29</a>
+
+Batteries 2.0 released:
+  <a href="https://forge.ocamlcore.org/forum/forum.php?forum_id=868">https://forge.ocamlcore.org/forum/forum.php?forum_id=868</a>
+
+Odoc_xref 4.00:
+  <a href="http://caml.inria.fr/cgi-bin/hump.cgi?contrib=842">http://caml.inria.fr/cgi-bin/hump.cgi?contrib=842</a>
+
+odoc_check 4.00:
+  <a href="http://caml.inria.fr/cgi-bin/hump.cgi?contrib=418">http://caml.inria.fr/cgi-bin/hump.cgi?contrib=418</a>
+
+An alternative to camlp4 - Part 1:
+  <a href="http://lpw25.net/2013/01/23/camlp4-alternative-part-1.html">http://lpw25.net/2013/01/23/camlp4-alternative-part-1.html</a>
+      </pre><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

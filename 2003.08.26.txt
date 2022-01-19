@@ -1,0 +1,726 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of 19 to 26 August, 2003.
+
+01) Generating module lists automatically
+02) Class polymorphism
+03) ant 0.5
+04) Parameterizing multiple modules using functors
+05) RSS feed for the CWN
+06) GD4O - Alpha 4 / Sourceforge project
+07) GlSurf 2.0
+08) DOMINOCAML release
+09) IBGS 0.2 Release
+10) taggage
+11) automated binding generation (announce: Forklift)
+12) OCaml test release 3.07 beta 2
+
+==============================================================================
+01) Generating module lists automatically
+------------------------------------------------------------------------------
+** Yaron Minsky asked and Sylvain Le Gall answered:
+
+> Does anyone have a reasonable solution to the problem of automatically
+> generating dependencies and topologically sorted module lists for
+> executables?  omake seems to do a good job for managing dependencies
+> between automatically, but I don't see any good way of generating a
+> topologically sorted list of names automatically within omake.  Camlmake
+> (http://www.davidb.org/camlmake/) seems to be the right kind of thing, but
+> does not appear to be maintained anymore.  I'm wondering if there are any
+> other good options out there.
+
+You also may take a look at the cameleon CVS. Just look at the different
+Makefile, master.Makefile.in + the dir utils/ ( which contains
+ocamldep-extract, which is a very simple program to sort
+module list to compile your code ). The rest of the system ( Makefile +
+master.Makefile.in ) permits to extract all dependency ( included zoggy
+file, mly, mll, + file with special syntax... ).
+
+http://savannah.nongnu.org/cgi-bin/viewcvs/cameleon/cameleon/?only_with_tag=findlib
+
+For now, it is only a simple system of Makefile. If you have any comment
+send it to me... I will read them with a lot of care.
+
+==============================================================================
+02) Class polymorphism
+------------------------------------------------------------------------------
+** A very long thread about the complexity of class polymorphism has started 
+** here: http://caml.inria.fr/archives/200308/msg00226.html
+** Here are a couple messages from this long thread.
+
+** Benjamin Geer asked:
+
+I'm looking for a convenient way to use a derived class anywhere its
+base class can be used.  There seem to be two ways to do this, but
+neither of them is convenient.
+
+For example, suppose I have the following examples (borrowed from the
+O'Reilly Caml book):
+
+class virtual printable () =
+   object (self)
+     method virtual to_string : unit -> string
+     method print () = print_string (self#to_string())
+   end ;;
+
+class point (x_init, y_init) =
+  object
+    inherit printable ()
+    val mutable x = x_init
+    val mutable y = y_init
+    method get_x = x
+    method get_y = y
+    method to_string () =
+      "( " ^ (string_of_int x) ^ ", " ^ (string_of_int y) ^")"
+  end ;;
+
+I want to make a class 'printer', which prints the string representation
+of any 'printable'.  It seems that I have two options:
+
+1. Write 'printer' like this:
+
+class printer =
+  object
+    method print (obj : printable) = obj#print()
+  end ;;
+
+And use it like this:
+
+let p = new point (1, 2) ;;
+let pr = new printer ;;
+pr#print (p :> printable) ;;
+
+It is cumbersome to have to write the coercion, and it seems strange to
+have to do so in an object-oriented language; why can't Caml recognise 
+that a 'point' is a 'printable', and do the coercion automatically?
+
+Moreover, it introduces a potential maintenance problem.  Suppose that,
+after writing the application, I decide to to move the printing logic
+out of 'printable', and into the 'printer' class.  I refactor the
+classes like this:
+
+class virtual stringable () =
+   object
+     method virtual to_string : unit -> string
+   end ;;
+
+class virtual printable () =
+   object (self)
+     inherit stringable ()
+     method print () = print_string (self#to_string())
+   end ;;
+
+class printer =
+  object
+    method print (obj : stringable) = print_string (obj#to_string())
+  end ;;
+
+But now I have to change all the coercions from (p :> printable) to (p
+:> stringable).  If it had been legal to write:
+
+let p = new point (1, 2) ;;
+let pr = new printer ;;
+pr#print p ;;
+
+there would be nothing more to change; all the calls to 'pr#print' would
+still work.
+
+2. The second option is to write 'printer' like this:
+
+class printer =
+  object
+    method print : 'a. (#printable as 'a) -> unit =
+      fun obj -> obj#print()
+  end ;;
+
+This syntax is horribly awkward.  It would be very unpleasant to have to
+write (or read) a lot of methods in this style.  Moreover, it seems
+strange to have to do this, because I can write a function like this:
+
+let print (obj : #printable) = obj#print() ;;
+
+Or even:
+
+let print obj = obj#print() ;;
+
+So why can't I write:
+
+class printer =
+  object
+    method (obj : #printable) = obj#print()
+  end ;;
+
+Or even:
+
+class printer =
+  object
+    method obj = obj#print()
+  end ;;
+
+Why isn't a method just like a function in this respect?
+
+Of course, I could write 'printer' as a function instead of a class.
+But this would lead to an approach in which objects are manipulated only
+by functions, and never by other objects.  If that were really the only
+convenient way to use classes in Caml, it would be difficult to say that
+Caml supported object-oriented programming.
+
+So my questions are:
+
+Does it really need to be this complicated?  Could the language be
+improved so that either (1) explicit coercions to a base class were not
+needed or (b) methods could use types the way functions do?
+
+Is there a more convenient approach that I've missed?  What do people
+generally do in order to get round this problem, when using classes in Caml?
+
+** Brian Hurt said:
+
+> class printer =
+>    object
+>      method print (obj : printable) = obj#print()
+>    end ;;
+
+Instead of declaring obj to be printable, why not just declare that it has
+a function print?  Like:
+
+class printer =
+    object
+        method print (obj: <print: unit->unit>) = obj#print ();
+    end;;
+
+This removes the need for a coercion, as it gets around the need to
+upcast.
+
+** Benjamin Geer asked and Jacques Garrigue answered:
+
+> Why is upcasting necessary, given that inheritance relationships are
+> known at compile time?  Could Caml be modified to correct this problem?
+>   Is any work currently being done on this?
+
+Upcasting is needed because type inference in ocaml does not include
+subtyping. There is work on type inference with subtyping, but it
+would create much more complicated types, even for usual functions
+which do not involve objects. Personally I don't think there is a
+strong hope of combining full ML type inference with subtyping in a
+practical programming language.
+
+Now, ocaml tries to avoid the problem by providing something similar
+to subtyping, but through ML polymorphism. This is the #printable
+types. This is not exactly subtyping (in some cases an instance of
+#printable is not a subtype of printable) but it is actually sometimes
+closer to the notion of "usable in place of".
+
+When using functions, this approach using "open rows" works well.
+However there is a problem with methods.
+
+> Why can't methods be polymorphic in the way that functions can be?
+
+Methods are part of an object. In normal ML this means that the
+polymorphism can only appear at the level of the object, not at the
+level of the method (ML only allows outermost polymorphism).
+As an additional twist, since in ocaml a class definition also defines
+a type, all polymorphic variables must be explicitely declared as
+parameters to the class, otherwise you get the dreaded
+  Some type variables are unbound in this type
+
+Anyway, what you want in many cases is not the object, but the method
+to be polymorphic: you want to be able to apply the same method of the
+same object to values of different types.
+
+This is now possible with the introduction of polymorphic methods, but
+only with a rather heavy syntax.
+There are several reasons to that:
+* since the "normal" behaviour would be to restrict the polymorphism
+  to the object level, choosing to apply it automatically at the
+  method level would be an arbitrary decision.
+* contrary to functions, whose types are instantiated before
+  unification, object method types have to be unified with their
+  polymorphic variables not instantiated (because an object with a
+  polymorphic method can be passed around, while only an instance of a
+  polymorphic function would be passed around). This means that the
+  "most general type" we would infer for a method would give rise to an
+  object type incompatible with less general types. Not a good
+  property for inference.
+* last, by explicitely declaring a polymorphic type we make it
+  possible to call it polymorphically from other methods in the same
+  object. This seems to be a nice property to have between methods.
+  You cannot do that with functions defined in the same "let rec"
+  statement.
+
+> At the very least, would it be possible to add some syntactic sugar,
+> so we could write:
+>
+> method process (obj : #thing) -> (* ... *)
+>
+> instead of:
+>
+> method process : 'a . (#thing as 'a ) -> unit =
+>    fun obj -> (* ... *)
+
+To speak truly, the current syntax is based on the assumption that you
+won't define often polymorphic methods, and that defining them is a
+work for library designers, not for the average end user.
+
+This also means that you have a number of workarounds hiding this
+heavy syntax to the end user, even when he has to define such a
+method.
+
+For instance you could be provided a virtual class printer:
+
+class virtual printer : object
+  method virtual print : #printable -> unit
+  method ...
+end
+
+Then you would use it as
+
+class my_printer () = object
+  inherit printer
+  method print obj = ...
+end
+
+There is no need to write type information on the inheriting side.
+You will get an error message if your method is not polymorphic
+enough.
+
+Another remark is that, when the only goal of the polymorphism is to
+allow subtyping of the argument, the workaround of using an auxiliary
+function as suggested by Brian Rogoff makes perfectly sense, and
+avoids getting involved in the details of the object system.
+
+class printer () = object
+  method print (obj : printable) = ...
+end
+
+let print ~(printer : #printer) obj =
+  printer#print (obj : #printable :> printable)
+val print : printer:#printer -> #printable -> unit
+
+Now the print function has a type polymorphic enough, and using it
+makes clear you are using the print method of a printer, not of an
+arbitrary object (which might have a completely unrelated print
+method). This is more precise, and does the work in the traditional ML
+way.
+
+==============================================================================
+03) ant 0.5
+------------------------------------------------------------------------------
+** Achim Blumensath announced:
+
+I'm pleased to announce the release of ant version 0.5. The archive can
+be found at
+
+  http://www-mgi.informatik.rwth-aachen.de/~blume/Download.html
+
+ant is a typesetting system inspired by TeX. It does not aim at complete
+compatibility with TeX but focuses instead on a flexible, clean, and
+modular design.
+
+ant implements most parts of TeX. The new release consists mostly of
+various small improvements. New features include:
+
+  o colours and images
+  o improved font handling including font encodings
+  o hyphenation for several languages
+  o PDF output (only bitmap fonts though)
+
+The main missing item is support for insertions (i.e., floats and
+footnotes).
+
+Achim
+
+PS: Yes, I do know about Apache Ant.
+
+==============================================================================
+04) Parameterizing multiple modules using functors
+------------------------------------------------------------------------------
+** Yaron Minsky asked and Xavier Leroy answered:
+
+> Here's the issue.  Consider a project consisting of multiple modules with
+> lots of interdependencies.   Imagine then that I want to add some
+> flexibility to the system by abstracting out some of the structure of the
+> system using a functor.  Thus, I start out with modules A, B, C, and I
+> want to parameterize all these modules, let's say by the same module X.
+> So what I want is a version of the program where I can use A.F(X) intead
+> of A, B.F(X) instead of B, and so on.  The problem is that I want to allow
+> references between these modules.  Thus, B.F(X) needs access to A.F(X),
+> and C.F(X) needs access to both A.F(X) and B.F(X).  The question is, is
+> there a reasonable way to achieve this?
+
+There are two approaches, but I'm not sure you'll find them "reasonable".
+One is as you described:
+
+> I can think of an unreasonable way.  I can write the relevant functors so
+> that they can be embedded in a unified module U as follows:
+>
+> module U =
+> struct
+>    module A = A.F(X)
+>    module B = B.F(A,X)
+>    module C = C.F(A,B,X)
+> end
+>
+> In other words, B and C and require in their functors explicit arguments
+> corresponding to the other modulse they need.  This works, but it's
+> awfully ugly, not least because you have to write down some awful module
+> signatures in B and C to make this work.
+
+The other is to write:
+
+module F (X: SIGX) =
+  struct
+    module A = ...
+    module B = ...
+    module C = ...
+  end
+
+This way, B and C automatically reference A as instantiated for X.
+You do lose separate compilation of A, B and C, though.  You can still
+put A, B and C in separate files and generate the code above from the
+files, perhaps with the use of a literate programming tool, but the
+generated file will have to be recompiled entirely every time one of
+the sub-modules change.
+
+==============================================================================
+05) RSS feed for the CWN
+------------------------------------------------------------------------------
+** Alan Schmitt announced:
+
+I am pleased to announce that the Caml Weekly News archive is now also
+available as a RSS feed (http://pauillac.inria.fr/~aschmitt/cwn/cwn.rss)
+which will be updated every Tuesday, when the CWN is released. This feed
+is also integrated into the News tab of the MozCaml sidebar
+(http://caml.inria.fr/mozcaml/).
+
+==============================================================================
+06) GD4O - Alpha 4 / Sourceforge project
+------------------------------------------------------------------------------
+** Matt Gushee announced:
+
+The fourth alpha version of the GD4O library has been released.
+Significant new developments include:
+
+  * partial support for extended TrueType rendering (gdImageStringFTEx
+    in the C API). Multiline text is supported, but double-byte character
+    strings will require an alternative to the standard string type,
+    which is currently used to pass string arguments to the TrueType
+    rendering methods.
+
+  * new SAFER compile flag enables conditional compilation of safety
+    measures such as strict argument checking in the C wrapper code.
+
+I have also created a SourceForge project for GD4O. The project home
+page remains at
+
+  http://havenrock.com/software/gd4o/
+
+but package downloads have been moved to SourceForge, and the CVS tree
+will be moved to SourceForge within the next few days. If you would like
+to visit the SourceForge project page, its URL is
+
+  http://sourceforge.net/projects/gd4o/
+
+And if you are interested in joining the project, please let me know.
+Developers with experience in interfacing OCaml with C are particularly
+needed.
+
+==============================================================================
+07) GlSurf 2.0
+------------------------------------------------------------------------------
+** Christophe Raffalli announced:
+
+I am pleased to announce the release 2.0 of GlSurf
+http://www.lama.univ-savoie.fr/~raffalli/glsurf
+
+It now works under Windows (I distribute binary version :-)
+Feel free to test it and reports problem.
+
+--
+GlSurf is a program (similar to Surf (http://surf.sourceforge.net)) to
+draw 3D surfaces and 3D curves from their implicit equations (that is
+drawing the set of points (x,y,z) such that f(x,y,z) = 0).
+
+It offers an intuitive and simple syntax to construct your functions,
+it can draw multiple surfaces simultaneously and it can use all the
+power of OpenGl to animate the surface, use transparency, etc ...
+
+GlSurf is a ``command interpreter'': you type some commands and it
+executes them !
+
+A good way to use GlSurf is to write a sequence of command in a file
+and the type "glsurf file" to execute all the commands.
+
+==============================================================================
+08) DOMINOCAML release
+------------------------------------------------------------------------------
+** Charles-Albert Lehalle announced:
+
+The first public release of DOMINOCMAL is avalable at sourceforge :
+http://phimatex.sf.net/dominocaml.html
+
+It's the first time I use object with ocaml, so if people can read some of
+my files (only 1.500 LOC) and give me feedback, he will be welcome.
+
+DOMINOCAML is an ocaml GPL software aimed to explore aspects of the
+dominoes game.
+Actually, it can :
+- compute statistics on domino gaming
+- simulate games between automated players
+- play games between humans and automated players
+ 
+If new developpers want to join its developpment, dominocaml will become a
+sourceforge project on its own.
+
+Actually it needs :
+- a pretty GUI (may be developped in anoter language)
+- add some strategies
+- support of networked games
+
+==============================================================================
+09) IBGS 0.2 Release
+------------------------------------------------------------------------------
+** Christoph Bauer announced:
+
+there is a new release of IBGS, the Internet Board Game Server.
+
+The IBGS package contains a game server and a client.  At the moment
+only chess as game type is supported.
+
+The protocol of the server is compatible to the ICS protocol aka
+"style12" (used by fics, gics, ...; supported by xboard, winboard, 
+...).
+
+A test server runs on chess.unix-ag.uni-kl.de, port 5050. Usage is
+free, source code licence is GPL.
+
+OCaml developer may interested in the chess module. It
+has
+  * a move generator
+  * parsing routines (ICS, PGN)
+  * SQL chess database support
+
+Despite of the version number this module is quite stable.
+
+There is a weak chess engine written with this module. This engine
+plays online on the GICS server. This handle is known as "Mjoelnir" or
+"NullMove".  The source code comes with the IBGS package
+(plugins/chess/examples/mjoelnir).
+
+Highlights of the new IBGS release are
+  * new SQL Backends (postgres, sqlite)
+  * new rating system
+  * improved IBGS Client
+
+More information are on:
+
+http://chesslib.sourceforge.net/ibgs.html
+
+==============================================================================
+10) taggage
+------------------------------------------------------------------------------
+** Issac Trotts announced:
+
+A new Vim-oriented tag file generator for OCaml is available at 
+http://redwood.ucdavis.edu/~issac/taggage-1.1.ml
+
+** He also added:
+
+Re: Karl Zilles' question about how taggage compares to otags.  otags
+uses camlp4 macros to convert abstract syntax trees into tag files.
+taggage uses regular expressions, uses no camlp4, and has many fewer
+lines of code.
+
+==============================================================================
+11) automated binding generation (announce: Forklift)
+------------------------------------------------------------------------------
+** Jeff Henrikson announced:
+
+Forklift is a program for generating language bindings based on C
+header files.  It is similar in concept to SWIG or CamlIDL.  Below I
+append the features and limitations from the README file.  Forklift
+originally grew out of frustration trying to write an OCaml SWIG
+language module about 18 months ago.  After 2000 lines of C for SWIG, I
+became convinced that I wasn't going to get what I wanted.  So now
+there is a new program that attempts to get what I want.  Features
+include a pleasing stub composition model for higher order type
+converters.
+
+This is a pre-alpha release.  Your feedback is solicited.  See the
+"limitations" section for disclaimers.
+
+Cheers,
+
+
+Jeff Henrikson
+
+http://jhenrikson.org/forklift/
+
+
+FEATURES (aka "What makes Forklift different?")
+
+    ->  Forklift generates foreign function interface stubs based on
+        reading C header files intact, without annotation.  IDL and SWIG
+        also make stubs from header files, but they do so by requiring
+        inline modifications to the source code, making any stub
+        preparation irrelevant when version 2.0 of the header files
+        are released.  Forklift's annotations are kept as separate input
+        files.
+
+    ->  Forklift, like SWIG, works with C code stubs rather than an
+        exhaustive grammar for describing every possible type.  This
+        makes it more flexible and allows it to describe multiple
+        representations for the same data.
+
+    ->  Forklift requires enough structure of the C code to provide
+        higher order type representations.  For example, given a way
+        to convert "int" variables, one can provide an abstract
+        way to convert arrays such that an int array conversion
+        can be generated.
+
+    ->  Forklift's stub algebra admits full n variables -> k variables
+        transformation generality.  For example we can map an (int,
+int*)
+        pair in consecutive parameters to a HLL int array, where the
+        the first is taken to mean the length and the second a pointer.
+
+    ->  Forklift provides for a rich pattern matching vocabulary, not
+        simply equality matching on variable names.
+
+    ->  Forklift generates constructors, destructors and accessors
+        for data structures automatically.  A flexible set of
+        options allow choices between single accessors vs bulk
+        accessors, read-only vs read-write accessors, etc.  For
+        languages which support finalization, finalization methods
+        can be generated.
+
+    ->  Forklift can be (and for the time being must be!) run as
+        an interactive session, typically as an emacs inferior
+        buffer.  Its utility functions allow the user to query the
+        header files instead of reading them.  So one can ask "what
+        functions pass a pointer to this structure as a first
+        parameter?" and get an exhaustive list of function
+        identifiers.  This saves laborious reading, copy-pasting,
+        and editing.
+
+
+LIMITATIONS
+
+    --  The callback module hasn't been written yet.
+
+    --  Forklift currently only implements an Objective Caml
+        language module.
+
+    --  Forklift currently free-rides on ocaml syntax, using the
+        toplevel as its interaction environment.  In the future it will
+        have its own interactive language-agnostic syntax.
+
+    --  A C preprocessor emulator is not yet written, so header files
+        must be manually run through cpp.
+
+    --  IDL orthogonality has not yet been analyzed.
+
+
+PREREQUISITES
+
+        Forklift requires:
+
+        ocaml >= 3.06, pcre, ocaml-pcre, ocaml emacs mode.
+
+
+LICENSE? (from the README)
+
+    --------
+    Forklift
+    --------
+
+    Copyright (c) 2003 Jeff Henrikson
+
+    This is Release 0.5.0 of Forklift, a stub generator for foreign
+    function interfaces.
+
+    License is hereby granted to use this software and distribute it
+    for educational, research and nonprofit purposes, as long as this
+    copyright notice is retained and modifications are clearly marked.
+
+    ALL WARRANTIES ARE HEREBY DISCLAIMED.
+
+    N.B. A more commercially friendly license will be probably be chosen
+    soon.  Maybe LGPL.  But the current distribution is probably already
+    violating Freetype's license by including the headers in the way that
+    they have been.  More thinking is necessary.
+
+==============================================================================
+12) OCaml test release 3.07 beta 2
+------------------------------------------------------------------------------
+** Xavier Leroy announced:
+
+Many of you provided very useful feedback on the pre-release 3.07 beta 1
+of OCaml.  Thanks!  Since this beta-test worked so well, we're now
+making available a beta 2 pre-release of what should very soon become
+the next stable release of Objective Caml.  It is available for
+testing at
+
+        http://caml.inria.fr/ocaml/distrib-3.07beta2.html
+
+The modifications since beta 1 are almost exclusively bug fixes.  The
+only programmer-visible change affects the typing of polymorphic
+variants in pattern matching (see change log below).  So, we're
+especially looking for testers who intensively use polymorphic variants
+in their code.
+
+As usual, this is a source-only release, and feedback is much
+appreciated: bug reports to caml-bugs@inria.fr, and "everything is OK"
+messages to caml@inria.fr.
+
+Barring major problems, the final 3.07 release should be essentially
+identical to this beta 2, and released second week of september.
+
+- Xavier Leroy
+
+--------------------------------------------------
+
+Changes since 3.07 beta 1:
+
+Type-checking:
+- The typing of polymorphic variants in pattern matching has changed.
+  It is intended to be more regular, sticking to the principle of "closing
+  only the variants which would be otherwise incomplete". Two potential
+  consequences: (1) some types may be left open which were closed before,
+  and the resulting type might not match the interface anymore (expected to
+  be rare); (2) in some cases an incomplete match may be generated.
+
+Toplevel interactive system:
+- Look for .ocamlinit file in home directory in addition to the current dir.
+
+Standard library:
+- Module Lexing: added function Lexing.flush_input.
+
+Emacs mode:
+- Improved display of inferred type information produced by ocamlc -dtypes.
+
+==============================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+
+If you know of a better way, please let me know.
+
+==============================================================================
+Old cwn
+------------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@inria.fr) and I'll mail it to you, or go take a look at
+the archive (http://pauillac.inria.fr/~aschmitt/cwn/) or the RSS feed of the 
+archives (http://pauillac.inria.fr/~aschmitt/cwn/cwn.rss). If you also wish to 
+receive it every week by mail, just tell me so.
+
+==============================================================================
+
+Alan Schmitt

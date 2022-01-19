@@ -1,0 +1,531 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2014.11.04</cwn_date>
+    <cwn_prev>2014.10.28</cwn_prev>
+    <cwn_next>2014.11.11</cwn_next>
+    <cwn_date_text>October 28 to November 04, 2014</cwn_date_text>
+    <cwn_extra_head></cwn_extra_head>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>Job announcement: formal methods engineer and scientific developer at FireEye</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-10/msg00217.html</cwn_url>
+      <cwn_who>Hendrik Tews announced</cwn_who>
+      <cwn_what>
+the FireEye R&amp;D center in Dresden, Germany, seeks outstanding
+formal-methods experts and scientific programmers to join
+FireEye's formal methods team in Dresden, Germany. Applicants
+should have a background in logical reasoning, (formal) software
+verification and functional programming. Please visit
+http://FireEye.com/careers for the concrete job descriptions.
+
+If you are interested or have questions, please contact me or
+Roland Carter &lt;roland.carter@FireEye.com&gt; or visit
+http://FireEye.com for more information about FireEye.
+
+FireEye is a next generation security company that provides the
+industry's leading threat protection technology. The formal
+methods team at FireEye works on the (formal) verification of a
+non-trivial piece of the software stack of one of FireEye's
+future products. Dresden is one the most beautiful cities in
+Germany with unique cultural attractions. The FireEye office is
+in the heart of the city, next to the famous historical center.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Stog 0.14.0</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-10/msg00218.html</cwn_url>
+      <cwn_who>Maxence Guesdon announced</cwn_who>
+      <cwn_what>
+Stog is a static web site compiler. It is able to handle blog posts as
+well are regular pages. It can be seen as a kind of Jekyll developed in
+OCaml.
+
+Since release 0.12.0, Stog can be used to compile a single file to
+admittedly publish HTML files where PDF was used (think about math
+articles, for example).
+
+Since release 0.13.0, a preview server can be used, watching changes and
+updating the page in your browser when you save source files. 
+
+Release 0.14.0 is now available, with some improvements.
+
+See here for details:
+  https://zoggy.github.io/stog/posts/release-0.14.0.html
+
+I made a demo video here:
+  https://zoggy.github.io/stog/posts/2014-10-27-video.html
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>LablGTK 2.18.3</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-10/msg00220.html</cwn_url>
+      <cwn_who>Jacques Garrigue announced</cwn_who>
+      <cwn_what>
+Due to a subtle incompatibility with ocaml 4.02, here is a new version of
+LablGTK.
+
+LablGTK is an interface for the Gtk+ toolkit, version 2. It also
+wraps many extensions, such as libglade, for rapid prototyping,
+or gtksourceview2, for programming editors.
+
+	https://forge.ocamlcore.org/projects/lablgtk/
+
+It should soon be available on opam.
+
+Jacques Garrigue
+
+LablGTK 2.18.3 changelog:
+
+  * add Gdk.Window.create_foreign and set_transient_for functions (Tim Cuthbertson)
+  * CAMLparam initializes with Val_unit rather than 0 since ocaml 4.02.
+    Fix a related problem in ml_gobject.
+    This caused random crashes with unison (Christopher Zimmermann, PR#1425) 
+  * Also factorize some code to use Val_option_*
+  * Replace XID by GdkNativeWindow where required.
+    You may need to insert calls to Gdk.Window.native_of_xid in some places.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Why List.map does not be implemented</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-10/msg00221.html</cwn_url>
+      <cwn_who>Gabriel Scherer revived this old thread and said</cwn_who>
+      <cwn_what>
+During a discussion of Tail-Recursion Modulo Cons with Frédéric Bour,
+I had an amusing idea of how to fix that problem pointed out by Oleg.
+The idea is that we can detect at mutation time whether non-linear
+control effect happened, and in that case do a deep copy of the
+partially-filled structure. It sounds slightly crazy but works
+beautifully.
+
+Here is the current implementation style of `map` in Batteries; it is
+merely an abstraction over Oleg's code example above (the decision to
+implement destination-passing style was not made by Batteries, but in
+the former Extlib project, but the small abstraction layer is due to
+François Bérenger as part of Batteries).
+
+type 'a mut_list = {
+  hd: 'a;
+  mutable tl: 'a list
+}
+external inj : 'a mut_list -&gt; 'a list = "%identity"
+
+module Acc1 = struct
+  let create x = { hd = x; tl = [] }
+
+  let accum acc x =
+    let cell = create x in
+    acc.tl &lt;- inj cell;
+    cell
+
+  let return head = inj head
+end
+
+let map_dst f = function
+  | [] -&gt; []
+  | x :: xs -&gt;
+     let open Acc1 in
+     let rec loop f acc = function
+       | [] -&gt; return acc
+       | x :: xs -&gt;
+          loop f (accum acc (f x)) xs
+     in
+     let acc = create (f x) in
+     loop f acc xs
+
+`accum` performs a mutation and returns the new destination in which
+to produce the rest of the list. This is destination-passing-style,
+and can also be understood as a manual TRMC optimization. It can also
+be read as a "snoc" operation (adding a new element to the tail of a
+list): it is possible to look at map_dst and think it is a pure
+implementation. This pure implementation is optimized using mutation
+under the hood, assuming (Mezzo-style) that the "map" function is the
+unique owner of the intermediate list, which can thus be
+mutated-in-place (even using strong mutation turning its type from a
+mutable value to an immutable one).
+
+Oleg explains that non-linear use of control operators (calling a
+captured (delimited) continuation several times) allows to observe
+this mutation, which thus destroys the probability computation of
+HANSEI. Another way to see this problem is that non-linear use of
+continuations breaks the unique-ownership invariant justifying the
+optimization.
+
+Yet it is possible to dynamically detect when we do not uniquely own
+the list anymore (a previous invocation of the current continuation
+has already mutated it), by filling the yet-to-be-mutated holes with a
+secret canary value (instead of []). An accumulator is "fresh"
+(uniquely owned) when its tail is (physically) equal to the canary
+value. If we notice a mutator is not fresh, we perform a deep copy of
+the list (from the head to the accumulator) and start accumulating
+again from this copy.
+
+Here is the new implementation of "map" using an Acc2 module
+implementing freshness-check and deep-copy (code at the end of this
+mail):
+
+let rec map_dst2 f = function
+  | [] -&gt; []
+  | x :: xs -&gt;
+     let open Acc2 in
+     (* precondition: acc is fresh *)
+     let rec loop f head acc = function
+       | [] -&gt; return head acc
+       | x :: xs -&gt;
+      let next = f x in
+      (* control effects during (f x) may destroy freshness *)
+      if fresh acc then loop f head (accum acc next) xs
+      else begin
+         let head, acc = copy head (inj acc) in
+         (* fresh after copy *)
+         loop f head (accum acc next) xs
+      end
+     in
+     let head = create (f x) in
+     (* head is fresh *)
+     loop f head head xs
+
+The code is slightly more verbose because the deep-copy iteration
+needs to be passed both the current accumulator and the head of the
+list (it wouldn't know where to copy from otherwise). Notice that the
+fast path (in absence of non-linear control) only has an additional
+freshness check. I benchmarked the two implementations and the
+difference is negligible -- in particular, it does not perform any
+additional allocation in the fast case.
+
+This version works fine with HANSEI.
+
+(I'm not claiming this implementation alone is what people should use
+for List.map. It does not behave particularly well on small lists,
+which is the most important thing for most use-cases. The only point
+is that the destination-passing-style can be made to work with
+non-linear control.)
+
+Finally, here is the "protected" Acc module implementing canary-check
+and deep copy:
+
+module Acc2 = struct
+  let rec canary = Obj.magic () :: canary
+
+  let copy head limit =
+    let rec copy li limit tail =
+      match li with
+        | [] -&gt; assert false
+        | hd::tl -&gt;
+           let cell = { hd; tl = canary } in
+           tail.tl &lt;- inj cell;
+           if li == limit then cell
+           else copy tl limit cell
+    in
+    let new_head = { hd = head.hd; tl = canary } in
+    if inj head == limit then (new_head, new_head)
+    else begin
+      let tail = copy head.tl limit new_head in
+      new_head, tail
+    end
+
+  let create x = { hd = x; tl = canary }
+
+  let fresh acc = acc.tl == canary
+
+  let accum acc x =
+    let cell = { hd = x; tl = canary } in
+    acc.tl &lt;- inj cell;
+    cell
+
+  let return head acc =
+    acc.tl &lt;- [];
+    inj head
+end
+
+Full source for this experiment is available here:
+  https://www.gitorious.org/gasche-snippets/destination-passing-style-and-control-effects/source/HEAD:map.ml
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OCamltter 3.0.0, a Twitter client and OAuth, Twitter and Flickr API library</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-10/msg00236.html</cwn_url>
+      <cwn_who>Jun Furuse announced</cwn_who>
+      <cwn_what>
+We have released OCamltter 3.0.0, an OAuth framework in OCaml. It
+includes OAuth and some APIs for Twitter and Flickr, and OCamltter CLI
+Twitter client.
+
+Version 3.0.0 generalized OCamltter 2.x's Twitter OAuth library so
+that now it can also support Flickr API access. Still only handful
+APIs are implemented but I use it to upload my family photos to Flickr
+quite nicely.
+
+OCamltter 3.0.0 is now available via OPAM.
+Its source repo is at: https://github.com/yoshihiro503/ocamltter
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>tls-0.2, nocrypto-0.2, x509-0.2, asn1-combinators-0.1.1</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-10/msg00242.html</cwn_url>
+      <cwn_who>Hannes Mehnert announced</cwn_who>
+      <cwn_what>
+More than 3 months ago we announced the 0.1 release of our TLS library
+pack (BSD licensed). Since then we fixed bugs based on user feedback
+and also implemented new features.
+
+Now we prepared a pre-halloween special release :)
+
+Highlights (more details are in CHANGES.md of each repository):
+- nocrypto-0.2: uses ctypes, DSA, CCM, compiles on 4.02
+- tls-0.2: epoch exposes information about negotiated session, enum
+cleanups (ciphersuites, protocol versions, hash algorithms)
+- asn1-0.1.1: stricter decoding of integers in tags and OIDs,
+performance improvements
+- x509-0.2: information about used trust anchor, more utility
+functions exported
+
+Read our blog series about the initial release at
+http://openmirage.org/blog/introducing-ocaml-tls
+An https server in OCaml visualising the TLS handshake
+https://tls.openmirage.org
+
+The updated packages are already in opam, opam update &amp;&amp; opam upgrade
+(or opam install tls/nocrypto/x509/asn1-combinators) should be all you
+need to do.
+
+If you encounter any issues, please report these on GitHub
+https://github.com/mirleft in the appropriate project.
+
+We're also still looking for code feedback and code reviews.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>is it possible to embed an OCaml interpreter into an OCaml Module?</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-10/msg00244.html</cwn_url>
+      <cwn_who>Christoph Höger announced</cwn_who>
+      <cwn_what>
+I already asked this on stackoverflow and was pointed to
+compiler-libs.toplevel - indeed this API seems to be sufficient to run
+an OCaml interpreter from inside an OCaml program (as that seems to be
+what utop does).
+
+But ist it also possible in some way to embed that interpreter safely
+in an OCaml Module (so I can reuse it e.g. from within utop)?
+Currently, it seems that there is exactly one dedicated toplevel for
+every running bytecode interpreter and when running utop, it is
+already in use.
+
+So what I would need would be the ability to execute a phrase from
+within a call of execute_phrase. I already clonded the toploop module
+and for tehe time being I am fine with that. What I need is a way to
+
+a) safe the already set ('outer') toplevel value bindings
+b) restore the nested value bindings
+c) execute the compiled bytecode
+d) restore the 'outer' value bindings
+
+is there someone who can point me to a solution?
+      </cwn_what>
+      <cwn_who>Peter Zotov replied then Stephen Dolan said</cwn_who>
+      <cwn_what>
+&gt; There is nothing special about the toplevel or the OCaml interpreter.
+&gt; Indeed, you can run a chunk of OCaml code at any time using
+&gt; the caml_callback C call--this is exactly what the runtime would
+&gt; invoke at startup, or what the toplevel would do to run a freshly
+&gt; compiled phrase.
+&gt; 
+&gt; However, the OCaml runtime has quite some global data:
+&gt; a cursory look brings up GC, backtrace machinery, polymorphic
+&gt; comparison (!), debugger, dynlink (and its symbol tables),
+&gt; exceptions, finalizers, and a few more things. Depending on your
+&gt; desired level of isolation, it might be very hard to provide
+&gt; a clean environment.
+&gt; 
+&gt; Incidentally, can someone explain how the runtime manages to be
+&gt; multithreaded while it has so much global data? Please don't
+&gt; tell me the answer is "every thread copies it back and forth
+&gt; on context switch".
+
+In current OCaml, there is a global lock. The global data can only be
+accessed holding this lock, so only one thread can run OCaml code at a
+time.
+
+In the multicore branch, the data is thread-local.
+      </cwn_what>
+      <cwn_who>oleg also replied</cwn_who>
+      <cwn_what>
+The MetaOCaml top-level does exactly what you have described. It is
+the standard OCaml toplevel with the ability to execute the generated
+code. Please look at the file metalib/runcode.ml in the MetaOCaml
+distribution. If you get it from the metaocaml.bundle, you get the
+current version. Otherwise, please to make sure the beginning of
+run_bytecode starts as follows:
+
+let run_bytecode' exp =
+  if !initial_env = Env.empty then begin
+    let old_time = Ident.current_time() in
+    (* does Ident.reinit() and may corrupt the timestamp if we
+       run in top-level. See Ident.reinit code
+     *)
+    initial_env := Compmisc.initial_env(); 
+    Ident.set_current_time old_time
+   end;
+  (* Ctype.init_def(Ident.current_time());  *)
+  ....
+      </cwn_what>
+      <cwn_who>Christoph Höger then said</cwn_who>
+      <cwn_what>
+Thanks for the hint. I wasn't able to figure out, how MetaOCaml does
+the trick, though. So, here is my solution.
+
+The trick is to store away the old "toploop" global variable from the
+Symtable module. This seems to work, although it looks a bit hacky. I
+am unsure whether this works _outside_ of a toplevel. The sane way
+would be to also fork Translmod and add a completely new global
+variable for my interpreter, but that seems to be impossible (adding
+that global variable programatically). I do not understand, why there
+is no API dealing with it. Is there a deeper reason?
+
+let toploop_id = Ident.create_persistent "Toploop"
+
+let execute_phrase print_outcome ppf phr =
+  match phr with
+  | Ptop_def sstr -&gt;
+      let outer_toploop = Symtable.get_global_value toploop_id in
+      let _ = Symtable.assign_global_value toploop_id (Obj.repr
+toplevel_value_api) in
+      let oldenv = !toplevel_env in
+      Typecore.reset_delayed_checks ();
+      let (str, sg, newenv) = Typemod.type_toplevel_phrase oldenv sstr in
+      if !Clflags.dump_typedtree then Printtyped.implementation ppf str;
+      let sg' = Typemod.simplify_signature sg in
+      ignore (Includemod.signatures oldenv sg sg');
+      Typecore.force_delayed_checks ();
+      let lam = Translmod.transl_toplevel_definition str in
+      Warnings.check_fatal ();
+      begin try
+        toplevel_env := newenv;
+        let res = load_lambda ppf lam in
+        let out_phr =
+          match res with
+          | Result v -&gt;
+	     let res =
+               if print_outcome then
+                 Printtyp.wrap_printing_env oldenv (fun () -&gt;
+						    match str.str_items with
+						    | [ { str_desc = Tstr_eval (exp, _attrs) }] -&gt;
+						       let outv = outval_of_value newenv v exp.exp_type in
+						       let ty = Printtyp.tree_of_type_scheme exp.exp_type in
+						       Ophr_eval (outv, ty)
+						    | [] -&gt; Ophr_signature []
+						    | _ -&gt; Ophr_signature (item_list newenv sg'))
+               else Ophr_signature []
+	     in Symtable.assign_global_value toploop_id outer_toploop ; res
+          | Exception exn -&gt;
+	     Symtable.assign_global_value toploop_id outer_toploop ;
+             toplevel_env := oldenv;
+             if exn = Out_of_memory then Gc.full_major();
+             let outv =
+               outval_of_value !toplevel_env (Obj.repr exn)
+Predef.type_exn
+             in
+             Ophr_exception (exn, outv)
+        in
+        !print_out_phrase ppf out_phr;
+        begin match out_phr with
+        | Ophr_eval (_, _) | Ophr_signature _ -&gt; true
+        | Ophr_exception _ -&gt; false
+        end
+      with x -&gt;
+        toplevel_env := oldenv; raise x
+      end
+  | Ptop_dir(dir_name, dir_arg) -&gt;
+      let d =
+        try Some (Hashtbl.find directive_table dir_name)
+        with Not_found -&gt; None
+      in
+      begin match d with
+      | None -&gt;
+          fprintf ppf "Unknown directive `%s'.@." dir_name;
+          false
+      | Some d -&gt;
+          match d, dir_arg with
+          | Directive_none f, Pdir_none -&gt; f (); true
+          | Directive_string f, Pdir_string s -&gt; f s; true
+          | Directive_int f, Pdir_int n -&gt; f n; true
+          | Directive_ident f, Pdir_ident lid -&gt; f lid; true
+          | Directive_bool f, Pdir_bool b -&gt; f b; true
+          | _ -&gt;
+              fprintf ppf "Wrong type of argument for directive `%s'.@."
+                dir_name;
+              false
+      end
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Merlin 2.0 release</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-11/msg00004.html</cwn_url>
+      <cwn_who>Frédéric Bour announced</cwn_who>
+      <cwn_what>
+After months of development, we are pleased to announce the stable
+release of Merlin 2.0.
+Supported OCaml versions range from 4.00 to 4.02.1.
+
+Merlin is a tool focused on helping you code in OCaml, by providing
+features such as:
+- automatic completion of identifiers, using scope and type
+informations,
+- interactively typing definitions and expressions during edition,
+- jumping to the definition of any identifier,
+- quickly reporting errors in the editor.
+
+This release provides great improvements in robustness and quality of
+analysis. Files that changed on disk are now automatically reloaded.
+The parsing process is finer grained to provide more accurate recovery
+and error messages. Integration with JaneStreet Core and js_of_ocaml
+has also improved. 
+
+Vim &amp; Emacs are still the main targeted editors. Preliminary support
+for Sublime Text is also available, see
+https://github.com/def-lkb/sublime-text-merlin . Help is welcome to
+improve and extend supported editing environments.
+
+Windows support also received some fixes. Merlin is now distributed in
+WODI. Integration in OCaml-on-windows is planned.
+
+This new version of merlin is already available with opam using `opam
+install merlin`, and can also be built from the sources which are
+available at http://github.com/the-lambda-church/merlin
+
+We want to thank: Yotam Barnoy, Jacques-Pascal Deplaix, Geoff Gole,
+Rudi Grinberg, Steve Purcell and Jan Rehders, who all contributed to
+this release. Thanks to Luc Rocher for providing initial integration
+with Sublime Text. 
+We also thank Gabriel Scherer and JaneStreet for their continued
+support.
+
+The Merlin team
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocaml.org/&gt;.
+
+Two final versions and a Verasco release:
+  &lt;http://gallium.inria.fr/blog/papers-verasco&gt;
+
+Merlin 2.0 release:
+  &lt;http://ocaml.org/&gt;
+
+Senior Software Engineer at Soda Software Labs (Full-time):
+  &lt;http://functionaljobs.com/jobs/8758-senior-software-engineer-at-soda-software-labs&gt;
+
+Calendar v2.04:
+  &lt;https://forge.ocamlcore.org/forum/forum.php?forum_id=916&gt;
+
+The ocamlunix project moved to a new home:
+  &lt;https://forge.ocamlcore.org/forum/forum.php?forum_id=915&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

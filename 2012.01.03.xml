@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2012.01.03</cwn_date>
+    <cwn_prev>2011.12.27</cwn_prev>
+    <cwn_next>2012.01.10</cwn_next>
+    <cwn_date_text>December 27, 2011 to January 03, 2012</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>try ocaml website</cwn_title>
+      <cwn_url>https://sympa-roc.inria.fr/wws/arc/caml-list/2011-12/msg00442.html</cwn_url>
+      <cwn_who>Continuing the thread from last week, Gabriel Scherer asked and Fabrice Le Fessant replied</cwn_who>
+      <cwn_what>
+&gt; I played with the toplevel a bit, but was frustrated by the limitation
+&gt; of one-liner input.
+&gt; Even in an interactive toplevel it is nice, I think, to be able to
+&gt; write multiline programs.
+
+I uploaded a new version a few minutes ago. Now, you can use "multiline
+true" to tell the toplevel that you will use ;; as an end of input
+instead of the newline (and "multiline false;;" to switch back). My
+patch is inspired from yours, but with minimal changes to the current code.
+
+It works for me, but I would be happy to get feed back from "multi-line
+users".
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Hashtbl and security</cwn_title>
+      <cwn_url>https://sympa-roc.inria.fr/wws/arc/caml-list/2011-12/msg00450.html</cwn_url>
+      <cwn_who>Gerd Stolpmann said and Xavier Leroy replied</cwn_who>
+      <cwn_what>
+&gt; there was recently a security alert for web services that use hash
+&gt; tables to store web form parameters sent via POST (so that millions of
+&gt; such parameters can be sent in a single request). It is possible to keep
+&gt; the web service busy for hours with such a DoS (denial of service)
+&gt; attack. The type of attack boils down to a problem in most hash table
+&gt; implementations, namely that the hash functions are invertible, and it
+&gt; is possible for a malicious user to construct lots of keys that all map
+&gt; to the same bucket of the hash table, creating a mass collision.
+&gt; 
+&gt; The text of the alert: 
+&gt; http://www.nruns.com/_downloads/advisory28122011.pdf
+&gt; 
+&gt; I'd like to discuss this issue, because it is not restricted to the
+&gt; processing of web requests, but may also occur for all other data coming
+&gt; from untrusted sources. The web is only the most exposed area where this
+&gt; issue exists.
+&gt; 
+&gt; So how is Ocaml affected? The hash functions used in recent Ocaml
+&gt; releases are also insecure in the above mentioned sense (currently
+&gt; MurmurHash3, and even a simpler hash function in previous releases). A
+&gt; quick survey of the Internet revealed at least one site that tries to
+&gt; break it. Probably a good cryptographer could do it in minutes. 
+&gt; 
+&gt; A pure Hashtbl.add of the constructed keys does not yet lead to the
+&gt; performance degradation, but a Hashtbl.replace, and of course
+&gt; Hashtbl.find after the table is built up will. So it depends very much
+&gt; of the details of the programs whether they are affected or not.
+&gt; 
+&gt; I've just checked that Ocamlnet uses only Hashtbl.add to collect POST
+&gt; parameters, so it is not directly vulnerable. But if the crafted request
+&gt; is actually served by a handler, the handler would get a degraded table,
+&gt; and could show in turn bad performance (again leading to DoS).
+&gt; 
+&gt; What are possible fixes?
+&gt;
+&gt; 1) Avoid hash tables in contexts where security is relevant. The
+&gt; alternative is Set (actually a balanced binary tree), which does not
+&gt; show this problem.
+
+Highly recommended.  Nothing beats guaranteed O(log n) operations.
+
+&gt; 2) Use cryptographically secure hash functions.
+
+Hopeless: with a hash size of 30 bits, as in Caml, or even 64 bits,
+there are no cryptographically secure hash functions.
+
+&gt; 3) Use "randomized" hash tables. The trick here is that there is not a
+&gt; single hash function h anymore, but a family h(1)...h(n). When the hash
+&gt; table is created, one of the functions is picked randomly. This makes it
+&gt; impossible to craft an attack request, because you cannot predict the
+&gt; function. 
+
+Indeed.  The optional "seed" parameter to Hashtbl.create does exactly
+this in the new implementation of Hashtbl (the one based on Murmur3).
+
+&gt; So, the question is how to do 3). I see two problems here:
+&gt; 
+&gt; a) how to define the family of hash functions. Is it e.g. sufficient to
+&gt; introduce an initialization vector for the Murmurhash algorithm, and
+&gt; fill it randomly?
+
+IIRC, the Web pages for the Murmur family of hashes gives some
+statistical evidence that this approach works.
+
+&gt; How to get a random number that is good enough?
+
+Hmm.  /dev/random is your friend on the platforms that support it.
+Otherwise, there's always the Random module, but Random.self_init
+isn't very strong.
+      </cwn_what>
+      <cwn_who>Gerd Stolpmann then replied</cwn_who>
+      <cwn_what>
+&gt; Indeed.  The optional "seed" parameter to Hashtbl.create does exactly
+&gt; this in the new implementation of Hashtbl (the one based on Murmur3).
+
+I see. It will be available in 3.13:
+
+val create : ?seed:int -&gt; int -&gt; ('a, 'b) t
+
+There is also an additional functorized interface where this seed
+argument exists (Hashtbl.MakeSeeded), and the hash functions seeded_hash
+and seeded_hash_param. Well done!
+
+Nevertheless, as we all don't know when 3.13 is ready, I'll have to find
+a temporary fix for Ocamlnet. Maybe just a limit for the number of POST
+parameters.
+
+&gt; &gt; How to get a random number that is good enough?
+&gt; 
+&gt; Hmm.  /dev/random is your friend on the platforms that support it.
+&gt; Otherwise, there's always the Random module, but Random.self_init
+&gt; isn't very strong.
+
+Well, /dev/(u)random covers most Unix platforms nowadays. If you are
+interested, I have a wrapper for Win32:
+
+https://godirepo.camlcity.org/svn/lib-ocamlnet2/trunk/code/src/netsys/netsys_c_win32.c
+
+Scroll down until netsys_fill_random.
+      </cwn_what>
+      <cwn_who>Richard Jones also replied and Xavier Leroy said</cwn_who>
+      <cwn_what>
+&gt; It may be worth noting that Perl solved this problem (back in 2003) by
+&gt; unconditionally using a seed which is a global set to a random number
+&gt; during interpreter initialization.  
+
+That's how my initial reimplementation of Hashtbl worked, using the
+Random module to produce seeds, but I was told (correctly) that in
+security-sensitive applications it's better to leave the generation of
+random numbers under control of the programmer.  For some applications
+Random.self_init might be good enough and for others stronger
+randomness is needed.
+
+Of course, you can trivially emulate Perl's behavior using the new
+Hashtbl implementation + the Random module.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other Caml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocamlcore.org/&gt;.
+
+(One by) Four by Nine:
+  &lt;http://alaska-kamtchatka.blogspot.com/2011/12/one-by-four-by-nine.html&gt;
+
+Two-way bindings:
+  &lt;http://www.nicollet.net/2011/12/two-way-bindings/&gt;
+
+Vose's Alias Method:
+  &lt;http://alaska-kamtchatka.blogspot.com/2011/12/voses-alias-method.html&gt;
+
+opdf:
+  &lt;https://forge.ocamlcore.org/projects/opdf/&gt;
+
+Packing circles into a rectangle:
+  &lt;https://forge.ocamlcore.org/forum/forum.php?forum_id=820&gt;
+
+Beta-release of Coq 8.4:
+  &lt;http://coq.inria.fr/beta-release-of-coq-84&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

@@ -1,0 +1,1041 @@
+<?xml version="1.0" encoding="utf-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2020.09.15</cwn_date>
+    <cwn_prev>2020.09.08</cwn_prev>
+    <cwn_next>2020.09.22</cwn_next>
+    <cwn_date_text>September 08 to 15, 2020</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+     <cwn_entry>
+      <cwn_title>A PPX Rewriter approach to ocaml-migrate-parsetree</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/a-ppx-rewriter-approach-to-ocaml-migrate-parsetree/6369/7</cwn_url>
+      <cwn_who>Continuing this thread, Chet Murthy said</cwn_who>
+      <cwn_what>
+OK, I finished writing the migrations for the OCaml ASTs, so decided that it might be fun to write a
+little example to demonstrate how this works.
+
+*** The ASTs
+
+Suppose that I have two AST types (in ~ex_ast.ml~):
+#+begin_src ocaml
+module AST1 = struct
+type t0 = string
+type t1 = A of t1 * int list
+type t2 = B of string * t0 | C of bool | D
+type 'a pt3 = { it : 'a ; extra : int ; dropped_field: string }
+type t4 = t2 pt3
+end
+
+module AST2 = struct
+type t0 = int
+type t1 = A of t1 * int list
+type t2 = B of string * t0 | C of int | E
+type 'a pt3 = { it : 'a ; extra : int ; new_field : int }
+type t4 = t2 pt3
+end
+#+end_src
+
+These AST types differ in the following ways:
+1. ~t0~ is just completely different in these versions
+2. ~t1~ is identical, but references a type that is different in each version; also an externally-defined polymorphic type-constructor (~ 'a list~)
+3. ~t2~ differs in each version: it loses a branch (~D~), and gains a branch (~E~).  It also has a branch whose arguments change type (~C~)
+4. ~'a pt3~ similarly loses a field and gains a field; it's also a polymorphic type
+5. ~t4~ is identical, but again references types that are different in each version.
+
+*** The Migrations
+
+We'd like to write migrations that incur the -least- amount of boilerplate.  What would that mean?  For
+starters, we need to match up the types: there's no way to avoid that.  Next, for branches that change
+type, we need to provide code.  We need a way to flag branches that appear or disappear, and similarly
+for fields, to compute the value of fields that appear.  So we'll:
+
+1. list the types we're going to work with, importing their definitions, so that the migration code will work against those already-defined types
+2. specify pairs of source-type, destination-type patterns, and for each, perhaps supply the function, or code for new/disappearing fields/branches
+3. for polymorphic types, we need to specify how their type-parameters get rewritten.
+
+Below, we'll describe the process for taking this information and automatically computing the code of
+these migrations.
+
+#+begin_src ocaml
+module Migrate_AST1_AST2 = struct
+
+module SRC = Ex_ast.AST1
+module DST = Ex_ast.AST2
+
+exception Migration_error of string
+
+let migration_error feature =
+  raise (Migration_error feature)
+
+let _migrate_list subrw0 __dt__ l =
+  List.map (subrw0 __dt__) l
+
+type t0 = [%import: Ex_ast.AST1.t0]
+and t1 = [%import: Ex_ast.AST1.t1]
+and t2 = [%import: Ex_ast.AST1.t2]
+and 'a pt3 = [%import: 'a Ex_ast.AST1.pt3]
+and t4 = [%import: Ex_ast.AST1.t4]
+[@@deriving migrate
+    { dispatch_type = dispatch_table_t
+    ; dispatch_table_value = dt
+    ; dispatchers = {
+        migrate_list = {
+          srctype = [%typ: 'a list]
+        ; dsttype = [%typ: 'b list]
+        ; code = _migrate_list
+        ; subs = [ ([%typ: 'a], [%typ: 'b]) ]
+        }
+      ; migrate_t0 = {
+          srctype = [%typ: t0]
+        ; dsttype = [%typ: DST.t0]
+        ; code = fun __dt__ s ->
+            match int_of_string s with
+              n -> n
+            | exception Failure _ -> migration_error "t0"
+        }
+      ; migrate_t1 = {
+          srctype = [%typ: t1]
+        ; dsttype = [%typ: DST.t1]
+        }
+      ; migrate_t2 = {
+          srctype = [%typ: t2]
+        ; dsttype = [%typ: DST.t2]
+        ; custom_branches_code = function
+              C true -> C 1
+            | C false -> C 0
+            | D -> migration_error "t2:D"
+        }
+      ; migrate_pt3 = {
+          srctype = [%typ: 'a pt3]
+        ; dsttype = [%typ: 'b DST.pt3]
+        ; subs = [ ([%typ: 'a], [%typ: 'b]) ]
+        ; skip_fields = [ dropped_field ]
+        ; custom_fields_code = {
+            new_field = extra
+          }
+        }
+      ; migrate_t4 = {
+          srctype = [%typ: t4]
+        ; dsttype = [%typ: DST.t4]
+        }
+      }
+    }
+]
+end
+
+module Migrate_AST2_AST1 = struct
+
+module SRC = Ex_ast.AST2
+module DST = Ex_ast.AST1
+
+exception Migration_error of string
+
+let migration_error feature =
+  raise (Migration_error feature)
+
+let _migrate_list subrw0 __dt__ l =
+  List.map (subrw0 __dt__) l
+
+type t0 = [%import: Ex_ast.AST2.t0]
+and t1 = [%import: Ex_ast.AST2.t1]
+and t2 = [%import: Ex_ast.AST2.t2]
+and 'a pt3 = [%import: 'a Ex_ast.AST2.pt3]
+and t4 = [%import: Ex_ast.AST2.t4]
+[@@deriving migrate
+    { dispatch_type = dispatch_table_t
+    ; dispatch_table_value = dt
+    ; dispatchers = {
+        migrate_list = {
+          srctype = [%typ: 'a list]
+        ; dsttype = [%typ: 'b list]
+        ; code = _migrate_list
+        ; subs = [ ([%typ: 'a], [%typ: 'b]) ]
+        }
+      ; migrate_t0 = {
+          srctype = [%typ: t0]
+        ; dsttype = [%typ: DST.t0]
+        ; code = fun __dt__ n -> string_of_int n
+        }
+      ; migrate_t1 = {
+          srctype = [%typ: t1]
+        ; dsttype = [%typ: DST.t1]
+        }
+      ; migrate_t2 = {
+          srctype = [%typ: t2]
+        ; dsttype = [%typ: DST.t2]
+        ; custom_branches_code = function
+              C 1 -> C true
+            | C 0 -> C false
+            | C _ -> migration_error "t2:C"
+            | E -> migration_error "t2:E"
+        }
+      ; migrate_pt3 = {
+          srctype = [%typ: 'a pt3]
+        ; dsttype = [%typ: 'b DST.pt3]
+        ; subs = [ ([%typ: 'a], [%typ: 'b]) ]
+        ; skip_fields = [ new_field ]
+        ; custom_fields_code = {
+            dropped_field = string_of_int extra
+          }
+        }
+      ; migrate_t4 = {
+          srctype = [%typ: t4]
+        ; dsttype = [%typ: DST.t4]
+        }
+      }
+    }
+]
+end
+#+end_src
+
+*** Using the Migrations
+
+And we can use them in the toplevel to migrate in each direction:
+
+#+begin_src ocaml
+#load "ex_ast.cmo";;
+#load "ex_migrate.cmo";;
+open Ex_migrate ;;
+open Ex_ast ;;
+# Migrate_AST1_AST2.(dt.migrate_t4 dt AST1.{ it = C true ; extra = 3 ; dropped_field = "1" });;
+- : Ex_migrate.Migrate_AST1_AST2.DST.t4 =
+{Ex_migrate.Migrate_AST1_AST2.DST.it = Ex_migrate.Migrate_AST1_AST2.DST.C 1;
+ extra = 3; new_field = 3}
+# Migrate_AST2_AST1.(dt.migrate_t1 dt AST2.(A(1, [2;3])));;
+- : Ex_migrate.Migrate_AST2_AST1.DST.t1 =
+Ex_migrate.Migrate_AST2_AST1.DST.A ("1", [2; 3])
+#+end_src
+
+*** How Does It Work?
+
+The migration code is computed in a pretty straightforward manner.  In the following, assume we're
+migrating from ~AST1~ to ~AST2~ (~DST~ is also the same as ~AST2~).  Let's call a "migration function"
+something of type
+#+begin_src ocaml
+type ('a, 'b) migrater_t = dispatch_table_t -> 'a -> 'b
+#+end_src
+where ~dispatch_table_t~ will be defined later.  First, assume (recursively) that each each migration
+rule yields a
+migration function.  So a rule like
+#+begin_src ocaml
+      ; migrate_t1 = {
+          srctype = [%typ: t1]
+        ; dsttype = [%typ: DST.t1]
+        }
+#+end_src
+will yield a function of type
+#+begin_src ocaml
+(AST1.t1, AST2.t1) migrater_t
+#+end_src
+and a rule like
+#+begin_src ocaml
+      ; migrate_pt3 = {
+          srctype = [%typ: 'a pt3]
+        ; dsttype = [%typ: 'b DST.pt3]
+        ; subs = [ ([%typ: 'a], [%typ: 'b]) ]
+        ; skip_fields = [ dropped_field ]
+        ; custom_fields_code = {
+            new_field = extra
+          }
+        }
+#+end_src
+will yield
+#+begin_src ocaml
+'a 'b. ('a, 'b) migrater_t -> ('a AST1.pt3, 'b AST2.pt3) migrater_t
+#+end_src
+Notice that this is a function that takes a migration from ~ 'a~ to ~ 'b~, and produces one from ~ 'a
+AST1.pt3~ to ~ 'a AST2.pt3~.  So from a source-type, we need to mechanically compute the code, and also
+compute the result-type.  This will be key idea: the migration process, applied to a source-type, will
+produce both the code that migrates that source-type, and *also* the destination-type.
+
+Now, consider any rewrite rule, and let's argue by cases on how its code &amp; destination-type can be
+computed.
+
+1. suppose that the *source type* (the field ~srctype~) of the rule can be *head-reduced* (by applying some type-definition as an abbreviation) to an algebraic sum-type (~A of ... | B of ...~) or record-type (~{a: t1 ; b : ... }~).  Then we can generate code to pattern-match on values of the source-type, and for variables in the generated patterns, we know their types.  We can then apply (via pattern-matching over types) *all* the rewrite-rules to compute code that will migrate the variables' values.  Since the recursive application of migration-rules produce destination-types, we can substitute those into branches/fields, to get the destination-type.  [More on pattern-matching below.]
+	- some of the branches of a sum-type might have their code specified in a ~custom_branches_code~, and those branches supersede what would have been automatically-generated.
+	- some of the fields of a record-type are listed in ~skip_fields~, and they're not generated; some of the fields are listed with code to compute them (based on the fields in the pattern above) in ~custom_fields_code~, and those get added.
+2. suppose that the *source type* after a *single* head-reduction yields a type-expression that can be successfully pattern-matched by one of the rewrite-rules *other than this rule we're currently processing*; then we can use that rewriter function to migrate the value of the source-type, and again, we get the destination-type.
+   - Why other than the current rule?  It's simple: we could end up in an infinite recursion if care isn't taken to write the migration rules correctly.
+3. The process of pattern-matching takes as input a type-expression, and a migration-rule.  If the source-type of the migration-rule matches the type-expression (in the usual sense), then it produces bindings for the type-variables.
+
+Let's look at an example.  Suppose we want to compute the migration function for the type-expression
+~t4~.
+
+1. head-reducing once yields ~t2 pt3~.
+2. the rule ~migrate_pt3~ matches (source-type ~'a pt3~), with type-variable ~ 'a~ bound to ~t2~.
+   - also, (via the ~subs~ field) if the type bound to ~ 'a~ is rewritten to ~ 'b~ then the destination-type is ~ 'b AST2.pt3~ [remember this below]
+3. the type-expression ~t2~ matches the rule ~migrate_t2~, with no type-variables bound and destination-type ~AST2.t2~.
+4. So ~migrate_t2 : (AST1.t2, AST2.t2) migrater_t~ (that is, the destination type is ~AST2.t2~)
+5. Thus in #2 above, ~ 'b~ is bound to ~AST2.t2~, and hence the destination-type in #2 above is ~AST2.t2 AST2.pt3~
+
+So the whole migration code for type ~t4~ is ~migrate_pt3 migrate_t2~ (which is what we would expect).
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OCaml web server run multiple processes</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ocaml-web-server-run-multiple-processes/6408/1</cwn_url>
+      <cwn_who>mudrz announced</cwn_who>
+      <cwn_what>
+I've been running some simple benchmarks to compare web servers written in JS, F# and OCaml:
+- JS: fastify https://www.fastify.io + pg + knex (not entirely fare with the other ones since they are more bare bone than knex)
+- OCaml: opium on master (httpaf) https://github.com/rgrinberg/opium + caqti
+- F#: giraffe https://giraffe.wiki + dapper https://dapper-tutorial.net
+
+I started with @shonfeder's excellent tutorial: https://shonfeder.gitlab.io/ocaml_webapp/
+Seriously if there were more tutorials like this the OCaml community would have been times bigger, they
+are so helpful when starting out and you don't want to solve the same problem everyone else has already
+solved.
+And then implemented parts of it in JS and F#
+
+the test:
+- queries a DB
+- adds an additional item to the result
+- orders the list
+- returns an html containing the rendered result
+
+I ran each test 3 times and posted the best result
+
+This is not a scientific test using a controlled environment, this is a quick and dirty test, so take
+it with a bit of salt (but in many ways the results are not so unexpected). The tests are also not
+comparing the languages themselves but a combination of some of the more popular libraries of them,
+which is how you would normally use them.
+
+I'm not posting a link to a repo with the benchmarks since the code is not organised and the tests are
+not automated, don't want to spend too much time on this, but happy to post the code used if someone is
+interested.
+
+The tests were made with ~wrk -t8 -c400 -d30s~ - 8 threads, 400 connections, 30 seconds;
+
+*** HTML endpoint, no DB access
+
+JS - single process
+#+begin_example
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    44.16ms    4.73ms  59.22ms   88.44%
+    Req/Sec     1.10k    89.00     1.50k    82.83%
+  262651 requests in 30.05s, 179.60MB read
+  Socket errors: connect 0, read 264, write 0, timeout 0
+Requests/sec:   8739.98
+Transfer/sec:      5.98MB
+#+end_example
+
+JS - multiple processes
+#+begin_example
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    43.37ms   56.91ms 316.27ms   83.49%
+    Req/Sec     2.43k   459.80     3.81k    73.25%
+  580742 requests in 30.05s, 397.10MB read
+  Socket errors: connect 0, read 239, write 0, timeout 0
+Requests/sec:  19325.95
+Transfer/sec:     13.21MB
+#+end_example
+
+OCaml - single process
+#+begin_example
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    15.01ms    2.28ms  39.86ms   89.00%
+    Req/Sec     3.27k   240.86     4.53k    89.83%
+  781313 requests in 30.01s, 489.54MB read
+  Socket errors: connect 0, read 308, write 0, timeout 0
+Requests/sec:  26031.65
+Transfer/sec:     16.31MB
+#+end_example
+
+F#
+#+begin_example
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     5.46ms  840.10us  20.34ms   83.20%
+    Req/Sec     8.91k   659.89    13.27k    73.25%
+  2130565 requests in 30.04s, 1.45GB read
+  Socket errors: connect 0, read 272, write 0, timeout 0
+Requests/sec:  70923.15
+Transfer/sec:     49.31MB
+#+end_example
+
+Results:
+- OCaml: 1.34x more requests/s than JS, with 2.8x less latency
+- F#: 3.66x more than JS, 2.7x more requests/s than OCaml, with 2.7x less latency
+
+*** JSON endpoint, DB access
+The JSON response for JS and OCaml was:
+#+begin_src json
+{"excerpts":[{"author":"kan","excerpt":"Another excerpt","source":"My source2","page":"another
+page"},{"author":"kan","excerpt":"My excerpt","source":"my source","page":"23"}]}
+#+end_src
+for F# it was slightly longer since option types are serialized by default with a Some/None variant (it
+can be changed):
+#+begin_src json
+{"excerpts":[{"author":"kan","excerpt":"Another excerpt","source":"My
+source2","page":{"case":"Some","fields":["another page"]}},{"author":"kan","excerpt":"My
+excerpt","source":"my
+source","page":{"case":"Some","fields":["23"]}},{"author":"a","excerpt":"b","source":"c","page":{"case":"Some","fields":["d"]}}]}
+#+end_src
+The DB was Postgres with 10 max connections
+
+JS - single process
+#+begin_example
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    57.79ms    5.68ms  88.02ms   85.24%
+    Req/Sec   848.20    109.95     1.37k    72.24%
+  202885 requests in 30.09s, 62.69MB read
+  Socket errors: connect 0, read 237, write 0, timeout 0
+Requests/sec:   6742.09
+Transfer/sec:      2.08MB
+#+end_example
+
+JS - multiple processes
+#+begin_example
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    57.48ms   61.84ms 774.03ms   83.36%
+    Req/Sec     1.20k   260.84     2.29k    71.38%
+  287101 requests in 30.04s, 88.71MB read
+  Socket errors: connect 0, read 286, write 38, timeout 0
+Requests/sec:   9558.04
+Transfer/sec:      2.95MB
+#+end_example
+
+OCaml
+#+begin_example
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     6.69ms   38.78ms   1.07s    98.17%
+    Req/Sec     1.78k   842.50     3.62k    56.33%
+  424454 requests in 30.02s, 100.39MB read
+  Socket errors: connect 0, read 253, write 0, timeout 13
+Requests/sec:  14139.42
+Transfer/sec:      3.34MB
+#+end_example
+
+F#
+#+begin_example
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    19.27ms    3.92ms 107.53ms   82.60%
+    Req/Sec     2.54k   165.82     3.26k    79.21%
+  606868 requests in 30.02s, 261.02MB read
+  Socket errors: connect 0, read 259, write 0, timeout 0
+Requests/sec:  20214.71
+Transfer/sec:      8.69MB
+#+end_example
+
+Results:
+- OCaml: 1.48x more requests/s than JS (up from 1.34x before), with 8.6x less latency (before: 2.7x)
+- F#: 2.1x more than JS (down from 3.66x before), 1.43x more requests/s than OCaml (down from 2.7x before), with 2.88x MORE latency than OCaml (before: 2.7x LESS than OCaml)
+
+Observations:
+- JS is performing unexpectedly good compared to compiled languages
+- F# (or ASP.NET Core) is really fast out of the box, with no tweaking necessary
+- OCaml is running on a single process and has had Max request time of ~1.07s~ and Stdev 10x that of F#; in some tests it spiked to 2seconds for some requests, is this the GC? how can I troubleshoot that?
+
+Is there a good tutorial on running OCaml with multiple processes and generally commonly faced use
+cases for web servers?
+There are countless articles for the other ecosystems, but it is a bit difficult to find ones for
+OCaml, making it a bit time consuming to try to figure each thing out
+      </cwn_what>
+      <cwn_who>Later, mudrz added</cwn_who>
+      <cwn_what>
+added the code to:
+https://gitlab.com/mudrz/ocaml-web-benchmarks/-/tree/master/
+
+there are 3 dirs for each server
+      </cwn_what>
+      <cwn_who>mudrz also said</cwn_who>
+      <cwn_what>
+I found it generally interesting to compare OCaml and F# syntaxes and how things work, so adding this
+if others find it interesting:
+
+*** HTML templates
+
+OCaml (tyxml):
+https://gitlab.com/mudrz/ocaml-web-benchmarks/-/blob/master/opi-bench/lib/content.ml#L5-42
+each element is a function that has labeled arguments for attributes and a final argument for the
+children
+#+begin_src ocaml
+  head
+    (title (txt "OCaml Webapp Tutorial"))
+    [ meta ~a:[a_charset "UTF-8"] ()
+    ; link ~rel:[`Stylesheet] ~href:"/static/style.css" () ]
+#+end_src
+
+F# (giraffe viewing engine, there were others, but I haven't tested them):
+https://gitlab.com/mudrz/ocaml-web-benchmarks/-/blob/master/fsharp-bench/src/fsharp-bench/Content.fs#L6-35
+each element is a function that accepts 2 lists - the first one for attributes, the second for children
+#+begin_src fsharp
+        head [] [
+            title []  [ encodedText "fsharp_bench" ]
+            link [ _rel  "stylesheet"
+                   _type "text/css"
+                   _href "/style.css" ]
+        ]
+#+end_src
+
+*** DB Query
+
+OCaml (caqti rapper):
+https://gitlab.com/mudrz/ocaml-web-benchmarks/-/blob/master/opi-bench/lib/db.ml#L78-88
+using a ppx
+#+begin_src ocaml
+    [%rapper get_many
+        {sql|
+        SELECT @string{author}, @string{excerpt}, @string{source}, @string?{page}
+        FROM excerpts
+        WHERE author = %string{author}
+        |sql}
+        record_out
+    ]
+#+end_src
+
+F# (dapper):
+https://gitlab.com/mudrz/ocaml-web-benchmarks/-/blob/master/fsharp-bench/src/fsharp-bench/Db.fs#L30-35
+#+begin_src fsharp
+   let sql = """
+      SELECT author, excerpt, source, page
+      FROM excerpts
+      WHERE author = @author;
+   """
+   let! data = conn.QueryAsync&lt;Excerpt.t&gt;(sql,  dict ["author" =&gt; "kan"])
+#+end_src
+
+*** Serialization
+OCaml:
+define as serialisable:
+https://gitlab.com/mudrz/ocaml-web-benchmarks/-/blob/master/opi-bench/lib/excerpt.ml#L1-6
+#+begin_src ocaml
+type t =
+  { author: string
+  ; excerpt: string
+  ; source: string
+  ; page: string option
+  }[@@deriving yojson]
+#+end_src
+and then call the generated function:
+https://gitlab.com/mudrz/ocaml-web-benchmarks/-/blob/master/opi-bench/lib/route.ml#L97
+#+begin_src ocaml
+       let open Excerpt.Response.Err in
+       let json = to_yojson { message= e } in
+#+end_src
+
+F#:
+mark type as "cli mutable":
+https://gitlab.com/mudrz/ocaml-web-benchmarks/-/blob/master/fsharp-bench/src/fsharp-bench/Excerpt.fs#L3-9
+#+begin_src fsharp
+[&lt;CLIMutable&gt;]
+type t =
+  { author: string
+  ; excerpt: string
+  ; source: string
+  ; page: string option
+  }
+#+end_src
+serialisation happens automatically
+
+*** async:
+OCaml (lwt):
+https://gitlab.com/mudrz/ocaml-web-benchmarks/-/blob/master/opi-bench/lib/route.ml#L106-110
+"await" with ~let*~ and ~let+~ and then return with ~Lwt.return~
+#+begin_src ocaml
+let excerpts = get "/excerpts" begin fun req ->
+    let open Lwt.Syntax in
+    let+ authors = Db.Get.authors req in
+    respond_or_err Content.author_excerpts_page authors
+  end
+#+end_src
+
+F#:
+https://gitlab.com/mudrz/ocaml-web-benchmarks/-/blob/master/fsharp-bench/src/fsharp-bench/Program.fs#L81-86
+- wraps async work in ~task~ (for compatibility with C# https://github.com/rspeele/TaskBuilder.fs , otherwise ~async~)
+- "await" with ~let!~ and then return with ~return!~
+#+begin_src fsharp
+fun ctx next -> task {
+    let! excerpts = Db.fortunes ()
+    let res: Db.Excerpt.res = { excerpts= excerpts }
+    return! json res ctx next
+}
+#+end_src
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Query-json: Re-implemented jq in Reason Native/OCaml</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/query-json-re-implemented-jq-in-reason-native-ocaml/6410/1</cwn_url>
+      <cwn_who>David Sancho announced</cwn_who>
+      <cwn_what>
+I re-implementatied jq in Reason Native and OCaml and I'm a little proud :star:, started as a way to
+learn how to write lexers/parsers/compilers with the OCaml stack, but ending up very functional.
+
+I'm using it right now, every day. It's called query-json or for short "q".
+
+https://github.com/davesnx/query-json
+
+It has better performance (between 2x and 5x) than jq, richer error messages and simplified API. It's
+mostly thanks to OCaml/Reason, rather than my skill to code a compiler! Still isn't feature complete,
+though, but have implemented most of the common functionality, Adding those features shouldn't affect
+the performance, so I will keep adding them with time.
+
+You can check the benchmarks here: https://github.com/davesnx/query-json#Performance
+
+The main idea is to improve the api of the operations and errors with manipulation JSON files.
+
+If you don't know what jq is, check thoughtbot dot com/blog/jq-is-sed-for-json or programminghistorian
+dot org/en/lessons/json-and-jq.
+
+Hope you like it and let me know if there's something that you struggled with jq and I can make it
+better in *q*, let me know, I'm always open to any DM.
+
+Thanks 👋🏽
+
+PS: The creator of jq (@stedolan), which is a current OCaml core maintainer is doing ocaml-multicore,
+which at some point could improve the "q" performance even more.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Suggestions for a simple, portable, graphics library?</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/suggestions-for-a-simple-portable-graphics-library/6413/1</cwn_url>
+      <cwn_who>Yaron Minsky asked</cwn_who>
+      <cwn_what>
+I'm working on a little side project where I need to do some simple, cross-platform game-like graphics.
+Really simple: I want to be able to draw some colored lines, and splat out rotated images.  But I'd
+also like this to be reasonably efficient, and reasonable easy to use.
+
+And, ideally, I'd love for something that was portable to Windows.
+
+I've done just a bit of poking around, and it wasn't quite clear to me what the right choice was.
+
+- I looked at *tsdl* and *tgls*, but it wasn't clear to me with either of them how to rotate a texture. Maybe I'm just missing something?  Also, I found tgls a little hard to navigate, since I haven't used opengl for 20 years. I feel like rotation has to be in there, but searching for "rotate" in the docs comes up empty, and I couldn't find any good examples. The portability story here seemed hopeful.
+- I looked at OCaml's venerable *Graphics* library. Super easy to use, not sure about the portability story.
+- *wall*.  Seems to have all the capabilities, not sure about the portability story.
+- *web*. Portable, though I'd need to have a more complex setup for users, where the native OCaml program would run a web-server that would communicate to the OCaml UI, since I need this to be a native app. Feels extra complicated.
+
+Anyway, does anyone have any suggestions on what path to take? Am I missing any options?
+      </cwn_what>
+      <cwn_who>Daniel Bünzli replied</cwn_who>
+      <cwn_what>
+#+begin_quote
+I looked at *tsdl* and *tgls* , but it wasn’t clear to me with either of them how to rotate a
+texture. Maybe I’m just missing something?
+#+end_quote
+
+I have never really used the SDL 2D support but it could have you covered.
+[This](https://erratique.ch/software/tsdl/doc/Tsdl/Sdl/index.html#val-render_copy_ex) should allow you
+to rotate a texture.
+
+#+begin_quote
+Maybe I’m just missing something? Also, I found tgls a little hard to navigate, since I haven’t used
+opengl for 20 years. I feel like rotation has to be in there, but searching for “rotate” in the docs
+comes up empty, and I couldn’t find any good examples. The portability story here seemed hopeful.
+#+end_quote
+
+The OpenGL of today bares little ressemblance to the one you knew,
+[this](https://github.com/dbuenzli/tgls/blob/master/test/trigl3.ml) is the  hello world nowadays.
+Rotation is there under the form of matrices that you access in shaders but you also need to deal with
+defining, compiling and feeding those with data which brings quite a bit of boiler plate (see the
+example).
+
+Also on macOS, OpenGL "the API", seems to be on the way out. I suspect the 2D SDL API may be a better
+bet since it will likely keep you with a compatibility, hardware accelerated layer.
+
+If you can lift the native constraint, the web would still be my first shot, nothing beats it's ease of
+installation.
+      </cwn_what>
+      <cwn_who>holmdunc added</cwn_who>
+      <cwn_what>
+Yeah, SDL already uses the Metal rendering backend by default on macOS. Can be confirmed using [this
+function](https://erratique.ch/software/tsdl/doc/Tsdl/Sdl/index.html#val-get_renderer_info).
+      </cwn_what>
+      <cwn_who>Tobias Mock also replied</cwn_who>
+      <cwn_what>
+You surely can't go wrong with SDL/tsdl.
+
+Another alternative could be [raylib](https://www.raylib.com/), a gamedev library created mainly for
+teaching. The lib has tons of examples, of which a few are already translated to the [OCaml
+bindings](https://github.com/tjammer/raylib-ocaml). There is also an [example for rotating a
+texture](https://github.com/tjammer/raylib-ocaml/blob/master/examples/textures/textures_srcrec_dstrec.ml).
+And it works on Windows.
+      </cwn_what>
+      <cwn_who>Ohad Rau said</cwn_who>
+      <cwn_what>
+Looks like I'm a little late to the thread but I think
+[reason-skia](https://github.com/revery-ui/reason-skia) is an awesome choice. It should provide all the
+Skia primitives which are pretty similar to the JavaScript canvas API and it's specifically focused on
+2d graphics. It's also got great cross-platform support. It's being very actively developed as part of
+[Revery](https://github.com/revery-ui/revery), so it seems much more up to date than tsdl/tgls (IIRC
+Bryan, the maintainer for Revery, developed his own SDL bindings since tsdl was too out of date).
+
+It's also possible to use the Skia bindings through Revery to take advantage of the rest of Revery's
+features: [Revery exposes Skia as part of its Canvas
+API](https://github.com/revery-ui/revery/blob/79cab021464662fb56ebe57b70b9d18e65e2d99e/examples/CanvasExample.re).
+This is really nice because you can avoid all the window setup stuff you'd have to do with SDL or raw
+OpenGL.
+
+https://aws1.discourse-cdn.com/standard11/uploads/ocaml/original/2X/4/4af4285b00a0712cc751c703932dbcbad3e5800d.png
+      </cwn_what>
+      <cwn_who>Tom Ekander added</cwn_who>
+      <cwn_what>
+If you excuse the Reason-syntax, here's a "Hello World"-example for Revery using Canvas.
+
+https://aws1.discourse-cdn.com/standard11/uploads/ocaml/optimized/2X/0/0d8e788aa1770f2462af2aad7ddce98f9a0201e0_2_1035x739.jpeg
+      </cwn_what>
+      <cwn_who>Daniel Bünzli then asked</cwn_who>
+      <cwn_what>
+#+begin_quote
+it seems much more up to date than tsdl/tgls (IIRC Bryan, the maintainer for Revery, developed his own
+SDL bindings since tsdl was too out of date).
+#+end_quote
+
+Before false information starts to spread could you please make precise what is "too out of date" in
+tsdl ?
+
+A few things that made it in SDL [2.0.7-11](https://hg.libsdl.org/SDL/file/3b03741c0095/WhatsNew.txt)
+may not be in (but some of these things were actually contributed, I don't remember exactly which
+ones).
+
+But given the surface of the API and as you can witness by reading the linked release notes if
+something is missing that's not much and rather trivial to add.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>1sr release of omlr: Multiple Linear Regression modeling (using R under the carpet)</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-1sr-release-of-omlr-multiple-linear-regression-modeling-using-r-under-the-carpet/6417/1</cwn_url>
+      <cwn_who>UnixJunkie announced</cwn_who>
+      <cwn_what>
+omlr is now available in opam.
+#+begin_example
+# opam info omlr
+
+&lt;&gt;&lt;&gt; omlr: information on all versions &gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;
+name                   omlr
+all-installed-versions 1.0.2 [default]
+all-versions           1.0.2
+
+&lt;&gt;&lt;&gt; Version-specific details &lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;
+version       1.0.2
+repository    github
+url.src:      "https://github.com/UnixJunkie/omlr/archive/v1.0.2.tar.gz"
+url.checksum: "md5=4b637863b4bc4ed2e27de45cf0872736"
+homepage:     "https://github.com/UnixJunkie/omlr"
+bug-reports:  "https://github.com/UnixJunkie/omlr/issues"
+dev-repo:     "git+https://github.com/UnixJunkie/omlr.git"
+authors:      "Francois Berenger"
+maintainer:   "unixjunkie@sdf.org"
+license:      "BSD-3"
+depends:      "batteries"
+              "conf-gnuplot"
+              "conf-r"
+              "cpm"
+              "dolog" {&gt;= "4.0.0"}
+              "dune" {&gt;= "1.11"}
+              "minicli" {&gt;= "5.0.0"}
+              "ocaml"
+synopsis      Multiple Linear Regression model
+description   Train a MLR model using R.
+              usage:
+              ./mlr_model
+                [-i &lt;input.csv&gt;]: input CSV file
+                [--NxCV &lt;int&gt;]: number of folds of cross validation
+                [-s|--save &lt;filename&gt;]: save model to file
+                [-l|--load &lt;filename&gt;]: restore model from file
+                [-o &lt;filename&gt;]: predictions output file
+                [--no-shuffle]: do not randomize input lines
+                [--no-header]: CSV file has no header
+                [--no-plot]: don't call gnuplot
+                [-d &lt;char&gt;]: field delimited in CSV file (default=',')
+                [-v]: verbose/debug mode
+                [-h|--help]: show this message
+#+end_example
+
+The project is here:
+https://github.com/UnixJunkie/omlr
+
+Note that it could be entirely programmed using owl.
+However, I find R more portable than owl, hence the hack.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Multicore OCaml: August 2020</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/multicore-ocaml-august-2020/6418/1</cwn_url>
+      <cwn_who>Anil Madhavapeddy announced</cwn_who>
+      <cwn_what>
+Welcome to the August 2020 Multicore OCaml report (a few weeks late due to August slowdown). This
+update along with the [previous updates](https://discuss.ocaml.org/tag/multicore-monthly) have been
+compiled by @shakthimaan, @kayceesrk and myself.
+
+There are some talks related to multicore OCaml which are now freely available online:
+
+- At the OCaml Workshop, @sadiq presented ["How to parallelise your code with Multicore OCaml"](https://www.youtube.com/watch?v=Z7YZR1q8wzI&amp;list=PLKO_ZowsIOu5fHjRj0ua7_QWE_L789K_f&amp;index=6&amp;t=0s)
+- At ICFP, @kayceesrk presented ["Retrofitting Parallelism onto OCaml"](https://www.youtube.com/watch?v=i9wgeX7e-nc&amp;t=6180s), which was also awarded a Distinguished Paper award.
+- At ICFP, Glenn Mével presented ["Cosmo: A Concurrent Separation Logic for Multicore OCaml"](https://www.youtube.com/watch?v=aNLOi-1ixwM&amp;t=2610s).
+- At the WebAssembly Community Group meeting,  @kayceesrk gave a talk on [Effect Handlers in Multicore OCaml](https://kcsrk.info/slides/WASM_CG_4Aug20.pdf).  This is related to our longer term efforts to ensure that OCaml has an efficient compilation strategy to WebAssembly.
+
+The Multicore OCaml project has had a number of optimisations and performance improvements in the month
+of August 2020:
+- The PR on the [implementation of systhreads with pthreads](https://github.com/ocaml-multicore/ocaml-multicore/pull/381) continues to undergo review and improvement. When merged, this opens up the possibility of installing dune and other packages with Multicore OCaml.
+- Implementations of mutex and condition variables is also now [under review](https://github.com/ocaml-multicore/ocaml-multicore/pull/390) for the `Domain` module.
+- Work has begun on implementing [GC safe points](https://github.com/ocaml-multicore/ocaml-multicore/pull/394) to ensure reliable, low-latency garbage collection can occur.
+
+We would like to particularly thank these external contributors:
+- Albin Coquereau and Guillaume Bury for their comments and recommendations on building Alt-Ergo.2.3.2 with dune.2.6.0 and Multicore OCaml 4.10.0 in a sandbox environment.
+- @Leonidas for testing the code size metric implementation with ~Core~ and ~Async~, and for code review changes.
+
+Contributions such as the above towards adapting your projects with our benchmarking suites are always
+most welcome.  As with previous updates, we begin with the Multicore OCaml updates, which are then
+followed by the enchancements and bug fixes to the Sandmark benchmarking project. The upstream OCaml
+ongoing and completed tasks are finally mentioned for your reference.
+
+*** Multicore OCaml
+
+**** Ongoing
+
+- [ocaml-multicore/ocaml-multicore#381](https://github.com/ocaml-multicore/ocaml-multicore/pull/381)
+  Reimplementating systhreads with pthreads
+
+  This PR has made tremendous progress with additions to domain API,
+  changes in interaction with the backup thread, and bug fixes. We are
+  now able to build ~dune.2.6.1~ and ~utop~ with this PR for Multicore
+  OCaml, and it is ready for review!
+
+- [ocaml-multicore/ocaml-multicore#384](https://github.com/ocaml-multicore/ocaml-multicore/pull/384)
+  Add a primitive to insert nop instruction
+
+  The ~nop~ primitive is introduced to identify the start and end of
+  an instruction sequence to aid in debugging low-level code.
+
+- [ocaml-multicore/ocaml-multicore#390](https://github.com/ocaml-multicore/ocaml-multicore/pull/390)
+  Initial implementation of Mutexes and Condition Variables
+
+  A draft proposal that adds support for Mutex variables and Condition
+  operations for the Multicore runtime.
+
+**** Completed
+
+***** Optimisations
+
+- [ocaml-multicore/domainslib#16](https://github.com/ocaml-multicore/domainslib/pull/16)
+  Improvement of parallel_for implementation
+
+  A divide-and-conquer scheme is introduced to distribute work in
+  ~parallel_for~, and the ~chunk_size~ is made a parameter to improve
+  scaling with more than 8-16 cores. The blue line in the following
+  illustration shows the improvement for few benchmarks in Sandmark
+  using the default ~chunk_size~ along with this PR:
+  https://aws1.discourse-cdn.com/standard11/uploads/ocaml/optimized/2X/d/d2cb71fa73825cce9231538e213d1815dde0f139_2_697x750.png
+
+- [ocaml-multicore/multicore-opam](https://github.com/ocaml-multicore/multicore-opam/pull/28)
+  Use ~-j%{jobs}%~ for multicore variant builds
+
+  The use of ~-j%{jobs}%~ in the build step for multicore variants
+  will speed up opam installs.
+
+- [ocaml-multicore/ocaml-multicore#374](https://github.com/ocaml-multicore/ocaml-multicore/pull/374)
+  Force major slice on minor collection
+
+  A minor collection will need to schedule a major collection, if a
+  blocked thread may not progress the major GC when servicing the
+  minor collector through ~handle_interrupt~.
+
+- [ocaml-multicore/ocaml-multicore#378](https://github.com/ocaml-multicore/ocaml-multicore/pull/378)
+  Hold onto empty pools if swept while allocating
+
+  An optimization to improve pause times and reduce the number of
+  locks by using a ~release_to_global_pool~ flag in ~pool_sweep~
+  function that continues to hold onto the empty pools.
+
+- [ocaml-multicore/ocaml-multicore#379](https://github.com/ocaml-multicore/ocaml-multicore/pull/379)
+  Interruptible mark and sweep
+
+  The mark and sweep work is now made interruptible so that domains
+  can enter the stop-the-world minor collections even if one domain is
+  performing a large task. For example, for the binary tree benchmark
+  with four domains, major work (pink) in domain three stalls progress
+  for other domains as observed in the eventlog.
+  https://aws1.discourse-cdn.com/standard11/uploads/ocaml/optimized/2X/e/ef309b229845e21ce8d2753ef30009139e6da5f0_2_808x750.png
+
+  With this patch, we can observe that the major work in domains two
+  and four make progress in the following illustration:
+  https://aws1.discourse-cdn.com/standard11/uploads/ocaml/optimized/2X/1/1b731fa02e721c6b00a5a81080a7517742751aab_2_982x750.png
+
+- [ocaml-multicore/ocaml-multicore#380](https://github.com/ocaml-multicore/ocaml-multicore/pull/380)
+  Make DLS call to ~caml_domain_dls_get~ ~@@noalloc~
+
+  The ~caml_dls_get~ is tagged with ~@@noalloc~ to reduce the C call
+  overhead.
+
+- [ocaml-multicore/ocaml-multicore#382](https://github.com/ocaml-multicore/ocaml-multicore/pull/382)
+  Optimise ~caml_continuation_use_function~
+
+  A couple of optimisations that yield 25% performance improvements
+  for the generator example by using ~caml_domain_alone~, and using
+  ~caml_gc_log~ under ~DEBUG~ mode.
+
+- [ocaml-multicore/ocaml-multicore#389](https://github.com/ocaml-multicore/ocaml-multicore/pull/389)
+  Avoid holding domain_lock when using backup thread
+
+  The wait time for the main OCaml thread is reduced by altering the
+  backup thread logic without holding the ~domain_lock~ for the
+  ~BT_IN_BLOCKING_SECTION~.
+
+***** Sundries
+
+- [ocaml-multicore/ocaml-multicore#391](https://github.com/ocaml-multicore/ocaml-multicore/pull/391)
+  Use ~Word_val~ for pointers with ~Patomic_load~
+
+  A bug fix to correctly handle ~Patomic_load~ for loaded pointers.
+
+- [ocaml-multicore/ocaml-multicore#392](https://github.com/ocaml-multicore/ocaml-multicore/pull/392)
+  Include Ipoll in leaf function test
+
+  The ~Ipoll~ operation is now added to ~asmcomp/amd64/emit.mlp~ as an external call.
+
+*** Benchmarking
+
+**** Ongoing
+
+- [ocaml-bench/sandmark#122](https://github.com/ocaml-bench/sandmark/issues/122)
+  Measurements of code size
+
+  The code size of a benchmark is one measurement that is required for
+  ~flambda~ branch. A
+  [PR](https://github.com/ocaml-bench/sandmark/pull/165) has been
+  created that now emits a count of the CAML symbols in the output of
+  a bench result as shown below:
+
+  #+begin_example
+    {"name":"knucleotide.", ... ,"codesize":276859.0, ...}
+  #+end_example
+
+- [ocaml-bench/sandmark#169](https://github.com/ocaml-bench/sandmark/pull/169)
+  Add check_url for .json and pkg-config, m4 in Makefile
+
+  A ~check_url~ target in the Makefile has been defined to ensure that
+  the ~ocaml-versions/*.json~ files have a URL parameter. The patch
+  also adds ~pkg-config~ and ~m4~ to Ubuntu dependencies.
+
+**** Completed
+
+***** Benchmarks
+
+- [ocaml-bench/sandmark#107](https://github.com/ocaml-bench/sandmark/issues/107)
+  Add Coq benchmarks
+
+  The ~fraplib~ library from the [Formal Reasoning About
+  Programs](https://github.com/achlipala/frap) has been dunified and
+  included in Sandmark for Coq benchmarks.
+
+- [ocaml-bench/sandmark#151](https://github.com/ocaml-bench/sandmark/pull/151)
+  Evolutionary algorithm parallel benchmark
+
+  The evolutionary algorithm parallel benchmark is now added to Sandmark.
+
+- [ocaml-bench/sandmark#152](https://github.com/ocaml-bench/sandmark/pull/152)
+  LU decomposition: random numbers initialisation in parallel
+
+  The random number initialisation for the LU decomposition benchmark
+  now has parallelism that uses ~Domain.DLS~ and ~Random.State~.
+
+- [ocaml-bench/sandmark#153](https://github.com/ocaml-bench/sandmark/pull/153)
+  Add computationally intensive Coq benchmarks
+
+  The ~BasicSyntax~ and ~AbstractInterpretation~ Coq files perform a
+  lot of minor GCs and allocations, and have been added as benchmarks
+  to Sandmark.
+
+- [ocaml-bench/sandmark#155](https://github.com/ocaml-bench/sandmark/pull/155)
+  Sequential version of Evolutionary Algorithm
+
+  The sequential version of algorithms are used for comparison with
+  their respective parallel implementations. A sequential
+  implementation for the ~Evolutionary Algorithm~ has now been included
+  in Sandmark.
+
+- [ocaml-bench/sandmark#157](https://github.com/ocaml-bench/sandmark/pull/157)
+  Minilight Multicore: Port to Task API and DLS for Random States
+
+  The Minilight benchmark has been ported to use the Task API along
+  with the use of Domain Local Storage for the Random States. The
+  speedup is shown in the following illustration:
+
+  https://user-images.githubusercontent.com/13328130/89261588-f5072980-d64b-11ea-9364-3f18342b7274.png
+
+- [ocaml-bench/sandmark#164](https://github.com/ocaml-bench/sandmark/pull/164)
+  Tweaks to multicore-numerical/game_of_life
+
+  The ~board_size~ for the Game of Life numerical benchmark is now
+  configurable, and can be supplied as an argument.
+
+***** Bug Fixes
+
+- [ocaml-bench/sandmark#156](https://github.com/ocaml-bench/sandmark/pull/156)
+  Fix calculation of Nbody Multicore
+
+  Minor fixes in the calculation of interactions of the bodies in the
+  ~Nbody~ implementation, and use of local ref vars to reduce writes and
+  cache traffic.
+
+- [ocaml-bench/sandmark#158](https://github.com/ocaml-bench/sandmark/pull/158)
+  Fix key error for Grammatrix for Jupyter notebook
+
+  The ~Key Error~ issue with ~notebooks/parallel/parallel.ipynb~ is
+  now resolved by passing a value to params in the
+  ~multicore_parallel_run_config.json~ file.
+
+***** Sundries
+
+- [ocaml-bench/sandmark#154](https://github.com/ocaml-bench/sandmark/pull/154)
+  Revert PARAMWRAPPER changes
+
+  Undo the ~PARAMWRAPPER~ configuration for parallel benchmark runs in
+  the Makefile, as they are not required for sequential execution.
+
+- [ocaml-bench/sandmark#160](https://github.com/ocaml-bench/sandmark/pull/160)
+  Specify prefix,libdir for alt-ergo sandbox builds
+
+  The ~alt-ergo~ library and parser require the ~prefix~ and ~libdir~
+  to be specified with ~configure~ in order to build in a sandbox
+  environment. The initial discussion is available at
+  [OCamlPro/alt-ergo#351](https://github.com/OCamlPro/alt-ergo/issues/351).
+
+- [ocaml-bench/sandmark#162](https://github.com/ocaml-bench/sandmark/pull/162)
+  Avoid installing packages which are unused for Multicore runs
+
+  The ~PACKAGES~ variable in the Makefile has been simplified to
+  include only those dependency packages that are required to build
+  Sandmark.
+
+- [ocaml-bench/sandmark#163](https://github.com/ocaml-bench/sandmark/pull/163)
+  Update to domainslib 0.2.2 and use default chunk_size
+
+  The ~domainslib~ dependency package has been updated to use the
+  0.2.2 released version, and ~chunk_size~ for various benchmarks uses
+  ~num_tasks/num_domains~ as default.
+
+*** OCaml
+
+**** Ongoing
+
+- [ocaml/ocaml#9756](https://github.com/ocaml/ocaml/pull/9756)
+  Garbage collectors colour change
+
+  The PR is needed for use with the Multicore OCaml major collector by
+  removing the need of gray colour in the garbage collector (GC)
+  colour scheme.
+
+**** Completed
+
+- [ocaml/ocaml#9722](https://github.com/ocaml/ocaml/pull/9722)
+  EINTR-based signals, again
+
+  The patch provides a new implementation to solve a collection of
+  locking, signal-handling and error checking issues.
+
+Our thanks to all the OCaml developers and users in the community for their support and contribution to
+the project. Stay safe!
+
+*** Acronyms
+
+- API: Application Programming Interface
+- DLS: Domain Local Storage
+- GC: Garbage Collector
+- OPAM: OCaml Package Manager
+- LU: Lower Upper (decomposition)
+- PR: Pull Request
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

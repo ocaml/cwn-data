@@ -1,0 +1,543 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2013.02.12</cwn_date>
+    <cwn_prev>2013.02.05</cwn_prev>
+    <cwn_next>2013.02.19</cwn_next>
+    <cwn_date_text>February 05 to 12, 2013</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>OCaml Platform - Mailing List</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-02/msg00034.html</cwn_url>
+      <cwn_who>Amir Chaudhry announced</cwn_who>
+      <cwn_what>
+As some of you may be aware from the Consortium meeting, there's an
+ongoing project to create an OCaml Platform. The Platform will combine
+the core OCaml compiler distribution from INRIA with a comprehensive,
+coherent set of libraries, tools, documentation, and other resources.
+For example, the OPAM package manager will play a central role in both
+packaging and distribution, as well as supporting continuous
+integration testing.
+
+This email is to let you know that we've set up a mailing list to
+discuss the Platform (platform &lt;at&gt; lists.ocaml.org), and those who
+are interested can follow the day-to-day discussions there [1]. Any
+important announcements, including releases, would also be copied to
+the caml-list when appropriate, so you don't need to join if you only
+want updates.
+
+Best wishes,
+Amir
+
+[1] http://lists.ocaml.org/listinfo/platform
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Memoize GADT</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-02/msg00037.html</cwn_url>
+      <cwn_who>Christophe Papazian asked and Alain Frisch replied</cwn_who>
+      <cwn_what>
+&gt; this must be a very basic question for some of you, sorry for the inconvenience :
+&gt; 
+&gt; When I have function "f" of type (a -&gt; b), I can easily add a layer to
+&gt; that function to memoize the result by using a (a,b) Hashtbl.t to
+&gt; store the results of the expensive to compute "f".
+&gt; 
+&gt; let mf = let e = Hashtbl.create 0 in ( fun x -&gt; try Hashtbl.find e x with Not_found -&gt; let res = f x in Hashtbl.add e
+&gt; x res; res )
+&gt; 
+&gt; But now, I have a function "g" 
+&gt; 	let g (type a) : a gadt -&gt; a = ....
+&gt; 
+&gt; And If I apply the same method, type a becomes weak (_'a).
+&gt; 
+&gt; Is there something simple to memoize that function as easy as the
+&gt; previous example and keep its polymorphism ? I think not, but I hope
+&gt; to be wrong.
+
+We have encountered exactly the same problem recently.  A slightly more 
+general version of your question is how to memoize a function of type
+
+   'a t -&gt; 'a s
+
+for two type parametrized constructors t and s (and similarly with 
+higher arities).  We want an hash table which can hold key/value 
+bindings ('a t * 'a s) for any 'a.  The equality of keys must be such 
+that when (key1 : 'a t) is equal to (key2 : 'b t), we can deduce that 'a 
+and 'b are the same type (i.e. the value must hold enough information to 
+deduce the type from the content), which guarantees that 'a s and 'b s 
+are also the same type (and so the existing value associated to key1 can 
+be returned for key2).  This assumption often holds when 'a t is a GADT 
+representing "expressions which evaluate to values of type 'a".
+
+Our solution (implemented by my colleague Sebastien, in Cc:) has been to 
+create a functor with the following signature:
+
+======================================================================
+module type ParametricType = sig
+   type 'a t
+end
+
+module ParametricEquality : sig
+   type (_, _) t =
+     | Eq: ('a, 'a) t
+     | Ne: ('a, 'b) t
+end
+
+module type ParametricHashedType = sig
+   type 'a t
+   val equal: 'a t -&gt; 'b t -&gt; ('a, 'b) ParametricEquality.t
+   val hash: 'a t -&gt; int
+end
+
+module ParametricHashtbl : sig
+   module type S = sig
+     type 'a key
+     type 'a value
+     type binding = Binding: 'a key * 'a value -&gt; binding
+     type t
+     val create: int -&gt; t
+     val clear: t -&gt; unit
+     val reset: t -&gt; unit
+     val copy: t -&gt; t
+     val add: t -&gt; 'a key -&gt; 'a value -&gt; unit
+     val remove: t -&gt; 'a key -&gt; unit
+     val find: t -&gt; 'a key -&gt; 'a value
+     val find_all: t -&gt; 'a key -&gt; 'a value list
+     val replace: t -&gt; 'a key -&gt; 'a value -&gt; unit
+     val mem: t -&gt; 'a key -&gt; bool
+     val length: t -&gt; int
+     val iter: (binding -&gt; unit) -&gt; t -&gt; unit
+     val fold: (binding -&gt; 'a -&gt; 'a) -&gt; t -&gt; 'a -&gt; 'a
+   end
+   module Make(X:ParametricHashedType)(Y:ParametricType): S with type 'a 
+key = 'a X.t and type 'a value = 'a Y.t
+end
+======================================================================
+
+Note that the first input of the function (ParametricHashedTyped) looks 
+like the standard argument to Hashtbl.Make, except that the equality 
+function returns a dynamic witness of equality between 'a and 'b in case 
+of equality between two values of types 'a t and 'b t.  This is 
+implemented using a GADT.  We also use a GADT to introduce an 
+existential on 'a for key/value pairs of type ('a t * 'a s) to be used 
+for iterators (iter/fold).  Instead we could have defined those 
+iterators as taking a polymorphic function as argument (through 
+polymorphic methods or record fields, or with a first-class module), but 
+they would have been more heavy to use on the call site (although this 
+would avoid the allocation of the Binding constructor).
+
+On the implementation side, there are three choices:
+
+  - Create a type-safe implementation by instantiating Hashtbl, and 
+store values which keep a copy of the key, with an existential both on 
+keys and on values.  This requires extra comparisons and boxing. (Good 
+exercise left to the reader!)
+
+  - Copy and adapt the implementation of Hashtbl, which can avoid some 
+of the extra comparisons. (Painful!)
+
+  - The quicker way (and the one we have chosen for now) is to 
+instantiate Hashtbl on type Obj.t for keys and values, and using unsafe 
+operations (Obj.magic) to cast its result to the signature above.  I 
+don't think it is good style to share here code using Obj.magic, so I 
+will refrain from doing so :)
+
+We have done the same for Set, Map, association lists and Weak (for 
+such, I believe, the unsafe implementation is the only choice, because 
+if we wrap the values with freshly allocated existential constructors, 
+they can immediately be garbage-collected).
+
+It would probably make sense to provide such functors as part of the stdlib.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>ocp-indent beta release</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-02/msg00056.html</cwn_url>
+      <cwn_who>Louis Gesbert announced</cwn_who>
+      <cwn_what>
+OCamlPro is proud to announce the beta-release of ocp-indent.
+
+Ocp-indent is a simple tool, entirely written in OCaml, which sole purpose is to
+indent OCaml code. It can plug-in seamlessly into emacs' tuareg mode, or be run
+from vim.
+
+You can try it now with:
+
+$ opam install ocp-indent
+
+$ INSTDIR="$(opam config var prefix)/share/typerex/ocp-indent"
+
+$ echo '(load-file "'"$INSTDIR/ocp-indent.el"'")' &gt;&gt;~/.emacs
+
+$ echo 'autocmd FileType ocaml source '"$INSTDIR"'/ocp-indent.vim' &gt;&gt;~/.vimrc
+
+Or check it out at https://github.com/OCamlPro/ocp-indent
+
+It presents many improvements over the tuareg indentation engine, a much better
+understanding of the syntax, linear complexity, specific handling for many
+cases. Also, it was intentionally provided with much less customisation options.
+
+Feel free to submit any code snippet that is not indented to your taste, to help
+us improve ocp-indent further.
+
+Some comparison with tuareg on a few big OCaml projects can be seen at
+http://htmlpreview.github.com/?https://github.com/AltGr/ocp-indent-tests/blob/master/status.html
+      </cwn_what>
+      <cwn_who>Daniel Bünzli asked and Louis Gesbert replied</cwn_who>
+      <cwn_what>
+&gt; To which extents does it support the programming guidelines [1] ?
+&gt; 
+&gt; Best,
+&gt; 
+&gt; Daniel
+&gt; 
+&gt; [1] http://caml.inria.fr/resources/doc/guides/guidelines.en.html
+
+They should be fully supported -- please report a bug if you find any 
+inconsistency.
+
+One exception is that we indent match-cases if the match doesn't start the line, 
+not just when it is after a let:
+
+let x =
+  y + match _ with
+    | _ -&gt; ...
+
+this gives more readability IMHO
+      </cwn_what>
+      <cwn_who>Didier Remy asked and Louis Gesbert replied</cwn_who>
+      <cwn_what>
+&gt; Why is the choice of tuareg-mode wired-in?
+&gt; Is is possible to use ocp-indent on top of the default caml-mode?
+
+Hmm, good remark, there is no real reason for that except that we use tuareg-
+mode. I'll see how to remove this dependency from our emacs script.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Core Suite 109.08.00 released</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-02/msg00060.html</cwn_url>
+      <cwn_who>Jeremie Dimino announced</cwn_who>
+      <cwn_what>
+Another email to announce the 109.08.00 release of the Core
+suite. Amongst other things this new release includes the patdiff tool
+(which we used to distribute in the past); a diff-like program trying
+to improve the output.  You can see an example here:
+
+  http://janestreet.github.com/patdiff.html
+
+Files and documentation are available on our website and all packages
+are in opam:
+
+  https://ocaml.janestreet.com/ocaml-core/109.08.00/individual/
+  https://ocaml.janestreet.com/ocaml-core/109.08.00/doc/
+
+This release also fixes a few build issues with OSX.
+
+Full changelog since 109.07.00:
+
+- Async_extra:
+  - Added module `Async.Command`
+    This is `Core.Command` with additional async functions.  In particular
+    it contains a function `async_basic` that is exactly the same as
+    `Core.Command.basic`, except that the function it wraps returns
+    `unit Deferred.t`, instead of `unit`.  `async_basic` will also start the
+    async scheduler before the wrapped function is run, and will stop the
+    scheduler when the wrapped function returns.
+- Async_unix:
+  - Added module `Async.Process`
+    This is a new module for creating and dealing with child processes.
+  - For `Writer.save`, replaced the `temp_prefix` argument with `temp_file`.
+  - Added `Ivar.invariant` function.
+  - Added value `Scheduler.fold_fields`
+    This lets one fold over the fields in the scheduler, eliminates an
+    annoying place in catalog browser that reached into the internals of
+    async to compute the sizes of the scheduler fields
+- Core:
+  - Cleaned up and updated the `README`.
+  - Changed executables to enable backtraces if `OCAMLRUNPARAM` is not set.
+  - Changed `Command` so that executables show build info and version info
+    This happens when an executatble is called as:
+
+      foo.exe version
+
+    Before this change, rather than display build info, executables
+    would display the not-so-helpful:
+
+    (no option given - printing version)
+  - Added back `Float` rounding functions with a hardcoded direction.
+  - Exposed `with bin_io` and `with compare` for the =sexp_bool= type.
+  - Added value `Core.Never_returns.sexp_of_t`.
+  - Added values `Or_error.tag{,_arg}`
+    These are analogous to `Error` functions of the same name.
+  - Added functor `Sexpable.Of_sexpable`
+    This is for serializing values of one type as though it were some
+    other isomorphic type.
+  - Added module `Backtrace.Exn`
+    This exposes OCaml stdlib's `Printexc` functions for backtraces.
+  - Added module `Flags`
+    This implements Unix-style sets of flags that are represented as an
+    `int` with various bits set, one bit for each flag, e.g.,
+    `Linux_ext.Epoll.Flag`.
+  - Added module `Uuid`
+    This module implements universally unique identifiers based on version
+    3 of the UUID specification.  It used to be in `Core_extended=`
+  - Added module `Type_equal`, which defines the "equality" GADT.
+- Type_conv:
+  - Fixed type_conv to stop dropping parens in arguments such as:
+
+      type t = {
+        a : int with default(1), sexp_drop_if(fun x -&gt; (x + 1) * 2 = 4)
+      } with sexp
+
+If you don't see the changes you submitted they are on their way for
+the next release.
+      </cwn_what>
+      <cwn_who>Gabriel Scherer asked and Jeremie Dimino replied</cwn_who>
+      <cwn_what>
+&gt; Patdiff looks nice. Could you comment on its portability? I glanced at
+&gt; the code and I spotted some possibly unixy things (eg. "/dev/null").
+&gt; In which environments is it expected to work (possibly with degraded
+&gt; options)?
+
+It has been tested on Linux and OSX. Right now there might already be
+issues with compiling Core in other environments, so I wouldn't be
+very confident about portability. For example I tested this week on
+FreeBSD and the C stubs failed to build, but it should be easy to fix.
+We'll try to improve this for future releases. Windows support should
+be possible too with more work.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OCaml Labs Monthly Update</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-02/msg00068.html</cwn_url>
+      <cwn_who>Amir Chaudhry announced</cwn_who>
+      <cwn_what>
+The monthly update on the OCaml Labs work is now posted on the website.
+You can find it at: http://www.cl.cam.ac.uk/projects/ocamllabs/activity/index.html
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OMonad 0.2</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-02/msg00077.html</cwn_url>
+      <cwn_who>Wojciech Meyer announced</cwn_who>
+      <cwn_what>
+OMonad 0.2 is out! Mostly thanks to the contributions by Jeremy Yallop!
+
+This is a new release of -ppx based syntax extension for monadic
+programming that brings to you the following new features:
+
+- generalised handling of patterns on the left side of monadic assignment
+- backtracking via fail function
+- rich set of examples, including advanced examples and mini parsing
+  combinator library
+
+It's worth to note that I perceive this release as the first stable
+release, however it requires the current trunk compiler, therefore
+version 1.0.0 will follow up after the official compiler release.
+
+Here is an example how to use omonad with OASIS, usually these three
+lines are enough:
+
+  BuildDepends:     compiler-libs, compiler-libs.common
+  ByteOpt+:         -ppx ppx_monad
+  NativeOpt+:       -ppx ppx_monad
+
+Github repository with issue tracking:
+
+   https://github.com/danmey/omonad
+
+tarball:
+
+   https://github.com/danmey/omonad/archive/omonad-0.2.0.tar.gz
+
+However, the preferred way to install omonad now is:
+
+    $ opam update
+    $ opam install omonad
+
+this is already available in the git OPAM repository.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OCaml tests on Travis CI</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-02/msg00080.html</cwn_url>
+      <cwn_who>Mike Lin announced</cwn_who>
+      <cwn_what>
+I've hacked together a way to run the tests for my OCaml projects on
+Travis CI, a free service for continuous integration on public GitHub
+projects. Hope someone may find this useful.
+http://blog.mlin.net/2013/02/testing-ocaml-projects-on-travis-ci.html
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>geany as an ocaml ide</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-02/msg00078.html</cwn_url>
+      <cwn_who>Martin DeMello asked and Ashish Agarwal replied</cwn_who>
+      <cwn_what>
+&gt; I spent some time last night going through all the "what is a good
+&gt; (beginner's) ide for ocaml?" threads I could find online, and trying
+&gt; out the various options suggested. I ruled out the following:
+&gt; 
+&gt; * vim, emacs and eclipse (not beginner-friendly; people who want to
+&gt; use them will know how to do it)
+&gt; * anything that did not provide a binary install for Windows and OSX,
+&gt; and wasn't a simple configure/make/make install on linux
+&gt; * anything that needed fiddling with config files just to install it
+&gt; * anything that needed the OCaml sources to be independently present
+&gt; and configured (!)
+&gt; * anything that was abandoned, or didn't seem to support OCaml 4
+&gt; 
+&gt; I was left with Geany and Komodo Edit as possibilities, and Geany won
+&gt; out by letting me open up a test.ml file and immediately being able to
+&gt; find and run the OCaml compiler. At least on Linux, it was a perfect
+&gt; beginner-friendly experience.
+&gt; 
+&gt; So what do people think about ocaml.org officially promoting Geany as
+&gt; the answer to "I'm learning OCaml; what is a good IDE?"? I'd be happy
+&gt; to write up a page on it and contribute it.
+
+This page [1] needs some help and is probably a good place for
+discussion about IDEs. Please add any discussion you'd like and we'll
+merge it. Given your list below, maybe you want to make a table of
+features with a checkmark for each IDE having that feature (but that
+could be hard to maintain, so plain prose might be better).
+
+[1] http://ocaml.org/dev_tools.html
+      </cwn_what>
+      <cwn_who>Louis Gesbert also replied</cwn_who>
+      <cwn_what>
+OCaml is definitely lacking in this area; I am at the moment working precisely 
+on solving this issue, with a dedicated Gtk editor that runs on Linux, OSX and 
+Windows. It is pretty basic at the moment but already has code edition and 
+working toplevel interaction (no compilation or project yet).
+
+Release is intended in a few months from now, with sufficient features for 
+beginners and students. If successful, it will then be extended to handle 
+bigger projects (multi-file, build system integration, etc.).
+
+Until then, you may see the project's github page at
+https://github.com/OCamlPro/ocp-edit-simple (name temporary)
+      </cwn_what>
+      <cwn_who>Gabriel Scherer then said and Fabrice Le Fessant replied</cwn_who>
+      <cwn_what>
+&gt; I must say I'm a bit dubious of dedicated editors: people prefer to
+&gt; use the tools they're familiar with from other languages, and I'm not
+&gt; really sure what the added value of a different tool would be. There
+&gt; have been attempts to write editors for OCaml (Cameleon{,2}, zed (
+&gt; https://github.com/diml/zed )...), so far none of them really gained
+&gt; traction.
+&gt; 
+&gt; Volunteers work on whatever they fancy and I prefer not to interfere
+&gt; negatively -- though it's unclear in this case whether this is a
+&gt; personal side-project or an OCamlPro project. Moreover, all these
+&gt; efforts have led to interesting byproducts: various libraries from
+&gt; Cameleon (eg. ocaml-rss http://zoggy.github.com/ocamlrss/ ) and zed (
+&gt; and in particular the nice toplevel utop https://github.com/diml/utop
+&gt; ).
+&gt; 
+&gt; That said, I would still feel more enthusiastic about a project that
+&gt; can be used with other tools people use ( this is a good property of
+&gt; ocp-indent for example ), or directly improving OCaml support about
+&gt; tools that already have a user base : syntax highlighting libraries
+&gt; for various editors, etc. For example, Online Client-side
+&gt; Javascript-implemented In-the-cloud programming editors are all the
+&gt; rage now, they use a relatively small number of popular Javascript
+&gt; edition engines under the hood, is there work to do to make sure OCaml
+&gt; a first-class citizen there?
+
+The goal of this editor is not to replace Emacs or VI, but to be part 
+of a minimal distribution under Windows (by OCamlPro): the idea is that 
+Windows users downloading OCaml should be able to start writing a simple 
+OCaml program without installing anything else. Of course, under 
+Linux/Mac OS X, or for bigger projects, they would be advised to use 
+more powerful editors (Emacs, Vim, Notepad++, etc.).
+
+Moreover, the two paradigms are not incompatible: you can imagine two 
+versions of the "editor", one version with an interface (GTK or 
+whatever) to interact with beginners, another version with a 
+argument/text interface, to interact with other editors, both providing 
+the same set of functionalities (indentation, coloring, documentation, 
+code navigation, etc.) through the same set of libraries, and why not a 
+Javascript version through js_of_ocaml...
+      </cwn_what>
+      <cwn_who>Gabriel Scherer then replied and Fabrice Le Fessant said</cwn_who>
+      <cwn_what>
+&gt; The OCaml installer for windows (
+&gt; http://protz.github.com/ocaml-installer/ ) optionally downloads and
+&gt; install Emacs, configured for OCaml use. Couldn't the same approach be
+&gt; used to install Geany (or whatever modern-beginner-friendly existing
+&gt; editor that works on Windows) on end-user systems?
+
+We are all using different editors, and sometimes, we are even using the 
+same editor with different OCaml modes. The point is not to choose the 
+editor beginners are going to use in the next 20 years, but to provide a 
+minimal environment for beginners with OCaml.
+
+Actually, many programmers use an editor specific to their language 
+(Eclipse for Java, Charm for Python, etc.), because they often provide a 
+better environment for that language than generic editors.
+
+We decided to implement a new editor because we wanted to design the 
+basic building blocks both for this simple editor, and to be useful to 
+improve existing editors (Emacs, Vim, etc.).
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>ReactiveML 1.08.04</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2013-02/msg00109.html</cwn_url>
+      <cwn_who>Louis Mandel announced</cwn_who>
+      <cwn_what>
+We are happy to announce the new release of ReactiveML
+(&lt;http://reactiveml.org&gt;) with its online toplevel
+(&lt;http://reactiveml.org/tryrml&gt;)!
+
+ReactiveML is a language similar to OCaml extended with a built-in
+notion of parallel composition. It is based on the reactive
+synchronous model, a kind of cooperative multithreading with a global
+notion of time.
+
+The language is well suited to program applications with a lot of
+parallel processes which communicate and synchronize a lot such as
+video games or simulation problems.
+
+ReactiveML is compiled into plain OCaml code and thus can link or be
+linked to any OCaml code.
+
+This new version includes in particular:
+- an online toplevel (thanks to js_of_ocaml, tryocaml and Mehdi
+  Dogguy) with an interactive tutorial
+- a new static analysis which checks that programs are cooperative
+- a version of ocamlbuild dedicated to ReactiveML: rmlbuild
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other Caml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocaml.org/&gt;.
+
+Pprint:
+  &lt;http://caml.inria.fr/cgi-bin/hump.cgi?contrib=845&gt;
+
+First release of PPrint:
+  &lt;http://gallium.inria.fr/blog/first-release-of-pprint&gt;
+
+[ANN] ocaml-vclock - 0.0.0:
+  &lt;http://functional-orbitz.blogspot.com/2013/02/ann-ocaml-vclock-000.html&gt;
+
+More static analysis with CIL:
+  &lt;http://rwmj.wordpress.com/2013/02/07/more-static-analysis-with-cil/&gt;
+
+Syntactic Meta-Programming in OCaml (II):
+  &lt;http://hongboz.wordpress.com/2013/02/05/syntactic-meta-programming-in-ocaml-ii-5/&gt;
+
+OCaml EFL:
+  &lt;https://forge.ocamlcore.org/projects/ocaml-efl/&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

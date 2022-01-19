@@ -1,0 +1,297 @@
+Hello,
+
+Here is the latest OCaml Weekly News, for the week of March 10 to 17, 2015.
+
+1) Core_profiler 112.19.00
+2) ocaml-ctypes 0.4.0, a library for calling C functions directly from OCaml
+3) Adding support for OCaml in PythonTeX
+4) Other OCaml News
+
+========================================================================
+1) Core_profiler 112.19.00
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2015-03/msg00077.html>
+------------------------------------------------------------------------
+** Jeremie Dimino announced:
+
+I am pleased to announce the first release of Core_profiler. It is a
+library that helps you profile programs and estimate various
+costs. The library comes in three different flavors:
+
+- "disabled" which does nothing, so that one can leave probes in a
+program without performance penalty
+- "online" to print live stats
+- "offline" to store data on disk for later analysis
+
+There github project has a wiki page to help you get started with the
+library:
+
+<https://github.com/janestreet/core_profiler/wiki/GettingStarted>
+
+And Core_profiler is available in opam:
+
+opam install core_profiler
+      
+========================================================================
+2) ocaml-ctypes 0.4.0, a library for calling C functions directly from OCaml
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2015-03/msg00081.html>
+------------------------------------------------------------------------
+** Jeremy Yallop announced:
+
+I'm happy to announce the release of ocaml-ctypes 0.4.0, which is now
+available on OPAM.
+
+== About ocaml-ctypes ==
+
+The ocaml-ctypes library makes it possible to call C functions from
+OCaml without writing any C code.  The core of the library is a set of
+combinators for describing C types -- scalars, functions, structs,
+unions, arrays, and pointers to values and functions.  Type
+descriptions can then be used to bind native functions and values.
+Here's a simple example:
+
+    # let puts = foreign "puts" (string @-> returning int);;
+    val puts : string -> int = <fun>
+    # puts "Hello, world!";;
+    Hello, world!
+
+Ctypes includes many more features, including functions for retrieving
+constants, values and details about object layout from C, a way of
+building C libraries from OCaml modules, and a variety of binding
+strategies such as dynamic linking and static stub generation.
+Further information is available at the links below:
+
+  Tutorial: <https://github.com/ocamllabs/ocaml-ctypes/wiki/ctypes-tutorial>
+  Examples: <https://github.com/ocamllabs/ocaml-ctypes/tree/master/examples>
+  Some packages using ctypes:
+    <http://opam.ocaml.org/packages/ctypes/ctypes.0.3.4/>
+  API documentation: <http://ocamllabs.github.io/ocaml-ctypes/>
+  Github repository: <https://github.com/ocamllabs/ocaml-ctypes>
+  Direct download:
+    <https://github.com/ocamllabs/ocaml-ctypes/archive/0.4.0.tar.gz>
+
+== New features in 0.4.0 ==
+
+* Windows support (A. Hauptmann)
+
+  32-bit and 64-bit builds on MinGW, and continuous integration using Appveyor.
+
+* Xen support (Thomas Leonard)
+
+* Add the C99 bool type (Ramkumar Ramachandra)
+
+  The type representation
+
+    val bool : bool typ
+
+  supports passing bools to (and returning bools from) functions,
+using them as struct members, etc.
+
+* Typedef support (Edwin Török)
+
+  A new function
+
+    val typedef 'a typ -> string -> 'a typ
+
+  supports defining type aliases that are used in top-level printing
+and in stub generation.
+
+* Enum types
+
+  The new function
+
+    val enum : string -> ?unexpected:(int64 -> 'a) -> ('a * int64
+const) list -> 'a typ
+
+  supports defining types representations that appear as OCaml types
+(typically variants) on the OCaml side and C enums on the C side.
+
+* Accessing C globals with foreign_value in generated stubs
+
+  A new function
+
+     val foreign_value : string -> 'a typ -> 'a ptr fn
+
+  supports accessing C global values from OCaml programs.
+
+* Retrieving #define and enum constants from C
+
+  A new function
+
+     val constant : string -> 'a typ -> 'a const
+
+  supports retrieving compile-time constant values from C.
+
+* Releasing the runtime lock in C calls
+
+  The Foreign.foreign function now accepts an additional optional argument
+
+     ?release_runtime_lock:bool
+
+  that indicates whether the runtime lock should be released for the
+duration of the C call.
+
+* Acquiring the runtime lock in callbacks
+
+  The Foreign.funptr function now accepts an additional optional argument
+
+     ?runtime_lock:bool
+
+  that indicates whether the runtime lock should be acquired for the
+duration of the OCaml call.
+
+* Passing 'bytes' values directly to C (Peter Zotov)
+
+  The new function
+
+    val ocaml_bytes_start : bytes -> bytes ocaml
+
+  supports passing bytes values directly to C in situations where
+performance is critical.
+
+* Custom printers in views (Thomas Braibant)
+
+  The view function now accepts an additional argument
+
+     format:(Format.formatter -> 'b -> unit)
+
+  which supports custom printing for values of a view type.
+
+* Optionally obtain struct and union layout from C
+
+  The new module Cstubs.Types supports retrieving struct and union
+layouts from C as an alternative to computing them based on
+programmer-supplied information
+
+* string_opt wraps char *, not void *.
+
+* Remove some poorly-supported POSIX types
+
+  Several of the types in the PosixTypes module are no longer available.
+
+* Use nativeint to represent pointers
+
+  See "Incompatibilities" below.
+
+* Support zero-argument callbacks
+
+* A function for retrieving field names (Thomas Braibant)
+
+  The new function
+
+    val field_name : (_, _) field -> string
+
+  retrieves the name of a struct or union field.
+
+* Better exception handling when using RTLD_NOLOAD (A. Hauptmann)
+
+* RTLD_LOCAL support for Dl.dlopen
+
+* Changed the #include path to $(ocamlfind query ctypes)
+
+  See "Incompatibilities" below.
+
+* Renamed some internal modules to avoid name clashes
+
+== Incompatibilities ==
+
+This release introduces a number of minor incompatibilities.
+
+* Include path
+
+  The path to the headers installed by ctypes has changed from
+
+     $(ocamlfind query ctypes)/..
+
+  to
+
+     $(ocamlfind query ctypes)
+
+  You can set things up to work with both ctypes 0.4.0 and previous
+versions by configuring your build system to use both paths.
+
+* Pointer representation
+
+  The functions ptr_of_raw_address and raw_address_of_ptr previously
+operated on int64 values, but now operate on nativeint values.
+
+* Opam packages
+
+  There are now two OPAM packages, ctypes and ctypes-foreign.  Only
+the latter depends on libffi, so if your package uses only the ctypes
+stub generation backend then users of your library need not install
+libffi.  If you use the dynamic (Foreign) backend then you should
+depend on both packages.
+
+Existing OPAM packages that depend on ctypes have been updated accordingly.
+
+== Thanks ==
+
+Thanks to A. Hauptmann, David Sheets, Maverick Woo, Peter Zotov, David
+Kaloper, Ramkumar Ramachandra, Thomas Braibant, Hugo Heuzard, Edwin
+Török, Thomas Leonard and Yakov Zaytsev for contributions to this
+release.
+      
+========================================================================
+3) Adding support for OCaml in PythonTeX
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2015-03/msg00083.html>
+------------------------------------------------------------------------
+** José Romildo Malaquias announced:
+
+PythonTeX [<https://www.ctan.org/pkg/pythontex>] is a LaTeX package that
+allows Python code entered within a TeX document to be executed, and the
+output to be included in the original document. It supports other
+languagens beside Python.
+
+I have just requested inclusion of OCaml support in PythonTeX:
+<https://github.com/gpoore/pythontex/issues/62>
+
+The author of PythonTeX says it could be possible, and he explained what
+would be needed from the OCaml side. See the discussion in issue #62 in
+the previous link.
+
+Basically, it would need a program which reads lines from a text file,
+and these lines are given as input to an interactive session, giving
+back input interspersed with output. He gives more details in the issue
+discussion. Please read the issue discussion in the above link.
+
+Is there already such a program? If not, can it be easily written?
+
+I appreciate any help in providing this program.
+      
+========================================================================
+4) Other OCaml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocaml.org/>.
+
+ocaml-mysql 1.2.0 released:
+  <https://forge.ocamlcore.org/forum/forum.php?forum_id=923>
+
+OCaml EFL 1.13.0 released:
+  <https://forge.ocamlcore.org/forum/forum.php?forum_id=922>
+
+Labeled and optional arguments:
+  <http://shayne-fletcher.blogspot.com/2015/03/labeled-and-optional-arguments.html>
+
+Full Time: Software Developer (Functional Programming) at Jane Street in New York, NY; London, UK; Hong Kong:
+  <http://jobs.github.com/positions/0a9333c4-71da-11e0-9ac7-692793c00b45>
+
+Heap - Leftist Tree:
+  <http://typeocaml.com/2015/03/12/heap-leftist-tree/>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

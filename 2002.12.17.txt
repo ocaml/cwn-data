@@ -1,0 +1,258 @@
+Hello,
+
+Here is the latest Caml Weekly News, week 10 to 17 December, 2002.
+
+1) opengl bindings without tcl/tk
+2) Resource acquisition is initialization
+3) mod_ocaml
+4) maintainers for www.ocaml.org?
+5) ocaml embedded scripting language
+6) BDBFS version 0.3 release announcement
+
+======================================================================
+1) opengl bindings without tcl/tk
+----------------------------------------------------------------------
+Jean-Christophe Filliatre announced:
+
+Olivier Andrieu writes:
+> Jacques Garrigue:
+> > LablGL does not really require labltk.  
+> > It is just that when lablGL was first released, the only way to use
+> > it was in combination with labltk. Now you can choose: labltk,
+> > lablgtk, or Isaac Trotts lablglut.
+> 
+> It works with ocamlsdl too.
+
+It's fun you mention it, since  I've just added the support for OpenGL
+functions  in ocamlsdl  (it was  easy: one  flag and  one  function to
+interface).  
+
+I'm using the  lablGL bindings, without the tcl/tk  part. I've started
+to port  the tutorials  by Jeff Molofee  (http://nehe.gamedev.net/) in
+ocaml, in the subdirectory opengl/.
+
+For  the impatient,  I've made  a tarball  with the  first  6 lessons,
+available at:
+
+        http://www.lri.fr/~filliatr/ftp/ocaml/ocamlsdl/
+
+======================================================================
+2) Resource acquisition is initialization
+----------------------------------------------------------------------
+Here are some extracts from the thread
+http://caml.inria.fr/archives/200212/msg00125.html
+
+Blair Zajac asked and Xavier Leroy answered:
+
+> One of the nice things about C++ and Java is that with properly
+> designed classes, you don't need to worry about freeing resources
+> in complicated code, because the when the objects go out of scope
+> either normally or via an exception, they will clean themselves up.
+
+I believe this is a C++-specific idiom.  Java doesn't have
+destructors, just finalizers that are called asynchronously by the
+GC.  OCaml also has GC finalization (see below).
+
+> Here's a good description of this idiom:
+> 
+> http://sourceforge.net/docman/display_doc.php?docid=8673&group_id=9028
+> 
+> Given that Ocaml has objects, it would be useful to have this
+> idiom available to us.  Is there a way to implement it, rather
+> than just waiting for the garbage collector?
+
+Yes: higher-order functions.  For a file:
+
+let with_file_in filename action =
+  let ic = open_in filename in
+  try
+    let res = action ic in close_in ic; res
+  with x ->
+    close_in ic; raise x
+
+For a mutex:
+
+let synchronize mut action =
+  try
+    Mutex.lock mut;
+    let res = action () in
+    Mutex.unlock mut;
+    res
+  with x ->
+    Mutex.unlock mut;
+    raise x
+
+You get the idea.
+
+> Also, since objects have initializers, do they have finalizers?  I
+> read the entire Oreilly book and didn't see any mention of them.
+> 
+> Reading the C code interface, it looks like you can associate a
+> finalizer function to clean up an abstract type, but can you do
+> this with normal Ocaml code?
+
+Yes.  The function Gc.finalise lets you attach finalization code to any
+heap-allocated Caml value, not just objects.  I'm not surprised it is
+not mentioned in the O'Reilly book, since this is a recent addition to
+the OCaml implementation.
+
+Then Dmitry Bely asked and Xavier Leroy answered:
+
+> Maybe I don't understand something but IMHO it's not very usable because
+> with_file_in type is fixed after the first use. So e.g. input_line and
+> input_char operation cannot be mixed. You cannot write something like
+> 
+> let process filename =
+>   let f = with_file_in filename in
+>      begin
+>        print_string (f input_line);
+>        print_char   (f input_char); (* syntax error! *)
+>      end
+
+Even without the typing problem, this would open and close the file
+twice, which isn't what you want.  The correct usage is:
+
+let process filename =
+  with_file_in filename
+    (fun ic ->
+       print_string (input_line ic);
+       print_char (input_char ic))
+
+======================================================================
+3) mod_ocaml
+----------------------------------------------------------------------
+Maxence Guesdon asked and Erik Arneson answered:
+
+> I've been told about a mod_ocaml for apache, available at
+> http://www.slacky.de/docs/projects/mod_ocaml/
+> 
+> I have not tested it, but I thought a lot of people might be interested.
+> If some of you try it, can you tell us if it works ?
+
+It works just fine!  It is a nice module for quick dynamic web pages,
+like Mr Gushee pointed out, but I think there are a few changes that
+could be made to make it safer and more robust for bigger applications.
+
+First, it would be neat if there were a safer way to grab and validate
+the query string.  A string replacement just doesn't work very well, and
+it prints out an error if certain query string arguments aren't found,
+so there's no easy way to just search for their existence.  There are
+some OCaml modules out there to handle this, though, and I believe the
+QUERY_STRING environment variable is still available for parsing.
+
+Second, the OCaml interpreter is called every hit, which probably isn't
+very scalable.  It would be really neat if the embedded OCaml page were
+compiled to byte code and stored in memory somehow, so perhaps the OCaml
+bytecode interpreter could only be called once.  Mod_perl does something
+like this, and it seems to work very well.
+
+The latter is a pretty big project, though.  I would have no idea where
+to start, and I think mod_ocaml is a pretty neat beginning in any case! 
+
+Then SooHyoung Oh added:
+
+Ocaml Server Pages seems to have some of your requirements.
+
+First, it receives and parses the query string.
+Second, it compiles the ocaml script and execute the binary.
+
+If someone has time to combine these two tools, it'll be great, isn't it?
+
+ps: You can download osp from
+http://www.rogare.com/index.php?inc=downloads/ocaml/ocaml,
+and you can download some fixes and view examples from
+http://www.taglib.co.kr/ocaml/index.html
+
+======================================================================
+4) maintainers for www.ocaml.org?
+----------------------------------------------------------------------
+Xavier Leroy called for volunteers:
+
+Julian Assange, the creator and maintainer of the www.ocaml.org Web site,
+is looking for a new maintainer to take care of that site.
+
+As I understand it, this is a light job: just update the "News"
+section and add or update some links when appropriate.  However, in
+the interest of continuity, it would be good if the new maintainer
+could commit for, say, a couple of years.
+
+We (the OCaml team) could do the maintenance if we had to, but I like
+the idea of a Caml site that is run by enthusiastic users...
+
+If there are any volunteers, please contact me and I'll put you in
+touch with Julian.
+
+And, of course, many thanks to Julian for his efforts and support.
+
+======================================================================
+5) ocaml embedded scripting language
+----------------------------------------------------------------------
+Eric Merritt and Norman Ramsey answered:
+
+> I was wondering if anyone is familiar with a little
+> language implementation that is suitable to be
+> embedded in an ocaml program. I realize that it
+> wouldn't be that hard to do, especially in ocaml, but
+> hate to duplicate work someone else has already done.
+> There aren't really that many requirements, just the
+> ability to look at passed in data structures a return
+> a result based off of them. 
+> 
+> 
+> At first I thought that ocaml itself would be the best
+> scripting language but I havn't figured out how to link
+> in code compiled with ocamlopt. In fact, I don't think
+> it is possible at the moment. 
+
+We've written an implementation of Lua, version 2.5, for Ocaml.
+It's currently bundled with our nascent Quick C-- compiler at
+http://www.cminusminus.org.  I'd like to split it out as a separate
+distribution, but we're rather short of help at the moment and I'm
+trying to get the papers written first.  Anyway, as far as I know
+it's completely compatible with the C version, although a few library
+functions are missing.  We've been fairly happy.
+
+If you want to play with it, download and build Quick C--, then go to
+the lua subdirectory and type `mk lua.ps'---that will give you the
+documentation for the API.  The documentation for the language can
+probably be had from lua.org, but if they don't keep manuals for old
+versions, let me know and I'll put one in our CVS archive.
+
+======================================================================
+6) BDBFS version 0.3 release announcement
+----------------------------------------------------------------------
+Lex Stein announced:
+
+I am pleased to announce the release of version 0.3 of the
+BDBFS user-level NFS3 server (an NFS3 server written in OCaml).
+You can get it here:
+
+http://www.eecs.harvard.edu/~stein/bdbfs/
+
+BDBFS is a portable, user-level NFS fileserver. It implements
+version 3 of the NFS protocol as defined in RFC 1813.
+
+BDBFS stands for Berkeley DataBase File System. BDBFS is
+implemented in OCaml (release 3.06) and can be compiled either
+to native code or bytecodes for the OCaml virtual machine. BDBFS
+stores files, metadata (directories, inodes, the superblock) as
+key:value pairs using the Berkeley Database (BDB) library.
+
+It would be great to have some users (besides myself)!
+
+This is a beta release. However, it passed all the
+connectathon 2003 NFS3 tests and an hour of postmark
+stress-testing.
+
+======================================================================
+Old cwn
+----------------------------------------------------------------------
+
+If you happen to miss a cwn, you can send me a message
+(alan.schmitt@inria.fr) and I'll mail it to you, or go take a look at
+the archive (http://pauillac.inria.fr/~aschmitt/cwn/). If you also wish
+to receive it every week by mail, just tell me so.
+
+======================================================================
+
+Alan Schmitt

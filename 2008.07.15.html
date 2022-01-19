@@ -1,0 +1,256 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2008.07.08.html">Previous week</a> <a href="index.html">Up</a> <a href="2008.07.22.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of July 8 to 15, 2008.</p><ol><li><a href="#1">New library: Easy-format 0.9.0</a></li><li><a href="#2">Troublesome nodes</a></li><li><a href="#3">Name of currently executing function</a></li></ol><a name="1" /><hr /><h3>New library: Easy-format 0.9.0</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/61252c85858fe7ea#">http://groups.google.com/group/fa.caml/browse_thread/thread/61252c85858fe7ea#</a></p><i>Martin Jambon announced:</i><br /><pre>
+I would like to announce a small library (a module in fact) that is meant to
+make it easy to produce pretty-printed text:
+
+ <a href="http://martin.jambon.free.fr/easy-format.html">http://martin.jambon.free.fr/easy-format.html</a>
+
+The data to be printed goes through a tree that carries all the information
+required for pretty-printing. After that, a single call to
+Easy_format.Pretty.to_stdout (for instance) outputs the indented result.
+
+There's a reasonably complete example at
+
+ <a href="http://martin.jambon.free.fr/easy_format_example.html">http://martin.jambon.free.fr/easy_format_example.html</a>
+			</pre><i>He later added:</i><br /><pre>
+I've just released a richer version of Easy-format.
+The main URL is still <a href="http://martin.jambon.free.fr/easy-format.html">http://martin.jambon.free.fr/easy-format.html</a>
+
+It now offers the following additional features:
+
+- Support for separators that stick to the next list item (e.g. "|")
+- More wrapping options
+- Added Custom kind of nodes for using Format directly or existing
+ pretty-printers
+- Support for markup and escaping, allowing to produce colorized output
+ (HTML, terminal, ...) without interfering with the computation of
+ line breaks and spacing.
+
+Easy-format now takes advantage of most features of the Format module, with
+the notable exception of tabulation boxes. I'd be curious so see any
+interesting use of tabulation boxes.
+
+
+This release has slight incompatibilities with version 0.9.0 which was
+released earlier this week, simply because more options were added:
+
+- Deprecated use of Easy_format.Param. Instead, inherit from
+ Easy_format.list,
+ Easy_format.label or Easy_format.atom.
+- Atom nodes have now one additional argument for parameters.
+- All record types have been extended with more fields.
+ Using the "with" mechanism for inheritance is the best way of limiting
+ future incompatibilities.
+			</pre><a name="2" /><hr /><h3>Troublesome nodes</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/943eb2043c8c1266#">http://groups.google.com/group/fa.caml/browse_thread/thread/943eb2043c8c1266#</a></p><i>Deep in this thread, Dario Teixeira said:</i><br /><pre>
+For the sake of future reference, I'm going to summarise the solution to
+the original problem, arrived at thanks to the contribution of various
+people in this list (your help was very much appreciated!).  This might
+came in handy in the future if you run into a similar problem.
+
+So, we have a document composed of a sequence of nodes.  There are four
+different kinds of nodes, two of which are terminals (Text and See)
+and two of which are defined recursively (Bold and Mref).  Both See and
+Mref produce links, and we want to impose a constraint that no link node
+shall be the immediate ancestor of another link node.  An additional
+constraint is that nodes must be created via constructor functions.
+Finally, the structure should be pattern-matchable, and the distinction
+between link/nonlink nodes should be preserved so that Node-to-Node
+functions do not require code duplication and/or ugly hacks.
+
+Using conventional variants, the structure can be represented as follows.
+Alas, this solution is not compatible with constructor functions and
+requires unwanted scaffolding:
+
+module Ast =
+struct
+   type super_node_t =
+       | Nonlink_node of nonlink_node_t
+       | Link_node of link_node_t
+   and nonlink_node_t =
+       | Text of string
+       | Bold of super_node_t list
+   and link_node_t =
+       | Mref of string * nonlink_node_t list
+       | See of string
+end
+
+
+Below is the solution that was finally obtained.  Nodes are represented
+using polymorphic variants, and the module itself is recursive to get
+around the "type not fully defined" problem:
+
+module rec Node:
+sig
+   type nonlink_node_t = [ `Text of string | `Bold of Node.super_node_t list ]
+   type link_node_t = [ `See of string | `Mref of string * nonlink_node_t list ]
+   type super_node_t = [ nonlink_node_t | link_node_t ]
+
+   val text: string -&gt; nonlink_node_t
+   val bold: [&lt; super_node_t] list -&gt; nonlink_node_t
+   val see: string -&gt; link_node_t
+   val mref: string -&gt; nonlink_node_t list -&gt; link_node_t
+end =
+struct
+   type nonlink_node_t = [ `Text of string | `Bold of Node.super_node_t list ]
+   type link_node_t = [ `See of string | `Mref of string * nonlink_node_t list ]
+   type super_node_t = [ nonlink_node_t | link_node_t ]
+
+   let text txt = `Text txt
+   let bold seq = `Bold (seq :&gt; super_node_t list)
+   let see ref = `See ref
+   let mref ref seq = `Mref (ref, seq)
+end
+
+
+If you try it out, you will see that this solution enforces the basic
+node constraints.  The values foo1-foo4 are valid, whereas the compiler
+won't accept foo5, because a link node is the parent of another:
+
+open Node
+let foo1 = text "foo"
+let foo2 = bold [text "foo"]
+let foo3 = mref "ref" [foo1; foo2]
+let foo4 = mref "ref" [bold [see "ref"]]
+let foo5 = mref "ref" [see "ref"]
+
+
+Now, suppose you need to create an Ast-to-Node sets of functions (a likely
+scenario if you are building a parser for documents).  The solution is
+fairly straightforward, but note the need to use the cast operator :&gt;
+to promote link/nonlink nodes to supernodes:
+
+module Ast_to_Node =
+struct
+   let rec convert_nonlink_node = function
+       | Ast.Text txt          -&gt; Node.text txt
+       | Ast.Bold seq          -&gt; Node.bold (List.map convert_super_node seq)
+
+   and convert_link_node = function
+       | Ast.Mref (ref, seq)   -&gt; Node.mref ref (List.map convert_nonlink_node seq)
+       | Ast.See ref           -&gt; Node.see ref
+
+   and convert_super_node = function
+       | Ast.Nonlink_node node -&gt; (convert_nonlink_node node :&gt; Node.super_node_t)
+       | Ast.Link_node node    -&gt; (convert_link_node node :&gt; Node.super_node_t)
+end
+
+
+Finally, another common situation is to build functions to process nodes.
+The example below is that of a node-to-node "identity" module.  Again, it
+is fairly straightforward, but note the use of the operator # and the need
+to cast link/nonlink nodes to supernodes:
+
+module Node_to_Node =
+struct
+   open Node
+
+   let rec convert_nonlink_node = function
+       | `Text txt              -&gt; text txt
+       | `Bold seq              -&gt; bold (List.map convert_super_node seq)
+
+   and convert_link_node = function
+       | `See ref               -&gt; see ref
+       | `Mref (ref, seq)       -&gt; mref ref (List.map convert_nonlink_node seq)
+
+   and convert_super_node = function
+       | #nonlink_node_t as node -&gt; (convert_nonlink_node node :&gt; super_node_t)
+       | #link_node_t as node    -&gt; (convert_link_node node :&gt; super_node_t)
+end
+			</pre><i>He later added:</i><br /><pre>
+Sorry, but in the meantime I came across two problems with the supposedly
+ultimate solution I just posted.  I have a correction for one, but not
+for the other.
+
+The following statements trigger the first problem:
+
+let foo1 = text "foo"
+let foo2 = see "ref"
+let foo3 = bold [foo1; foo2]
+
+Error: This expression has type Node.link_node_t but is here used with type
+        Node.nonlink_node_t
+      These two variant types have no intersection
+
+The solution that immediately comes to mind is to make the return types
+for the constructor functions open:  (I can see no disadvantage with
+this solution; please tell me if you find any)
+
+
+module rec Node:
+sig
+   type nonlink_node_t = [ `Text of string | `Bold of Node.super_node_t list ]
+   type link_node_t = [ `See of string | `Mref of string * nonlink_node_t list ]
+   type super_node_t = [ nonlink_node_t | link_node_t ]
+
+   val text: string -&gt; [&gt; nonlink_node_t]
+   val bold: [&lt; super_node_t] list -&gt; [&gt; nonlink_node_t]
+   val see: string -&gt; [&gt; link_node_t]
+   val mref: string -&gt; nonlink_node_t list -&gt; [&gt; link_node_t]
+end =
+struct
+   type nonlink_node_t = [ `Text of string | `Bold of Node.super_node_t list ]
+   type link_node_t = [ `See of string | `Mref of string * nonlink_node_t list ]
+   type super_node_t = [ nonlink_node_t | link_node_t ]
+
+   let text txt = `Text txt
+   let bold seq = `Bold (seq :&gt; super_node_t list)
+   let see ref = `See ref
+   let mref ref seq = `Mref (ref, seq)
+end
+
+
+The second problem, while not a show-stopper, may open a hole for misuse of
+the module, so I would rather get it fixed.  Basically, while the module
+provides constructor functions to build nodes, nothing prevents the user
+from bypassing them and constructing nodes manually.  The obvious solution
+of declaring the types "private" results in an "This fixed type has no row
+variable" error.  Any way around it?
+			</pre><a name="3" /><hr /><h3>Name of currently executing function</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/25c9706b89196140#">http://groups.google.com/group/fa.caml/browse_thread/thread/25c9706b89196140#</a></p><i>Dave Benjamin asked and blue storm answered:</i><br /><pre>
+&gt; Is there any way to find out the name of the currently executing 
+&gt; function from within an OCaml program? I guess, technically, I'm 
+&gt; interested in the grandparent. Something that would allow this: 
+&gt; 
+&gt; let log msg = 
+&gt;    Printf.eprintf "%s: %s\n%!" 
+&gt;      (get_caller_function_name ()) 
+&gt;      msg 
+&gt; 
+&gt; I'm guessing the above is not possible, but perhaps there's some way to 
+&gt; accomplish this using some combination of camlp4, back traces, 
+&gt; profiling, or debugging?
+
+Here is a little camlp4 code for an ad-hoc solution :
+<a href="http://bluestorm.info/camlp4/Camlp4GenericProfiler.ml">http://bluestorm.info/camlp4/Camlp4GenericProfiler.ml</a>
+
+It's based upon the Camlp4Filters/Camlp4Profiler.ml from the camlp4
+distribution.
+The GenericMake functor will traverse your code and apply the
+parametrized function to the body of each function declaration. You
+can use it with a functor providing a  (with_fun_name : string -&gt;
+Ast.expr -&gt; Ast.expr), transforming the Ast to your liking, given the
+function name.
+
+I've written a small LoggingDecorator module that operates on the
+__LOG__ identifier. Example code :
+ let __LOG_FUNC__ func msg =  Printf.eprintf "in function %s: %s\n%!" func msg
+ let test_function p = if not p then __LOG__ "p is false !"
+
+It will replace the __LOG__ identifier with a __LOG_FUNC__ "p".
+
+You can change that behavior, in particular you could be interested
+(for logging purpose) in the location of the function declaration, not
+only his name : see how the initial Camlp4Profiler behavior (wich i
+kept in the ProfilingDecorator) do that (Loc.dump).
+			</pre><hr /><h3>Using folding to read the cwn in vim 6+</h3><p>Here is a quick trick to help you read this CWN if you are viewing it using vim (version 6 or greater).</p><pre>:set foldmethod=expr<br />:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'&amp;lt;1':1<br />zM</pre><p>If you know of a better way, please let me know.</p><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

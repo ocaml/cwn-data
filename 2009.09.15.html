@@ -1,0 +1,525 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2009.09.08.html">Previous week</a> <a href="index.html">Up</a> <a href="2009.09.22.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of September 08 to 15, 2009.</p><ol><li><a href="#1">ocaml-fileutils v0.4.0</a></li><li><a href="#2">ocamlfind and GODI packaging sprint summary</a></li><li><a href="#3">Partially hiding modules in packages</a></li><li><a href="#4">polymorphic method.</a></li><li><a href="#5">A kind of syslog functionality</a></li><li><a href="#6">Ocamldoc and multiple packages</a></li><li><a href="#7">Other Caml News</a></li></ol><a name="1" /><hr /><h3>ocaml-fileutils v0.4.0</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/e0e342415b599e51#">http://groups.google.com/group/fa.caml/browse_thread/thread/e0e342415b599e51#</a></p><i>Sylvain Le Gall announced:</i><br /><pre>
+Ocaml fileutils is aimed to be a platform independent library to perform
+operation on file like:
+- mv
+- cp
+- rm
+- mkdir
+- touch
+- which...
+
+Comes also with a module to manipulate abstract filename:
+- classification
+- make_relative: made a filename relative to another
+- make_absolute
+
+This new release simplify module structure (nested modules are not
+required anymore) and comes with a more clear documentation. It also
+removes parser/lexer for path which was little bit overkilling. Some
+operations have been optimized for speed (like find) -- coming close in
+term of performance to standard POSIX commands.
+
+Link:
+<a href="http://le-gall.net/sylvain+violaine/ocaml-fileutils.html">http://le-gall.net/sylvain+violaine/ocaml-fileutils.html</a>
+      </pre><a name="2" /><hr /><h3>ocamlfind and GODI packaging sprint summary</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/eddb07cf52acb357#">http://groups.google.com/group/fa.caml/browse_thread/thread/eddb07cf52acb357#</a></p><i>Hezekiah M. Carty announced:</i><br /><pre>
+The OCaml packaging sprint is now complete.  It was quite a success!
+
+In total, seven packages were worked on today as part of this effort:
+
+- cairo-ocaml
+- bitstring
+- mlpost
+- ocamlgsl
+- Deriving
+- coThreads
+- Uuidm
+
+Out of these seven packages, the packaging efforts are in several states.
+
+New package available in GODI:
+- ocamlgsl
+
+Ready for GODI, pending upload:
+- bitstring
+- Uuidm
+
+Almost ready, requiring a bit more testing/tweaking:
+- Cairo-OCaml
+- mlpost
+
+In progress:
+- Deriving
+- coThreads
+
+So ocamlgsl is out there now and installable in GODI, with the other
+packages hopefully following in the next few days.
+
+You can read more, and find some ideas for libraries to package if you
+are interested, at the wiki page:
+
+<a href="http://ocamlsprint.couch.it/ocamlfind_and_GODI_packaging">http://ocamlsprint.couch.it/ocamlfind_and_GODI_packaging</a>
+
+Thanks to everyone who was involved in the packaging effort today!
+      </pre><a name="3" /><hr /><h3>Partially hiding modules in packages</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/3984117e6bb6129f#">http://groups.google.com/group/fa.caml/browse_thread/thread/3984117e6bb6129f#</a></p><i>Alexey Rodriguez asked:</i><br /><pre>
+My question is about how to hide modules (or parts thereof) in
+an ocaml package from the outside world (users of the package).
+
+I am trying to build an ocaml package with internal functionality
+(types and functions)
+that I do not want to expose. I have two modules in the package implemented by
+foo.ml and bar.ml. The structure of each .mli looks like this:
+
+&gt; module Foo = sig
+&gt;   type t
+&gt;   val make : t
+&gt;   val change : t -&gt; t
+&gt;
+&gt;   (* Internal, not to be exposed. *)
+&gt;   val unsafe_change : t -&gt; t
+&gt; end
+
+&gt; module Bar = sig
+&gt;   type t
+&gt;   val combine : t -&gt; Foo.t -&gt; t (* uses unsafe_change *)
+&gt; end
+
+As you see Foo exports unsafe_change because Bar needs it.
+I compile both modules using "-for-pack Foobar" and build them using
+the "-pack" option.
+However, now I want to hide "Foo.unsafe_change" from the package
+"export list" (if there
+is such a thing) so that main.ml cannot call it. I see the following options:
+
+* Merge foo.ml and bar.ml so that unsafe_change does not need to be exposed.
+ I don't like this, the modules could be very large.
+* Split Foo into Foo_internal and Foo, and somehow keep Foo_internal
+ invisible. I don't know how to do this. I would use "exposed-modules" in
+ Cabal which is a package manager for Haskell.
+* Add the file foobar.mli which contains the signatures of Foo and Bar
+but hiding
+ Foo.unsafe_change. I think it could work, but I would have to repeat
+much of the Foo
+ and Bar interfaces. I tried this but it didn't work, ocaml complains
+as follows:
+
+&gt; Error: The implementation (obtained by packing)
+&gt;        does not match the interface foobar.mli:
+&gt;        The field `Foo' is required but not provided
+
+ I am attaching a tarball of this attempt in case someone knows what
+went wrong.
+ The example is a bit different from the example in the email.
+
+So the question is:
+
+ What solution do you follow when you want to hide (part of) a module
+in a package?
+ Keep in mind that the hidden parts should still be exposed to the
+modules inside
+ the package.
+
+A related question is how to expose the representation Foo.t so that
+Bar can manipulate it
+directly, but at the same time keep it hidden from users of the
+package. The following easy
+hack works. Create foo_type.mli with the definition of the type t:
+
+&gt; type t = int
+
+and redefine Foo as follows:
+
+&gt; module Foo = sig
+&gt;   type t = Foo_type.t
+&gt;   val make : t
+&gt;   val change : t -&gt; t
+&gt;
+&gt;   (* Internal, not to be exposed. *)
+&gt;   val unsafe_change : t -&gt; t
+&gt; end
+
+Now "t" is visible for Bar to use but we still have to hide it from
+the outside world. How do
+we do it? Well, just use "-pack" on foo.cmx and bar.cmx. We can omit
+Foo_types because it has
+no .cmx. As a consequence Foo.t becomes abstract. This probably works
+by accident and maybe it
+is not a good idea to rely on this trick.
+
+I would appreciate if you can share your experiences and perhaps point
+to some ocaml library
+that does module or partial module hiding so I can use it as an example.
+      </pre><i>blue storm suggested:</i><br /><pre>
+The problem with your packages.tgz example is that you use "module
+type Foo = .." in the .mli. This gives the signature of a module type,
+that is, it refers to a _module type_ defined in the implementation
+file.
+
+What you want to do here is to give the signature of a _module_, not a
+module types, so here is the correct syntax :
+
+ module Foo : sig
+   type foo_t
+
+   val initial : foo_t
+   val show : foo_t -&gt; string
+ end
+
+
+Regarding your original problem, I've had the same needs and came up
+with a slightly different solution : in order to avoid the additional
+indirection level related to -pack (Foobar.Foo), is used a flattened
+representation by adding a "foobar.ml" file containing only :
+
+ include Foo
+
+(and possibly include of other modules in the package). Then the
+foobarl.mli is :
+
+ type foo_t
+
+ val initial : foo_t
+ val show : foo_t -&gt; string
+
+And values can be referred with Foobar.foo, instead of Foobar.Foo.foo.
+Of course this is only useful if you don't want the user to see the
+internal module hierarchy, wich may not be what you had in mind.
+      </pre><i>Alain Frisch also suggested:</i><br /><pre>
+It is not a well-known fact, but it is possible to provide an explicit
+interface for the packaged module (just create an ad hoc foobar.mli and
+compile it before doing the -pack'ing).
+      </pre><i>Jean-Christophe Filliâtre also replied:</i><br /><pre>
+&gt; My question is about how to hide modules (or parts thereof) in
+&gt; an ocaml package from the outside world (users of the package).
+&gt;
+&gt; * Add the file foobar.mli which contains the signatures of Foo and Bar
+&gt; but hiding
+&gt;   Foo.unsafe_change. I think it could work, but I would have to repeat
+&gt; much of the Foo
+&gt;   and Bar interfaces. I tried this but it didn't work, ocaml complains
+&gt; as follows:
+
+That's the solution we followed in Mlpost (<a href="http://mlpost.lri.fr/">http://mlpost.lri.fr/</a>) and it
+works fine (you may have a look at the Makefile.in in mlpost sources).
+
+Indeed, you have to repeat (parts of) the modules interfaces, but since
+it is where we put all the ocamldoc documentation, in a single file, it
+appears to be a satisfying solution.
+      </pre><a name="4" /><hr /><h3>polymorphic method.</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/1920b32e5a6091dd?pli=1">http://groups.google.com/group/fa.caml/browse_thread/thread/1920b32e5a6091dd?pli=1</a></p><i>Guillaume Yziquel asked:</i><br /><pre>
+When developing with objects in OCaml, I'm quite often faced with polymorphic
+methods.
+
+Such as:
+
+class myobject = object
+ method id x = x
+end
+
+Sometimes you have many methods that you're tinkling with, and the compiler
+keeps saying to you that 'a is inbound in this class declaration.
+
+I'm therefore wondering if it would be a good idea to have a keyword
+'polymorphic', and one would write
+
+class myobject = object
+ polymorphic method id x = x
+end
+
+The polymorphic keyword would be a hint that the method is polymorphic and
+that there is no need to look at the class' type parameters.
+      </pre><i>Jacques Garrigue replied:</i><br /><pre>
+There are already polymorphic methods in ocaml.
+The syntax for your example would be:
+
+class myobject = object
+ method id : 'a. 'a -&gt; 'a = fun x -&gt; x
+end
+
+A "polymorphic" keyword might seem simpler, but it would be complex to
+handle the case where a polymorphic method type contains also class
+parameters:
+
+class ['a] cell (x : 'a) = object
+ method pair : 'b. 'b -&gt; 'a * 'b = fun y -&gt; (x,y)
+end
+
+More generally, you might end up with types more polymorphic than you
+expected, and since differently instantiated polymorphic method types
+are incompatible, this would be a problem.
+      </pre><i>Guillaume Yziquel then asked and Jacques Garrigue replied:</i><br /><pre>
+&gt; By the way, I do not exactly understand the "you might end up with
+&gt; types more polymorphic than you expected" part.
+
+This is actually the main problem.
+At some point, I actually considered generating automatically
+polymorphic method types where possible.
+The idea would be simply to first give all the methods in a class
+monomorphic types (to avoid the undecidability of polymorphic recursion),
+and then generalize all type variables that do not "escape": i.e. do
+not appear in class parameters, value fields, or global references.
+Technically this is perfectly doable.
+Theoretically, there are problems with principality, as there is no
+most generic type for a polymorphic method (all types are incompatible
+with each other).
+It is easier to see that on a practical example.
+Say that I defined lists:
+
+class ['a] cons x l = object (_ : 'self)
+ method hd : 'a = x
+ method tl : 'self = l
+end
+
+class nil = object
+ method hd = raise Empty
+ method tl = raise Empty
+end
+
+Now, both cons and nil would be typable (cons is already typable), and
+the inferred types would be:
+class ['a] cons : 'a -&gt; 'b -&gt;
+ object ('b) method hd : 'a method tl : 'b end
+
+class nil : object
+ method hd : 'a
+ method tl : 'b
+end
+
+At first glance, it seems that the type of nil being completely
+polymorphic, we could pass it as second argument to cons.
+However, it is not the case. cons has two monomorphic methods, while
+nil has two polymorhic methods, and their types are incomparable.
+If we look at object types,
+
+type 'a cons = &lt; hd : 'a; tl : 'b &gt; as 'b
+type nil = &lt; hd : 'a.'a ; tl : 'b.'b &gt;
+
+Of course, you could argue that what is wrong is the definition of
+nil. But basically there is no way to decide what is the right type
+for nil as soon as we allow inferring polymorphic methods.
+
+Interestingly, currently you can define nil as an immediate object
+and have immediately the right type without any annotation:
+
+exception Empty
+let nil = object
+ method hd = raise Empty
+ method tl = raise Empty
+end ;;
+val nil : &lt; hd : 'a; tl : 'b &gt; = &lt;obj&gt;
+
+let l = new cons 3 nil ;;
+val l : int cons = &lt;obj&gt;
+
+So, the current approach is to privilege the monomorphic case,
+requiring type annotations for the polymorphic case. Your suggestion
+of allowing to give a hint that you want a polymorphic type makes
+sense, but it does not say which polymorphic type: there might be
+several, with different levels of polymorphism, with no way to choose
+between them. Probably it would be ok to choose the most polymorphic
+one, but one can always find counter-examples. So the meaning of your
+"polymorphic" keyword would be: "give me the most polymorphic type for
+this method, I hope I understand what it will be, but if I'm wrong and
+it breaks my program I won't complain". This may be practically ok,
+but this is a hard sell as a language feature. Particularly when you
+think that future versions of the compiler may be able to infer more
+polymorphic types, thanks to improvements in type inference, and
+suddenly break your program.
+      </pre><i>The editor says:</i><br /><pre>
+There were many replies to this thread with more technical discussion. Please 
+follow the archive link above if you want to read them.
+      </pre><a name="5" /><hr /><h3>A kind of syslog functionality</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/4d1a0128632e53bf#">http://groups.google.com/group/fa.caml/browse_thread/thread/4d1a0128632e53bf#</a></p><i>Michaël Grünewald asked and Stéphane Glondu replied:</i><br /><pre>
+&gt; I am looking for a way to gather the messages coming from various modules of a
+&gt; program and selectively dispatch them to STDERR, a log file, or whatever.
+&gt; 
+&gt; A module processing the messages in a manner similar to the `syslog' found on
+&gt; UNIX systems would be nice.
+
+There is an implementation of the syslog protocol itself in OCaml:
+
+ <a href="http://homepage.mac.com/letaris/">http://homepage.mac.com/letaris/</a>
+
+It is also available as package in Debian (and Ubuntu).
+      </pre><a name="6" /><hr /><h3>Ocamldoc and multiple packages</h3><p>Archive: <a href="http://groups.google.com/group/fa.caml/browse_thread/thread/abfe4d4da5da3c9d#">http://groups.google.com/group/fa.caml/browse_thread/thread/abfe4d4da5da3c9d#</a></p><i>Alexey Rodriguez asked:</i><br /><pre>
+I am trying to build ocamldoc documentation for an ocaml project that 
+contains multiple packages (collections of modules built using 
+-for-pack and -pack). My current setup generates documentation for 
+each package but it won't generate hyperlinks to modules in other 
+packages (module not found errors). I tried using the -load and -dump 
+commands to allow ocamldoc see the ocamldoc-results of the referred to 
+package, but I still get problems. I suspect that the problem arises 
+because ocamldoc does not have a -pack option, so it always sees 
+modules in a flat way. So if you have package Pack1 with module A, and 
+module B in Pack2 which refers to Pack1.A.t, ocamldoc cannot solve 
+this reference because it does not know that module A is inside 
+another module called Pack1. 
+
+The solutions I see right now seem to involve more effort than I am 
+willing to spend. So, before I embark on a task that might take too 
+long I would like to ask for tips on this. How do you perform ocamldoc 
+generation for projects with multiple packages? Thanks!
+      </pre><i>Bertrand Jeannet suggested:</i><br /><pre>
+I wrote very recently a small script that packs source modules into a big
+module, and takes care of ocamldoc convention, which is to interpret in each
+file the first (** *) comment as the title associated to the module.
+
+I am very bad at sh and gawk script, so the result (given below) is not very
+elegant...
+
+It would of course be better (and much more robust) to have a direct support
+in ocamldoc.
+
+Bertrand
+
+-----------
+
+#/bin/sh
+
+# command line (very primitive...)
+if test $1 != "-o"; then
+   echo "ocamlpack: usage: ocamlpack -o outputmodule -title &lt;str&gt; module1 module2 ..."
+   exit -1
+fi
+shift
+out=$1
+shift
+if test $1 != "-title"; then
+   echo "ocamlpack: usage: ocamlpack -o outputmodule -title &lt;str&gt; module1 module2 ..."
+   exit -1
+fi
+shift
+outtitle=$1
+shift
+
+# prepare output
+/bin/rm -f $out.ml $out.mli
+echo "(** $outtitle *)"&gt;$out.ml
+echo "(** $outtitle *)"&gt;$out.mli
+
+# iterate on input module,
+for i in $*; do
+   name=$i
+# 1.A Look for the first (** *) comment, and output it to out.ml
+# (see ocamldoc convention)
+   gawk -v name=$name '
+BEGIN {
+ start=1
+ # isolate module name from path/modulename
+ nb = split(name, dirname, "/")
+ name = dirname[nb]
+ if (RLENGTH&gt;0)
+   name = substr(name,RINDEX,length(name)-RINDEX)
+ # Capitalize the module name
+ hd = toupper(substr(name,1,1))
+ tl = substr(name,2,length(name)-1)
+}
+# Look for the first (** *) comment, and output it
+{
+ if (start==1) {
+   match($0, /\(\*\*([ ]+)([^*]*)([ ]+)\*\)/ )
+   if (RLENGTH&gt;0){
+     start=0
+     title=substr($0,RSTART+4,RLENGTH-7)
+     print "\n(** {1 Module [",hd tl "]:",title "} *)\n"
+     print "module",hd tl,"= struct"
+   }
+ }
+}
+END {
+ if (start==1) {
+   print "\n(** {1 Module [",hd tl "]} *)\n"
+   print "module",hd tl,"= struct"
+ }
+}
+'       $i.ml &gt;&gt;$out.ml
+# 1.B Output the rest of name.ml to out.ml
+       gawk -v name=$name '
+{
+ if (start==1) {
+   match($0, /\(\*\*([ ]+)([^*]*)([ ]+)\*\)/ )
+   if (RLENGTH&gt;0)
+     start=0
+   else
+     print $0
+ }
+ else
+   print " ",$0
+}
+END { print "end\n" }
+'       $i.ml &gt;&gt;$out.ml
+
+# 2.A Look for the first (** *) comment, and output it to out.mli
+   gawk -v name=$name '
+BEGIN {
+ start=1
+ nb = split(name, dirname, "/")
+ name = dirname[nb]
+ if (RLENGTH&gt;0)
+   name = substr(name,RINDEX,length(name)-RINDEX)
+ hd = toupper(substr(name,1,1))
+ tl = substr(name,2,length(name)-1)
+}
+{
+ if (start==1) {
+   match($0, /\(\*\*([ ]+)([^*]*)([ ]+)\*\)/ )
+   if (RLENGTH&gt;0){
+     start=0
+     title=substr($0,RSTART+4,RLENGTH-7)
+     print "\n(** {1 Module [",hd tl "]:",title "} *)\n"
+     print "module",hd tl,": sig"
+   }
+ }
+}
+END {
+ if (start==1) {
+   print "\n(** {1 Module [",hd tl "]} *)\n"
+   print "module",hd tl,": sig"
+ }
+}
+'       $i.mli &gt;&gt;$out.mli
+# 2.B Output the rest of name.mli to out.mli
+       gawk -v name=$name '
+{
+ if (start==1) {
+   match($0, /\(\*\*([ ]+)([^*]*)([ ]+)\*\)/ )
+   if (RLENGTH&gt;0)
+     start=0
+   else
+     print $0
+ }
+ else
+   print " ",$0
+}
+END { print "end\n" }
+'       $i.mli &gt;&gt;$out.mli
+done
+      </pre><a name="7" /><hr /><h3>Other Caml News</h3><i>From the ocamlcore planet blog:</i><br /><pre>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <a href="http://planet.ocamlcore.org/">http://planet.ocamlcore.org/</a>.
+
+FileUtils 0.4.0:
+  <a href="http://caml.inria.fr/cgi-bin/hump.cgi?contrib=249">http://caml.inria.fr/cgi-bin/hump.cgi?contrib=249</a>
+
+ocaml-dbf:
+  <a href="http://forge.ocamlcore.org/projects/ocaml-dbf/">http://forge.ocamlcore.org/projects/ocaml-dbf/</a>
+
+Melt 1.2.0:
+  <a href="http://forge.ocamlcore.org/forum/forum.php?forum_id=413">http://forge.ocamlcore.org/forum/forum.php?forum_id=413</a>
+
+Constructive gem: juggling exponentials:
+  <a href="http://math.andrej.com/2009/09/09/constructive-gem-juggling-exponentials/">http://math.andrej.com/2009/09/09/constructive-gem-juggling-exponentials/</a>
+
+Constructive stone: minima of sets of natural numbers:
+  <a href="http://math.andrej.com/2009/09/08/constructive-stone-minima-of-sets-of-natural-numbers/">http://math.andrej.com/2009/09/08/constructive-stone-minima-of-sets-of-natural-numbers/</a>
+      </pre><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

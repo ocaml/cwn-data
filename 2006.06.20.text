@@ -1,0 +1,181 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of June 13 to 20, 2006.
+
+1) Resumable exceptions in plain OCaml
+
+========================================================================
+1) Resumable exceptions in plain OCaml
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/39c1d24e5f783e3e/6cf185041bfd6c64#6cf185041bfd6c64>
+------------------------------------------------------------------------
+** Oleg announced:
+
+Resumable exceptions are the strict generalization of regular exceptions, 
+which lets the exception raising form return a value and so the 
+computation may continue. It's the exception handler that decides 
+either to abort the exceptional computation or to resume it with a 
+particular value. Resumable exceptions are made popular by Common 
+Lisp, where they are widely used: <http://lambda-the-ultimate.org/node/1544> 
+
+We show a conservative and elementary implementation of resumable 
+exceptions in OCaml: the implementation is a self-contained 100% pure 
+OCaml library; makes no changes to the OCaml system; supports the 
+existing style of defining exceptions; is compatible with the ordinary 
+exceptions; works in byte- or natively-compiled code; uses the most 
+basic facilities of ML and so can easily be translated to SML. 
+
+We impose no extra restrictions on the resumable exception raising and 
+handling forms. Like with ordinary exceptions, resumable ones may 
+encapsulate values of arbitrary types; the same exception handler may 
+process exceptions of many types -- and send resumption replies of 
+many types. The raise form may appear within the guarded code at many 
+places; different raise forms may resume with values of different 
+types. Furthermore, resumable exceptions are declared just like the 
+ordinary ones, with the `exception' keyword. If the resumable 
+exception handler never resumes, resumable exceptions act and feel 
+precisely as the regular ones. 
+
+The control aspect of resumable exceptions is quite trivial: as first 
+pointed out by Luc Moreau (HOSC1998), invoking a resumable expression 
+is sort of a regular function call, where the name of the function, 
+the handler, is obtained via dynamic binding. It is the typing aspect 
+of resumable exceptions -- imposing no restrictions on how and when 
+exceptions can be raised and resumed -- that took most of the 
+work. The resulting implementation involves less than common ways of 
+invoking functions and passing their results. 
+
+The implementation and illustration code is available at 
+        <http://pobox.com/~oleg/ftp/ML/resumable.ml> 
+
+The following is an excerpt from the above file, illustrating 
+resumable exceptions. As regular exceptions, resumable exceptions must 
+be declared, with the ordinary keyword 'exception'. A resumable 
+exception amounts to two (or more) ordinary exceptions. The first is 
+what used to raise the (resumable) exception.  The second is to 
+encapsulate the returned result. The function [rhandle] is equivalent to 
+the [try] form; it receives the exception handler and the thunk. The 
+function [rraise : exn -> (exn -> 'a) -> 'a] raises the resumable 
+exception. Its second argument receives the resumable exception, 
+should unpack it and return the resumption result, with which to 
+continue the computation. 
+
+(* Declare the first resumable exception. It has resumptions of two types *) 
+exception Foo of int 
+exception Foo_r1 of bool 
+exception Foo_r2 of string 
+
+(* Declare the second resumable exception *) 
+exception Bar of char 
+exception Bar_r of int 
+
+let handler v = try raise v with 
+  | Foo x -> Printf.printf "Got Foo of %d\n" x; 
+      if x < 100 then resume (Foo_r1 (x < 4)) else resume (Foo_r2 "xxx") 
+  | Bar c -> Printf.printf "Got Bar of %c\n" c; 
+      if c < 'E' then resume (Bar_r (int_of_char c + 1)) 
+      else 42.0                                          (* aborting *) 
+
+let () = 
+  let r = rhandle handler 
+   (fun () -> 
+     for i = 1 to 5 do 
+       let v = rraise (Foo i) (fun e -> try raise e with Foo_r1 x -> x) in 
+       let () = Printf.printf "Resumed Foo1 with %b\n" v in 
+       let v = rraise (Foo (100 +i)) (fun e -> try raise e with Foo_r2 x -> x) 
+       in Printf.printf "Resumed Foo2 with %s\n" v 
+     done; 
+     for i = 65 to 100 do 
+       let v = rraise (Bar (char_of_int i)) 
+               (fun e -> try raise e with Bar_r x -> x) 
+       in Printf.printf "Resumed Bar with %d\n" v 
+     done; 
+     assert false 
+   ) in 
+  Printf.printf "\nFinal result %g\n" r 
+;; 
+      
+** Christophe Raffalli said and Oleg answered:
+
+Christophe Raffalli observed that 
+
+> rraise (Foo i) (function Foo_r1 x -> ... | e -> raise e) 
+
+"seems shorter, equivalent and more efficient" than 
+>   rraise (Foo i) (fun e -> try raise e with Foo_r1 x -> ...) 
+
+that appeared in the posted code. 
+I agree. In fact, to the best of my knowledge of the OCaml interpreter, 
+the former is the semantics of the latter -- or, to be even more 
+precise, the latter reduces to the former in the interpreter. The 
+reason I chose the latter is: (i) to avoid writing the default clause 
+"| e -> raise e", but mainly, (ii) to emphasize the similarity between 
+pattern matching on the value (when invoking a function, for example) and 
+pattern matching on the exception in the 'try' clause. The duality 
+seemed irresistible to pass. 
+
+> In fact exceptions in OCaml are one big polymorphic variant type that 
+> existed before polymorphic variant where introduced ;-) 
+
+So true. One of the motivations for the code resumable.ml was to 
+(ab)use this fact. 
+Christophe Raffalli also suggested 
+
+>    rraise Foo i with Foo_r1 x -> ... 
+> is much clearer and certainly possible to define in camlp4 ? 
+
+I agree again. I specifically wanted to avoid camlp4 in the original 
+post, for the sake of naked details. Defining the right syntax, and 
+implementing it with camlp4, was to be the next step. 
+      
+** Dmitry Bely asked and Oleg answered:
+
+> Is your implementation thread-safe? My impression is it doesn't seems 
+> to be. 
+
+Interaction of dynamic binding and threading is quite an interesting 
+topic, which has been the subject of several papers (including ours, 
+which has been just accepted for ICFP). The implementation in 
+resumable.ml used so-called shallow-binding -- this is the common 
+technique of implementing dynamic binding in Lisp and Scheme 
+systems. Alas, it doesn't well generalize to a multi-threading 
+environment. For multi-threading, a better approach is dealing with 
+the stack of handlers explicitly, keeping it in the thread-local 
+storage. Incidentally, this is the approach adopted in Scheme48, which 
+has a quite an advanced multi-threading system with user-defined 
+schedulers, channels and software transactional memory. 
+The best approach, in my opinion, is to `bind' exceptions handlers to 
+the stack (because the stack is the best `representation' of the 
+dynamic context). It is very simple (albeit requiring a small bit of C 
+code in the library of resumable exceptions) to get hold of OCaml's 
+own exception handlers. Also, we can use delimited continuations to 
+implement dynamic binding. That too solves all the problems. Alas, 
+currently delimited continuations are available only for byte code. 
+
+In any event, these performance improvement and generalizations will 
+not change the published interface of resumable exceptions. 
+      
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

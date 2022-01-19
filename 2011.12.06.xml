@@ -1,0 +1,327 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2011.12.06</cwn_date>
+    <cwn_prev>2011.11.29</cwn_prev>
+    <cwn_next>2011.12.13</cwn_next>
+    <cwn_date_text>November 29 to December 06, 2011</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>Parmap 0.9.8</cwn_title>
+      <cwn_url>https://sympa-roc.inria.fr/wws/arc/caml-list/2011-11/msg00158.html</cwn_url>
+      <cwn_who>Roberto Di Cosmo announced</cwn_who>
+      <cwn_what>
+a few lines to announce the (much improved) version 0.9.8 of Parmap, the
+minimalistic library introduced last August, and that can be useful to exploit
+your multicore processor with minimal modifications to your OCaml programs.
+
+You will find a full description in the README file, as well as
+several examples.
+
+The main changes are:
+
+ - all functions (parmap, parfold, parmapfold) accept an optional parameter
+   chunksize that allows to control granularity of the parallelism
+
+ - highly specialised functions are now present to work on arrays and
+   especially on (unboxed) float arrays
+
+ - configure and ocamlbuild harness
+
+ - documentation (just make doc)
+
+ - on Linux kernels, set_affinity is used to attach a worker to a given core
+
+Special thanks to: Jérôme Vouillon for highly efficient code for the float
+arrays; Paul Vernaza for clever suggestions on pre-allocation of
+memory buffers for float arrays; Pietro Abate for autoconf/ocamlbuild help;
+Francois Berenger for tests.
+
+Project home: https://gitorious.org/parmap
+
+Version 0.9.8 is cc8915bceb7d05c2c645587f5eaaf0f6cb6080c6
+
+To compile and install:
+
+git clone git://gitorious.org/parmap/parmap.git
+git checkout pipes
+aclocal -I m4
+autoconf
+./configure
+make
+make install
+
+Enjoy
+
+-- Marco Danelutto and Roberto Di Cosmo
+
+
+=====================Copy of the README file======================
+Parmap in a nutshell
+--------------------
+
+Parmap is a minimalistic library allowing to exploit multicore
+architecture for OCaml programs with minimal modifications: if you
+want to use your many cores to accelerate an operation which happens
+to be a map, fold or map/fold (map-reduce), just use Parmap's parmap,
+parfold and parmapfold primitives in place of the standard List.map
+and friends, and specify the number of subprocesses to use by the
+optional parameter ~ncores.
+
+See the example directory for a couple of running programs.
+
+DO'S and DONT'S
+---------------
+
+Parmap is *not* meant to be a replacement for a full fledged
+implementation of parallelism skeletons (map, reduce, pipe, and the
+many others described in the scientific literature since the end of
+the 1980's, much earlier than the specific implementation by Google
+engineers that popularised them).  It is meant, instead, to allow you
+to quickly leverage the idle processing power of your extra cores,
+when handling some heavy computational load.
+
+The principle of parmap is very simple: when you call one of the three
+available primitives, map, fold, and mapfold , your OCaml sequential
+program forks in n subprocesses (you choose the n), and each
+subprocess performs the computation on the 1/n of the data, in chunks
+of a size you can choose, returning the results through a shared
+memory area to the parent process, that resumes execution once all the
+children have terminated, and the data has been recollected.
+
+You need to run your program on a single multicore machine; repeat
+after me: Parmap is not meant to run on a cluster, see one of the many
+available (re)implementations of the map-reduce schema for that.
+
+By forking the parent process on a sigle machine, the children get
+access, for free, to all the data structures already built, even the
+imperative ones, and as far as your computation inside the map/fold
+does not produce side effects that need to be preserved, the final
+result will be the same as performing the sequential operation, the
+only difference is that you might get it faster.
+
+The OCaml code is reasonably simple and only marginally relies on
+external C libraries: most of the magic is done by your operating
+system's fork and memory mapping mechanisms.  One could gain some
+speed by implementing a marshal/unmarshal operation directly on
+bigarrays, but we did not do this yet.
+
+Of course, if you happen to have open channels, or files, or other
+connections that should only be used by the parent process, your
+program may behave in a very wierd way: as an example, *do not* open a
+graphic window before calling a Parmap primitive, and *do not* use
+this library if your program is multi-threaded!
+
+Pinning processes to physical CPUs
+----------------------------------
+
+To obtain maximum speed, Parmap tries to pin the worker processes to a
+CPU, using the scheduler affinity interface that is available in
+recent Linux kernels.  Similar functionality may be obtained on
+different platforms using slightly different API. Contributions are
+welcome to support those other APIs, just make sure that you use
+autoconf properly.
+
+Using Parmap with Ocamlnat
+--------------------------
+
+You can use Parmap in a native toplevel (it may be quite useful if you
+use the native toplevel to perform fast interactive computations), but
+remember that you need to load the .cmxs modules in it; an example is
+given in example/topnat.ml
+
+Preservation of output order in Parmap
+--------------------------------------
+
+If the number of chunks is equal to the number of cores, it is easy to
+preserve the order of the elements of the sequence passed to the
+map/fold operations, so the result will be a list with the same order
+as if the sequential function would be applied to the input. This is
+what the parmap, parmafold and parfold functions do when the chunksize
+argument is not used.
+
+If the user specifies a chunksize that is different from the number of
+cores, there is no general way to preserve the ordering, so the result
+of calling Parmap.parmap f l are not necessarily in the same order as
+List.map f l.
+
+In general, using little chunksize helps in balancing the load among
+the workers, and provides better speed, at the price of losing the
+ordering: there is a tradeoff, and it is up to the user to choose the
+solution that better suits him/her.
+
+Fast map on arrays and on float arrays
+--------------------------------------
+
+Visiting an array is much faster than visiting a list, and conversion
+of an array to and from a list is expensive, on large data structures,
+so we provide a specialised version of map on arrays, that beaves
+exactly like parmap.
+
+We also provide a highly optimised specialised parmap version that is
+targeted to float arrays, array_float_parmap, that allows you to
+perform parallel computation on very large float arrays efficiently,
+without the boxing/unboxing overhead introduced by the other
+primitives, including array_parmap.
+
+To understand the efficiency issues involved in the case of large
+arrays of float, here is a short summary of the steps that any
+implementation of a parallel map function must perform.
+
+  1) create a float array to hold the result of the computation.
+     This operation is expensive: on an Intel i7, creating a 10M float array
+     takes 50 milliseconds
+
+     ocamlnat
+          Objective Caml version 3.12.0 - native toplevel
+
+     # #load "unix.cmxs";;
+     # let d = Unix.gettimeofday() in ignore(Array.create 100000000.); Unix.gettimeofday() -. d;;
+     - : float = 0.0501301288604736328
+
+  2) create a shared memory area
+
+  3) possibly copy the result array to the shared memory area
+
+  4) perform the computation in the children writing the result in the
+  shared memory area
+
+  5) possibly copy the result back to the OCaml array
+
+All implementations need to do 1, 2 and 4; steps 3 and/or 5 may be
+omitted depending on what the user wants to do with the result.
+
+The array_float_parmap performs steps 1,2,4 and 5. It is possible to
+share steps 1 and 2 among subsequent calls to the parallel function by
+preallocating the result array and the shared memory buffer, and
+passing them as optional parameters to the array_float_parmap
+function: this may save a significant amount of time if the array is
+very large.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Nproc: process pools for OCaml (request for suggestions)</cwn_title>
+      <cwn_url>https://sympa-roc.inria.fr/wws/arc/caml-list/2011-11/msg00156.html</cwn_url>
+      <cwn_who>Martin Jambon announced</cwn_who>
+      <cwn_what>
+I would like to publicize Nproc, which is an implementation of process
+pools for OCaml based on fork, pipes, Marshal and Lwt:
+
+  https://github.com/MyLifeLabs/nproc
+
+Using Nproc involves:
+
+1. Creating a pool of N processes, N being chosen by the user.
+2. Running tasks:
+  a. Submitting a task (f, x) of any type.
+  b. Defining what to do when the result becomes available.
+
+Possible uses of Nproc include:
+
+- running CPU-intensive tasks on multiple cores
+- detaching synchronous operations for which a non-blocking version is
+not available
+
+Let me know of your comments, suggestions, questions, etc.
+      </cwn_what>
+      <cwn_who>Jerome Vouillon and Martin Jambon replied</cwn_who>
+      <cwn_what>
+&gt; Marco Danelutto and Roberto Di Cosmo have written a small library to
+&gt; perform parallel maps and folds on multi-core machines. This is
+&gt; complementary to your library. You should look at the implementation:
+&gt; communication is performed by marshalling to a shared memory area for
+&gt; better performances, and pipes are used only for synchronization.
+&gt;
+&gt;      https://gitorious.org/parmap/
+
+Thank you, this is interesting. I hadn't look at the implementation
+although I knew about parmap but wanted something with an Lwt-ready
+interface. I also wanted something that could handle continuous streams,
+without having to create a process for each stream item (assuming fork()
+is more expensive than we want).
+
+&gt; I have also written a more low-level library, where you can control
+&gt; which process runs each task. This is useful when the processes have
+&gt; to work with a lot of data that you don't want to duplicate. You can
+&gt; get the code with the following command:
+&gt; 
+&gt;      darcs clone http://www.pps.jussieu.fr/~vouillon/coinst/darcs/dev/
+&gt; 
+&gt; The file of interest is task.ml.
+
+I see. Thanks.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>PlasmaFS, PlasmaKV, and MapReduce, version 0.5.2</cwn_title>
+      <cwn_url>https://sympa-roc.inria.fr/wws/arc/caml-list/2011-12/msg00013.html</cwn_url>
+      <cwn_who>Gerd Stolpmann announced</cwn_who>
+      <cwn_what>
+I've just released Plasma-0.5.2, fixing a race condition which may cause
+random errors.
+
+General information about Plasma:
+
+Plasma consists now of three parts, namely PlasmaFS, PlasmaKV, and Plasma
+Map/Reduce:
+
+      * PlasmaFS is a distributed replicating filesystem. Unlike other
+        such filesystems, it is transactional and exhibits transactions
+        to the user. Also, it implements almost all of what is known as
+        POSIX semantics, and it is mountable.
+      * PlasmaKV is a key/value database on top of PlasmaFS. It is
+        designed for ultra-high read workloads, and offers interesting
+        properties borrowed from PlasmaFS (e.g. replication and ACID
+        transactions).
+      * Plasma Map/reduce implements a variant of the popular
+        data processing scheme.
+
+All pieces of software are bundled together in one download. The
+project page with further links is
+
+http://projects.camlcity.org/projects/plasma.html
+
+There is now also a homepage at
+
+http://plasma.camlcity.org
+
+THIS IS NOW A BETA RELEASE! I'm searching for testers. Whoever has
+access to a cluster please check Plasma out!
+
+Plasma is installable via GODI for Ocaml 3.12.
+
+For discussions on specifics of Plasma there is a separate mailing list:
+
+https://godirepo.camlcity.org/mailman/listinfo/plasma-list
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OCaml CURL PUT, DELETE</cwn_title>
+      <cwn_url>https://sympa-roc.inria.fr/wws/arc/caml-list/2011-12/msg00015.html</cwn_url>
+      <cwn_who>Mykola Stryebkov announced</cwn_who>
+      <cwn_what>
+Just in case somebody will need examples of making PUT and DELETE http 
+requests with ocurl:
+https://gist.github.com/1432555 ;
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other Caml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocamlcore.org/&gt;.
+
+A draft of library to handle physical units in OCaml:
+  &lt;http://bentobako.org/david/blog/index.php?post/2011/12/02/A-draft-of-library-to-handle-physical-units-in-OCaml&gt;
+
+Non-blocking IO: Read Benchmark:
+  &lt;http://alaska-kamtchatka.blogspot.com/2011/12/non-blocking-io-read-benchmark.html&gt;
+
+Video lectures as screencasts:
+  &lt;http://math.andrej.com/2011/12/01/video-lectures-as-screencasts/&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

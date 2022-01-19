@@ -1,0 +1,381 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of April 01 to 08, 2008.
+
+1) CamlPy 0.1
+2) ocaml bitmatch (Erlang-style bitstrings for OCaml)
+3) Ocsigen 1.0.0
+4) DEFUN08: Call for Talks & Tutorials (co-located w/ ICFP08)
+5) tophide 1.0.0 announcement
+
+========================================================================
+1) CamlPy 0.1
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/38e1b7cccdff6e96#>
+------------------------------------------------------------------------
+** John Whitington announced:
+
+I've just uploaded the first version of a library for communicating between
+python and OCaml, together with a little proof-of-concept interface to
+WxPython, as a first step towards a better GUI tool for OCaml.
+
+These two blog posts explain:
+
+Background:
+<http://coherentgraphics.blogspot.com/2008/03/proper-gui-for-ocaml-part-one.html>
+
+Release:
+<http://coherentgraphics.blogspot.com/2008/04/proper-gui-for-ocaml-part-two.html>
+			
+========================================================================
+2) ocaml bitmatch (Erlang-style bitstrings for OCaml)
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/c72e028d0248aada#>
+------------------------------------------------------------------------
+** Richard Jones:
+
+In the finest tradition of version 0.1 announcements, this is the
+first announcement of a highly experimental camlp4 syntax extension
+which implements Erlang-style bitstrings, matching over bitstrings,
+and construction of bitstrings.
+
+ Source:  <http://www.annexia.org/tmp/ocaml-bitmatch-0.1.tar.gz>
+ License: LGPLv2+ with OCaml linking exception
+
+Erlang has a "byte-oriented" data type which can be treated as a
+stream of bits, and provides rather elegant features for creating and
+matching over such streams.  This is a key feature of Erlang and was
+developed because of its history in telecommunications.  (More about
+the feature in this paper:
+<http://user.it.uu.se/~kostis/Papers/padl07.pdf>)
+
+I have written a camlp4 syntax extension which does much the same in
+OCaml.  For example, you can now effortlessly parse IP packets:
+
+ let display pkt =
+   bitmatch pkt with
+   (* IPv4 packet header from RFC 791:
+   0                   1                   2                   3
+   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |Version|  IHL  |Type of Service|          Total Length         |
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |         Identification        |Flags|      Fragment Offset    |
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |  Time to Live |    Protocol   |         Header Checksum       |
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |                       Source Address                          |
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |                    Destination Address                        |
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |                    Options                    |    Padding    |
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   *)
+   | 4 : 4; hdrlen : 4; tos : 8; length : 16; (* same as above in OCaml *)
+     identification : 16; flags : 3; fragoffset : 13;
+     ttl : 8; protocol : 8; checksum : 16;
+     source : 32;
+     dest : 32;
+     options : (hdrlen-5)*32 : bitstring; (* NB computed length *)
+     payload : -1 : bitstring ->
+
+     printf "IPv4:\n";
+     printf "  header length: %d * 32 bit words\n" hdrlen;
+     printf "  type of service: %d\n" tos;
+     printf "  packet length: %d bytes\n" length;
+     (* etc *)
+
+   (* IPv6 packet header *)
+   | 6 : 4; tclass : 8; flow : 20;
+     length : 16; nexthdr : 8; ttl : 8;
+     source : 128 : bitstring;
+     dest : 128 : bitstring;
+     payload : -1 : bitstring ->
+
+     printf "IPv6:\n";
+     printf "  traffic class: %d\n" tclass;
+     printf "  flow label: %d\n" flow;
+     printf "  packet (payload) length: %d bytes\n" length;
+     printf "  next header: %d\n" nexthdr;
+     printf "  ttl: %d\n" ttl;
+     (* etc *)
+
+   | version : 4 ->
+     eprintf "unknown IP version %d\n" version;
+     exit 1
+
+   | _ as pkt ->
+     eprintf "data is smaller than one nibble:\n";
+     Bitmatch.hexdump_bitstring stderr pkt;
+     exit 1
+
+Or filesystems, as in this parser for Linux EXT3 superblocks:
+
+ let bits = Bitmatch.bitstring_of_file "tests/ext3_sb"
+
+ let () =
+   bitmatch bits with
+   | s_inodes_count : 32 : littleendian;	(* Inodes count *)
+     s_blocks_count : 32 : littleendian;	(* Blocks count *)
+     s_r_blocks_count : 32 : littleendian;	(* Reserved blocks count *)
+     s_free_blocks_count : 32 : littleendian;	(* Free blocks count *)
+     s_free_inodes_count : 32 : littleendian;	(* Free inodes count *)
+     s_first_data_block : 32 : littleendian;	(* First Data Block *)
+     s_log_block_size : 32 : littleendian;	(* Block size *)
+     s_log_frag_size : 32 : littleendian;	(* Fragment size *)
+     s_blocks_per_group : 32 : littleendian;	(* # Blocks per group *)
+     s_frags_per_group : 32 : littleendian;	(* # Fragments per group *)
+     s_inodes_per_group : 32 : littleendian;	(* # Inodes per group *)
+     s_mtime : 32 : littleendian;		(* Mount time *)
+     s_wtime : 32 : littleendian;		(* Write time *)
+     s_mnt_count : 16 : littleendian;		(* Mount count *)
+     s_max_mnt_count : 16 : littleendian;	(* Maximal mount count *)
+     0xef53 : 16 : littleendian ->		(* Magic signature *)
+
+     printf "ext3 superblock:\n";
+     printf "  s_inodes_count = %ld\n" s_inodes_count;
+     printf "  s_blocks_count = %ld\n" s_blocks_count;
+     printf "  s_free_inodes_count = %ld\n" s_free_inodes_count;
+     printf "  s_free_blocks_count = %ld\n" s_free_blocks_count
+
+   | _ ->
+     eprintf "not an ext3 superblock!\n%!";
+     exit 2
+
+There is also a similar syntax for contructing bitstrings.
+
+Please let me know if you are interested in using this.  I may change
+the syntax a little before the next release.
+
+Thanks to several people on #ocaml for answering my questions when I
+was writing this.
+			
+** Later on, Richard Jones added:
+
+Since a few people thought that this was an elaborate April Fool's
+joke, it's not, there is a version 0.2 which includes a lot more
+documentation:
+
+ <http://et.redhat.com/~rjones/bitmatch/>
+ <http://et.redhat.com/~rjones/bitmatch/html/Bitmatch.html>
+			
+========================================================================
+3) Ocsigen 1.0.0
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/fe8518b05d0ebe74#>
+------------------------------------------------------------------------
+** Vincent Balat announced:
+
+After more than 3 years of development, we are pleased to announce that 
+Ocsigen has now reached version 1.0.0!
+
+Ocsigen is a research project aimed at developing new programming techniques 
+for the Web. It contains:
+- a fully featured Web server, with lots of extensions,
+- a programming framework, called Eliom, providing an innovative way to 
+create dynamic Websites in OCaml.
+
+The Web server has all the features required to be used as a replacement for 
+Apache (or others). It is very easy to implement extensions to it in OCaml. 
+Among the features that come with Ocsigen are:
+- a CGI module to use Web sites written as CGI scripts (for example trac on 
+ocsigen.org, or even PHP pages through CGI),
+- a reverse proxy module (with pipelined requests) to use Ocsigen together 
+with another Web server,
+- a powerful, findlib-aware, configuration file with access control and 
+authentication,
+- a content deflation module
+- user configuration files (beta)
+
+Eliom is the most innovative part of the project. It is a programming 
+framework for dynamic Web programming in OCaml which introduces high-level 
+concepts that make programming very concise and safe. The goal is to make 
+large pieces of code easy to maintain and evolve. For example:
+- it is possible to check statically the types of html fragments so as to 
+guarantee the validity of pages (with respect to W3C recommendations). Type 
+checking is done either using polymorphic variants or with OCamlDuce,
+- pages are generated by OCaml functions with an abstract notion 
+of "service". This ensures that there will be no broken links, and no wrong 
+parameter names,
+- the full taxonomy of services closely matches the needs of Web developers,
+- it uses continuation-based Web programming for handling the "back button",
+- it provides a powerful session mechanism,
+- etc.
+
+Eliom is not a Content Management System, but is intended to be the basis for 
+such higher-level tools. Several projects have already been initiated by the 
+community, like Nurpawiki (by Janne Hellsten), Litiom and Lambdium (by Dario 
+Teixeira), or Ocsimore (by Piero Furiesi and Jaap Boender). We think that the 
+project is now mature enough for wider dissemination and we hope some of you 
+will be interested in joining the community to develop new sites with Eliom!
+
+Version 1.0.0 is only the beginning of Ocsigen's story. We have many things in 
+mind for the future. We have already been working, for the last few months, 
+on a version 2 which will make it very easy to write Web sites that are 
+highly dynamic on both client and server side.
+
+Ocsigen is developed as a collaborative open source project. If you need any 
+features that are not implemented, please feel free to contribute!
+
+Ocsigen is a research project of the PPS laboratory (CNRS, université 
+Paris-Diderot). It is developed by Vincent Balat, Jérôme Vouillon, Gabriel 
+Kerneis, Stéphane Glondu, Denis Berthod, Jaap Boender, Piero Furiesi, 
+Thorsten Ohl, Nataliya Guts, Jérôme Velleine and Pierre Clairambault. I 
+really want to thank all of them, and also the whole community of 
+beta-testers for their very interesting contributions.
+
+We hope that you'll enjoy this version, and we wish you happy programming with 
+Eliom!
+			
+** He later added:
+
+Obviously I forgot the URL, but it is easy to find:
+<http://www.ocsigen.org>
+			
+========================================================================
+4) DEFUN08: Call for Talks & Tutorials (co-located w/ ICFP08)
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/0eee71a7e2379edb#>
+------------------------------------------------------------------------
+** Matthew Fluet announced:
+
+		     Call for Talks and Tutorials
+    ACM SIGPLAN 2008 Developer Tracks on Functional Programming
+		<http://www.deinprogramm.de/defun-2008/>
+	     Victoria, BC, Canada, 25, 27 September, 2008
+      The workshop will be held in conjunction with ICFP 2008.
+	       <http://www.icfpconference.org/icfp2008/>
+
+Important dates
+
+Proposal Deadline: June 27, 2008, 0:00 UTC
+Notification:      July 14, 2008
+
+DEFUN 2008 invites functional programmers who know how to solve
+problems with functional prorgamming to give talks and lead tutorials
+at the The ICFP Developer Tracks.
+
+We want to know about your favorite programming techniques, powerful
+libraries, and engineering approaches you've used that the world
+should know about and apply to other projects. We want to know how to
+be productive using functional programming, write better code, and
+avoid common pitfals.
+
+We invite proposals for presentations in the following categories:
+
+How-to talks: 45-minute "how-to" talks that provide specific
+ information on how to solve specific problems using functional
+ programming. These talks focus on concrete examples, but provide
+ useful information for developers working on different projects or in
+ different contexts.
+
+ Examples:
+ - "How I made Haskell an extension language for SAP R/3."
+ - "How I replaced /sbin/init by a Scheme program."
+ - "How I hooked up my home appliances to an Erlang control system."
+ - "How I got an SML program to drive my BMW."
+
+General language tutorials
+ Half-day general language tutorials for specific functional
+ languages, given by recognized experts for the respective languages.
+
+Technology tutorials Half-day tutorials on techniques, technologies,
+ or solving specific problems in functional programming
+
+ such as:
+ - how to make the best use of specific FP programming techniques
+ - how to inject FP into a development team used to more conventional
+   technologies
+ - how to connect FP to existing libraries / frameworks / platforms
+ - how to deliver high-performance systems with FP
+ - how to deliver high-reliability systems with FP
+
+Remember that your audience will include computing professionals who
+are not academics and who may not already be experts on functional
+programming.
+
+Presenters of tutorials will receive free registration to ICFP 2008.
+
+Submission guidelines
+
+Submit a proposal of 150 words or less for either a 45-minute talk
+with a short Q&A session at the end, or a 300-word-or-less proposal
+for a 3-hour tutorial, where you present your material, but also give
+participants a chance to practice it on their own laptops.
+
+Some advice:
+- Give it a simple and straightforward title or name; avoid fancy
+ titles or puns that would make it harder for attendees to figure out
+ what you'll be talking about.
+- Clearly identify the level of the talk: What knowledge should people
+ have when they come to the presentation or tutorial?
+- Explain why people will want to attend:
+ is the language or library useful for a wide range of attendees? Is
+ the pitfall you're identifying common enough that a wide range of
+ attendees is likely to encounter it?
+- Explain what benefits attendees are expected to take home to their
+ own projects.
+- For a tutorial, explain how you want to structure the time, and what
+ you expect to have attendees to do on their laptops. List what
+ software you'll expect attendees to have installed prior to coming.
+
+Submit your proposal in plain text electronically to
+defun-2008-submission-AT-deinprogramm.de by the beginning of Friday,
+June 27, Universal Coordinated Time.
+
+Organizers
+Kathleen Fisher         AT&T Labs
+Simon Peyton Jones      Microsoft Research
+Mike Sperber (co-chair) DeinProgramm
+Don Stewart (co-chair)  Galois
+			
+========================================================================
+5) tophide 1.0.0 announcement
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/fd59f2f05cd31a45#>
+------------------------------------------------------------------------
+** Martin Jambon announced:
+
+Tophide is a tool for the toplevel. It hides value identifiers starting with
+an underscore, just like ls hides files that start with a period:
+
+# let x = 1;;
+val x : int = 1
+# let _y = 2;;     (* great, no output! *)
+#
+
+The only purpose is to allow Camlp4 syntax extensions to produce lots of
+global identifiers for their own needs and yet keep the toplevel sessions as
+beautiful as always.
+
+2 directives are provided:
+#hide;;   (* implied on startup *)
+#show;;   (* back to normal *)
+
+
+URL:   <http://martin.jambon.free.fr/ocaml.html#tophide>
+			
+** He later added:
+
+There's a GODI package too!
+			
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

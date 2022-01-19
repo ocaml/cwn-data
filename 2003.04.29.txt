@@ -1,0 +1,196 @@
+Hello,
+
+Here is the latest Caml Weekly News, week 15 to 22 April, 2003.
+
+1) otags 3.06.7
+2) lablgtk newbie question
+3) Bigarray
+4) Str memory leak in 3.06?
+5) new ensemble release - 1.41
+6) LSM2003/VHLL Annoucement
+
+======================================================================
+1) otags 3.06.7
+----------------------------------------------------------------------
+Cuihtlauac Alvarado announced:
+
+Otags 3.06.7 is here :
+
+  http://perso.rd.francetelecom.fr/alvarado/soft/otags-3.06.7.tar.gz
+
+Hendrik Tews : patch for quotation, modules and others things
+Karl Zilles : patch for vi.ml
+
+======================================================================
+2) lablgtk newbie question
+----------------------------------------------------------------------
+Richard Jones asked and Jacques Garrigue answered:
+
+> Why do I have to run lablgtk programs using the 'lablgtk' interpreter?
+> What does this do above and beyond ordinary /usr/bin/ocaml?
+
+Two years ago, when ocaml didn't have dynamic loading, this was a
+requirement, like for old versions of Tcl as you say.
+
+Nowadays, except on some exotic platform, this is just a question of
+comfort: the toplevel is configured to make its use easier.
+You can do the same thing by passing some options to the standard
+toplevel:
+        ocaml -w s -I +lablgtk lablgtk.cma gtkInit.cmo
+
+======================================================================
+3) Bigarray
+----------------------------------------------------------------------
+Daniel Andor asked and Xavier Leroy answered:
+
+> Basically I have numerical code that uses Bigarrays in some parts
+> (for example in interfacing with Lacaml), but other parts that use
+> arrays.  It doesn't seem to be that clean to make them co-exist.
+> Which should I use?  Since I was forced to use Bigarrays for Lacaml
+> (which is a wonderful interface to LAPACK -- but missing some
+> drivers. :((( ), I decided to use Bigarrays for much of the rest of
+> my program.  I made judicious use of blit and splice, since I assume
+> that they only do two bounds checks. But my code still spends a lot
+> of time in Bigarray.  In fact approx the *same amount of time* as it
+> spends calculating! (according to gprof)
+
+If the profile shows that significant time is spent in the bigarray_get_*
+and igarray_set_* functions, this indicates that your Caml code is too
+polymorphic.  ocamlopt can inline bigarray accesses only when the
+types of the bigarrays is fully, statically known.
+
+It is easy to get unwanted polymorphism for Caml code that uses
+bigarrays.  For instance,
+
+        let f a = a.{0} <- 3.14
+
+has type (float, 'a, 'b) Bigarray.Array1.t -> unit.  The assignment 
+determines that the Caml type of the array elements is float,
+but it doesn't determine fully the underlying representation type
+(could be float32 as well as float64), nor the layout of the array
+(could be C or Fortran layout).
+
+Thus, the assignment cannot be inlined and must be performed by a C 
+function that discriminates at run-time on the actual representation
+types and layout.  This is quite slow indeed.  To avoid this, consider
+adding a type constraint:
+
+        open Bigarray
+
+        type floatarray = (float, float64_elt, c_layout) Array1.t
+
+        let f (a: floatarray) = a.{0} <- 3.14
+
+That should improve performance somewhat.  Still, the extra
+flexibility of bigarrays over regular arrays causes the inlined
+bigarray access code to be a bit slower than regular array accesses.
+
+======================================================================
+4) Str memory leak in 3.06?
+----------------------------------------------------------------------
+Chris Hecker reported and Xavier Leroy answered:
+
+> This program leaks 10mb/sec on my machine with ocamlopt 3.06 (msvc, xp).
+> 
+> let _ =
+>    while true do
+>      let re = Str.regexp "foo" in ()
+>    done;
+>    ()
+> 
+> Inserting a call to Gc.compact in the loop doesn't affect it (well, it 
+> slows the loop down a bit so the leak rate drops :).
+> 
+>  From a brief trip in the debugger and a glance at strstubs.cpp it appears 
+> the custom finalizer is being called.  I didn't grovel in the actual regex 
+> code to see where the leak was (assuming it's not my bug and I'm supposed 
+> to free the regex somehow in caml code).
+
+No, there is no need for explicit deallocation of regexps.  Actually,
+there is no leak either: if you put a call to Gc.major() in the loop,
+memory usage remains constant.
+
+What happens is that the speed of the (incremental) major collector
+isn't appropriately adjusted, so it runs too slowly and lets "floating
+garbage" accumulate.  This is a common problem with Caml objects that
+are just handle on resources allocated outside the Caml heap: precise
+determination of the space consumption of the latter is generally
+impossible, causing the incremental major GC to run often too slowly,
+sometimes too fast...
+
+> I also notice that the strstubs.c has the same problem I reported in 
+> bigarray (and that was fixed, bug #601) about using stat_alloc() to 
+> allocate but free() to deallocate, so it should probably be fixed here as 
+> well, assuming Str is going to live much longer.
+
+The new implementation of Str that will go in release 3.07 allocates
+all its data in the Caml heap, so this fixes both the issue you  
+mention and the "floating garbage" problem described above.
+
+======================================================================
+5) new ensemble release - 1.41
+----------------------------------------------------------------------
+Ohad Rodeh announced:
+
+   I've put out a new Ensemble release, version 1.41. This version was
+tested only on i386 platforms with Linux/win32 operating systems, so
+people working on HP/Solaris please check it out and send me fixes.
+
+RELEASE_NOTES
+
+  This release primarily cleans up the maestro code-base. There is now
+just one code for all platforms with relatively few "ifdefs". From the   
+next release the CORBA/GIOP code included in Maestro will not be
+supported. Aside from a maestro cleanup several bugs have been fixed:
+1. A maestro bug due to a miscalculation of the previous group leader
+2. A total-ordering bug in the Seqbb protocol
+3. A bug that prevented the use of a user-specified IP address for an
+   Ensemble process
+
+
+OCAML COMPILER VERSION
+  We are using version 3.06 for this version.
+
+PORTABILITY
+  This version was tested on Linux (RedHat 7.1, 7.2, 7.3, i386
+  architecture) and windows XP.
+
+======================================================================
+6) LSM2003/VHLL Annoucement
+----------------------------------------------------------------------
+Fabrice Popineau announced:
+
+The 2003 Libre Software Meeting (LSM) will take place  this year in Metz
+(North-East  of France) from July,  9th to July, 12th.  I have taken the
+responsibility for the VHLL track (Very High Level Languages) originally
+initiated by Robert  Strandh  and headed  by   him for the  first  three
+editions. I will be pleased to welcome in Metz all people interested in
+VHLL and who will contribute to the success of the 2003 LSM.
+
+This track is meant to show how those high level languages such as Lisp, 
+Scheme and their   derivatives, ML, Python,  etc. increase productivity,
+quality, fiability,  ease of maintenance  in the  context of developing
+applications.
+
+Developers who want  to  share  their  experience in this   domain  are
+invited to contact me. Subjects may include :
+- development of tools or platforms
+- comparison between languages
+- developer's experiences using VHLL
+- ...
+
+You will find more information about the LSM2003 by browsing
+http://rencontresmondiales.org. The web site is frequently updated.
+
+======================================================================
+Old cwn
+----------------------------------------------------------------------
+
+If you happen to miss a cwn, you can send me a message
+(alan.schmitt@inria.fr) and I'll mail it to you, or go take a look at
+the archive (http://pauillac.inria.fr/~aschmitt/cwn/). If you also wish
+to receive it every week by mail, just tell me so.
+
+======================================================================
+
+Alan Schmitt

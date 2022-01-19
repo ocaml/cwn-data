@@ -1,0 +1,295 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[http://alan.petitepomme.net/cwn/2020.12.29.html][Previous Week]] [[http://alan.petitepomme.net/cwn/index.html][Up]] [[http://alan.petitepomme.net/cwn/2021.01.12.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of December 29, 2020 to January 05, 2021.
+
+#+TOC: headlines 1
+
+
+* First release of Feat
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/ann-first-release-of-feat/7033/1
+
+** François Pottier announced
+
+
+A brief note to announce the first release of Feat:
+
+#+begin_example
+opam update
+opam install feat
+#+end_example
+
+Feat is a library that offers support for counting, enumerating, and sampling
+objects of a certain kind, such as (say) the inhabitants of an algebraic data
+type.
+
+Feat was inspired by the paper "Feat: Functional Enumeration of Algebraic Types"
+by Jonas Duregård, Patrik Jansson and Meng Wang (2012).
+
+More details can be found here:
+
+  https://gitlab.inria.fr/fpottier/feat/
+      
+
+
+
+* OCluster and OBuilder
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/ann-ocluster-and-obuilder/7035/1
+
+** Thomas Leonard announced
+
+
+I'm pleased to announce the first release of [[https://github.com/ocurrent/ocluster][OCluster]]. A user
+can submit a build job (either a Dockerfile or an OBuilder spec) to the scheduler, which then runs the
+build on a worker machine, streaming the logs back to the client.
+
+This is the build scheduler / cluster manager that we use for e.g.
+[[https://github.com/ocurrent/opam-repo-ci][opam-repo-ci]] (which you may have seen in action if you
+submitted a package to opam-repository recently).
+
+See [[https://github.com/ocurrent/overview][ocurrent/overview]] for a quick overview of the various other
+CI services using it too.
+
+To install and run the scheduler use e.g.
+
+#+begin_src shell
+opam depext -i ocluster
+mkdir capnp-secrets
+ocluster-scheduler \
+  --capnp-secret-key-file=./capnp-secrets/key.pem \
+  --capnp-listen-address=tcp:0.0.0.0:9000 \
+  --capnp-public-address=tcp:127.0.0.1:9000 \
+  --state-dir=/var/lib/ocluster-scheduler \
+  --pools=linux-arm32,linux-x86_64
+#+end_src
+
+It will generate ~key.pem~ on the first run, as well as various capability files granting access for
+workers and clients. You then copy each generated pool capability (e.g. ~pool-linux-x86_64.cap~) to
+each machine you want in that pool, and run ~ocluster-worker pool-linux-x86_64.cap~ to start the worker
+agent. See the [[https://github.com/ocurrent/ocluster/blob/master/README.md][README]] for full details.
+
+[[https://github.com/ocurrent/obuilder][OBuilder]] is an alternative to ~docker build~. The main
+differences are that it takes a spec in S-expression format, which is easier to generate than a
+Dockerfile, handles concurrent builds reliably, and keeps copies of the logs so that you still see the
+output even if someone else performed the same build step earlier and the result is therefore taken
+from the cache.
+
+It currently supports ZFS and Btrfs for storage (it needs cheap snapshots) and ~runc~ for sandboxing
+builds. [[https://github.com/ocurrent/obuilder/issues/57][macos support]] is under development, but not
+yet upstreamed. It should be fairly easy to add support for any platform that has some form of secure
+chroot.
+
+OCluster supports monitoring with Prometheus, so you can see what the cluster is doing:
+
+https://aws1.discourse-cdn.com/standard11/uploads/ocaml/optimized/2X/d/d5ff5aaa0259d7b59445b156e6b642a421040b64_2_920x750.png
+      
+
+
+
+* Plotting 3D vectors
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/plotting-3d-vectors/7038/1
+
+** Andreas Poisel asked
+
+
+I'm doing linear algebra with Owl.  Owl-plplot works great for visualizing 2D vectors, but it doesn't
+seem to capable of plotting 3D vectors.
+
+I took a (fast) look at vanilla [[http://plplot.org/][Plplot]],
+[[https://github.com/sanette/oplot][Oplot]], and the [[https://github.com/c-cube/ocaml-gnuplot][GNUplot
+bindings]], but I didn't find a simple way to plot 3D vectors.
+
+I don't need high quality plots, 3D surfaces, a lot of control or fancy features, just a coordinate
+system and some function to draw geometric primitives (points, lines, circles, etc.).
+
+Did I miss anything or do I have to build this myself with the good old Graphics module?
+      
+
+** Marshall Abrams replied
+
+
+What kind of vector representation do you want?  Just lines/arrows in 3D?  That's just a curve in 3D,
+so it should be possible with Owl and plplot, at least.  Looks like it should be easy with oplot, too
+(but I haven't used oplot).  There are some 3D Owl plplot examples, with source code, on these pages:
+
+https://ocaml.xyz/book/visualisation.html
+
+https://github.com/owlbarn/owl/wiki/Tutorial:-How-to-Plot-in-Owl%3F
+
+https://github.com/owlbarn/owl/wiki/Plot-Gallery
+
+I don't know whether it will be easy to adapt them to your needs.  I wrote the last example on the last
+page above.  It's a plot of a series 2D curves in 3D.  Maybe some of the techniques can be adapted to
+your needs.  (The code is a few years old.  I'm not sure whether it works with the current version of
+Owl.)
+
+(If you end up having to use low-level bindings to plplot, oplot, etc. from Owl, you might consider
+contributing a wrapper module that makes it easy to do the kind of plot you want.)
+      
+
+** Andreas Poisel then said
+
+
+Thank you for your answer.
+
+I'd just like to draw 3D vectors in a cartesian coordinate system.  A plot should look similar to this:
+
+https://upload.wikimedia.org/wikipedia/commons/thumb/f/fd/3D_Vector.svg/800px-3D_Vector.svg.png
+
+I wouldn't even need arrows, simple lines would be ok.
+
+Maybe there is a way to use one of the 3D functions (~Plot.surf~, ~Plot.mesh~, ~Plot.contour~), but I
+can't figure it out.
+      
+
+** Hezekiah Carty replied
+
+
+It's been a while since I worked with plplot but what you showed should be possible. The
+[[http://plplot.org/docbook-manual/plplot-html-5.15.0/plline3.html][plline3]] function allows you to plot
+line segments in 3d space. The function is setup to take multiple segments in a single call. For a
+single segment each array would hold a single value. Colors can be set between draw calls.
+      
+
+** sanette also replied
+
+
+in oplot, there is the Curve3d object that should do it,
+https://sanette.github.io/oplot/oplot/Oplot/Plt/index.html#type-plot_object.Curve3d
+although it is quite rudimentary
+      
+
+
+
+* Marshal determinism and stability
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/marshal-determinism-and-stability/7041/25
+
+** Deep in this thread, Bikal Lem mentioned and Raphaël Proust described
+
+
+#+begin_quote
+[[https://gitlab.com/nomadic-labs/data-encoding][Binary module of data-encoding]]
+#+end_quote
+
+Quick notes about this approach:
+
+- It is used extensively in the Tezos codebase. For data exchange (in the p2p layer), for data at rest (configuration files), and for a mix of the two (serialisation of economic protocol data which is both exchanged by peers and stored on disk).
+- It is flexible in that you have great control over the representation of data and the serialisation/deserialisation procedure. There is a medium-term plan to allow even more control. For now you can decide, say, if 8 booleans are represented as one byte, 8 bytes, or 8 words (or something else altogether) (see code below).
+- Some of the responsibility for correctness rests upon your shoulders as a user. E.g., when you encode a tuple, the left element must have either a fixed length (e.g., be an int8, int32, etc., be a fixed-length string, or be a tuple of fixed-length values) or be prefixed by a length marker (which the library provides a combinator for). Most of the errors for this are raised when you declare the encoding and a few are raised when you use the encoding. I recommend writing some tests to check that your encodings accept the range of values that you are going to throw at them.
+- The library is well tested: there are tests using crowbar to check that encoding and decoding are actual inverse of each others.
+
+Let me know if you have more questions. And in the meantime, here's two different encodings for a tuple
+of 8 booleans:
+
+#+begin_src ocaml
+(* easy-encoding, produces 8 bytes *)
+let boolsas8bytes =
+   tup8 bool bool bool bool bool bool bool bool
+
+(* very-compact encoding, produces 1 byte *)
+let boolsas1byte =
+   conv
+      (fun (b1, b2, b3, b4, b5, b6, b7, b8) ->
+         let acc = 0 in
+         let acc = if b1 then acc lor 0b10000000 else acc in
+         let acc = if b2 then acc lor 0b01000000 else acc in
+         let acc = if b3 then acc lor 0b00100000 else acc in
+         …
+         acc)
+      (fun i ->
+         let b1 = i land 0b10000000 <> 0 in
+         let b1 = i land 0b01000000 <> 0 in
+         let b1 = i land 0b00100000 <> 0 in
+         …
+         (b1, b2, b3, b4, b5, b6, b7, b8))
+      uint8
+#+end_src
+
+In general, data-encoding is probably slower than marshal, but its strong points are:
+- it offers some type guarantees,
+- it gives you some control over the representation of the data,
+- it allows you to define representations that are easy to parse in other languages or in other versions of the same language,
+- it generates documentation about the data-representation.
+      
+
+
+
+* It there a tutorial for ~js_of_ocaml~ with simple graphics?
+:PROPERTIES:
+:CUSTOM_ID: 5
+:END:
+Archive: https://discuss.ocaml.org/t/it-there-a-tutorial-for-js-of-ocaml-with-simple-graphics/4636/7
+
+** Deep in this thread, Phat Ky said
+
+
+This is a really, really late reply but this youtube video was very helpful to me ...
+https://www.youtube.com/watch?v=h_e5pPKI0K4
+      
+
+
+
+* Interesting OCaml exercises from François Pottier available online
+:PROPERTIES:
+:CUSTOM_ID: 6
+:END:
+Archive: https://discuss.ocaml.org/t/interesting-ocaml-exercises-from-francois-pottier-available-online/7050/1
+
+** gasche announced
+
+
+The recent URL https://ocaml-sf.org/learn-ocaml-public/#activity%3Dexercises
+contains auto-graded OCaml exercises, in particular a bunch of advanced and fairly interesting
+exercices written by François Pottier, which I would recommend for anyone knowledgeable in OCaml and
+curious about algorithms and functional programming. (You have to scroll down to see those, the
+exercises at the top come from the OCaml MOOC.)
+
+See for example François' exercises on:
+- [[https://ocaml-sf.org/learn-ocaml-public/exercise.html#id%3Dfpottier/alpha_beta%26tab%3Dtext%26prelude%3Dshown][Alpha-Beta Search]],
+- [[https://ocaml-sf.org/learn-ocaml-public/exercise.html#id%3Dfpottier/parser_combinators%26tab%3Dtext][Parser combinators]],
+- [[https://ocaml-sf.org/learn-ocaml-public/exercise.html#id%3Dfpottier/huffman%26tab%3Dtext%26prelude%3Dshown][Huffman Compression]],
+- [[https://ocaml-sf.org/learn-ocaml-public/exercise.html#id%3Dfpottier/nondet_monad_cont%26tab%3Dtext%26prelude%3Dshown][Implementing backtracking with continuations]], or
+- my personal favorite, [[https://ocaml-sf.org/learn-ocaml-public/exercise.html#id%3Dfpottier/pprint%26tab%3Dtext%26prelude%3Dshown][reimplementing the core of a pretty-printer]].
+
+Context: the exercise platform is [[https://github.com/ocaml-sf/learn-ocaml][LearnOCaml]], initially
+written by OCamlPro for the OCaml MOOC and maintaing by Yann Régis-Gianas (@yurug) on behalf of the
+[[http://ocaml-sf.org/][OCaml Software Foundation]]. We (at the Foundation) are trying to assemble a
+corpus of nice OCaml exercises for teachers and people self-studying, and the nice exercises by
+François Pottier (@fpottier) were written as part of this initiative.
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[http://alan.petitepomme.net/cwn/][the archive]] or the [[http://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe [[http://lists.idyll.org/listinfo/caml-news-weekly/][online]].
+
+#+BEGIN_authorname
+[[http://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname

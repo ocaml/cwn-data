@@ -1,0 +1,263 @@
+<?xml version="1.0" encoding="ISO-8859-15"?>
+<cwn>
+<cwn_head>
+  <cwn_date>2005.02.15</cwn_date>
+  <cwn_prev>2005.02.08</cwn_prev>
+  <cwn_next>2005.02.22</cwn_next>
+  <cwn_date_text>08 to 15 February, 2005</cwn_date_text>
+</cwn_head>
+<cwn_body>
+  <cwn_entry>
+    <cwn_title>[Benchmark] NBody</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200502/msg00233.html</cwn_url>
+    <cwn_who>Christophe Troestler said and Xavier Leroy answered</cwn_who>
+    <cwn_what>
+&gt; For fun I have implemented an nbody simulation following
+&gt; http://shootout.alioth.debian.org/benchmark.php?test=nbody&amp;lang=all&amp;sort=cpu
+&gt; (code is attached).  
+
+Ah, another micro-benchmark.  Great pasttime!  
+
+Your OCaml code is about as good as you can write.  All the unboxing
+optimizations are triggered.  
+
+&gt;   ocamlopt -o nbody.com -inline 3 -unsafe -ccopt -O2 nbody.ml
+
+On x86, you can get a bit more speed with -ffast-math, which turns the
+call to sqrt() into inline assembly.  As others mentioned, &quot;-ccopt -O2&quot;
+is useless.
+
+&gt; I&apos;ve compared with the Java program they give.  I get (on a Pentium(R)
+&gt; 4 CPU 2.40GHz Debian):
+&gt; 
+&gt; n	OCaml	Java
+&gt; 1000	0.004	0.112
+&gt; 10000	0.016	0.112
+&gt; 100000	0.159	0.218
+&gt; 200000	0.284	0.370
+&gt; 500000	0.707	0.702
+&gt; 1000000	1.410	1.359
+&gt; 2000000	2.884	2.453
+&gt; 3000000	4.294	3.590
+&gt; 4000000	5.735	4.774
+&gt; 
+&gt; I am interested in explanations why OCaml seems asymptotically slower
+&gt; than Java and ways to improve that.  
+
+You don&apos;t say which Java implementation you used (there are several).
+The &quot;0.112&quot; overhead of Java corresponds to start-up time, which includes
+JIT-compilation.  As to why Java is asymptotically faster, we&apos;d
+need to look at the generated assembly code.  Good luck doing that
+with a JIT compiler.
+
+So, to understand OCaml&apos;s performances here, one has to turn to a
+different baseline.  I translated your Caml code to C and looked at
+gcc output.
+
+The best gcc output is faster than the best OCaml output by about 30%.
+Looking at the asm code, the main difference is that gcc keeps some
+float variables (dx, dy, dz, etc) in the floating-point stack while
+OCaml stores them (unboxed) to the stack.  Maybe the Java
+implementation you used manages to use the float stack.  Who knows.
+
+The x86 floating-point stack is an awfully bad match for the
+register-based OCaml code generation model, so, no, I&apos;m not going to
+the great lengths the gcc folks went to extract some performance from
+that model.
+
+(Besides, being 1.3 times slower than gcc on numerical code is within
+the design envelope for OCaml.  My performance goals have always been
+&quot;never more than twice as slow as C&quot;.)
+
+On a &quot;normal&quot; (register-based) float architecture like PowerPC or
+x86_64, the OCaml-generated code is essentially identical to the
+gcc-generated one.
+
+The C translation is attached for your amusement.
+
+(please see the archives for the code - the editor)
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>OCaml-HTTP 0.1.0</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200502/msg00279.html</cwn_url>
+    <cwn_who>Stefano Zacchiroli announced</cwn_who>
+    <cwn_what>
+OCaml-HTTP is an Objective Caml library freely inspired from perl&apos;s
+HTTP::Daemon module that enables creation of simple HTTP daemons in
+OCaml.
+
+I just released version 0.1.0, download and more information available
+at the following links:
+- webpage     http://www.bononia.it/~zack/ocaml-http.en.html
+- tarball     http://www.bononia.it/~zack/stuff/ocaml-http-0.1.0.tar.gz
+- changelog   http://www.bononia.it/~zack/stuff/ocaml-http/changelog
+- API doc     http://www.bononia.it/~zack/stuff/ocaml-http/html/index.html
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>String to list to string</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200502/msg00302.html</cwn_url>
+    <cwn_who>Juancarlo Añez asked and William D.Neumann answered</cwn_who>
+    <cwn_what>
+&gt; Why aren&apos;t there functions in the standard library to convert strings 
+&gt; to lists of characters and back?
+
+Because a) they&apos;re not all that useful and b) they&apos;re trivial to write 
+for yourself:
+
+let explode s =
+   let rec exh acc = function
+   | -1 -&gt; acc
+   | i -&gt; exh (s.[i]::acc) (pred i)
+   in exh [] (pred (String.length s))
+
+let implode l =
+   let s = String.create (List.length l) in
+   let rec imh i = function
+   | h::t -&gt; s.[i] &lt;- h; imh (succ i) t
+   | [] -&gt; s
+   in imh 0 l
+    </cwn_what>
+    <cwn_who>Erik de Castro Lopo replied</cwn_who>
+    <cwn_what>
+Here&apos;s one thats a little more obvious (remove the function, use String.get)
+and runs about 20% faster (at least on my iBook running Linux):
+
+let string_to_charlist str =
+	let rec stc lst n =
+		if n &lt; 0 then lst
+		else stc ((String.get str n) :: lst) (n - 1)
+	in
+	stc [] ((String.length str) - 1)
+	;;
+
+To be honest, this was my second attempt. My first attempt was slower
+than yours and blew the stack on million character strings (obviously
+not tail rescursive). This one (and yours) is quite happy with strings 
+10 times that size.
+    </cwn_what>
+    <cwn_who>Radu Grigore answered</cwn_who>
+    <cwn_what>
+Yet another one:
+http://caml.inria.fr/FAQ/FAQ_EXPERT-eng.html#strings
+     </cwn_what>
+     <cwn_who>Jon Harrop suggested</cwn_who>
+     <cwn_what>
+If you want succinct implementations then I&apos;d go for:
+
+let char_list_of_string s =
+  let l = ref [] in
+  String.iter (fun c -&gt; l := c :: !l) s;
+  List.rev !l
+
+let string_of_char_list l =
+  String.concat &quot;&quot; (List.map (String.make 1) l)
+     </cwn_what>
+     <cwn_who>Richard Jones also replied</cwn_who>
+     <cwn_what>
+As others have said, these functions are not in the standard library.
+However, useful functions like these[1] are available in Extlib, which
+you can find here:
+
+http://sourceforge.net/projects/ocaml-lib/
+
+and is also available as a binary package for various platforms such
+as Debian.
+
+It contains important functions such as String.map,
+String.replace_chars, String.slice, String.starts_with,
+String.ends_with, and many more.
+
+Rich.
+
+[1] Although embarrassingly, it appears, not these exact functions,
+which is why I&apos;ve CC&apos;d to ocaml-lib-devel list.  To ocaml-lib-devel:
+we should provide implementations of
+http://caml.inria.fr/FAQ/FAQ_EXPERT-eng.html#strings
+     </cwn_what>
+   </cwn_entry>
+   <cwn_entry>
+     <cwn_title>Contract position in compiler development available, MSR Cambridge</cwn_title>
+     <cwn_url>http://caml.inria.fr/archives/200502/msg00339.html</cwn_url>
+     <cwn_who>Don Syme announced</cwn_who>
+     <cwn_what>
+Dear OCaml-list,
+
+This is a job opportunity for an ML programmer, and may be of particular
+interest to those who love compiler development for functional languages.
+
+Thanks
+
+Don
+
+Contract position in compiler development
+
+Microsoft Research, Cambridge, UK
+
+MSR Cambridge has available a 6 month contract position in applied language
+design, optimization and compiler development for work on the F# project.  F#
+is a variant of the ML functional programming language with core subset
+essentially compatible with the core of the OCaml language, along with a
+compiler and tools for the .NET platform and Visual Studio.  It is specifically
+designed to facilitate cooperation between ML code and other .NET languages
+such as C# and can be downloaded from http://research.microsoft.com/downloads .
+F# is also being used by several projects within Microsoft and Microsoft
+Research.  More information on F# can be found at
+http://research.microsoft.com/projects/fsharp .
+
+We are looking for candidates with some or all of the following qualifications:
+
+    * MS. or Ph.D. in Computer Science
+    * Strong applied ML or functional programming skills, in Standard ML,
+      OCaml, F# or Haskell.  Some experience with C++ is also required.
+    * Knowledge of algorithms and techniques from compilers, including
+      experience with the design and implementation of inference-based type
+      systems
+    * Good communication and inter-personal skills
+    * Leadership and cross-team collaboration skills, including a desire to
+      work with Microsoft product teams and external partners in training them
+      in the use of the language and tools.
+    * 2 years of industrial experience, including the ability to self-manage
+      through the progressive release of stable versions of a product
+    * A strong desire to ensure that mixed functional/imperative programming is
+      a viable reality on the .NET platform
+    * Excitement at the potential that the libraries and tools of the .NET
+      Framework and Visual Studio offer to niche programming languages
+
+This position will be tailored according to the skills of the candidate, but
+will include key activities such as the following: 
+
+- Maintaining the language and runtime infrastructure
+
+  o Fixing bugs in the F# code base
+
+  o Implementing new features in F#, including the Visual Studio tools for F#
+
+  o Responding to customer feature requests
+
+  o Improving the performance of programs compiled with F#
+
+- Technology transfer from Microsoft Research
+
+  o Working with key F# customers within Microsoft Research and the product
+    divisions
+
+
+The candidate must be willing to work in Cambridge and travel as needed to the
+Seattle area and elsewhere.
+
+Applications should be sent to Alex Reed  (alreed@microsoft.com)
+
+F# is a contribution by Microsoft Research to ensure that a strong ML-like
+symbolic programming language is available in the context of .NET.  Our group
+has a good track record of positively influencing the design and implementation
+of Microsoft&apos;s programming languages and platforms.  As such this position
+offers the candidate the chance to make a major contribution to how future
+developers write programs and to the quality of the software that we use, both
+directly through ML as a language and indirectly through the research agenda of
+the academic community from which it stems.
+     </cwn_what>
+   </cwn_entry>
+ </cwn_body>
+ </cwn>

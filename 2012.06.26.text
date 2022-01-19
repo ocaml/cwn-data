@@ -1,0 +1,225 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of June 19 to 26, 2012.
+
+1) nlopt-ocaml
+2) OCaml on Amazon EC2 Instance
+3) OCamlSpotter for OCaml 4.00.0 beta
+4) Compiling with camlp4 extensions
+5) Other Caml News
+
+========================================================================
+1) nlopt-ocaml
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2012-06/msg00147.html>
+------------------------------------------------------------------------
+** Micha? Kurcewicz announced:
+
+This is to announce OCaml bindings to the NLopt nonlinear optimization
+library. The wrapper code implements an almost complete NLopt API (the
+only exception are vector-valued constraints). I am using it in my
+projects without any problems, but it may still have some bugs.
+
+You can get the source from:
+
+<https://bitbucket.org/mkur/nlopt-ocaml>
+      
+========================================================================
+2) OCaml on Amazon EC2 Instance
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2012-06/msg00137.html>
+------------------------------------------------------------------------
+** Jeffrey Scofield asked:
+
+Can anybody tell me how to install OCaml on an Amazon EC2 instance? I'm
+running Amazon Linux (because it's free). None of the preconfigured
+repositories seem to include OCaml itself (though a few libraries are
+present if you enable EPEL 6 "Extra Packages for Enterprise Linux").
+
+There's some indication that I need the "Optional Packages," but so far
+all I have is this name. I don't know what it refers to or how to access
+it from my instance.
+      
+** Stéphane Glondu suggested and Goswin von Brederlow added:
+
+> You can try with Debian:
+>
+> <http://www.monperrus.net/martin/installing-debian-on-amazon-ec2>
+
+You might also want to look into mirage (openmirage.org) for ocaml in a
+cloud. (But don't ask me how to start one on amazon.)
+			
+** Siraaj Khandkar suggested:
+
+I would use Godi:
+<http://godi.camlcity.org/godi/>
+			
+** Jeffrey Scofield finally said:
+
+Thanks very much for the suggestions for getting OCaml installed
+on Amazon EC2. I'm going to save them for future use.
+
+We just wanted to do some fairly quick testing, so I was looking
+for something simple. Since Amazon Linux is compatible with CentOS 6,
+what I ended up doing is installing the CentOS 6.2 OCaml package
+on my EC2 instance. I wrote up a description of how to do it
+here:
+
+<http://psellos.com/2012/06/2012.06.ocaml-amazon-ec2.html>
+
+We've run our first round of tests, and it all seems to be working.
+
+Maybe this will be useful to other OCamlers.
+			
+========================================================================
+3) OCamlSpotter for OCaml 4.00.0 beta
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2012-06/msg00157.html>
+------------------------------------------------------------------------
+** Jun Furuse announced:
+
+I have put a port of OCamlSpotter to OCaml 4.00.0 beta at
+<https://bitbucket.org/camlspotter/ocamlspot> . Try the default branch.
+
+OCamlSpotter is a source code definition/type query helper for Emacs
+(and possibly for other editors). See details at
+<http://jun.furuse.info/hacks/ocamlspotter> .
+
+Thanks to the new -bin-annot option of OCaml, OCamlSpotter no longer
+requires any compiler patch. It is now a small standalone application
+very easy to compile and install. It is a very quick port to OCaml 4
+and the program is slower than the previous releases, but at least it
+passes all the existing tests.
+
+Probably you may be also interested in TypeRex for the same purpose.
+      
+========================================================================
+4) Compiling with camlp4 extensions
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2012-06/msg00160.html>
+------------------------------------------------------------------------
+** Aaron Bohannon asked:
+
+I have been trying to use the new camlp4 to write an OCaml syntax extension.
+All the examples I have seen so far suggest that I use the extension by
+passing ocamlc the "-pp" option.  But it seems that all the location info for
+error messages gets lost when I do this unless I catch and report the parse
+error myself within the extension.  Is there some way to get ocamlc to report
+the parse error at the correct location automatically?
+      
+** Gabriel Scherer replied:
+
+All nodes in a Camlp4 AST are annotated with location information; the
+locations you get from the parser are correct, and it is your
+responsibility, as an extension writer, to ensure that any new nodes
+you generate also have (approximately) correct location information.
+
+If you build AST nodes "by hand", you have to provide this location
+explicitly. If you use the concrete syntax quotations, the location
+used is the value _loc present in the environment, whatever it may be.
+So to have correct locations, you have to make sure that, at every AST
+you produce through a quotation, there is a "_loc" variable in scope
+with the correct value. If you match AST pieces with quotation
+patterns (match e with <:expr< $a$ + $b$ >> -> ...), you may bind the
+location variable through the syntax "<:expr@foo<", for example:
+(match e with <:expr@_loc< $a$ + $b$ >> -> ...). Finally, if you're
+inside an EXTEND block defining a parsing rule, the idenfitier _loc is
+implicitely bound to a location corresponding to what was parsed by
+this rule.
+
+See for example the toy extension pa_refutable, that has example of
+those various things:
+<http://bluestorm.info/camlp4/pa_refutable.ml.html>
+
+In some very rare cases (or if you are perfectionist), you may want to
+give to a new node a location that is not quite the location of any of
+the parsed node you're working on. You may use various functions of
+the Loc submodule of your syntax definition to forge new locations; in
+particular, Loc.merge merges two (supposed contiguous) locations.
+<http://bluestorm.info/camlp4/camlp4-doc/Sig.Loc.html>
+			
+** Aaron Bohannon then asked and Gabriel Scherer replied:
+
+> Thanks for the reply.  The example is helpful.  However, I should have
+> been more clear: I don't exactly want to write a syntax extension, per
+> se.  Rather, I am trying to use camlp4 to parse a non-OCaml grammar
+> and to generate an OCaml AST.  So the "Register.OCamlSyntaxExtension"
+> functor doesn't seem like it will work for me.  Instead, I tried using
+> "Printers.Ocaml.print_implem" in my "extension" code and everything
+> works fine, except for error locations.  Of course, I realize this is
+> because the AST is being printed and then re-parsed, but I don't know
+> how to prevent it from being reparsed.  I looked through all the
+> Camlp4 interfaces and thought that perhaps I need to use the function
+> "Register.register_str_item_parser".  But I couldn't make that work.
+> Either that's not the function I need or else I don't know how to use
+> it -- I can't tell which.
+
+See the "full parser tutorial" in the Camlp4 wiki, it has information
+for what, if I have correctly understood, is your use case, including
+location handling.
+<http://brion.inria.fr/gallium/index.php/Full_parser_tutorial>
+			
+** Aaron Bohannon then asked and Gabriel Scherer replied:
+
+> Ah, yes.  That is helpful.  I had thought of trying to "extend" OCaml
+> by replacing the grammar with a different one, although I didn't know
+> exactly how to do it.
+>
+> Of course, it seemed obvious to me that I wouldn't be able to use my
+> own lexer if I did that.  I'm not sure if I will want to do that or
+> not yet, but I was thinking I would just learn to do it that way so
+> I'd have that flexibility if I need it.  Unfortunately, the page stops
+> short of explaining how to pursue that approach. :(
+
+If you want to implement your own lexer, you have to provide the
+MakeGram functor your own module satisfying the Lexer signature.
+<http://bluestorm.info/camlp4/camlp4-doc/Sig.Lexer.html>
+
+If you can reuse Camlp4's predefined lexer, however, you should not
+hesitate to do that. There is little use in being original on the
+lexing part, and users that already know OCaml will appreciate the
+consistency in the lexical conventions. Camlp4's token type for OCaml
+is rich enough to integrate comments and whitespace information, so
+you can even define an indentation-dependent language on top of the
+pre-existing lexer, using a filtering function on the token stream :
+<http://bluestorm.info/camlp4/camlp4-doc/Sig.Token.Filter.html>
+			
+========================================================================
+5) Other Caml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocamlcore.org/>.
+
+A formally-verified alias analysis:
+  <http://gallium.inria.fr/~scherer/gagallium/a-formally-verified-alias-analysis/index.html>
+
+2D Interpolation, Part 1: The Digital Differential Analyzer:
+  <http://alaska-kamtchatka.blogspot.com/2012/06/2d-interpolation-part-1-digital.html>
+
+LRTT parser:
+  <https://forge.ocamlcore.org/projects/lrttparser/>
+
+File Sharing on the Spot:
+  <http://alaska-kamtchatka.blogspot.com/2012/01/file-sharing-on-spot.html>
+
+Announcing Opa 1.0:
+  <http://blog.opalang.org/2012/06/announcing-opa-10.html>
+
+Stog 0.1:
+  <http://caml.inria.fr/cgi-bin/hump.cgi?contrib=818>
+
+Xtmpl 0.1:
+  <http://caml.inria.fr/cgi-bin/hump.cgi?contrib=817>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

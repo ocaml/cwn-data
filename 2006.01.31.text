@@ -1,0 +1,128 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of 24 to 31 January, 2006.
+
+1) hints for internationalization
+2) On Store_field()
+
+========================================================================
+1) hints for internationalization
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/32050>
+------------------------------------------------------------------------
+** Basile Starynkevitch asked and Sylvain Le Gall suggested:
+
+> Do you have practical hints regarding the l18n or i18n of an application
+> (specifically, an application to be runnable either in french or in
+> english)?
+> 
+> Any practical hints are welcome. In particular, it seems to me that the
+> novel features of the Printf module could help in particular the format string
+> substitution eg printf "%(%d %s)" (I don't know what should come next) .... 
+> 
+> In other words, I'm seeking advices and examples of how to use advanced
+> Printf (& Scanf) features to code a bi-lingual application.
+> 
+> Maybe a Printf mini-HOWTO might be helpful?
+> 
+> What about gettext (or other equivalent?)
+
+There is ocaml-gettext, if you need a gettext library.
+
+<http://le-gall.net/sylvain/ocaml-gettext.html>
+    
+========================================================================
+2) On Store_field()
+Archive: <http://thread.gmane.org/gmane.comp.lang.caml.general/31971>
+------------------------------------------------------------------------
+** Continuing the thread from last week, Thomas Fischbacher said and Olivier Andrieu answered:
+
+ > What you *actually* forgot to tell people is that OCaml
+ > unfortunately lacks a macro with which one can store C pointers to
+ > alloc_final allocated blocks. If one writes to those using e.g.
+ > 
+ >   ml_vector = alloc_final(2, finalize_vector, 1, 10);
+ >   Store_field(ml_vector, 1,(value)vector);
+ > 
+ > with vector being a C pointer to a structure, this may or may not
+ > lead to random crashes at very unexpected places - because (as I
+ > think now) the Store_field macro will be over-eager trying to tell
+ > the GC about the value stored - which it should just ignore in this
+ > particular case!
+ > 
+ > Indeed, this has been discussed before, I think:
+ > 
+ > <http://groups.google.de/group/fa.caml/msg/60ace9405fcf60c0?dmode=source&hl=de>
+ > 
+ > So, I would strongly suggest introducing a macro that behaves like this:
+ > 
+ > #define Store_c_field(block,offset,x) (Field(block,offset)=(value)x)
+ > 
+ > so that one could then use
+ > 
+ >   Store_c_field(ml_vector, 1,vector);
+ > 
+ > I actually just spent a full week tracking down precisely this
+ > issue in a not particularly trivial C library interface I am
+ > building right now.  After looking in the weirdest places, ensuring
+ > it's not an issue with the library wrapped, or the trickier pieces
+ > of my own code, I even started patching debugging code into the
+ > OCaml bytecode's GC and rebuilding...
+ > 
+ > So, *please* do the world a great favour and tell people about that
+ > issue in the C interface documentation!
+
+Well, it already does:
+,----
+| Rule 3   Assignments to the fields of structured blocks must be done
+| with the Store_field macro (for normal blocks) or Store_double_field
+| macro (for arrays and records of floating-point numbers). Other
+| assignments must not use Store_field nor Store_double_field. 
+`----
+Final (aka custom) blocks are not structured blocks but raw blocks
+(not traced by the GC), so assignements to those blocks falls in the
+"other assignments" category.
+
+A good way to deal with custom blocks in the C code is to create a
+small struct type and access the content of the block through this type.
+
+struct custom_foo_bar {
+  foo *pointer1;
+  bar *pointer3;
+};
+
+value alloc_foo_bar (foo *f, bar *b)
+{
+  value v;
+  struct custom_foo_bar *s;
+  v = alloc_custom (&foo_bar_ops, sizeof struct custom_foo_bar, 1, 10);
+  s = Data_custom_val (v);
+  s->p1 = f;
+  s->p2 = b;
+  return v;
+}
+    
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

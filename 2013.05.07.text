@@ -1,0 +1,291 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of April 30 to May 07, 2013.
+
+1) OCaml mechanize?
+2) -principal
+3) Request for feedback: A problem with injectivity and GADTs
+4) Other Caml News
+
+========================================================================
+1) OCaml mechanize?
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-05/msg00003.html>
+------------------------------------------------------------------------
+** Continuing the thread from last week, Richard Jones said:
+
+> There are bindings to Perl's WWW::Mechanize in perl4caml. Its website
+> seems down,
+
+The latest code is in the git repo:
+
+<http://git.annexia.org/?p=perl4caml.git;a=summary>
+      
+========================================================================
+2) -principal
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-05/msg00008.html>
+------------------------------------------------------------------------
+** Yaron Minsky asked and Jacques Garrigue replied:
+
+> Can anyone describe the pluses and minuses of turning on -principal?
+> Is it considered to be good practice for codebases that are compatible
+> with it?  Can it change behavior of currently working code?
+
+Turning on -principal allows detecting "risky" uses of type information to
+help type inference.
+By risky I mean that success or failure of type inference may depend
+on the order in which subexpressions are typed.
+This kind of type information is only used by a limited number of features:
+* polymorphic methods
+* using different order of labeled arguments in a function
+* some discarding of optional arguments
+* choice of the source type in a coercion (i.e. automatic upgrading of
+   (expr :> t2) into (expr : t1 :> t2) when the type of expr is closed).
+  This is particularly useful for private type abbreviations.
+* GADTs
+* disambiguation of record field and constructor names (new in trunk)
+
+The technical definition is based on polymorphism, but the intuition
+is that type information follows the (functional) flow of data, even going
+through polymorphic functions (being conservative when merging flows).
+So a simple way to understand is: supposing that type annotation physically
+adds type information to the expression they decorate, will all values
+reaching the use point be decorated?
+It also flows backward (the expected type is propagated), but does not
+go through functions in that case.
+
+# type t = < id: 'a. 'a -> 'a >;;
+type t = < id : 'a. 'a -> 'a >
+# let f (x : t) = x, x#id;;     (* safe code: the type of x is known at all its use points *)
+val f : t -> t * ('a -> 'a) = <fun>
+# let f x = (x : t), x#id;;     (* unsafe code: the type is only known because typing goes from left to right *)
+Warning 18: this use of a polymorphic method is not principal.
+val f : t -> t * ('a -> 'a) = <fun>
+# let f x = x#id, (x : t);;    (* just exchanging the members of the pair causes a failure *)
+Error: This expression has type < id : 'a; .. >
+       but an expression was expected of type t
+       The universal variable 'a0 would escape its scope
+
+In an ideal world, I would suggest systematically using -principal, as it makes
+the notion of "known type" well-defined.
+However, there are drawbacks to -principal
+* type inference is slower (more copying occurs)
+* cmi's become bigger
+The first point is mainly a problem if you use objects.
+The second one if you have already problems with cmi size (again, mostly objects)
+
+As a result the suggested approach is to only compile with -principal once in a while.
+This is reasonable because if compiling with -principal works, in theory it is guaranteed
+that the program will be accepted without -principal too. Of course the semantics do
+not change.
+
+However there is a difficulty: since the generated cmi's may differ, in general one
+has to maintain completely separate builds.
+If you have a complete set of mli's, then a solution is to always compile mli's with
+(or without) -principal. (Compiling the mli without principal may in theory cause
+propagation to fail in some cases, but you are on the safe side, and I have
+never observed it)
+
+So yes, it is good practice. But I'm afraid few invested the effort in doing it.
+Looking at the features you use in Core, this may be a good idea to try.
+(My understanding is that Lexifi tried, but they had problems because they
+use big object types).
+By the way, the ocaml compiler itself doesn't use any of the above features,
+so it is not directly concerned.
+      
+========================================================================
+3) Request for feedback: A problem with injectivity and GADTs
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-05/msg00011.html>
+------------------------------------------------------------------------
+** Continuing the thread from last week, Jacques Garrigue said:
+
+Ironically, I have just found that lablgtk2 does not compile with the fixed version.
+lablgtk2 does not use GADTs, but it uses constrained type parameters in classes.
+
+The problem is as follows:
+
+gobject.mli:
+type -'a gobj
+
+gContainer.mli:
+class virtual ['a] item_container :
+  object
+    constraint 'a = < as_item : [>`widget] obj; .. >
+    method add : 'a -> unit
+    ?
+  end
+
+File "gContainer.mli", line 126, characters 6-665:
+Error: In this definition, a type variable cannot be deduced
+       from the type parameters.
+
+It is a bit surprising, since the said variable is the row variable
+of the above [> `widget], and it is only referred through 'a.
+The reason there is an error is that the checkability requirements
+for the body of types and constrained type parameters differ:
+to allow the row variable to appear in a position potentially
+contravariant, we need it to know from the constraint that it
+appears for sure in a negative or invariant position.
+One way to solve this is to check that the type identified by 'a can
+actually be handled as a real variable (its internal variables do
+not occur out of it), which would solve the discrepancy.
+However, checking this is going to be a pain.
+And making gobj injective immediately solves the problem.
+
+In the midtime, the problem is fixed in the git version of
+lablgtk2 by pretending that gobj is a private sum type (whose
+contents are abstract).
+
+This also empasizes that the new restriction does not impact
+only GADTs: all constrained type parameters are also concerned.
+      
+** Gabriel Scherer asked and Jacques Garrigue replied:
+
+> If I understand correctly, you are saying that this "constraint", in
+> absence of injectivity, could be handled semantically like GADTs with
+> non-injective equations, that is as quantifying locally on a ("true")
+> existential variable?
+
+I did not think of it that way, but this is something like that.
+By abstracting on the (common) part of the types which contains
+abstract type constructor, we can fall back to exact variance information.
+
+> Handling existential variables (in fact local type constructors)
+> attached to GADT constructors is well-understood as they have clear
+> introduction sites and scopes, exactly where their constructor is
+> matched. When you say that checking the "constraint" case is painful,
+> is it related to the fact that there is no such corresponding
+> term-level marker?
+
+Well yes, you have to find the common parts yourself.
+Actually this is not that bad.
+I have committed a fix, which works by recursing on the body
+of the definition, trying to find equal types inside the constrained
+parameters. If the variance at this point is correct, one doesn't
+need to look inside.
+This may be a bit expensive, but usually constraints are not big.
+
+In theory one could do even better, by abstracting on the "real"
+variance of abstract types. Then the variance of an occurence
+becomes a set of paths (composition of variances) from the root
+of the type definition. However, this just looks too complicated to
+me...
+      
+** Leo White asked and Jacques Garrigue replied:
+
+>>>>      type 'a t = T;;
+>>>>      type _ g = G : 'a -> 'a t g;;
+>>> 
+>>> I don't see why this could not be allowed without the restriction you
+>>> propose. I thought that this was rejected in 4.00 because 4.00 used
+>>> bi-variance as an (unsafe) approximation of non-injective. Since we now
+>>> track injectivity separately from variance g be accepted (with 'a covariant).
+>> 
+>> In our work, this GADT definition would be accepted, and:
+>> (1) matching on the constructor G does not give any information on the
+>> value of the existential type 'a
+>> (2) the parameter of g (not 'a, the one marked _ above) may marked
+>> covariant or invariant, because the constructor t is upward-closed but
+>> not downward-closed (private types)
+> 
+> I don't think the argument to G needs to be given an existential type,
+> as long as the parameter of g is marked invariant.
+> 
+> The parameter to g should be marked invariant for two reasons:
+> 1) It is constrained in the result type of a GADT constructor which, as
+> discussed on this list previously, forces it to be invariant (at least
+> for now, see Gabriel's paper for further details).
+> 2) Marking it as anything other than invariant, would entail marking
+> 'a as bi-variant, when it is in fact covariant.
+> 
+> This second reason also occurs in types with constraints, for example:
+> 
+>  type 'a s = 'b constraint 'a = 'b t
+> 
+> here 'b is covariant (used in covariant and bi-variant positions), but
+> marking 'a as any variance other than invariant would entail marking 'b
+> as bi-variant.
+
+Sorry for the slow answer. The implementation was not correct yet...
+
+I think there is a misunderstanding here.
+The problem is that 'b has two variances: its internal one, inferred from
+its occurrences inside the body of the type, and its external one, defined
+by its occurences inside parameters of the type.
+For the definition to be correct, we need the external variance to be
+at least as rigid as the internal one.
+The extra difficulty is that our knowledge of variances is only approximative
+(due to abstraction), and we have to use lower bounds on external variances,
+and an upper bounds on internal variances (to be sure that we are safe).
+Here the lower bound says just that the external variance of 'b
+is the composition of invariant and injective, while the internal one
+is covariant. If invariant o injective were defined as only injective,
+it would be less rigid than the internal version, hence the need to
+have invariant o injective = invariant.
+(But for the converse, we only have injective o invariant = injective)
+
+Actually I realized that just positive, negative and injective are not sufficient.
+To fully accommodate the need for upper and lower bounds, we end up
+needing 7 different variance flags!
+  may_pos, may_neg : the variable may appear at positive or negative
+	occurrences in the real definition; this is an upper bound,
+	corresponding to variance annotations on abstract types
+  may_weak: needed to make type inference principal
+  pos, neg: we now that the variable appears at positive or negative
+	occurrences in the real definition; this is a lower bound
+  inj: either pos, or neg, or parameter of a concrete definition;
+	does not disappear by expansion
+  inv: pos and neg simultaneously in a concrete definition; needed
+	the above composition inv o inj = inv
+We have the hierarchy unknown < inj < pos \/ neg < pos /\ neg < inv.
+Of course not all combinations are valid, (for instance pos implies may_pos,
+etc?) but this is still mind boggling.
+
+But those are not sufficient to solve the lablgtk2 problem above:
+calling 'b the row variable of [> `widget], its internal variance is
+neg o pos o may_neg, but its external variance is inv o pos o may_neg.
+The result is may_pos internally, but externally the result is
+may_pos /\ may_neg, whose lower bound is just "unknown".
+
+Hence the need to "abstract" on common types, when their internal
+variables do not escape.
+The variance of 'a internally is neg, and externally inv, so all is fine.
+
+This is a bit complicated, but the full specification is clear enough.
+Thanks to the detection of common types, the fact that the only flags
+for abstract types are may_pos and may_neg is not too much
+a problem for constrained parameters.
+      
+========================================================================
+4) Other Caml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocaml.org/>.
+
+malloc() is the new gensym():
+  <http://syntaxexclamation.wordpress.com/2013/05/04/malloc-is-the-new-gensym/>
+
+A new Coq tactic for inversion:
+  <http://gallium.inria.fr/blog/a-new-Coq-tactic-for-inversion>
+
+Patch review vs diff review, revisited:
+  <https://ocaml.janestreet.com/?q=node/114>
+
+Merlin:
+  <https://forge.ocamlcore.org/projects/merlin/>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

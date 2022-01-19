@@ -1,0 +1,300 @@
+Hello,
+
+Here is the latest Caml Weekly News, week 15 to 22 April, 2003.
+
+1) Ocaml SciTE mode
+2) Web server in Caml / SSL support?
+3) OCaml signal handlers (Sys.signal) and C code
+4) cross compilation
+5) A step short of -noautolink?
+
+======================================================================
+1) Ocaml SciTE mode
+----------------------------------------------------------------------
+Lionel Durigneux wrote:
+
+Do you know the SciTE editor ?  (free for Linux & Windows, with src, see
+http://www.scintilla.org or http://www.scintilla.org/SciTE.html)
+
+If anyone is interested about editing Ocaml source code with SciTE (and
+running by F5), copy this ocaml.properties file below at the right place
+(among other .properties  of your SciTE) (This file is inspired by
+lisp.properties and pascal.properties). I use it with success since I
+write some code with ocaml under windows NT4 and Linux Redhat 7.3.
+
+nota: you can press F5 to run the edited code running under labelgtk
+when the file extension is .mlg (if you get better, tell me)
+
+# Define SciTE settings for ocaml.
+
+file.patterns.ocaml=*.ml;*.mli;*.mlg
+filter.ocaml=OCAML (ml mli mlg)|$(file.patterns.ocaml)|
+file.patterns.braces=$(file.patterns.ocaml)
+lexer.$(file.patterns.ocaml)=pascal
+
+# ocaml build in functions, xlisp dialect
+keywords.$(file.patterns.ocaml)= not defun + - * / = < > <= >= princ\
+eval apply funcall identity function complement lambda set setq setf\
+defun defmacro gensym make symbol intern symbol name symbol value symbol plist get\
+getf putprop remprop hash make array aref cons list append reverse last nth\
+nthcdr member assoc subst sublis nsubst nsublis remove length list length\
+delete null eq eql equal cond case and or let prog\
+go return do catch except throw error break\
+float min max abs sin cos tan expt exp sqrt\
+integer length nil do done match with for to if then else rec downto ref\
+begin end unit while let and type in mutable string int of raise try not struct\   
+sig module class val method new print_int print_string open load
+#= [ ] : { } <- @ # ;
+
+
+word.chars.ocaml=$(chars.alpha)$(chars.numeric)_-<>.+$%^&=*!?
+word.characters.$(file.patterns.ocaml)=$(word.chars.ocaml)
+
+comment.stream.start.pascal=(*
+comment.stream.end.pascal=*)
+comment.box.start.pascal=(*
+comment.box.middle.pascal= *
+comment.box.end.pascal=*)
+
+# ocaml styles
+
+# Default
+style.ocaml.32=$(font.base)
+# White space
+style.ocaml.0=fore:#808080
+# Line Comment
+style.ocaml.1=$(colour.code.comment.box),$(font.code.comment.box)
+# Number
+style.ocaml.2=$(colour.number)
+# Keyword
+style.ocaml.3=$(colour.keyword),bold
+# String
+style.ocaml.6=$(colour.string)
+# Operators
+style.ocaml.10=$(colour.operator),bold
+# Identifiers
+style.ocaml.9=
+# End of line where string is not closed
+style.ocaml.8=fore:#000000,font:Verdana,size:9,back:#fefecc,eolfilled
+# Matched Operators
+style.ocaml.34=fore:#0000FF,bold
+style.ocaml.35=fore:#FF0000,bold
+# Braces are only matched in operator style
+braces.ocaml.style=10
+
+command.go.*.ml=c:\WORKAREA\OCaml\bin\ocaml.exe $(FilePath)
+command.go.*.mlg=c:\WORKAREA\OCaml\bin\lablgtk.bat $(FilePath)
+command.go.subsystem.*.ml=1
+
+======================================================================
+2) Web server in Caml / SSL support?
+----------------------------------------------------------------------
+Stefano Zacchiroli said:
+
+Do you need a web server application or a library to write your own web
+servers?
+
+In the latter case I've written a library similar to the perl's
+HTTP::Daemon one. It's available on my homepage:
+
+  http://bononia.it/zack/ocaml-http.en.html
+
+and also linked from the humps (just search for "http").
+
+He then added:
+
+I forget to mention that actually no SSL support is available.
+
+======================================================================
+3) OCaml signal handlers (Sys.signal) and C code
+----------------------------------------------------------------------
+Stefano Zacchiroli asked and Xavier Leroy answered:
+
+> I've noticed that a callback registered using Sys.signal function for
+> the Sys.sigalrm signal isn't called while executing external C code.
+> 
+> The execution is delayed until the C code execution is over.
+> 
+> Is there any way to avoid this behaviour? (Actually the only solution I
+> see is to modify the C code so that handler is registered there, but I'm
+> working with an external library which is not under my own control)
+>  
+> Is this an intended behaviour or a bug?
+
+Very much intended behavior.  OCaml signal handlers can execute
+arbitrary Caml code, including heap allocations and garbage
+collections.  If they could be invoked at any time, e.g. in the middle
+of a garbage collection, disaster would ensue.
+
+However, there is one workaround for long-running pieces of C code
+that do not access the Caml heap: in the Caml/C stub code, wrap the
+call to the C function as follows:
+
+        enter_blocking_section();
+        /* call C functions */
+        leave_blocking_section();
+
+In the "blocking section" that is bracketed by the calls to
+enter_blocking_section() and leave_blocking_section(), signals will be
+honored immediately.  However, the C code executed inside the blocking
+section *must not* heap-allocate nor access the Caml heap in any way.
+In practice, this means that all conversions between Caml and C data
+structures must be done outside the blocking section:
+
+        /* extract arguments from Caml data, copying them to stack-allocated
+           blocks or malloc()-ed blocks */
+        enter_blocking_section();
+        /* call C functions */
+        leave_blocking_section();
+        /* convert C results to Caml data */
+
+For examples of use, you can look at the C stub codes in e.g. otherlibs/unix
+in the OCaml distribution.
+
+Then Stefano Zacchiroli asked and Damien Doligez answered:
+
+>Your "in any way" include also read only access (e.g. "Field" 
+>invocation
+>on a caml value allocated outside the blocking section), right?
+
+Right.
+
+>If this is the case I'm a bit concerned about performances. I have a
+>piece of C code, invoked by OCaml, that access caml values inside a
+>loop. To convert this code so that it can be interrupted by ocaml
+>callbacks I have to enter blocking before each access and exit
+>afterwards.
+
+Actually, you have to leave blocking before the access and enter
+afterwards.
+
+> Is this entering/existing time consuming?
+
+Unless you use threads, this is only one C function call, two tests,
+and three assignments.  Not very time consuming, but you still don't
+want to do it within an inner loop.
+
+If this is too much overhead, here is what I would recommend.
+Instead of calling leave_blocking_section and enter_blocking_section  
+around each heap access, you can treat the pair of calls:
+   enter_blocking_section ();
+   leave_blocking_section ();
+as a way to poll for signals.  It will test for any pending signals
+and call the handlers immediately.  If you call it once every 100 or
+1000 loop executions, the overhead should be quite small.
+
+======================================================================
+4) cross compilation
+----------------------------------------------------------------------
+Andy Chou asked and Xavier Leroy answered:
+
+> Is there any support for cross-compilation for the native code compiler?  
+> Interpretation simply won't cut it for the application I'm working with.
+> 
+> The native code compiler can generate code for many different 
+> architectures, and it appears that most of the codegen is written in
+> O'Caml itself.  gcc has support for cross-compilation/linking.  Putting
+> these together, virtually all of the work has been done.  Is there
+> anything to it other than properly structuring the configuration and 
+> build?
+
+I believe "properly structuring the configuration and build" should
+suffice to get ocamlopt to cross-compile, however this is probably not
+trivial.
+
+Christian Gillot did a cross-compiler for the ARM, see
+        http://www.neo-rousseaux.org/cgillot/en/ocamlhacks.html
+but he didn't detail the build process...
+
+======================================================================
+5) A step short of -noautolink?
+----------------------------------------------------------------------
+Greg Kimberly asked:
+
+I'm new to caml so apologies if this is too obvious.
+
+I've installed Gerd Stolpmann's intriguing ocamlnet package. It and the   
+required prerequisites (e.g. findlib) installed with only one problem on my
+RedHat 8 system. The one problem is that prerequisite package pcre-ocaml
+(version 5.02.0) contains a .cma file that refers to the pcre library. On
+RedHat 8 the pre-installed version of libpcre is 3.9-5 (it is in /lib/), 
+while pcre-ocaml v5.02 needs a newer libpcre (I downloaded 4.1 and  
+installed it in /usr/local/lib/).
+
+So far, so good. Unfortunately, the default build for the examples fails
+because the examples implicitly include pcre.cma which contains linker
+directives which cause the /lib/libpcre.so.0 to be linked- which is the
+wrong version. At this point I can see two possible fixes:
+
+Upgrade the version of libpcre in /lib - not good in the general case as it
+might cause compatiblility problems elsewhere
+
+Use -noautolink in the example makefile to suppress the inclusion of the
+linker directive -lpcre which has been inherited from pcre.cma
+
+This is the solution I'm using but it seems non-optimal to throw away all
+included linker directives just to remove one unwanted dependency. Is there
+some better way to deal with this issue that I'm overlooking? Is there some
+way to tell camlc to ignore a particular inherited directive from a .cma?
+
+This concern may seem pedantic, but I find that figuring out how to do
+these sorts of things efficiently when starting to use a development
+environment makes life a lot easier down the road.
+
+Jacques Garrigue answered:
+
+After some fiddling I think I have a solution to your problem.
+
+You can change the autolink information in a .cma by relinking it,
+with the -noautolink option.
+
+If you just want to strip this information you can write:
+ocamlc -a -noautolink -o mypcre.cma pcre.cma
+
+But you can also replace it with correct information:
+ocamlc -a -noautolink -o mypcre.cma pcre.cma -custom \
+  -ccopt -L/usr/local/lib -cclib -lpcre_stubs -cclib -lpcre
+(I'm not sure of the library name for pcre stubs)
+
+Note that all this may be irrelevant to dynamically loaded stubs: in
+that case details about where to find the C library are inside
+dll???.so, and you cannot change them. However, you can change the
+load path with LD_LIBRARY_PATH (the system ld.so is at work in this
+case, and ocaml knows nothing about it).
+
+Gerd Stolpmann added:
+
+You can also set LD_RUN_PATH when you build the dll???.so. In this case,
+the path is stored in the file, and is automatically remembered when the
+library is loaded.
+
+And Jacques Garrigue answered:
+
+Actually this is not an answer to the original question: it was about
+changing the linking/path for an already built library.
+My point was just that, unfortunately you cannot go into dll???.so to
+modify it afterwards individually.
+
+But ocamlmklib also builds lib???.a, which contains exactly the same
+objects as dll???.so. So you can also act in this case by re-building
+dll???.so from lib???.a, if you know enough about your system's
+linker. (Currently when you compile C files with ocamlc, this produces
+PIC objets, so that lib???.a shall contain only PIC objects, but this may
+change in the future.)
+
+If you want to set the runpath at build time with ocamlmklib, you can
+already do it with the -rpath option. LD_RUN_PATH may be an
+alternative on some systems.
+
+======================================================================
+Old cwn
+----------------------------------------------------------------------
+
+If you happen to miss a cwn, you can send me a message
+(alan.schmitt@inria.fr) and I'll mail it to you, or go take a look at
+the archive (http://pauillac.inria.fr/~aschmitt/cwn/). If you also wish
+to receive it every week by mail, just tell me so.
+
+======================================================================
+
+Alan Schmitt

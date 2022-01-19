@@ -1,0 +1,521 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of April 09 to 16, 2013.
+
+1) Functional Programming at Jane Street
+2) try...finally , threads, stack-tracebacks .... in ocaml
+3) Build number and date in OCaml?
+4) Microsoft-funded PhD opportunity (software/ system verification)
+5) Merlin 1.0 released
+6) modified error messages for ocamlc
+7) OCaml 2013 - Call for presentations
+8) Other Caml News
+
+========================================================================
+1) Functional Programming at Jane Street
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-04/msg00075.html>
+------------------------------------------------------------------------
+** Yaron Minsky:
+
+Jane Street is looking to hire functional programmers for our offices
+in New York, London and Hong Kong.
+
+Jane Street has the largest team of OCaml developers in any industrial
+setting, and the world's largest OCaml codebase. We use OCaml for
+running our entire business, working on everything from statistical
+research to systems administration to automated trading systems. If
+you're interested in using OCaml to solve real-world problems, there's
+no better place.
+
+Jane Street is an informal and intellecutal place --- you'll get to
+work with an extremely talented group of developers and traders (a
+pretty geeky group in its own right), pushing the bounds of functional
+programming and learning about the business of trading.
+
+We have a strong commitment to OCaml and to open-source software.
+We've continue to develop and release our own open source software, as
+well as support OCaml Labs and OCamlPro in building out the language
+infrastructure.
+
+Compensation is more than competitive, and no prior experience with
+finance is required.
+
+Here are some resources you can use to learn more about Jane Street
+and what we do.
+
+- A talk I gave at CMU about how and why we use OCaml
+<http://ocaml.janestreet.com/?q=node/61>
+- Our technical blog: <http://ocaml.janestreet.com>
+- Our open-source site: <http://janestreet.github.io>
+
+You can apply here:
+
+<http://janestreet.com/apply>
+      
+========================================================================
+2) try...finally , threads, stack-tracebacks .... in ocaml
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-04/msg00089.html>
+------------------------------------------------------------------------
+** Chet Murthy asked and, after many replies, Jacques-Henri Jourdan said:
+
+> People have previously asked about try...finally support in Ocaml, and
+> it's been observed (correctly) that you can write a little combinator
+> to give you this support, e.g.
+>
+> let finally f arg finf =
+> let rv = try Inl(f arg) with e ->
+> Inr e
+> in (try finf arg rv with e -> ());
+> match rv with
+> Inl v -> v
+> | Inr e -> raise e
+>
+> The problem is, you discard stack-traceback when you rethrow the
+> exception. One can program around this explicitly by capturing the
+> backtrace string and appending it to the rethrown exception, but it's
+> cumbersome and won't work for exceptions like Not_found that are
+> already defined without a mutable string slot.
+>
+> It sure would be nice of ocaml had try...finally that preserved the
+> traceback information properly .... though maybe it isn't possible.
+> Certainly in the case where the finally block doesn't raise any
+> exceptions itself (even those that are caught silently), it seems like
+> it ought to be possible.
+
+I recently published a blog post proposing a solution to the backtrace
+problem of Ocaml. It includes a Camlp4 filter and a small Ocaml library
+to handle exception backtraces. The performance drawback is negligible
+when backtraces are not activated, and reasonable when they are.
+
+You can read about it here :
+
+<http://gallium.inria.fr/blog/a-library-to-record-ocaml-backtraces/>
+      
+========================================================================
+3) Build number and date in OCaml?
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-04/msg00073.html>
+------------------------------------------------------------------------
+** Étienne André asked:
+
+I've been using OCaml for a couple of years, but without using any
+advanced feature; so my question may be a little naive. Is there any
+way to insert easily the current date and time of compiling, as well
+as, e.g., an incremental build number in an OCaml program? So that it
+is printed at runtime, e.g., in the program header.
+
+I quite stupidly used the Unix.gettimeofday() function before
+realizing that it is of course executed at runtime.
+
+Of course, I could do it using an external script that would modify
+the OCaml source code before compiling, but is there any native OCaml
+feature for achieving this in a cleaner manner?
+      
+** Julien Signoles suggested:
+
+This kind of information is part of your build process and are not
+directly accessible in OCaml. If you want to access it in your OCaml
+program, you have to pass them from the build environment to the
+program environment. As Jeremie Dimino said, the usual way is to
+general a small OCaml file at build time and to link it to your
+program.
+
+For instance, if you use 'make', you could have the following lines in
+your Makefile:
+
+VERSION=...
+config.ml: Makefile
+  echo "let version = \"$(VERSION)\"" > $@
+  echo "let compilation_date = \"`date`\" >> $@
+ 
+CMO_FILES = config.cmo ... (* other cmo files)
+
+Of course, it is better to add the corresponding config.mli by hand:
+config.mli:
+val version: string
+val date: string        
+      
+** David Allsopp then added:
+
+> VERSION=...
+> config.ml: Makefile
+
+NB - if you want the build stamp ever to be updated, it'll need to depend on
+more than Makefile. You can either have it depend on all of your ML source
+files or, if using GNU make, you could declare config.ml as .PHONY (which
+means it will be rebuilt at every invocation of make).
+
+<snip>
+
+> CMO_FILES = config.cmo ... (* other cmo files *)
+
+There's a further subtlety which can come into play if your build has more
+than one output, which is to place config.cmo / config.cmx as an order-only
+dependency. For example, suppose your build system has two programs whose
+sources are Foo.ml and Bar.ml both of which depend on Common.ml. If you
+structure your Makefile as:
+
+Config.ml: Foo.ml Bar.ml Common.ml
+...
+
+foo.exe: Common.cmx Foo.cmx | Config.cmx
+...
+
+bar.exe: Common.cmx Bar.cmx | Config.cmx
+...
+
+then updates to Foo.ml will not cause bar.exe to be rebuilt. The advantage of
+this approach is that the generating of the build stamp does not interfere
+with make - i.e. you don't get any additional recompilations. Of course,
+there are times where you do want all output programs to have the same build
+stamp but most of the time (i.e. while developing!) you don't want a change
+in one small part of the system to force recompilation/linking of the whole
+system...        
+      
+** Alain Frisch also replied:
+
+As others suggested, you can tell your build system to generate an ad
+hoc file containing the compile-time information. Another approach is
+to use a preprocessor to inject such compile-time information into the
+source code "on the fly" during its compilation. This can be done with
+a dedicated Camlp4 syntax extension or a -ppx preprocessor (available
+in trunk only, with syntactic extension points being designed in the
+extension_points branch of the OCaml SVN).
+
+As an illustration of the -ppx approach, I've created a tiny
+preprocessor which uses the OCaml toplevel to evaluate expressions and
+inserts the result as constants in the compiled code.
+
+The source code for this -ppx preprocessor can be found here:
+
+<http://caml.inria.fr/cgi-bin/viewvc.cgi/ocaml/branches/extension_points/experimental/frisch/eval.ml?&view=markup>
+
+and here is an example of what you can write with it:
+
+<http://caml.inria.fr/cgi-bin/viewvc.cgi/ocaml/branches/extension_points/experimental/frisch/test_eval.ml?&view=markup>
+
+(To play with it, you need to checkout the extension_points branch and
+after compiling it: cd experimental/frisch && make eval)
+      
+** Daniel Weil finally said:
+
+If you like ocambuild, an alternative is to add a small rule in your
+ocamlbuild plugin. The ocamlbuild wiki gives an example of ocamlbuild
+plugin that create a "version.ml" file in the _build directory at each
+build. You can then link your code with this version.ml file.
+
+<http://brion.inria.fr/gallium/index.php/Automatic_Version_Generation>
+      
+========================================================================
+4) Microsoft-funded PhD opportunity (software/ system verification)
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-04/msg00099.html>
+------------------------------------------------------------------------
+** Tom Ridge announced:
+
+I would be very grateful if you could bring the following advert to
+the attention of potential applicants. Also, if anyone if interested
+in the project, please do get in touch!
+
+Thanks
+
+Tom
+
+--
+
+Microsoft Research PhD studentship: Future Filesystems
+======================================================
+
+Project: Future filesystems: mechanized specification, validation,
+implementation and verification of filesystems
+
+Supervisors: Tom Ridge (with Andrew Kennedy at Microsoft Research)
+
+Application deadline: 2013-06-02 (June 2nd)
+
+PhD expected start date: 2013-10-01
+
+We seek strong candidates for a Microsoft PhD studentship on "verified
+filesystems". The PhD scholarship is fully funded for three years. The
+project will be supervised by Tom Ridge at the Department of Computer
+Science, University of Leicester, in collaboration with Andrew Kennedy
+at Microsoft Research Cambridge.
+
+Project description
+-------------------
+
+Filesystems are extremely important. Users depend on filesystems to
+store their files whenever they hit "save". Businesses rely on databases
+to store their data safely, and these databases in turn rely on the
+filesystem.
+
+Modern filesystems are designed to satisfy many complicated
+requirements. As a result, implementations are beset with problems. The
+implementation code is extremely complex, and almost inevitably contains
+bugs. These bugs can and do lead to data corruption and loss.
+Development time is very lengthy. Testing is also very lengthy and
+costly, and does not guarantee to eliminate all bugs. It is often
+unclear to application developers what guarantees a filesystem provides,
+so that it becomes extremely difficult to write correct applications for
+a given filesystem, let alone applications that are portable across
+different filesystems.
+
+In this project, we aim to tackle these problems by applying formal
+methods techniques. We will specify the behaviour of existing
+filesystems using higher-order logic (supported by the HOL4 theorem
+prover). Further, we will implement a filesystem, and verify functional
+correctness of the implementation with respect to the specification. We
+are particularly interested in the behaviour of filesystems when the
+host crashes. The project involves theoretical aspects (for example, we
+are interested in understanding the dependencies that arise when
+different filesystem operations execute; the project will also involve
+extensive proofs, both informal and mechanized) but is focused on
+applications of theory to real-world systems.
+
+Background of applicant
+-----------------------
+
+Ideally the applicant should be a good programmer (with knowledge of one
+of the main functional programming languages such as OCaml, Haskell, SML
+etc), with background in semantics (particularly operational semantics),
+theorem proving, and verification. The applicant must have a strong
+interest in producing reliable systems.
+
+Applicants should hold at least a good second-class honours degree or
+equivalent in computer science (or a closely related discipline) and
+have a good command of English. A masters degree may be an advantage,
+but is not necessary.
+
+Funding
+-------
+
+The Microsoft scholarship consists of an annual bursary for 3 years.
+This studentship is fully funded (fees and stipend) for UK and EU
+students. The stipend is up to 17,000 UK pounds. We welcome overseas
+applicants, and would provide the equivalent of home/EU fees and
+maintenance for a successful overseas candidate; the difference between
+home/ EU fees and international fees (approx. 11,000 UK pounds per
+annum) would need to be funded by the overseas applicant.
+
+Environment
+-----------
+
+The Department of Computer Science offers a highly collegiate and
+stimulating environment for research career development. The prospective
+student will work within an ambitious research team that is
+internationally recognised and will be expected to contribute to the
+strong profile of the department through participation in the
+development and publication of international-quality research results.
+
+Application process
+-------------------
+
+We encourage potential applicants who wish to express their interest in
+the project to email Tom Ridge `tr61 (at) le.ac.uk` well before the
+deadline.
+
+The application process is via the University of Leicester. For further
+details on the application process, see
+<http://www2.le.ac.uk/study/research/funding/future-filesystems>
+
+Further questions
+-----------------
+
+Please contact Tom Ridge `tr61 (at) le.ac.uk` if you have any further
+questions.
+      
+========================================================================
+5) Merlin 1.0 released
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-04/msg00100.html>
+------------------------------------------------------------------------
+** Frédéric Bour announced:
+
+We are pleased to announce the first stable release of Merlin.
+
+Merlin offers type analysis, scope-aware completion and interactive
+reporting of type and syntax errors directly inside your editor. Modes
+for Vim and Emacs are provided. Efforts have been made to ease the
+integration of Merlin in existing projects: just specify source and
+build directories, any ocamlfind dependencies and enjoy assistance
+from your editor right now.
+
+Install it directly from opam:
+$ opam install merlin
+
+See it at work:
+<https://github.com/def-lkb/merlin#screenshots>
+
+For other information, refers to the project page at
+<https://github.com/def-lkb/merlin> .
+
+Merlin is only compatible with Ocaml 4.00.1, though it may work with
+newer versions. All features except Camlp4 extensions are supported;
+specific support for Lwt and some type-conv syntax extensions is
+provided.
+      
+========================================================================
+6) modified error messages for ocamlc
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-04/msg00132.html>
+------------------------------------------------------------------------
+** William Smith announced:
+
+I've made a change to my copy of ocamlc to modify error messages when
+they cover multiple lines.
+
+For example, for the following code, the modified error message
+includes the line number and character offset of then end of the
+message instead of just the length of the message.
+
+Would there be any interest in me making the change everywhere and
+submitting it as a patch? I see about a dozen places in the source of
+the various tools where the change would be possible. One concern I
+have is that it might break automated test scripts.
+
+Bill Smith
+
+let x = 1 in
+(match x with
+1 -> true
+);;
+--------
+New:
+File "multilineError.ml", line 2, character 0-line 4, character 1:
+Warning 8: this pattern-matching is not exhaustive.
+Here is an example of a value that is not matched:
+0
+--------
+Old:
+File "multilineError.ml", line 2, characters 0-28:
+Warning 8: this pattern-matching is not exhaustive.
+Here is an example of a value that is not matched:
+0
+      
+** After much discussion, Raphaël Proust said:
+
+I have a similar fork of the OCaml compiler with shorter/more
+standard/easier to regexp/simpler to parse/*plan9's acme friendly*
+(the last point was the most important for me):
+<https://github.com/raphael-proust/ocaml/commit/a5cb1414b590d3e0f49c2ee87bcb90459e34fcde>
+
+The way I distribute it (to myself, i.e. to my different machines) is via
+opam:
+<https://github.com/raphael-proust/opam-repo>
+
+
+It's an easy way to make it available not only to oneself, but to
+anyone (with an opam installation) interested. (Any acme users out
+there?) And it doesn't need to be patched in the main repository.
+      
+========================================================================
+7) OCaml 2013 - Call for presentations
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-04/msg00152.html>
+------------------------------------------------------------------------
+** Michel Mauny announced:
+
+Here is the call for presentations to OCaml 2013, the OCaml Users and
+Developers Workshop, to be held in Boston, on September 24, 2013. The
+submission site should open in a few days. News about the workshop will be
+posted here as well as at <http://ocaml.org/meetings/ocaml/2013/>
+
+
+==============================================================================
+
+OCAML 2013
+The OCaml Users and Developers Workshop
+<http://ocaml.org/meetings/ocaml/2013/>
+Boston, Massachusetts, USA
+September 24, 2013
+
+CALL FOR PRESENTATIONS
+
+Co-located with ICFP 2013
+Sponsored by SIGPLAN
+Talk Proposal Submission Deadline: June 7, 2013
+
+==============================================================================
+
+The first occurrence of the OCaml Users and Developers Workshop was
+colocated with ICFP 2012, in Copenhagen, following the OCaml Meetings
+in Paris in 2010 and 2011. OCaml 2013 will be held on September 24,
+2013, in Boston, colocated with ICFP 2013.
+
+The OCaml Users and Developers Workshop brings together industrial
+users of OCaml with academics and hackers who are working on extending
+the language, type system and tools. Discussions will focus on the
+practical aspects of OCaml programming and the nitty gritty of the
+tool-chain and upcoming improvements and changes. Thus, we aim to
+solicit talks on all aspects related to improving the use or
+development of the language and of its programming environment,
+including, for example:
+
+- compiler developments, new backends, runtime and architectures
+
+- practical type system improvements, such as (but not exhaustively)
+GADTs, first-class modules, generic programming, or dependent types
+
+- new library or application releases, and their design rationales
+
+- tool enhancements by commercial consultants
+
+- prominent industrial uses of OCaml, or deployments in unusual
+situations.
+
+It will be an informal meeting, with an online scribe report of the
+meeting, but no formal proceedings. Slides of presentations will be
+available online from the workshop homepage.
+
+To submit a talk, please register a description of the talk (about 2
+pages long) at <http://ocaml.org/meetings/ocaml/2013/talks/> providing a
+clear statement of what will be brought by the talk: the problems that
+are addressed, the technical solutions or methods that are
+proposed. If you wish to perform a demo or require any special setup,
+we will do our best to accommodate you.
+
+Schedule
+========
+
+Abstract Submission Deadline: Friday, June 7, 2013
+Notification to Speakers: Friday, July 7, 2013
+Workshop: Tuesday, September 24, 2013
+
+Program Committee
+=================
+
+* Damien Doligez, INRIA Paris-Rocquencourt, France
+* Jun Furuse, Standard Chartered Bank, Singapore
+* Jacques Le Normand, Google, USA
+* Michel Mauny, ENSTA-ParisTech, France (chair)
+* Mark Shinwell, Jane Street Europe, UK
+* David Walker, Princeton University, USA
+* Jeremy Yallop, University of Cambridge, UK
+* Sarah Zennou, EADS IW, France
+
+If you have any questions, please e-mail:
+Michel Mauny <michel.mauny AT ensta-paristech DOT fr>
+      
+========================================================================
+8) Other Caml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;<http://planet.ocaml.org/&gt;.>
+
+google-drive-ocamlfuse v0.3.2 released:
+  <https://forge.ocamlcore.org/forum/forum.php?forum_id=873>
+
+Opa 1.1.1 is coming in a few days:
+  <http://blog.opalang.org/2013/04/opa-111-is-coming-in-few-days.html>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

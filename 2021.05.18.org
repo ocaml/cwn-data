@@ -1,0 +1,1123 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[https://alan.petitepomme.net/cwn/2021.05.11.html][Previous Week]] [[https://alan.petitepomme.net/cwn/index.html][Up]] [[https://alan.petitepomme.net/cwn/2021.05.25.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of May 11 to 18, 2021.
+
+#+TOC: headlines 1
+
+
+* The shape design problem
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/the-shape-design-problem/7810/39
+
+** Ivan Gotovchits explained
+
+
+/Editor note: This thread contains too many messages to be summarized here. I chose one to give an example, I recommand you read [[https://discuss.ocaml.org/t/the-shape-design-problem/7810][the whole thread]] if the topic is of interest to you./
+
+For programming in small, I will use plain old algebraic data types. For public libraries and large programs designed
+for change, I will use the [[https://en.wikipedia.org/wiki/Dependency_inversion_principle][dependency inversion principle]] and make sure that my high-level policy code (e.g.,
+drawing facilities) doesn't depend on the low-level implementation details.
+
+*** Large vs. Small
+
+First of all, let's define what is programming in large and what is in small. The truth is that there is no definite
+answer, you have to develop some taste to understand where you should just stick with plain ADT (PADT) or where to
+unpack the heavy artillery of GADT and final tagless styles. There is, however, a rule of thumb that I have developed
+and which might be useful to you as well.
+
+**** _ADT is the detail of implementation_
+
+ADT shall never go into the public interface. Both PADT and GADT are details of implementation and should be hidden
+inside the module and never reach the mli file, at least the mli of a publically available code (i.e., a library that
+you plan to distribute and for which you install cmi/mli files). Exposing your data definitions is much like showing
+your public member values in C++ or Java.
+
+The less the extent of an ADT in your codebase the easier it will be to maintain it. Indeed, notice even how hard and
+ugly it is to work in OCaml with ADT defined in other modules. So even the language resists this. And if the language
+resists then don't force it.
+
+With that said, 90% of your code should be small code with data types defined for the extent of a compilation unit,
+which, in general, should be less than 300-500 lines of code (ideally start with 100) and have a couple of internal
+modules. Basically, a compilation unit should have a size that easily fits into short-term memory.
+
+Since programming in small is more or less clearly let's move forward.
+
+*** Programming In Large
+
+So you're designing a large project, possibly with API, that will help lots of developers with different backgrounds
+and skills. And as always it should be delivered next week, well at least the minimal viable product. The upper
+management is stressing you but you still don't want to mess things up and be cursed by the generations of software
+developers that will use your product.
+
+One of the killer features of OCaml, and the main reason why I have switched to it a long time ago and use it since
+then, is that it ideally fits the above-described use case. It fully supports the programming in large style (like
+Java and Ada) but enables at the same easy prototyping and delivering MVPs the next day your manager asks (like
+Python). And if you have young students in your team, their enthusiasm will not leave the boundaries of the module
+abstraction. And if you are the manager you have excellent language (the language of mli files) that you can use to
+convey your design ideas to other team members and even to non-technical personal.
+
+So let's do some prototyping and design, using the language of signatures. First of all, we shall decide which type
+should be designed for change and which should be regular data types. E.g., we probably don't want to have a string
+data type with pluggable implementation. But we definitely know that our figures will change and more will be added,
+possibly by 3rd-party developers.
+
+We finally decide that Point and Canvas will be the regular types (for Canvas we might regret our design decision).
+For prototyping, we will write the module type of our project. At the same time, we should also write documentation
+for each module and its items (functions, types, classes, etc). Writing documentation is an important design
+procedure. If you can't describe in plain English what a module is doing then probably it is a wrong abstraction. But
+now, for the sake of brevity and lack of time we will skip this important step and unroll the whole design right
+away.
+
+#+begin_src ocaml
+module type Project = sig
+
+  module Point : sig
+    type t
+    val create : int -> int -> t
+    val x : t -> int
+    val y : t -> int
+    val show : t -> string
+  end
+
+  module Canvas : sig
+    type t
+    val empty : t
+    val text : t -> Point.t -> string -> unit
+  end
+
+  module Widget : sig
+    type t
+    val create : ('a -> Canvas.t -> unit) -> 'a -> t
+    val draw : t -> Canvas.t -> unit
+  end
+
+  module type Figure = sig
+    type t
+    val widget : t -> Widget.t
+  end
+
+  module Rectangle : sig
+    include Figure
+    val create : Point.t -> Point.t -> t
+  end
+
+  module Circle : sig
+    include Figure
+    val create : Point.t -> int -> t
+  end
+end
+#+end_src
+
+Let's discuss it a bit. The ~Canvas~ and ~Point~ types are pretty obvious, in fact this design just assumes that they
+are already provided by the third-party libraries, so that we can focus on our figures.
+
+Now the ~Widget~ types. Following the dependency inversion principle, we decided to make our rendering layer
+independent of the particular implementation of the things that will populate it. Therefore we created an abstraction
+of a drawable entity with a rather weak definition of the abstraction, i.e., a drawable is anything that implements
+~('a -> Canvas.t -> unit)~ method. We will later muse on how we will extend this abstraction without breaking good
+relationships with colleagues.
+
+Another point of view on Widget is that it defines a Drawable type class and that ~Widget.create~ is defining an
+instance of that class, so we could even choose a different naming for that, e.g.,
+
+#+begin_src ocaml
+module Draw : sig
+  type t
+  val instance : ('a -> Canvas.t -> unit) -> 'a -> t
+  val render : t -> Canvas.t -> unit
+end
+#+end_src
+
+The particular choice depends on the mindset of your team, but I bet that the ~Widget~ abstraction would fit better
+more people.
+
+But let's go back to our figures. So far we only decided that a figure is any type ~t~ that defines ~val widget : t -> Widget.t~. We can view this from the type classes standpoint as that the figure class is an instance of the widget
+class. Or we can invoke Curry-Howard isomorphism and notice that ~val widget : t -> Widget.t~ is a theorem that
+states that every figure is a widget.
+
+The next should be trivial with this signatures, so let's move forward and develop MVP,
+#+begin_src ocaml
+module Prototype : Project = struct
+
+  module Point = struct
+    type t = {x : int; y : int}
+    let create x y = {x; y}
+    let x {x} = x
+    let y {y} = y
+    let show {x; y} = "(" ^ string_of_int x ^ ", " ^ string_of_int y ^ ")"
+  end
+
+  module Canvas = struct
+    type t = unit
+    let empty = ()
+    let text _canvas _position = print_endline
+  end
+
+  module Widget = struct
+    type t = Widget : {
+        draw : 'obj -> Canvas.t -> unit;
+        self : 'obj;
+      } -> t
+
+    let create draw self = Widget {self; draw}
+    let draw (Widget {draw; self}) canvas = draw self canvas
+  end
+
+  module type Figure = sig
+    type t
+    val widget : t -> Widget.t
+  end
+
+  module Rectangle = struct
+    type t = {ll : Point.t; ur : Point.t}
+    let create ll ur = {ll; ur}
+    let widget = Widget.create @@ fun {ll} canvas ->
+      Canvas.text canvas ll "rectangle"
+  end
+
+  module Circle = struct
+    type t = {p : Point.t; r : int}
+    let create p r = {p; r}
+    let widget = Widget.create @@ fun {p; r} canvas ->
+        Canvas.text canvas p "circle"
+  end
+end
+#+end_src
+
+Et voila, we can show it to our boss and have some coffee. But let's look into the implementation details to learn
+some new tricks. We decided to encode widget as an existential data type, no surprises here as [[https://homepages.inf.ed.ac.uk/gdp/publications/Abstract_existential.pdf][abstract types have
+existential type]] and our widget is an abstract type. What is existential you might ask (even after reading the
+paper), well in OCaml it is a GADT that captures one or more type variables, e.g., here we have ~'obj~ type variable
+that is not bound (quantified) on the type level, but is left hidden inside the type. You can think of existential as
+closures on the type level.
+
+This approach enables us to have widgets of any types and, moreover, develop widgets totally independently and even
+load them as plugins without having to recompile our main project.
+
+Of course, using GADT as encoding for abstract type is not the only choice. It even has its drawbacks, like we can't
+serialize/deserialize them directly (though probably we shouldn't) it has some small overhead.
+
+There are other options that are feasible. For example, for a widget type, it is quite logical to stick with the
+featherweight design pattern and represent it as an integer, and store the table of methods in the external hash
+table.
+
+We might also need more than one method to implement the widget class, which we can pack as modules and store in the
+existential or in an external hash table. Using module types enables us gradual upgrade of our interfaces and build
+hierarchies of widgets if we need.
+
+When we will develop more abstract types (type classes), like the ~Geometry~ class that will calculate area and
+bounding rectangles for our figures, we might notice some commonalities in the implementation. We might even choose
+to implement dynamic typing so that we can have the common representation for all abstract types and even type
+casting operators, e.g., this is where we might end up several years later.
+
+#+begin_src ocaml
+module Widget : sig
+  type 'cls t
+
+  module type S = sig
+    type t
+    ...
+  end
+
+  type 'a widget = (module S with type t = 'a)
+
+  val create : 'a widget -> 'a -> 'a cls t
+
+  val forget : 'a t -> unit t
+  val refine : 'a Class.t -> unit t -> 'a cls t option
+  val figure : 'a t -> 'a
+end
+#+end_src
+
+We're now using a module type to define the abstraction of widget, we probably even have a full hierarchy of module
+types to give the widget implementors more freedom and to preserve backward compatibility and good relationships. We
+also keep the original type in the widget so that we can recover it back using the ~figure~ function. yes, we
+resisted this design decision, because it is in fact downcasting, but our clients insisted on it. And yes, we
+implemented dynamic types, so that we can upcast all widgets to the base class ~unit Widget.t~ using ~forget~, but we
+can still recover the original type (downcast) with ~refine~, which is, obviously, a non-total function.
+
+In [[https://github.com/BinaryAnalysisPlatform/bap][BAP]], we ended up having all this features as we represent complex data types (machine instructions and
+expressions). We represent instructions as lightweight integers with all related information stored in the knowledge
+base. We use dynamic typing together with final tagless style to build our programs and ensure their well-formedness,
+and we use our typeclass approach a lot, to enable serialization, inspection, and ordering (we use domains for all
+our data type). You can read more about our [[https://binaryanalysisplatform.github.io/bap/api/master/bap-knowledge/Bap_knowledge/Knowledge/index.html][knowledge base]] and even peek into the [[https://github.com/BinaryAnalysisPlatform/bap/blob/master/lib/knowledge/bap_knowledge.ml][implementation]] of it. And
+we have a large [[https://binaryanalysisplatform.github.io/bap/api/master/bap-core-theory/Bap_core_theory/index.html][library of signatures]] that define our abstract types, such as semantics, values, and programs.
+In the end, our design allows us to extend our abstractions without breaking backward compatibility and to add new
+operations or new representations without even having to rebuild the library or the main executable. But this is a
+completely different story that doesn't really fit into this post.
+
+*** Conclusions
+
+We can easily see that we our design makes it easy to add new behaviors and even extend the existing one. It also
+provisions for DRY as we can write generic algorithms for widgets that are totally independent of the underlying
+implementation. We have a place to grow and an option to completely overhaul our inner representation without
+breaking any existing code. For example, we can switch from a fat GADT representation of a widget to a featherweight
+pattern and nobody will notice anything (except, hopefully) improved performance. With that said, I have to conclude
+as it already took too much time. I am ready for the questions if you have any.
+      
+
+
+
+* Set up OCaml 1.1.11
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/ann-set-up-ocaml-1-1-11/7843/1
+
+** Sora Morimoto announced
+
+
+*** Changed
+
+- Stop setting switch jobs variable on Windows (~OPAMJOBS~ is sufficient).
+      
+
+
+
+* Wtr (Well Typed Router) v1.0.0 release
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/ann-wtr-well-typed-router-v1-0-0-release/7844/1
+
+** Bikal Lem announced
+
+
+On the recent occassion of the 25th birthday of OCaml, I am pleased to announce v1.0.0 release of ~wtr~ to opam. Wtr - Well Typed Router - is a library for routing uri path and query parameters in OCaml web applications.
+
+A ppx - ~wtr.ppx~ is provided so that specifying uri routes is ergonomic and familiar. For e.g. to specify a uri path
+~/home/about~, you would specify as such,
+#+begin_src ocaml
+{%wtr| /home/about |}
+#+end_src
+You can see more full demos here:
+- [[https://github.com/lemaetech/wtr/blob/main/examples/demo.ml][cli demo]]
+- [[https://github.com/lemaetech/wtr/blob/main/examples/cohttp.ml][cohttp Demo]]
+
+The router matching algorithm is based on the **trie** algorithm.
+
+- [[https://github.com/lemaetech/wtr][Wtr]]
+- [[https://github.com/lemaetech/wtr/blob/main/tests/user_guide.md][Wtr User guide]]
+- [[https://lemaetech.co.uk/wtr/wtr/Wtr/index.html][Wtr API]]
+      
+
+
+
+* OCaml compiler development newsletter, issue 1: before May 2021
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/ocaml-compiler-development-newsletter-issue-1-before-may-2021/7831/11
+
+** Continuing the thread from last week, gasche said
+
+
+For some reason @octachron's contribution to the newsletter got lost in my pipeline. So below it is.
+
+*** @octachron (Florian Angeletti)
+
+- With Sébastien, David, and Gabriel's help, I have finally merged the change needed to integrate odoc in our documentation pipeline. Currently, this is hidden behind a configuration switch (or specific Makefile's target). The user experience is still a bit rough, in particular it requires an trunk-updated version of odoc. Fortunately, the number of users right now is most probably of only one. My current plan is to see how well the maintenance goes during this release cycle before maybe switching to odoc for the 4.13.0 version of the manual.
+- I have been discussing with David about how much time and effort we should spend on testing the manual. (My opinion is that testing only the PR that alters the manual's source file is essentially fine.) David has been testing more thorough configuration however but that requires some more tuning to avoid sending scary emails to innocent passersby.
+      
+
+
+
+* Multicore OCaml: April 2021
+:PROPERTIES:
+:CUSTOM_ID: 5
+:END:
+Archive: https://discuss.ocaml.org/t/multicore-ocaml-april-2021/7849/1
+
+** Anil Madhavapeddy announced
+
+
+*Multicore OCaml: April 2021*
+
+Welcome to the April 2021 [[https://github.com/ocaml-multicore/ocaml-multicore][Multicore OCaml]] monthly report! My
+friends and colleagues on the project in India are going through a terrible second wave of the Covid pandemic, but
+continue to work to deliver all the updates from the Multicore OCaml project. This month's update along with the
+[[https://discuss.ocaml.org/tag/multicore-monthly][previous updates]] have been compiled by myself, @kayceesrk and
+@shakthimaan.
+
+*** Upstream OCaml 4.13 development
+
+GC safepoints continues to be the focus of the OCaml 4.13 release development for multicore. While it might seem
+quiet with only [[https://github.com/ocaml/ocaml/pull/10039][one PR]] being worked on, you can also look at [[https://github.com/sadiqj/ocaml/pull/3][the
+compiler fork]] where an intrepid team of adventurous compiler backend hackers
+have been refining the design.  You can also find more details of ongoing upstream work in the first [[https://discuss.ocaml.org/t/ocaml-compiler-development-newsletter-issue-1-before-may-2021/7831][core compiler
+development
+newsletter]].   To
+quote @xavierleroy from there, "/it’s a nontrivial change involving a new static analysis and a number of tweaks in
+every code emitter, but things are starting to look good here./".
+
+*** Multicore OCaml trees
+
+The switch to using OCaml 4.12 has now completed, and all of the development PRs are now working against that
+version.  We've put a lot of focus into establishing whether or not Domain Local Allocation Buffers
+([[https://github.com/ocaml-multicore/ocaml-multicore/pull/508][ocaml-multicore#508]]) should go into the initial 5.0
+patches or not.
+
+What are DLABs?  When testing multicore on larger core counts (up to 128), we observed that there was a lot of early
+promotion of values from the minor GCs (which are per-domain). DLABs were introduced in order to encourage domains to
+have more values that remained heap-local, and this *should* have increased our scalability.  But computers being
+computers, we noticed the opposite effect -- although the number of early promotions dropped with DLABs active, the
+overall performance was either flat or even lower!  We're still working on profiling to figure out the root cause --
+modern architectures have complex non-uniform and hierarchical memory and cache topologies that interact in
+unexpected ways.  Stay tuned to next month's monthly about the decision, or follow
+[[https://github.com/ocaml-multicore/ocaml-multicore/pull/508][ocaml-multicore#508]] directly!
+
+*** The multicore ecosystem
+
+Aside from this, the test suite coverage for the Multicore OCaml project has had significant improvement, and we
+continue to add more and more tests to the project.  Please do continue with your contribution of parallel
+benchmarks. With respect to benchmarking, we have been able to build the Sandmark-2.0 benchmarks with the
+[[https://github.com/ocurrent/current-bench][current-bench]] continuous benchmarking framework, which provides a GitHub
+frontend and PostgreSQL database to store the results.  Some other projects such as Dune have also started also using
+current-bench, which is nice to see -- it would be great to establish it on the core OCaml project once it is a bit
+more mature.
+
+We are also rolling out a [[https://github.com/ocurrent/ocaml-multicore-ci][multicore-specific CI]] that can do
+differential testing against opam packages (for example, to help isolate if something is a multicore-specific failure
+or a general compilation error on upstream OCaml).  We're [[https://multicore.ci.ocamllabs.io:8100/?org=ocaml-multicore][pushing this
+live]] at the moment, and it means that we are in a
+position to begin accepting projects that might benefit from multicore.  *If you do have a project on opam that
+would benefit from being tested with multicore OCaml, and if it compiles on 4.12, then please do get in touch*.
+We're initially folding in codebases we're familiar with, but we need a diversity of sources to get good coverage.
+The only thing we'll need is a responsive contact within the project that can work with us on the integration.  We'll
+start reporting on project statuses if we get a good response to this call.
+
+As always, we begin with the Multicore OCaml ongoing and completed tasks. This is followed by the Sandmark
+benchmarking project updates and the relevant Multicore OCaml feature requests in the current-bench project. Finally,
+upstream OCaml work is mentioned for your reference.
+
+*** Multicore OCaml
+
+**** Ongoing
+
+***** Testing
+
+- [[https://github.com/ocaml-multicore/domainslib/issues/23][ocaml-multicore/domainslib#23]]
+  Running tests: moving to ~dune runtest~ from manual commands in ~run_test~ target
+
+  At present, the tests are executed with explicit exec commands in
+  the Makefile, and the objective is to move to using the ~dune
+  runtest~ command.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/issues/522][ocaml-multicore/ocaml-multicore#522]]
+  Building the runtime with -O0 rather than -O2 causes testsuite to fail
+
+  The use of ~-O0~ optimization fails the runtime tests, while ~-O2~
+  optimization succeeds. This needs to be investigated further.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/issues/526][ocaml-multicore/ocaml-multicore#526]]
+  weak-ephe-final issue468 can fail with really small minor heaps
+
+  The failure of issue468 test is currently being looked into for the
+  ~weak-ephe-final~ tests with a small minor heap (4096 words).
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/528][ocaml-multicore/ocaml-multicore#528]]
+  Expand CI runs
+
+  The PR implements parallel "callback" "gc-roots" "effects"
+  "lib-threads" "lib-systhreads" tests, with ~taskset -c 0~ option,
+  and using a small minor heap. The CI coverage needs to be enhanced
+  to add more variants and optimization flags.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/542][ocaml-multicore/ocaml-multicore#542]]
+  Add ephemeron lazy test
+
+  Addition of tests to cover ephemerons, lazy values and domain
+  lifecycle with GC.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/issues/545][ocaml-multicore/ocaml-multicore#545]]
+  ephetest6 fails with more number of domains
+
+  The test ~ephetest6.ml~ fails when more number of domains are
+  spawned, and also deadlocks at times.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/issues/547][ocaml-multicore/ocaml-multicore#547]]
+  Investigate weaktest.ml failure
+
+  The ~weaktest.ml~ is disabled in the test suite and it is
+  failing. This needs to be investigated further.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/issues/549][ocaml-multicore/ocaml-multicore#549]]
+  zmq-lwt test failure
+
+  An opam-ci bug that has reported a failure in the ~zmq-lwt~ test. It
+  is throwing a Zmq.ZMQ_exception with a ~Context was terminated~
+  error message.
+
+***** Sundries
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/508][ocaml-multicore/ocaml-multicore#508]]
+  Domain Local Allocation Buffers
+
+  The code review and the respective changes for the Domain Local
+  Allocation Buffer implementation is actively being worked upon.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/514][ocaml-multicore/ocaml-multicore#514]]
+  Update instructions in ocaml-variants.opam
+
+  The ~ocaml-variants.opam~ and ~configure.ac~ have been updated to
+  now use the Multicore OCaml repository. We want different version
+  strings for ~+domains~ and ~+domains+effects~ for the branches.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/527][ocaml-multicore/ocaml-multicore#527]]
+  Port eventlog to CTF
+
+  The code review on the porting of the ~eventlog~ implementation to
+  the Common Trace Format is in progress. The relevant code changes
+  have been made and the tests pass.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/issues/529][ocaml-multicore/ocaml-multicore#529]]
+  Fiber size control and statistics
+
+  A feature request to set the maximum stack size for fibers, and to
+  obtain memory statistics for the same.
+
+**** Completed
+
+***** Upstream
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/533][ocaml-multicore/ocaml-multicore#533]]
+  Systhreads synchronization use pthread functions
+
+  The ~pthread_*~ functions are now used directly instead of
+  ~caml_plat_*~ functions to be in-line with OCaml trunk. The
+  ~Sys_error~ is raised now instead of ~Fatal error~.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/535][ocaml-multicore/ocaml-multicore#535]]
+  Remove Multicore stats collection
+
+  The configurable stats collection functionality is now removed from
+  Multicore OCaml. This greatly reduces the diff with trunk and makes
+  it easy for upstreaming.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/536][ocaml-multicore/ocaml-multicore#536]]
+  Remove emit_block_header_for_closure
+
+  The ~emit_block_header_for_closure~ is no longer used and hence
+  removed from asmcomp sources.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/537][ocaml-multicore/ocaml-multicore#537]]
+  Port @stedolan "Micro-optimise allocations on amd64 to save a register"
+
+  The upstream micro-optimise allocations on amd64 to save a register
+  have now been ported to Multicore OCaml. This greatly brings down
+  the diff on amd64's emit.mlp.
+
+***** Enhancements
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/531][ocaml-multicore/ocaml-multicore#531]]
+  Make native stack size limit configurable (and fix Gc.set)
+
+  The stack size limit for fibers in native made is now made
+  configurable through the ~Gc.set~ interface.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/534][ocaml-multicore/ocaml-multicore#534]]
+  Move allocation size information to frame descriptors
+
+  The allocation size information is now propagated using the frame
+  descriptors so that they can be tracked by statmemprof.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/548][ocaml-multicore/ocaml-multicore#548]]
+  Multicore implementation of Mutex, Condition and Semaphore
+
+  The ~Mutex~, ~Condition~ and ~Semaphore~ modules are now fully
+  compatible with stdlib features and can be used with ~Domain~.
+
+**** Testing
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/532][ocaml-multicore/ocaml-multicore#532]]
+  Addition of test for finaliser callback with major cycle
+
+  Update to ~test_finaliser_gc.ml~ code that adds a test wherein a
+  finaliser is run with a root in a register.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/541][ocaml-multicore/ocaml-multicore#541]]
+  Addition of a parallel tak testcase
+
+  Parallel test cases to stress the minor heap and also enter the
+  minor GC organically without calling a ~Gc~ function or a domain
+  termination have now been added to the repository.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/543][ocaml-multicore/ocaml-multicore#543]]
+  Parallel version of weaklifetime test
+
+  The parallel implementation of the ~weaklifetime.ml~ test has now
+  been added to the test suite, where the Weak structures are accessed
+  by multiple domains.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/546][ocaml-multicore/ocaml-multicore#546]]
+  Coverage of domain life-cycle in domain_dls and ephetest_par tests
+
+  Improvement to ~domain_dls.ml~ and ~ephetest_par.ml~ for better
+  coverage for domain lifecycle testing.
+
+***** Fixes
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/530][ocaml-multicore/ocaml-multicore#530]]
+  Fix off-by-1 with gc_regs buckets
+
+  An off-by-1 bug is now fixed when scanning the stack for the
+  location of the previous ~gc_regs~ bucket.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/540][ocaml-multicore/ocaml-multicore#540]]
+  Fix small alloc retry
+
+  The ~Alloc_small~ macro was not handling the case when the GC
+  function does not return a minor heap with enough size, and this PR
+  fixes the same along with code clean-ups.
+
+***** Ecosystem
+
+- [[https://github.com/ocaml-multicore/retro-httpaf-bench/pull/3][ocaml-multicore/retro-httpaf-bench#3]]
+  Add cohttp-lwt-unix to the benchmark
+
+  A ~cohttp-lwt-unix~ benchmark is now added to the
+  ~retro-httpaf-bench~ package along with the update to the
+  Dockerfile.
+
+- [[https://github.com/ocaml-multicore/domainslib/pull/22][ocaml-multicore/domainslib#22]]
+  Move the CI to 4.12 Multicore and Github Actions
+
+  The CI has been switched to using GitHub Actions instead of
+  Travis. The version of Multicore OCaml used in the CI is now
+  4.12+domains+effects.
+
+- [[https://github.com/ocaml-multicore/multicore-opam/pull/51][ocaml-multicore/mulicore-opam#51]]
+  Update merlin and ocaml-lsp installation instructions for 4.12 variants
+
+  The README.md has been updated with instructions to use merlin and
+  ocaml-lisp for ~4.12+domains~ and ~4.12+domains+effects~ branches.
+
+- [[https://github.com/ocaml-multicore/dwarf_validator][dwarf_validator]]
+  DWARF validation tool
+
+  The DWARF validation tool in ~eh_frame_check.py~ is now made
+  available in a public repository. It single steps through the binary
+  as it executes, and unwinds the stack using the DWARF directives.
+
+***** Sundries
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/523][ocaml-multicore/ocaml-multicore#523]]
+  Systhreads Mutex raises Sys_error
+
+  The Systhreads Mutex error checks are now inline with OCaml, as
+  mentioned in [[https://github.com/ocaml/ocaml/pull/9846][Use "error checking" mutexes in the threads
+  library]].
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/525][ocaml-multicore/ocaml-multicore#525]]
+  Add issue URL for disabled signal handling test
+
+  Updated ~testsuite/disabled~ with the issue URL
+  [[https://github.com/ocaml-multicore/ocaml-multicore/issues/517][ocaml-multicore#517]]
+  for future tracking.
+
+- [[https://github.com/ocaml-multicore/ocaml-multicore/pull/539][ocaml-multicore/ocaml-multicore#539]]
+  Forcing_tag invalid argument to Gc.finalise
+
+  Addition of ~Forcing_tag~ for tag lazy values when the computation
+  is being forced. This is included so that ~Gc.finalise~ can raise an
+  invalid argument exception when a block with ~Forcing_tag~ is given
+  as an argument.
+
+*** Benchmarking
+
+**** Ongoing
+
+***** Sandmark
+
+- We now have the frontend showing the graph results for Sandmark 2.0 builds
+  with [[https://github.com/ocurrent/current-bench][current-bench]] for
+  CI. A raw output of the graph is shown below:
+
+  https://aws1.discourse-cdn.com/standard11/uploads/ocaml/optimized/2X/2/2f57e7d54420b574af55657f78a1d38993ddc64f_2_624x998.png
+
+  The Sandmark 2.0 benchmarking is moving to use the ~current-bench~
+  tooling. You can now create necessary issues and PRs for the
+  Multicore OCaml project in the ~current-bench~ project using the
+  ~multicore~ label.
+
+- [[https://github.com/ocaml-bench/sandmark/pull/209][ocaml-bench/sandmark#209]]
+  Use rule target kronecker.txt and remove from macro_bench
+
+  A rewrite of the graph500seq ~kernel1.ml~ implementation based on
+  the code review suggestions is currently being worked upon.
+
+- [[https://github.com/ocaml-bench/sandmark/pull/215][ocaml-bench/sandmark#215]]
+  Remove Gc.promote_to from treiber_stack.ml
+
+  We are updating Sandmark to run with 4.12+domains and
+  4.12+domains+effects, and this patch removes Gc.promote_to from the
+  runtime.
+
+***** current-bench
+
+- [[https://github.com/ocurrent/current-bench/issues/87][ocurrent/current-bench#87]]
+  Run benchmarks for old commits
+
+  We would like to be able to re-run the benchmarks for older commits
+  in a project for analysis and comparison.
+
+- [[https://github.com/ocurrent/current-bench/issues/103][ocurrent/current-bench#103]]
+  Ability to set scale on UI to start at 0
+
+  The raw results plotted in the graph need to start from ~[0, y_max+delta]~ for the y-axis for better comparison. A [[https://github.com/ocurrent/current-bench/pull/74][PR]] is available  for the same, and the fixed output is shown in the following graph:
+
+  https://aws1.discourse-cdn.com/standard11/uploads/ocaml/optimized/2X/3/36ba7ffa0c753bf3950594bfaf36557c09e9292a_2_1380x644.jpeg
+
+- [[https://github.com/ocurrent/current-bench/issues/105][ocurrent/current-bench#105]]
+  Abstract out Docker image name from ~pipeline/lib/pipeline.ml~
+
+  The Multicore OCaml uses ~ocaml/opam:ubuntu-20.10-ocaml-4.10~ image
+  while the ~pipeline/lib/pipeline.ml~ uses ~ocaml/opam~, and it will
+  be useful to use an environment variable for the same.
+
+- [[https://github.com/ocurrent/current-bench/issues/106][ocurrent/current-bench#106]]
+  Use ~--privileged~ with Docker run_args for Multicore OCaml
+
+  The Sandmark environment uses ~bwrap~ for Multicore OCaml benchmark
+  builds, and hence we need to run the Docker container with
+  ~--privileged~ option. Otherwise, the build exits with an ~Operation
+  not permitted~ error.
+
+- [[https://github.com/ocurrent/current-bench/issues/107][ocurrent/current-bench#107]]
+  Ability to start and run only PostgreSQL and frontend
+
+  For Multicore OCaml, we provision the hardware with different
+  configuration settings for various experiments, and using an ETL
+  tool to just load the results to the PostgreSQL database and
+  visualize the same in the frontend will be useful.
+
+- [[https://github.com/ocurrent/current-bench/issues/108][ocurrent/current-bench#108]]
+  Support for native builds for bare metals
+
+  In order to avoid any overhead with Docker, we need a way to run the
+  Multicore OCaml benchmarks on bare metal machines.
+
+**** Completed
+
+***** Documentation
+
+- [[https://github.com/ocurrent/current-bench/pull/75][ocurrent/current-bench#75]]
+  Fix production deployment; add instructions
+
+  The HACKING.md is now updated with documentation for doing a
+  production deployment of current-bench.
+
+- [[https://github.com/ocurrent/current-bench/pull/90][ocurrent/current-bench#90]]
+  Add some solutions to errors that users might run into
+
+  Based on our testing of current-bench with Sandmark-2.0, we now have
+  updated the FAQ in the HACKING.md file.
+
+***** Sundries
+
+- [[https://github.com/ocurrent/current-bench/pull/96][ocurrent/current-bench#96]]
+  Remove hardcoded URL for the frontend
+
+  The frontend URL is now abstracted out from the code, so that we can
+  deploy a current-bench instance on any new pristine server.
+
+- [[https://github.com/ocaml-bench/sandmark/pull/204][ocaml-bench/sandmark#204]]
+  Adding layers.ml as a benchmark to Sandmark
+
+  The Irmin layers.ml benchmark is now added to Sandmark along with
+  its dependencies. This is tagged with ~gt_100s~.
+
+*** OCaml
+
+**** Ongoing
+
+- [[https://github.com/ocaml/ocaml/pull/10039][ocaml/ocaml#10039]]
+  Safepoints
+
+  This PR is a work-in-progress. Thanks to Mark Shinwell and Damien
+  Doligez and Xavier Leroy for their valuable feedback and code suggestions.
+
+Special thanks to all the OCaml users and developers from the community for their continued support and contribution
+to the project. Stay safe!
+
+*** Acronyms
+
+- AMD: Advanced Micro Devices
+- CI: Continuous Integration
+- CTF: Common Trace Format
+- DLAB: Domain Local Allocation Buffer
+- DWARF: Debugging With Attributed Record Formats
+- ETL: Extract Transform Load
+- GC: Garbage Collector
+- OPAM: OCaml Package Manager
+- PR: Pull Request
+- UI: User Interface
+- URL: Uniform Resource Locator
+- ZMQ: ZEROMQ
+      
+
+
+
+* Analyzing contributions to the OCaml compiler and all opam packages
+:PROPERTIES:
+:CUSTOM_ID: 6
+:END:
+Archive: https://discuss.ocaml.org/t/analyzing-contributions-to-the-ocaml-compiler-and-all-opam-packages/7854/1
+
+** gasche announced
+
+
+I recently learned of [[https://github.com/hpjansson/fornalder][fornalder]], a tool that creates nice visualizations of
+contributions to open-source projects by analyzing commits to their git repositories (the author used it to [[https://hpjansson.org/blag/2020/12/16/on-the-graying-of-gnome/][analyze
+GNOME contributions]]). I decided to use it to study
+contributions to the OCaml implementation and OCaml open-source packages, results below.
+
+*** The OCaml compiler distribution
+
+This [[https://gitlab.com/gasche-snippets/fornalder-studies/-/tree/main/data/ocaml/ocaml-contributors.png][graph]]
+shows the "contributor cohorts" for the [[https://github.com/ocaml/ocaml][OCaml compiler]] over time. For example, the
+big dark-red bar that shows up in 2015 represents the "2015 cohort", the number of long-term contributors to the
+OCaml compiler that did their first contribution in 2015. The dark-red bar in similar position in each following year
+represents the contributors from the 2015 cohort that are still active on that year. The bar shrinks over time, as
+some members of this cohort stop contributors.  Short-term contributors (all their contributions fall within a
+90-days period) are shown as the "Brief" bars at the top.
+
+The main thing we see on this graph is that moving the compiler development on Github in 2015 increased sharply the
+number of contributors, which has remained relatively stable since (there is an "expert pool" that is stable in
+size), with a large fraction of occasional contributors each year.
+
+(Note: stability of contributor numbers is fine for the compiler, which is not meant to keep growing in size and
+complexity. We hope most contributors go to other parts of the OCaml ecosystem.)
+
+This [[https://gitlab.com/gasche-snippets/fornalder-studies/-/tree/main/data/ocaml/ocaml-commits.png][graph]] shows the
+number of *commits* from the contributors of each cohort. We see for example that the 1995 contributor, namely
+Xavier, has remained relatively active throughout the compiler development, with a marked uptick in 2020 (possibly
+related to the Multicore upstreaming effort). Today most of the commit volume seems to come from community members
+that started contributing right after the Github transition, after 2015-2016.
+
+It's interesting to compare these two charts: we see that the 2015 cohort has shrunk in size in 2020 (by half), but
+that they contributed much more in 2020 than in 2015: over time, the remaining contributors from this cohort grew in
+confidence/expertise/interest and are now contributing more (several of them became core maintainers, for example).
+
+*** All OCaml software on opam
+
+I then ran the same visualization tool on *all OCaml git repositories* listed in the public
+[[https://github.com/ocaml/opam-repository/][opam-repository]]. This is a very-large subset of all open source software
+implemented in OCaml. But it does not represent well the "industrial" codebases that some industiral OCaml users are
+working on -- even when the code is open-source, it may be packaged and distributed separately.
+
+This [[https://gitlab.com/gasche-snippets/fornalder-studies/-/tree/main/data/ocaml/opam-repo-contributors.png][graph]]
+shows the number of contributors, in yearly cohorts. We can see that the number of contributors has been growing each
+year, plateauing in 2018.
+
+Note: there is a measurement artefact that makes the last column smaller than the previous ones: some of the
+"short-term" contributors in 2020 will later become longer-term contributor by contributing again in 2021, so they be
+added to the long-term cohort of 2020. This artefact may suffice to explain the small decrease in long-term
+contributors in 2020.
+
+This [[https://gitlab.com/gasche-snippets/fornalder-studies/-/tree/main/data/ocaml/opam-repo-commits.png][graph]] shows
+the volume of commits. Here we don't see a plateau; there is in fact a small decrease in 2018, and further growth in
+2019 and 2020. Another aspect I find striking is the stability of commit volume in each cohort. For example, the 2014
+cohort seems to have contributed roughly as many commits during all years 2016-2020. Given the reduction in the
+number of contributors in this commit, this is again explained by fewer contributors gradually increasing their
+contribution volume.
+
+*** Disclaimer
+
+Some industrial OCaml codebases are included in the public opam repository, but a large part is not.
+
+This visualization aggregates project data assuming that they follow "standard" git development practices. The data
+is imperfact, it may be skewed by tool-generated commits. For example, some of the Jane Street software packaged on
+opam uses git repository mirrors that are updated automatically by usually a single committer, in a way that does not
+reflect their true development activity. (Thanks to @yminsky for catching that.)
+
+Another threat to validity is that some authors commit in different projects using different names, so they may be
+counted as separate contributors instead. (Inside a project, one may use a .mailmap file to merge contributor
+identities, but afaik there is no support in git or fornalder for overlaying an extra .mailmap file that would work
+across repositories.)
+
+If you wish to study the dataset to see if the overall conclusions are endangered by such anomalies, please feel free
+to replay the [[https://gitlab.com/gasche-snippets/fornalder-studies/-/tree/main/data/ocaml/logs.md][data-collection
+steps]]. You can either manually
+inspect git repositories, or play with the SQLite database generated by fornalder.
+
+*** My take away
+
+I found this analysis interesting. Here would be my conclusion so far:
+
+- The OCaml community gets a regular influx of new contributors.
+
+- Some of our contributors stay for a long period, and they contribute more and more over time.
+
+- We observe a plateau-ing numbers of new contributors on the years 2018-2020 (and the pandemic is probably not going to improve the figure for 2021), but the volume of commits keeps growing.
+
+It is difficult to draw definitive conclusions from these visualizations, especially as we don't have them for many
+other communities to compare to. Compared to the Gnome trends shown in the original blog post (
+https://hpjansson.org/blag/2020/12/16/on-the-graying-of-gnome/ ), I would say that we are doing "better" than the
+Gnome ecosystem (in terms of attracting new contributors).
+
+My personal view for now is that OCaml remains a more niche language than "mainstream" contenders (we don't see an
+exponential growth here that would change the status), but that its contributor flow is healthy.
+
+*** Reproduction information
+
+You can find a curated log of my analysis process in
+[[https://gitlab.com/gasche-snippets/fornalder-studies/-/tree/main/data/ocaml/logs.md][logs.md]]; this should contain
+enough information for you to reproduce the result, and it could easily be adapted to other software communities.
+
+I uploaded all the small-enough data of my run in this repository, in particular the [[https://gitlab.com/gasche-snippets/fornalder-studies/-/tree/main/data/ocaml/git-urls.txt][list of
+URLs]] I tried to clone --
+some of them failed. Not included: the cloned git repositories, and the databases build by fornalder to store its
+analysis data.
+      
+
+** Anil Madhavapeddy then said
+
+
+This is an extremely cool analysis, thanks for posting it @gasche!  I'm trying to think of any systemic reasons for
+the plateauing of new contributors in 2018/2019, but the only thing I can come up with is that there are more private
+industrial codebases employing OCaml developers.  Anecdotally, the number of jobs across OCaml/Reason seems to be on
+the up in the past few years.
+
+I'll have a go at reproducing your methodology after the academic term here finishes. One thing we'd be very happy to
+take PRs for in the opam-repository are improvements to metadata to assist with this sort of research. For instance,
+filtering out dev-repo entries [[https://gitlab.com/gasche-snippets/fornalder-studies/-/blob/main/data/ocaml/logs.md#turning-git-repo-urls-into-git-clone-command][for non-OCaml
+projects]]
+seems like an immediate win and would simplify the data collection.
+      
+
+** gasche then said
+
+
+One hypothesis I considered is that some contributions have moved away from the opam-repository and are happening
+directly in npm, thanks to esy. I ran a similar analysis
+([[https://gitlab.com/gasche-snippets/fornalder-studies/-/blob/main/data/npm-ocaml/logs.md][logs]]) on all npm packages
+tagged ~ocaml~, but the results are unconclusive (I may be missing more OCaml package on npm that is not tagged).
+
+*** npm "ocaml" contributors
+
+[[https://gitlab.com/gasche-snippets/fornalder-studies/-/tree/main/data/npm-ocaml/npm-ocaml-contributors.png][npm-ocaml
+contributors]]
+
+*** npm "ocaml" commits
+
+[[https://gitlab.com/gasche-snippets/fornalder-studies/-/tree/main/data/npm-ocaml/npm-ocaml-commits.png][npm-ocaml
+commits]]
+
+(If you wonder what's the long trail between 2003 and 2009: this is the development of `bs-sedlex`, which goes back
+to an old OCaml-only prototype by Alain Frisch in 2003. There is also a version of OCaml packaged on npm, but I
+removed it from the analysis as it was adding noise and was mostly not-esy-specific contributions.)
+
+Note that we are talking about ~4K commits here, which remains fairly small compared to the ~120K commits for
+opam-repository packages on the last year. When I tried to merge both sets together this didn't make much of a
+difference compared to just-opam numbers.
+
+Maybe someone should redo the analysis with "reason/rescript" tags in addition, to measure the contribution volume
+there. I sticked with packages that self-identify as "ocaml" for now.
+      
+
+** gasche then added
+
+
+*** Batteries
+
+Here are graphs for [[https://github.com/ocaml-batteries-team/batteries-included/][batteries-included]].
+
+Cohorts, per number of contributors:
+
+https://aws1.discourse-cdn.com/standard11/uploads/ocaml/optimized/2X/d/d78265f805413446e26f11b0ecfa6a4e06a82a31_2_1380x646.png
+
+Cohorts, per volume of commits:
+
+https://aws1.discourse-cdn.com/standard11/uploads/ocaml/optimized/2X/6/62d8e4fe481521565340485d21582b8df21da294_2_1380x646.png
+
+What we see, I think, is that Batteries has been fairly quiet since 2015, which probably corresponds to entering some
+kind of "maintenance mode". There is still a reasonable diversity of contributors, with many one-shot contributors
+(which I assume corresponds to user that are mostly happy silently using the library, and come to add a function or
+fix a bug once in a while).
+
+Looking at the volume of commits: the strong decrease of the gray bar in 2018 corresponds, I think, to when I stopped
+contributing actively, and you took over as a contributor. It looks like I was effectively the last of the early-day
+contributors still active. The purple "2013" cohort is interesting, and I went to look at the data: it's you
+(François Berenger) and Simon @c-cube Cruanes. Simon contributed a lot on a short period, and then went off to create
+the very nice [[https://github.com/c-cube/ocaml-containers][Containers]] library that would move faster. You stuck and
+are now the most active contributor (and maintainers).
+
+*** Containers
+
+Contributors:
+
+https://aws1.discourse-cdn.com/standard11/uploads/ocaml/optimized/2X/9/9db7ef7707024dc6f5c567865f01976c3a67414c_2_1380x646.png
+
+Commits:
+
+https://aws1.discourse-cdn.com/standard11/uploads/ocaml/optimized/2X/f/f321a7134b68d7922f0aae8c88431a589f531116_2_1380x646.png
+
+Containers is mostly a one-person library with Simon doing most of the work. There were many new contributors in 2017
+and 2018 (most of them brief), and the strong show of purple year 2018 in today's commit volume is mostly due to the
+enigmatic Fardale.
+
+*** Disclaimer
+
+I think that fornalder is more useful to study large repositories (or set of repositories) that have been going for
+many years. For a single project, especially if they are relatively small or young, ~git shortlog -n -s~ (over the
+whole log or ~--since 2018~, etc.) tells you mostly the same thing.
+      
+
+
+
+* Timedesc 0.1.0
+:PROPERTIES:
+:CUSTOM_ID: 7
+:END:
+Archive: https://discuss.ocaml.org/t/ann-timedesc-0-1-0/7860/1
+
+** Darren announced
+
+
+I'm pleased to announce the first release of [[https://github.com/daypack-dev/timere][Timedesc]], a date time handling
+library. Timedesc provides utilities to describe points of time, and properly handle calendar and time zone
+information.
+
+You can find the tutorial and API doc [[https://daypack-dev.github.io/timere/timedesc/Timedesc/index.html][here]].
+
+*** Features
+
+- Timestamp and date time handling with platform independent time zone support
+  - Subset of the IANA time zone database is built into this library
+- Supports Gregorian calendar date, ISO week date, and ISO ordinal date
+- Supports nanosecond precision
+- ISO8601 parsing and RFC3339 printing
+
+*** Some context
+
+This is a much more polished repackaging of the date time components from Timere. The separation and restructuring
+came from the growing size of the date time components, and very nice and extensive feedback on UX from @gasche at
+[[https://github.com/daypack-dev/timere/issues/25][issue #25]] and other issues branching from it (many thanks!).
+
+And as usual, many thanks to @Drup for his advice.
+      
+
+
+
+* vec 0.2.0
+:PROPERTIES:
+:CUSTOM_ID: 8
+:END:
+Archive: https://discuss.ocaml.org/t/ann-vec-0-2-0/7864/1
+
+** Alex Ionescu announced
+
+
+I've just released version ~0.2.0~ of ~vec~, a library for safe dynamic arrays with Rust-like mutability permissions.
+
+You can find the package on opam [[https://opam.ocaml.org/packages/vec/][here]], and the source repository
+[[https://github.com/aionescu/vec][here]].
+
+This release adds new APIs for filtering and comparing vectors, as well as some bug fixes.
+
+Breaking changes from ~0.1.0~:
+- Some functions were renamed to conform to ~Stdlib~'s conventions: ~any~ -> ~exists~, ~all~ -> ~for_all~
+- Potentially-unsafe APIs for directly creating vectors with a buffer and accessing vectors' buffers were removed
+
+Looking for feedback and suggestions!
+      
+
+** gasche then said
+
+
+A minor remark: I find it remarkable how closely the proposed API mirrors the one of the
+[[https://ocaml-batteries-team.github.io/batteries-included/hdoc2/BatArray.Cap.html][BatArray.Cap]] interface, an Array
+submodule doing essentially the same thing contributed by David Teller in 2008. (Many details are different as ~vec~
+offers dynamically-resizable arrays, while ~Array.Cap~ is fixed-size arrays, but this is orthogonal to the static
+control over mutability.)
+
+To me this suggests that the ~vec~ API is not actually specific to Rust, or at least that the inspiration arrived at
+the same point as the long tradition of "phantom types" in ML-family languages. (In this space I think the key idea
+popularized by Rust would be ownership (possibly with borrowing), and in particular the idea that by default mutable
+values should be uniquely-owned, while immutable values can easily be shared.)
+
+This is not a criticism of the library itslef! I very much like the idea of having small modules that cover simple
+needs, rather than large monolithic libraries.
+
+Question: in Batteries, my impression is that ~Array.Cap~ was never used much. I would guess that the reason was
+that, for most users, the static guarantees of the interface did not offset the (mild) cost of the more complex types
+to manage. What is/are your use-case(s) where reasoning about mutation is important?
+      
+
+** Alex Ionescu replied
+
+
+I didn't know about that module. They are indeed *very* similar.
+
+Regarding your second point, yes, this isn't really specific to Rust, it just popularized the idea.
+My initial inspiration was [[https://youtu.be/-J8YyfrSwTk?t=3405][this presentation by Yaron Minsky]], where he does a
+similar thing, but for a ~ref~-like type. My initial reaction was "Hey, that looks a lot like Rust's references".
+
+Honestly, I started this project more as a fun exercise rather than to meet a real-world use-case, but I assume there
+are situations when the mutability control comes in handy e.g. If you want to pass a buffer to some function to fill
+but don't want it to read its current contents, you could pass an ~('a, [`W]) Vec.t~ instead of allocating a new
+buffer.
+      
+
+** Simon Cruanes then said
+
+
+Interestingly it also looks very similar to containers' ~CCVector~, which is a resizable array with read and write
+permissions using phantom types. (see https://c-cube.github.io/ocaml-containers/last/containers/CCVector/index.html)
+
+And to answer gasche's question, personally I like having a vector that is immutable, after building it using mutable
+means. It's like a list but it can be right appended to easily.
+      
+
+** Yaron Minsky said
+
+
+You might find the documentation of the Perms library in Core_kernel to be interesting:
+
+https://ocaml.janestreet.com/ocaml-core/v0.12/doc/core_kernel/Core_kernel/Perms/index.html
+
+This establishes idioms that are used across a variety of permissioned types in our codebase. Notably, it
+distinguishes between a read-only value (which doesn't directly support mutation) and immutable values (which no has
+a write-handle to), which we've found to be a useful distinction. It also highlights some usage patterns that help
+avoid some common mistakes in using phantom types correctly.
+      
+
+** Calascibetta Romain
+
+
+And, in the same spirit of others posts, I would to share a pull-request on
+[[https://github.com/mirage/ocaml-cstruct/pull/237][~ocaml-cstruct~]] which is a nice discussion about _capabilities_
+and how to implement them into an already existing codebase.
+
+However, as far as I can tell, we don't really use it widely - and we should. The main problem is the cost to upgrade
+an old code with ~cstruct~ with this interface where we put some new constraints (which can reveal some "bugs" in any
+way).
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[https://alan.petitepomme.net/cwn/][the archive]] or the [[https://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe [[http://lists.idyll.org/listinfo/caml-news-weekly/][online]].
+
+#+BEGIN_authorname
+[[https://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname

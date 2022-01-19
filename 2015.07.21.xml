@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2015.07.21</cwn_date>
+    <cwn_prev>2015.07.14</cwn_prev>
+    <cwn_next>2015.07.28</cwn_next>
+    <cwn_date_text>July 14 to 21, 2015</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>looking for "real world" sqlite3 examples</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-07/msg00010.html</cwn_url>
+      <cwn_who>Continuing this thread from two weeks ago, Oleg said</cwn_who>
+      <cwn_what>
+&gt; 3. is there a maintained library for generating sql queries in a typed manner?
+
+&gt; But mostly, I want to look at someone else's code and get an idea of
+&gt; how this is done in ocaml; pretty much all my database code to date
+&gt; has been written in dynamically typed languages and relied on code
+&gt; generation.
+
+I'd like to point out
+        http://logic.cs.tsukuba.ac.jp/~ken/quel/
+
+which is a library for writing query in a typed, functional style and
+generate efficient SQL (without nested SELECTs). The library makes SQL
+composable, however odd it may seem. One may consider the library
+similar to T-LINQ, described by Cheney et al at ICFP 2013 -- only we
+use pure OCaml rather than F# and generate a SQL statement that can be
+submitted to any database. (We actually used PostgreSQL for testing).
+The main theoretical difference is that our normalization rules are
+typed and type-preserving by construction -- and extensible, to
+compensate for difference among databases.
+
+Here is a simple example
+
+(* Should be automatically generated, but currently isn't *)
+module type SCHEMA = sig   
+  type 'a repr
+
+  val oid      : &lt;oid:int; pid:int; qty:int&gt; repr -&gt; int repr
+  val opid     : &lt;oid:int; pid:int; qty:int&gt; repr -&gt; int repr
+  val qty      : &lt;oid:int; pid:int; qty:int&gt; repr -&gt; int repr
+
+  val orders   : unit -&gt; &lt;oid:int; pid:int; qty:int&gt; list
+end
+module type SYM_SCHEMA = sig
+  include SymanticsL
+  include SCHEMA  with type 'a repr := 'a repr
+end
+
+(* simple query *)
+
+module Q1'(S:SYM_SCHEMA) = struct
+  open S
+  let table_orders = table ("orders", orders ())
+
+  let res =
+      foreach (fun () -&gt; table_orders) @@ fun o -&gt;
+      where (oid o =% int 2) @@ fun () -&gt;
+      yield o
+
+  let observe = observe
+end
+
+let module M = Q1'(GenSQL) in M.observe (fun () -&gt; M.res)
+(* "SELECT x.* FROM orders AS x WHERE true AND x.oid = 2" *)
+      </cwn_what>
+      <cwn_who>Petter Urkedal also said</cwn_who>
+      <cwn_what>
+I have two projects which may also be of interest.  I haven't announced
+them earlier, but I'm using them in almost production ready code:
+
+Caqti [1] is a common interface to database client libraries, currently
+supporting the postgresql and sqlite3 bindings.  It supports monad-based
+cooperative threading, including lwt and async.  MySQL/MariaDB and ODBC
+would be nice additions, but it would be preferable to have async
+bindings for these, to avoid resorting to preemptive threading.
+
+Caqti can be used directly (see e.g. [2]) though it does not provide a
+high-level type-safe interface.  The high-level interface is omitted
+since I think there are different approaches depending on the problem
+and the programmer's taste, and it would be nice if the high-level
+interfaces used a common library to connect and communicate with the
+database.
+
+epiSQL [3] is a tool which parses SQL definitions and re-emits it as XML
+or generates code for Macaque or Caqti.
+
+On 2015-07-04, Martin DeMello wrote:
+&gt; 1. database schema, versioning and migrations - will i need to do
+&gt; those independently via sql/shell scripts, or is there some good way
+&gt; to integrate them into my ocaml code?
+
+The Caqti_sql_utils module provides a function to read SQL statements
+from a file and sending them to the database.  It's used in load_sql in
+[4].  Then one needs a schema version, and a function which iterates
+over DB updates from that version.  I have though about adding something
+like that, but I'd like more experience in the end-application before
+moving code to Caqti.
+
+It would be nice to also have a developer tool to verify that the
+updates correspond to the changes in the schema.  This would fit into
+epiSQL, but takes a bit though and work to implement.
+
+&gt; 2. type conversions - in the absence of an orm, do i have to write my
+&gt; own by hand per resultset. or is there some intermediate-level library
+&gt; that i haven't found that would automate some of it?
+
+In Caqti you have to pass a function to extract fields from the returned
+tuple, as in `C.Tuple.(fun tup -&gt; int 0 tup, text 1 tup)`, or when
+folding, `C.Tuple.(fun tup acc -&gt; (int 0 tup, text 1 tup) :: acc)`. So,
+it does part of the job, but requires care due to the lack of
+type- and bounds-checks.
+
+[1] https://github.com/paurkedal/ocaml-caqti
+[2] https://github.com/paurkedal/subsocia/blob/master/lib/data/subsocia_direct.ml
+[3] https://github.com/paurkedal/episql
+[4] https://github.com/paurkedal/subsocia/blob/master/bin/subsocia_main.ml
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OCaml 4.02.2 and 4.02.3</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2015-07/msg00055.html</cwn_url>
+      <cwn_who>Damien Doligez announced</cwn_who>
+      <cwn_what>
+There is a nasty bug [1] in 4.02.2. It doesn't impact everyone, but we think
+it's important enough to warrant making a new version. We will thus release
+4.02.3 before the end of this month. If you have important bugs to report on
+4.02.2, you should do it right now.
+
+Note that we will take the opportunity to the following:
+  http://caml.inria.fr/mantis/view.php?id=6908
+  http://caml.inria.fr/mantis/view.php?id=6393
+  http://caml.inria.fr/mantis/view.php?id=6691
+  https://github.com/ocaml/ocaml/pull/43
+
+Thanks for using OCaml.
+
+-- Damien Doligez for the OCaml team
+
+[1] http://caml.inria.fr/mantis/view.php?id=6919
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocaml.org/&gt;.
+
+Introducing Incremental:
+  &lt;https://blogs.janestreet.com/introducing-incremental/&gt;
+
+Formally verifying the complexity of OCaml programs with CFML -- part 1:
+  &lt;http://gallium.inria.fr/blog/formally-verified-complexity-with-cfml-part-1&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

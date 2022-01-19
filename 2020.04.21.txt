@@ -1,0 +1,738 @@
+			  ━━━━━━━━━━━━━━━━━━━
+			   OCAML WEEKLY NEWS
+			  ━━━━━━━━━━━━━━━━━━━
+
+
+[Previous Week] [Up] [Next Week]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of April 14 to 21,
+2020.
+
+Table of Contents
+─────────────────
+
+Current_incr: a small incremental library with no dependencies
+Scikit-learn for OCaml
+OCaml and opam container images updated: new Fedora/Alpine/Ubuntu images
+OCamlformat 0.14.0
+Hashconsing an AST via PPX
+Genprint v0.4
+Other OCaml News
+Old CWN
+
+
+[Previous Week] <http://alan.petitepomme.net/cwn/2020.04.14.html>
+
+[Up] <http://alan.petitepomme.net/cwn/index.html>
+
+[Next Week] <http://alan.petitepomme.net/cwn/2020.04.28.html>
+
+
+Current_incr: a small incremental library with no dependencies
+══════════════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-current-incr-a-small-incremental-library-with-no-dependencies/5531/1>
+
+
+Thomas Leonard announced
+────────────────────────
+
+  The recent [OCurrent 0.2] release included a little incremental
+  library which might be interesting to some people. It is useful for
+  writing programs that need to keep some computation up-to-date
+  efficiently as the inputs change.
+
+  It is similar to the existing [incremental] and [react] libraries
+  already in opam. Unlike `incremental' (which pulls in the whole of
+  `core_kernel'), `current_incr' has no runtime dependencies (and build
+  dependencies only on `ocaml' and `dune'). Unlike `react',
+  `current_incr' immediately stops computations when they are no longer
+  needed (rather than relying on weak references and the garbage
+  collector).
+
+  It is a fairly direct implementation of the [Adaptive Functional
+  Programming] paper, and might be a good starting point for people
+  wanting to learn about that.
+
+  You can get the library using `opam':
+
+  ┌────
+  │ opam install current_incr
+  └────
+
+  Here's a simple example (in utop):
+
+  ┌────
+  │ #require "current_incr";;
+  │ 
+  │ let total = Current_incr.var 10
+  │ let complete = Current_incr.var 5
+  │ 
+  │ let status =
+  │   Current_incr.of_cc begin
+  │     Current_incr.read (Current_incr.of_var total) @@ function
+  │     | 0 -> Current_incr.write "No jobs"
+  │     | total ->
+  │       Current_incr.read (Current_incr.of_var complete) @@ fun complete ->
+  │       let frac = float_of_int complete /. float_of_int total in
+  │       Printf.sprintf "%d/%d jobs complete (%.1f%%)"
+  │ 		     complete total (100. *. frac)
+  │       |> Current_incr.write
+  │   end
+  └────
+
+  This defines two input variables (`total' and `complete') and a
+  "changeable computation" (`status') whose output depends on them. At
+  the top-level, we can observe the initial state using `observe':
+
+  ┌────
+  │ # print_endline @@ Current_incr.observe status;;
+  │ 5/10 jobs complete (50.0%)
+  └────
+
+  Unlike a plain `ref' cell, a `Current_incr.var' keeps track of which
+  computations depend on it. After changing them, you must call
+  `propagate' to update the results:
+
+  ┌────
+  │ # Current_incr.change total 12;;
+  │ # Current_incr.change complete 4;;
+  │ # print_endline @@ Current_incr.observe status;;
+  │ 5/10 jobs complete (50.0%)	(* Not yet updated *)
+  │ 
+  │ # Current_incr.propagate ();
+  │ # print_endline @@ Current_incr.observe status;;
+  │ 4/12 jobs complete (33.3%)
+  └────
+
+  Computations can have side-effects, and you can use `on_release' to
+  run some compensating action if the computation needs to be undone
+  later. Here's a function that publishes a result, and also registers a
+  compensation for it:
+
+  ┌────
+  │ let publish msg =
+  │   Printf.printf "PUBLISH: %s\n%!" msg;
+  │   Current_incr.on_release @@ fun () ->
+  │   Printf.printf "RETRACT: %s\n%!" msg
+  └────
+
+  It can be used like this:
+
+  ┌────
+  │ # let display = Current_incr.map publish status;;
+  │ PUBLISH: 4/12 jobs complete (33.3%)
+  │ 
+  │ # Current_incr.change total 0;
+  │ # Current_incr.propagate ()
+  │ RETRACT: 4/12 jobs complete (33.3%)
+  │ PUBLISH: No jobs
+  └────
+
+  A major difference between this and the react library (which I've used
+  in previously in [0install's progress reporting] and [CueKeeper]) is
+  that `Current_incr' does not depend on the garbage collector to decide
+  when to stop a computation. In react, you'd have to be careful to make
+  sure that `display' didn't get GC'd (even though you don't need to
+  refer to it again) because if it did then the output would stop
+  getting updated. Also, setting `total' to `0' in react might cause the
+  program to crash with a division-by-zero exception, because the `frac'
+  computation will continue running until it gets GC'd, even though it
+  isn't needed for anything now.
+
+  [`Current_incr''s API] is pretty small. You might want to wrap it to
+  provide extra features, e.g.
+
+  • Use of a `result' type to propagate errors.
+  • Integration with `Lwt' to allow asynchronous computations.
+  • Static analysis to render your computation with graphviz.
+  • Persistence of state to disk.
+
+  If you need that, consider using the main [OCurrent] library, which
+  extends `current_incr' with these features.
+
+
+[OCurrent 0.2] <https://github.com/ocurrent/ocurrent/releases/tag/v0.2>
+
+[incremental] <https://github.com/janestreet/incremental>
+
+[react] <https://erratique.ch/software/react>
+
+[Adaptive Functional Programming]
+<https://www.cs.cmu.edu/~guyb/papers/popl02.pdf>
+
+[0install's progress reporting]
+<https://stackoverflow.com/questions/19975140/how-to-stop-ocaml-garbage-collecting-my-reactive-event-handler>
+
+[CueKeeper]
+<https://roscidus.com/blog/blog/2015/06/22/cuekeeper-internals-irmin/>
+
+[`Current_incr''s API]
+<https://ocurrent.github.io/ocurrent/current_incr/Current_incr/index.html>
+
+[OCurrent] <https://github.com/ocurrent/ocurrent>
+
+
+Scikit-learn for OCaml
+══════════════════════
+
+  Archive: <https://discuss.ocaml.org/t/scikit-learn-for-ocaml/5536/1>
+
+
+UnixJunkie announced
+────────────────────
+
+  Ronan Lehy just hacked this:
+
+  <https://github.com/lehy/ocaml-sklearn>
+
+  This might interest a significant number of people out there.  We are
+  no more condemned to live in a world full of snakes that will bite us
+  at run-time. :smiley:
+
+
+Ronan Le Hy then said
+─────────────────────
+
+  So I came here to announce ocaml-sklearn as it just got published on
+  Opam, but I see @UnixJunkie did it for me (arigato gozai
+  masu). Anyway:
+  • this ambitions to cover the complete scikit-learn API
+  • this ambition is currently not totally realized, but I wanted to
+    release something initial that one can play with
+  • it's all @UnixJunkie's fault with his funny R wrappers.
+
+  So:
+  • opam install sklearn
+  • go check out [scikit-learn and its awesome documentation] to know
+    what it does
+  • look at [ocaml-sklearn's documentation] to see what the current
+    OCaml API looks like
+  • have fun with it and tell me what you think of it.
+
+
+[scikit-learn and its awesome documentation] <https://scikit-learn.org>
+
+[ocaml-sklearn's documentation] <https://lehy.github.io/ocaml-sklearn/>
+
+
+Anton Kochkov then added
+────────────────────────
+
+  Probably worth to add here:
+  • <https://github.com/ocaml-community/awesome-ocaml#machine-learning>
+
+
+OCaml and opam container images updated: new Fedora/Alpine/Ubuntu images
+════════════════════════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ocaml-and-opam-container-images-updated-new-fedora-alpine-ubuntu-images/5539/1>
+
+
+Anil Madhavapeddy announced
+───────────────────────────
+
+  The Docker [ocaml and opam container images] have been updated:
+
+  • Alpine 3.11, Fedora 31 and Ubuntu 20.04 (beta) are now included.
+  • Ubuntu 19.04 and Fedora 29 and 30 are now deprecated.
+  • OCaml 4.09.1 and 4.11.0~dev have been refreshed.
+
+  You can find the full details of the container images available [on
+  the OCaml infrastructure wiki].
+
+  The containers are generated from a set of scripts using
+  [ocaml-dockerfile], and will be migrating over the next six months to
+  use an [ocurrent]-based infrastructure. There will be an announcement
+  on this forum about any user-facing changes that involves, with plenty
+  of time to transition your own CIs over.  Thanks go to @talex5 and
+  @XVilka for contributions to this round of updates.
+
+
+[ocaml and opam container images] <https://hub.docker.com/r/ocaml/opam2>
+
+[on the OCaml infrastructure wiki]
+<https://github.com/ocaml/infrastructure/wiki/Containers>
+
+[ocaml-dockerfile] <https://github.com/avsm/ocaml-dockerfile>
+
+[ocurrent] <https://ocurrent.org>
+
+
+OCamlformat 0.14.0
+══════════════════
+
+  Archive: <https://discuss.ocaml.org/t/ann-ocamlformat-0-14-0/5435/24>
+
+
+Jules announced
+───────────────
+
+  As Etienne mentioned, we have released OCamlformat 0.14.1, reverting
+  the change to the defaults and our plans to deprecate the
+  `doc-comments' option.
+
+  For projects that already upgraded to 0.14.0 (eg. Coq), the
+  `doc-comments' option will change its meaning again. It is necessary
+  to add `doc-comments=before' to have the documentation comments placed
+  before.  Moreover, the new option `doc-comments-val' added in 0.14.0
+  has a higher precedence than `doc-comments', even when it's not
+  set. It is thus necessary to set them both to `before' to have the old
+  "before" behavior.  This will be improved in the next release (see
+  <https://github.com/ocaml-ppx/ocamlformat/pull/1340>).
+
+  Thank you to our early adopters to bear us. We are improving our
+  release process to reduce confusion for the next updates. As usual, if
+  you have any feedback, please open an issue on
+  <https://github.com/ocaml-ppx/ocamlformat> to discuss it with us.
+
+
+Hashconsing an AST via PPX
+══════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/hashconsing-an-ast-via-ppx/5558/1>
+
+
+Chet Murthy announced
+─────────────────────
+
+  [up-front (so nobody gets the wrong idea): I'm not pushing Camlp5.
+  Rather, I'm just noting that this sort of thing is really easy to do,
+  and I encourage someone to do something similar using the PPX
+  infrastructure.]
+
+  I didn't want to derail the "Future of PPX" thread, so I thought I'd
+  post separately to answer ivg@ 's issue about hashconsing of ASTs
+  using PPX.  It's actually [uh, I think] really, really easy to
+  implement hashconsing of ADTs, using a PPX extension.  On a lark, I
+  decided to do it *today*, and while the code I've got isn't sufficient
+  to use, I think it's not very far away, and I have the perfect
+  use-case already in-mind.  It took me two hours to implement the
+  rewriter and the testcase, on top of the other infrastructure, which
+  has no support for hashconsing of any sort.
+
+  Here are some examples of data-types and functions that are
+  automaticaly hash-consed.  The idea is that in the pattern-match the
+  pattern is annotated with a variable (in this example, "z"); the
+  expression that is supposed to be hash-consed against that pattern is
+  annotated with that same variable.  [The code that descends to the
+  expression is a little weak right now, but I think that's easily
+  fixable.]  The algorithm goes as follows:
+
+  (1) "decorate" the pattern with "as z_<integer>" variables everywhere
+  in constructors.  This allows us to refer to parts of the original
+  value.
+
+  (2) then find each expression that is marked with that same varable.
+  Structurally descend the pattern and the expression in parallel and
+  generate code to compare sub-structure and hashcons where appropriate.
+
+  And that's really it.  I'm sure this can be implemented using the PPX
+  tools.
+
+  Some comments: (1) what's nice, is that we can just take
+  already-written code like `List.map' and annotate it; that generates a
+  hash-consed version.  And since the generated code never uses deep
+  structural equality (only pointer-equality) it should be only
+  marginally slower than the original implementation.
+
+  (2) The variable in the annotation ("z") is used as the base for
+  generating a whole slew of fresh variables, and I don't bother (yet)
+  to check for clashes; this (again) is straightforward, but hey, I
+  started two hours ago.
+
+  ┌────
+  │ type t = Leaf of int | Node of t * int * t
+  │ 
+  │ module HCList = struct
+  │ 
+  │ let rec map f = function
+  │     [][@hashrecons z] -> [][@hashrecons z]
+  │   | (a::l)[@hashrecons z] -> let r = f a in ((r :: map f l)[@hashrecons z])
+  │ 
+  │ end
+  │ 
+  │ let deep =
+  │ let rec deep = (function
+  │   Leaf n[@hashrecons z] -> Leaf n[@hashrecons z]
+  │ | Node (l, n, r) [@hashrecons z] ->
+  │   Node (deep l, n, deep r) [@hashrecons z]
+  │   )
+  │ [@@ocaml.warning "-26"]
+  │ in deep
+  │ 
+  │ type sexp =
+  │   | Atom of string
+  │   | List of sexp list
+  │ 
+  │ let sexp_deep =
+  │   let rec deep = function
+  │       Atom s[@hashrecons z] -> Atom s[@hashrecons z]
+  │     | List l[@hashrecons z] -> List (HCList.map deep l)[@hashrecons z]
+  │   in deep
+  └────
+
+  Links: First, at the commit, so they won't change
+
+  the testcase file:
+  <https://github.com/chetmurthy/pa_ppx/commit/5dd6b2ef3ca3677e11a0ad696074200101bd661f#diff-e6dffe78fc6c27bdffa41970c4a7f1ca>
+
+  the "ppx rewriter":
+  <https://github.com/chetmurthy/pa_ppx/commit/5dd6b2ef3ca3677e11a0ad696074200101bd661f#diff-24aeaf51366017948f5735727f001c85>
+
+  Second, the files with human-readable names, etc.:
+
+  the testcase:
+  <https://github.com/chetmurthy/pa_ppx/blob/master/tests/test_hashrecons.ml>
+
+  the "ppx rewriter":
+  <https://github.com/chetmurthy/pa_ppx/blob/master/pa_hashrecons/pa_hashrecons.ml>
+
+  The projects:
+
+  chetmurthy/pa_ppx: A reimplementation of ppx_deriving, all its
+  plugins, ppx_import, and a few others.
+
+  <https://github.com/chetmurthy/pa_ppx>
+
+  chetmurthy/camlp5: Camlp5, version pre-8.00 on which the above is
+  based.  This is on the branch 26.attempt-pa-deriving .
+
+
+Kakadu said
+───────────
+
+  I experimented with this some time ago for ML workshop.  The idea was
+  to provide function: `t -> htbl -> htbl * t' which rewrites value of
+  type `t' by removing equal subtrees. Essentially it is just a fold
+  over data type.
+
+  <https://github.com/kakadu/GT/blob/master/regression/test816hash.ml#L74>
+
+
+Chet Murthy asked and Josh Berdine replied
+──────────────────────────────────────────
+
+        If you wanna use a hashtable (and, I presume, Obj.magic)
+        you can write a single function that does the trick for
+        all immutable data-types, right?
+
+  Yes, we have some magic @mbouaziz [code] in Infer that does this to
+  create as much sharing as possible as values are Marshaled out.
+
+
+[code]
+<https://github.com/facebook/infer/blob/master/infer/src/istd/MaximumSharing.ml>
+
+
+Genprint v0.4
+═════════════
+
+  Archive: <https://discuss.ocaml.org/t/ann-genprint-v0-4/5575/1>
+
+
+progman announced
+─────────────────
+
+  A re-announcement of Genprint, a general value printing library, that
+  addresses prior limitations that made it none too useful!
+
+  1. It didn't work correctly for 4.08.0, the latest compiler release as
+     of first announcement (though fine for 4.02 .. 4.07.1)
+  2. There was an awkward need to specify a search path for .cmt files
+     when working with the likes of Dune (which uses separate
+     directories for source, .cmi and (for opt) .cmt files)
+  3. More often than not values of interest would display simply as
+     `<abstr>' owing to the presence of signature abstraction of the
+     module's type of interest.
+
+  These issues have been addressed:
+  1. Works with versions 4.04 .. 4.10.0 (earlier versions became invalid
+     after a dependency change to ppxlib)
+  2. The location of .cmt files is captured automatically by the PPX
+     preprocessor.
+  3. Signatures at the implementation level (.mli files) and internally
+     (functor application constraints) are removed to reveal the inner
+     structure of otherwise abstract values.  For instance, the
+     Ephemeron module:
+     ┌────
+     │ module EM=Ephemeron.K1.Make(struct type t=int let equal=(=) let hash=Hashtbl.hash end)
+     │ open EM
+     │ let _=
+     │   let v=EM.create 0 in
+     │   EM.add v 12345678 'X';
+     │   let emprint ppf (v: Obj.Ephemeron.t) =
+     │     Format.fprintf ppf "<C wrapper of key/data>" in
+     │   [%install_printer emprint];
+     │   [%pr ephem v];
+     └────
+
+     Which prints:
+     ┌────
+     │ ephem => {size = 1;
+     │           data =
+     │            [|Empty; Empty; Empty; Empty; Empty; Empty; Empty; Empty; Empty;
+     │              Empty; Empty; Cons (922381915, <C wrapper of key/data>, Empty);
+     │              Empty; Empty; Empty; Empty|];
+     │           seed = 0; initial_size = 16}
+     └────
+     This also demos the [%install_printer] facility which mirrors the
+     REPL's.
+
+  Installation is via the Opam main repository.
+
+  Additionally, the project repository [contains] two compiler versions
+  of _ocamldebug_ integrated with the Genprint library which thereby
+  becomes its default printer.
+
+  All of which makes this library much more useful than previously.  See
+  the [project page] for the details.
+
+
+[contains]
+<https://github.com/progman1/genprintlib/tree/master/debugger>
+
+[project page] <https://github.com/progman1/genprintlib>
+
+
+Other OCaml News
+════════════════
+
+From the ocamlcore planet blog
+──────────────────────────────
+
+  Editor note: Thanks to [ezcurl], I can restore this section. I'm
+  putting all the links this week, I will prune to only put the new ones
+  next week.
+
+  Here are links from many OCaml blogs aggregated at [OCaml Planet].
+
+  • [An in-depth Look at OCaml’s new “Best-fit” Garbage Collector
+    Strategy]
+  • [Sliding Tile Puzzle, Self-Contained OCaml Webapp]
+  • [New version of Try OCaml in beta!]
+  • [Frama-Clang 0.0.8 is out. Download it here.]
+  • [A reasonable TyXML release | Drup's thingies]
+  • [Alt-Ergo Users’ Club Annual Meeting]
+  • [OCaml iOS Apps Ported to Browser]
+  • [Watch all of Jane Street's tech talks]
+  • [Mercurial: prettyconfig extension]
+  • [Mercurial extensions (update)]
+  • [2019 at OCamlPro]
+  • [Bitbucket repository migration]
+  • [Troubleshooting systemd with SystemTap]
+  • [Ocsigen Start updated]
+  • [Ocsigen Start updated]
+  • [opam 2.0.6 release]
+  • [opam 2.0.6 release]
+  • [Hackers and climate activists join forces in Leipzig]
+  • [Deploying authoritative OCaml-DNS servers as MirageOS unikernels]
+  • [Reproducible MirageOS unikernel builds]
+  • [Using Python and OCaml in the same Jupyter notebook]
+  • [Coq 8.11+beta1 is out]
+  • [Deep-Learning the Hardest Go Problem in the World]
+  • [Frama-C 20.0 (Calcium) is out. Download it here.]
+  • [Testing OCaml releases with opamcheck]
+  • [Coq 8.10.2 is out]
+  • [Announcing Irmin 2.0.0]
+  • [BAP 2.0 is released]
+  • [CI/CD pipelines: Monad, Arrow or Dart?]
+  • [On fixed-point theorems in synthetic computability]
+  • [Runners in action]
+  • [Coq 8.10.1 is out]
+  • [Announcing MirageOS 3.6.0]
+  • [Commas in big numbers everywhere: An OpenType adventure]
+  • [Coq 8.10.0 is out]
+  • [OCaml expert and beginner training by OCamlPro (in French):
+    Nov. 5-6 & 7-8]
+  • [Mr. MIME - Parse and generate emails]
+  • [A look back on OCaml since 2011]
+  • [Frama-C 19.1 (Potassium) is out. Download ithere.]
+  • [Coq 8.10+beta3 is out]
+  • [Updated Cheat Sheets: OCaml Language and OCaml Standard Library]
+  • [Frama-Clang 0.0.7 is out. Download ithere.]
+  • [Decompress: Experiences with OCaml optimization]
+  • [On complete ordered fields]
+  • [An introduction to fuzzing OCaml with AFL, Crowbar and Bun]
+  • [What is algebraic about algebraic effects?]
+  • [The blog moved from Wordpress to Jekyll]
+  • [OCamlPro’s compiler team work update]
+  • [What the interns have wrought, 2019 edition]
+  • [Decompress: The New Decompress API]
+
+
+[ezcurl] <https://github.com/c-cube/ezcurl>
+
+[OCaml Planet] <http://ocaml.org/community/planet/>
+
+[An in-depth Look at OCaml’s new “Best-fit” Garbage Collector Strategy]
+<http://www.ocamlpro.com/2020/03/23/ocaml-new-best-fit-garbage-collector/>
+
+[Sliding Tile Puzzle, Self-Contained OCaml Webapp]
+<http://psellos.com/2020/03/2020.03.how-i-wrote-elastic-man.html>
+
+[New version of Try OCaml in beta!]
+<http://www.ocamlpro.com/2020/03/16/new-version-of-try-ocaml-in-beta/>
+
+[Frama-Clang 0.0.8 is out. Download it here.]
+<http://frama-c.com/index.html>
+
+[A reasonable TyXML release | Drup's thingies]
+<https://drup.github.io/2020/03/06/tyxml440/>
+
+[Alt-Ergo Users’ Club Annual Meeting]
+<http://www.ocamlpro.com/2020/03/03/alt-ergo-userss-club-annual-meeting/>
+
+[OCaml iOS Apps Ported to Browser]
+<http://psellos.com/2020/02/2020.02.kid-charlemagne.html>
+
+[Watch all of Jane Street's tech talks]
+<https://blog.janestreet.com/watch-all-of-jane-streets-tech-talks/>
+
+[Mercurial: prettyconfig extension]
+<http://blog.0branch.com/posts/2020-02-15-prettyconfig-extension.html>
+
+[Mercurial extensions (update)]
+<http://blog.0branch.com/posts/2020-02-05-hg-extensions.html>
+
+[2019 at OCamlPro]
+<http://www.ocamlpro.com/2020/02/04/2019-at-ocamlpro/>
+
+[Bitbucket repository migration]
+<http://blog.0branch.com/posts/2020-02-03-bitbucket-migration.html>
+
+[Troubleshooting systemd with SystemTap]
+<https://blog.janestreet.com/troubleshooting-systemd-with-systemtap/>
+
+[Ocsigen Start updated]
+<https://ocsigen.github.io/blog/2020/01/20/release/>
+
+[opam 2.0.6 release]
+<http://www.ocamlpro.com/2020/01/16/opam-2-0-6-release/>
+
+[opam 2.0.6 release] <https://opam.ocaml.org/blog/opam-2-0-6/>
+
+[Hackers and climate activists join forces in Leipzig]
+<https://mirage.io/blog/ccc-2019-leipzig>
+
+[Deploying authoritative OCaml-DNS servers as MirageOS unikernels]
+<https://hannes.nqsb.io/Posts/DnsServer>
+
+[Reproducible MirageOS unikernel builds]
+<https://hannes.nqsb.io/Posts/ReproducibleOPAM>
+
+[Using Python and OCaml in the same Jupyter notebook]
+<https://blog.janestreet.com/using-python-and-ocaml-in-the-same-jupyter-notebook/>
+
+[Coq 8.11+beta1 is out]
+<https://coq.inria.fr/news/coq-8-11beta1-is-out.html>
+
+[Deep-Learning the Hardest Go Problem in the World]
+<https://blog.janestreet.com/deep-learning-the-hardest-go-problem-in-the-world/>
+
+[Frama-C 20.0 (Calcium) is out. Download it here.]
+<http://frama-c.com/index.html>
+
+[Testing OCaml releases with opamcheck]
+<http://gallium.inria.fr/blog/an-ocaml-release-story-1>
+
+[Coq 8.10.2 is out] <https://coq.inria.fr/news/coq-8-10-2-is-out.html>
+
+[Announcing Irmin 2.0.0] <https://mirage.io/blog/introducing-irmin-v2>
+
+[BAP 2.0 is released]
+<http://binaryanalysisplatform.github.io/bap-2-release>
+
+[CI/CD pipelines: Monad, Arrow or Dart?]
+<https://roscidus.com/blog/blog/2019/11/14/cicd-pipelines/>
+
+[On fixed-point theorems in synthetic computability]
+<http://math.andrej.com/2019/11/07/on-fixed-point-theorems-in-synthetic-computability/>
+
+[Runners in action]
+<http://math.andrej.com/2019/10/28/runners-in-action/>
+
+[Coq 8.10.1 is out] <https://coq.inria.fr/news/coq-8-10-1-is-out.html>
+
+[Announcing MirageOS 3.6.0]
+<https://mirage.io/blog/announcing-mirage-36-release>
+
+[Commas in big numbers everywhere: An OpenType adventure]
+<https://blog.janestreet.com/commas-in-big-numbers-everywhere/>
+
+[Coq 8.10.0 is out] <https://coq.inria.fr/news/coq-8-10-0-is-out.html>
+
+[OCaml expert and beginner training by OCamlPro (in French): Nov. 5-6 &
+7-8]
+<http://www.ocamlpro.com/2019/09/25/ocaml-expert-and-beginner-training-by-ocamlpro-in-french-nov-5-6-7-8/>
+
+[Mr. MIME - Parse and generate emails]
+<https://tarides.com/blog/2019-09-25-mr-mime-parse-and-generate-emails.html>
+
+[A look back on OCaml since 2011]
+<http://www.ocamlpro.com/2019/09/20/a-look-back-on-ocaml/>
+
+[Frama-C 19.1 (Potassium) is out. Download ithere.]
+<http://frama-c.com/index.html>
+
+[Coq 8.10+beta3 is out]
+<https://coq.inria.fr/news/coq-8-10beta3-is-out.html>
+
+[Updated Cheat Sheets: OCaml Language and OCaml Standard Library]
+<http://www.ocamlpro.com/2019/09/13/updated-cheat-sheets-ocaml-language-and-ocaml-standard-library/>
+
+[Frama-Clang 0.0.7 is out. Download ithere.]
+<http://frama-c.com/index.html>
+
+[Decompress: Experiences with OCaml optimization]
+<https://tarides.com/blog/2019-09-13-decompress-experiences-with-ocaml-optimization.html>
+
+[On complete ordered fields]
+<http://math.andrej.com/2019/09/09/on-complete-ordered-fields/>
+
+[An introduction to fuzzing OCaml with AFL, Crowbar and Bun]
+<https://tarides.com/blog/2019-09-04-an-introduction-to-fuzzing-ocaml-with-afl-crowbar-and-bun.html>
+
+[What is algebraic about algebraic effects?]
+<http://math.andrej.com/2019/09/03/what-is-algebraic-about-algebraic-effects/>
+
+[The blog moved from Wordpress to Jekyll]
+<http://math.andrej.com/2019/09/03/the-blog-moved-from-wordpress-to-jekyll/>
+
+[OCamlPro’s compiler team work update]
+<http://www.ocamlpro.com/2019/08/30/ocamlpros-compiler-team-work-update/>
+
+[What the interns have wrought, 2019 edition]
+<https://blog.janestreet.com/what-the-interns-have-wrought-2019/>
+
+[Decompress: The New Decompress API]
+<https://tarides.com/blog/2019-08-26-decompress-the-new-decompress-api.html>
+
+
+Old CWN
+═══════
+
+  If you happen to miss a CWN, you can [send me a message] and I'll mail
+  it to you, or go take a look at [the archive] or the [RSS feed of the
+  archives].
+
+  If you also wish to receive it every week by mail, you may subscribe
+  [online].
+
+  [Alan Schmitt]
+
+
+[send me a message] <mailto:alan.schmitt@polytechnique.org>
+
+[the archive] <http://alan.petitepomme.net/cwn/>
+
+[RSS feed of the archives] <http://alan.petitepomme.net/cwn/cwn.rss>
+
+[online] <http://lists.idyll.org/listinfo/caml-news-weekly/>
+
+[Alan Schmitt] <http://alan.petitepomme.net/>

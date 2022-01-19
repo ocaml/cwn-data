@@ -1,0 +1,257 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of 06 to 13 September, 2005.
+
+1) callbacks-0.1
+
+========================================================================
+1) callbacks-0.1
+Archive: <http://caml.inria.fr/pub/ml-archives/caml-list/2005/09/8bfffe121810ba7fc8ec9d43df0b7aef.en.html>
+------------------------------------------------------------------------
+** Christophe Raffalli announced:
+
+link: third item of:
+
+<http://www.lama.univ-savoie.fr/~raffalli/?page=soft&lang=en>
+
+comment and idea are welcome !
+
+-----------
+MOTIVATION
+-----------
+
+callbacks are problematic when writting OCaml bindings for C
+library. Indeed, a C function waits for a function respecting C
+calling conventions as argument, and OCaml functions do not respect the
+C conventions.
+
+Then in a library you only have a limited number of the C functions and
+in fact ideally, it is the user of the library that should often write 
+the C function that needs to be passed in arguments to other C functions.
+
+This is too hard for the average user ... this is why I wrote this package
+
+
+Here is an example on how to use it (see the README file for a more 
+detailled doc)
+
+--------------
+in glut.mli:
+--------------
+
+open Direct_callback
+...
+val reshapeFunc: cb:(w:int->h:int->unit) callback->unit
+...
+
+-------------
+in a programm using lablGlut
+-------------
+
+let doReshape ~w ~h =
+   ...
+
+c_wrapper doReshape_cb for  doReshape : w:int->h:int->unit
+...
+
+ReshapeFunc doReshape_cb
+...
+
+
+-------------
+in glut.ml
+-------------
+
+open Direct_callback
+...
+external reshapeFunc : cb:(w:int->h:int->unit) callback->unit = 
+"ml_glutReshapeFunc"
+...
+
+-------------
+in wrapglut.c
+-------------
+
+...
+ML_1(glutReshapeFunc,Callback2)
+...
+
+which expends to
+
+...
+CAMLprim value ml_glutReshapeFunc (value arg1) \
+{ glutReshapeFunc ((void (*)(int,int))(arg1)); return Val_unit; }
+...
+    
+** Maas-Maarten Zeeman said and Christophe Raffalli answered:
+
+> Sounds like a nice idea. As the author of ocaml-expat a binding I've 
+> also worked with c -> ocaml callbacks.
+> 
+> It is not really clear to me what problem you are trying to solve. It is 
+> not very difficult for somebody writing a Ocaml binding to come up with 
+> a solution which is easy to call an ocaml function value from c.
+> 
+> What I did was create one fixed c-callback functions which:
+> 
+> receive c-parameters
+> transform them to ocaml-values
+> lookup the ocaml callback "cb" in a tuple (set earlier from ocaml),
+
+This is that step I want to avoid ... not mainly for performance, but 
+because there are some cases where you do not know which callback you 
+should call (this was the case for one of the glut callback, I don't 
+recall which one, and it was a bit tricky for glutTimer). It happens 
+that in glut, the current window or current menu is properly set before 
+calling the callback ... but there may be other library, more purely 
+functional, with no concept of "current window" ...
+
+The other reason, is that it makes it easier to writte the bindings for 
+the library (no thinking required and therefore less bug) ! and does not 
+make it that much complex for the user.
+
+If you really need "dynamic" callback with arbitrary closure, then you 
+can implement your trick above mine in OCaml.
+
+By expending my work, we could write and use bindings for a C library 
+like glut without writing a line of C, except to convert data structure 
+from C to OCaml if you really need that.
+
+This could divide the size of the glut binding by a factor 2 or 3 ...
+which is important !
+
+> apply cb to the ocaml-values,
+> etc, etc
+> 
+> The ocaml programmer just has to deal with normal ocaml callback 
+> function values (which can be partially applied, unnamed, etc). These 
+> will be stored via c in a tuple. The value pointing to this tuple is 
+> registered as 1 global root. If you have large amounts of callbacks it 
+> would probably work with a simple hash table too. Then you only have to 
+> write/generate 1 c-callback function (per c-signature) which takes care 
+> of calling an unlimited amount of caml callbacks.
+> 
+> Its interesting to have the c-wrapper function generated as it would 
+> prevent hard to debug gc problems.
+    
+** Bardur Arantsson replied:
+
+> This is that step I want to avoid ... not mainly for performance, 
+
+Now, I'll freely admit that I haven't tested it specifically, but I 
+suspect performance will be worse when using register_global_root () to 
+register callback closures instead of just using a mapping from "int" 
+(or whatever type your callback identifier would be on the C side) to 
+closures "stored" on the OCaml side. There was a post on this list not 
+too long ago which exposed efficiency issues with register_global_root 
+when registering lots and lots of roots.
+
+> but
+> because there are some cases where you do not know which callback you 
+> should call (this was the case for one of the glut callback, I don't 
+> recall which one, and it was a bit tricky for glutTimer). It happens 
+> that in glut, the current window or current menu is properly set before 
+> calling the callback ... but there may be other library, more purely 
+> functional, with no concept of "current window" ...
+
+For any C library using callbacks there will *always* be *some* way to 
+distinguish which event/object caused the callback. The reason is 
+simple: Creating callback functions/closures on the fly is impossible(*) 
+in C, or, in other words the callback function itself can't possibly 
+carry enough information to distinguish callbacks from different 
+events/objects. If there isn't enough information to distinguish what 
+caused the callback, the callback would be pointless.
+
+(*) Well, you can generate machine code on the fly, but no sane library 
+will force you to do this.
+    
+** Christophe Raffalli said and Bardur Arantsson replied:
+
+> anyway, there should not be that many callbacks ?
+
+That depends hugely on what kind of library you're wrapping. I did a
+wrapper for libevent (events on file descriptors and other similar stuff
+like alarms, etc.) and what ended up happening was that a 1) lot of the
+time a relatively large amount of callbacks were registered, orm 2)
+callbacks would be registered/unregistered a lot. I did try using
+*_global_roots in my libevent wrapper, but the performance was awful
+until I changed it to use an (fd->callback) hashtable on the OCaml side.
+
+(In the case of file descriptors or similar objects you can try to be
+more clever and just use an array of callbacks and use the file
+descriptor as the index; I didn't bother with this in my wrapper library
+since the performance was OK as it was).
+
+> Moreover, I suspect (but may be wrong) that register_global_root () 
+> is or could be optimized for closure on closed functions, and this 
+> will be the case of most closure with my approach.
+
+ From the implementation in globroots.c it would seem that
+register_global_root is at least O(n) in the number of roots, and that
+it has a large constant overhead compared to e.g. adding something to a
+hashtable. So it may not be the fact that a closure may keep things
+alive that's slowing it down, but rather just a slow implementation of 
+register_global_root itself.
+    
+** Xavier Leroy then said:
+
+> From the implementation in globroots.c it would seem that
+> register_global_root is at least O(n) in the number of roots, and that
+> it has a large constant overhead compared to e.g. adding something to a
+> hashtable.
+
+You should look harder.  register_global_root is insertion in a skip
+list, which is probabilistic O(log n) with a low constant.  I don't
+think a hash table would perform significantly better for the mix of
+operations we need to do on the set of global roots (insertion,
+deletion, and enumeration for the GC).
+
+> That depends hugely on what kind of library you're wrapping. I did a
+> wrapper for libevent (events on file descriptors and other similar stuff
+> like alarms, etc.) and what ended up happening was that a 1) lot of the
+> time a relatively large amount of callbacks were registered, orm 2)
+> callbacks would be registered/unregistered a lot. I did try using
+> *_global_roots in my libevent wrapper, but the performance was awful
+> until I changed it to use an (fd->callback) hashtable on the OCaml side.
+
+I would have been very interested in a profiling of your initial
+implementation.  The only reason why the Caml hashtable can beat the
+global roots is that the latter are not generational: since the
+contents of registered global roots can change at any time without
+notifying the GC, all global roots must be scanned at every minor
+collection.
+    
+** Yaron Minsky then said:
+
+Yeah, we ran into this problem.  We had an application where we ended
+up registering about 200,000 global roots (most of which were
+callbacks.)  The application spent around 15% of the CPU all the time
+just scanning global roots as part of minor collections.  The
+callbacks were moved into a hashtbl,and these problems went away
+completely.
+    
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

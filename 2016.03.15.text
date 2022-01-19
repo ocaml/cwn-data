@@ -1,0 +1,254 @@
+Hello,
+
+Here is the latest OCaml Weekly News, for the week of March 08 to 15, 2016.
+
+1) Question about Lwt/Async
+2) Profiling ocaml with lwt
+3) Flambda manual chapter
+4) opam-cross-windows
+5) Software engineer position at Tweag I/O
+6) Other OCaml News
+
+========================================================================
+1) Question about Lwt/Async
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2016-03/msg00114.html>
+------------------------------------------------------------------------
+** Continuing this thread from last week, this conversation happened:
+
+Yaron Minsky:
+
+>> Jeremie, other than having some different back-ends available (e.g., glib
+>> main loop), how different are the approaches to backend management between
+>> Async and Lwt?
+
+Jeremie Dimino:
+
+> ?The backend interfaces are slightly different?, but we just need a bit of
+> glue in the middle. Essentially the difference is that with Lwt you provide
+> one callback per fd and watch (read or write), while with Async you have a
+> global callback.
+>
+> ?Right now what we need to change in Async to make this work is:
+>
+> - allow to provide a backend ?programmatically; right now you can only
+> choose between the predefined epoll and select ones
+> - make the scheduler ignore fds returned by the backend that are not
+> handled by async
+
+Malcolm Matalka:
+
+For what it's worth, which isn't much right now, I've been slowly
+developing an interface point for event loops and user facing code.  The
+rough idea is to present "asynchronous system calls" like an OS would,
+so user facing code has an interface to program against and the
+underlying event loop can change as someone wants, libev, libuv, direct
+epoll or kqueue, etc.  So Async and Lwt libraries could be implemented
+in terms of this interface and share the same event loop, to cooperate
+nicely.  So far I haven't implemented anything using the interface
+except for a barely functional test to demonstrate that it even works,
+so it's quite raw.  And it's clearly deficient on a few things, but I
+think the idea is sound and would alleviate some of the pain of deciding
+to use Lwt or Async and if it works on JS or Windows or My Favorite OS
+(just flip out the underlying scheduler implementation).
+
+The work in progress around the interface can be found below, any
+constructive feedback would be appreciated.
+
+<https://bitbucket.org/acslab/abb_scheduler_inf/src>
+      
+========================================================================
+2) Profiling ocaml with lwt
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2016-03/msg00116.html>
+------------------------------------------------------------------------
+** Kasper Janssens asked:
+
+I?m trying to profile an ocaml application that has a performance degradation of
+about 20 %, with quite some code changes between both versions. I tried
+attaching perf and gprof to it, but to no real avail. Sure, there are slight
+differences in the running time of functions in the gprof result, but nothing
+whatsoever that seems to explain that kind of delay. Perf doesn?t seem to
+indicate a problem neither.
+
+The thing is, I think it?s a delay in one of the servers that the application
+communicates with. The communication to those servers is done asynchronously,
+through lwt (epoll). I suspect that is the reason why delays in that
+communication don?t show up in the gprof result, but I?m not really sure.
+
+Does anybody know of a way to profile lwt applications in a way that these kinds
+of delays might show up so I know which backend system I have to focus on?
+      
+** Adrien Nader replied:
+
+I tend to (ab)use strace. It has options to only instrument some
+syscalls, it can count time spent in syscalls, time spent between
+syscalls, has microsecond precision, ...
+
+My first runs are usually "strace -tt -f -o log" to get times with
+microseconds, follow forks and write to a file rather than stderr
+(heavily advised, especially since text editors have syntax highlighting
+for strace's output [ vim at least even though you need to :set
+ft=strace when using -tt).
+
+After that, you can also use -T to get the time spent in syscalls, -e to
+trace fewer things, ...
+
+It's a hammer and requires a fair bit of eye-crossing but it covers everything,
+it's overhead isn't that big and it can easily reduce the scope of what you need
+to look more deeply at. However it's probably useless to try to spend more than
+2 hours on a strace's output if you can't find the answer you're looking for.
+      
+** Romain also replied:
+
+You can always use valgrind's callgrind to profile your applications. It has
+options to record systimes as well.
+Kcachegrind does a decent job in helping you to interprete the results.
+      
+** Török Edwin also replied:
+
+Is that communication done over a TCP/UDP socket?
+You could use wireshark and see if you spot anything (e.g. too many SSL
+handshakes -> application would benefit from persistent connections, etc.)
+
+Depending on the complexity of your application you may try to use a branch of
+Lwt that reports more tracing information, although this would likely require
+manual annotations to produce useful output:
+<http://roscidus.com/blog/blog/2014/10/27/visualising-an-asynchronous-monad/>
+
+I usually just wrap+log calls and use strace though, as already mentioned in
+this thread.
+      
+** Malcolm Matalka then added:
+
+And if you're on FreeBSD or OS X or Solaris you can use dtrace.
+      
+========================================================================
+3) Flambda manual chapter
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2016-03/msg00166.html>
+------------------------------------------------------------------------
+** Mark Shinwell announced:
+
+The current draft of the new chapter for the OCaml manual, about the
+Flambda optimisation passes forthcoming in version 4.03, is available
+for viewing at:
+
+<https://ocaml.janestreet.com/ocaml-core/flambda_manual/>
+
+Please note that this is intended as user documentation.  Developer
+documentation is provided via the source code and comments therein.
+(We will hopefully do an ocamldoc-style generation from that before
+the 4.03 release.)
+
+If you would like to make comments please do so via this Github pull
+request page:
+
+<https://github.com/ocaml/ocaml/pull/503>
+      
+========================================================================
+4) opam-cross-windows
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2016-03/msg00184.html>
+------------------------------------------------------------------------
+** whitequark announced:
+
+I've released opam-cross-windows[1], a 4.02.3 OCaml toolchain
+in the spirit of opam-cross-android[2] (ex opam-android).
+It provides easy cross-compilation of the OCaml compiler
+and select packages from any *nix environment to 32-bit
+and 64-bit x86 Windows.
+
+There aren't many packages yet but you're encouraged to submit
+your own. Personally, I find the porting process that uses
+the opam-cross-* conventions so simple and robust that it
+can be done nearly mindlessly.
+
+The cross-compiled package definitions themselves are
+identical to the ones from opam-cross-android (except for
+s/android/windows) so I think cross-compilation should gain
+at least minimal OPAM support; I've described my proposal
+at [3].
+
+[1]: <https://github.com/whitequark/opam-cross-windows>
+[2]: <https://github.com/whitequark/opam-cross-android>
+[3]: <https://github.com/ocaml/opam/issues/2476>
+      
+========================================================================
+5) Software engineer position at Tweag I/O
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2016-03/msg00196.html>
+------------------------------------------------------------------------
+** Arnaud Spiwack announced:
+
+Tweag I/O [1] is hiring. We're looking for a software engineer in the Paris
+area. The position involves Haskell, not Ocaml, but it may still be of interest
+to this list. Details of the position below.
+
+-------------------------------------------------------------------------------
+
+Software Engineer position
+==========================
+
+Tweag I/O is looking for distributed systems engineers to be part of one of
+several projects in Europe focused on developing the next wave of storage
+solutions in Haskell and in C, targeted at the Exascale.
+
+Many of our existing folks come from diverse backgrounds, be it a PL research
+and/or formal methods background, high-speed storage or machine learning. We are
+active maintainers of the Cloud Haskell [2] project and authors of the HaskellR
+[3] project, among other open source contributions. Our engineers spend a fair
+amount of time building the tools they need to make their life here a happy one.
+We love Nix [4] and Stack [5] so much to build and deploy our software that we
+made it easy to use both together [6]. 
+
+For this position we're looking to have you join a local team near our
+headquarters here in Paris. We're pretty happy to look at helping you relocate
+if you're up to spending some time in this beautiful city. Fluency in French not
+required.
+
+If you like the idea of working on the software plumbing and infrastructure for
+tomorrow's Science, by systematically decomposing them into simple, orthogonal
+solutions that compose and commute like in algebra, give it a try!
+
+About us
+========
+
+We are a research and development laboratory at the heart of Europe, applying
+functional programming techniques to tame the complexity of distributed systems
+and scale predictably. We are a distributed company with a presence across
+Europe, and on-site teams at our headquarters in the very center of Paris. Our
+mission is to build and integrate solutions for our customers to support insight
+discovery and science. If you'd love the opportunity and the space to solve hard
+problems shoot us an email at jobs@tweag.io.
+
+[1]: <http://www.tweag.io/>
+[2]: <http://haskell-distributed.github.io/>
+[3]: <http://tweag.github.io/HaskellR/>
+[4]: <http://nixos.org/nix/>
+[5]: <http://haskellstack.org/>
+[6]: <http://www.tweag.io/blog/stack-nix-portable-reproducible-builds>
+      
+========================================================================
+6) Other OCaml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Here are links from many OCaml blogs aggregated at OCaml Planet,
+<http://ocaml.org/community/planet/>.
+
+Seven Implementations of Incremental
+ <https://blogs.janestreet.com/seven-implementations-of-incremental/?utm_source=rss&utm_medium=rss&utm_campaign=seven-implementations-of-incremental>
+
+Software Engineer at Purple (Full-time)
+ <https://functionaljobs.com/jobs/8896-software-engineer-at-purple>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

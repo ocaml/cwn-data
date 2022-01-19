@@ -1,0 +1,302 @@
+<html><head><meta http-equiv="Content-Type" content="text/html" charset=iso-8859-1"><title>Caml Weekly News</title></head><body>
+
+<a href="2002.05.14.html">Previous week</a> &nbsp; <a href="index.html">Up</a> &nbsp; <a href="2002.05.28.html">Next week</a>
+<pre>
+Hello,
+
+Here is the latest Caml Weekly News, weeks 14 to 21 may, 2002. 
+
+1) <a href="#1">Generating C stubs</a>
+2) <a href="#2">COM binding &amp; CAMLIDL ?</a>
+3) <a href="#3">Dynamic Caml v0.2</a>
+4) <a href="#4">Surreal-0.0.3</a>
+5) <a href="#5">OCaml packaging problems: findlib helps!</a>
+
+<a name="1"/>======================================================================
+1) Generating C stubs
+----------------------------------------------------------------------
+Jérôme Marant asked:
+
+Hi,
+
+In order to avoid spending some time on writing C stubs
+myself, I'd like them to be generated automaticaly.
+There are currently 3 stub generators: camouflage, ffi
+and another one I don't recall (IIRC, someone claimed
+that he was working on a SWIG interface).
+
+I'm a bit confused since I don't really know what generator
+to choose among all those. Moreover, they all seem to have
+been last update in august 2001 and the C interface may
+have changed since.
+
+Has anyone experiences and advices about this?
+
+Thanks in advance.
+
+Jocelyn Sérot answered:
+
+I've been using CAMLIDL (<a href="http://caml.inria.fr/camlidl/">http://caml.inria.fr/camlidl/</a>) extensively and
+it works well.
+It does not work directly from your C headers (.h) but from a IDL
+signature, but writting this
+sig is straightforward in most of the cases.
+
+Benedikt Grundmann also saidi (about a SWIG interface):
+
+That was me and I'm still working on it.  I just started working on
+automatic structure wrapping.  This project (ocaml-swig) is the first time
+I started working on the core of swig which unfortunately is constantly
+changing because Dave and the others trying to improve the C++ support.  So
+I really can't tell you when a working release of the ocaml-swig module
+will be done.
+
+To which Jeff Henrikson added:
+
+No it was me!  ;-)  Actually I basically did write a SWIG 
+language module.  (How is it that we didn't see each others
+work on the list archives?)  Anyway, after writing about
+2000 lines of C code but before getting the bugs worked out,
+I abandoned it.  My reasoning was:
+
+1) SWIG is not sophisticated enough to get the behavior I
+wanted easily.
+2) Doing extra work to approach what I wanted was making
+massive code bloat (SWIG is written in C and is not
+forgiving of changing the "normal" behavior from the
+language module end)
+3) I hate programming in C, especially when the API has been
+constructed to treat _everything_ as a void*.
+4) Someone released a binding for the interfaces I needed
+
+So that put the lid on that one for a while.  But I learned
+why exactly I find it (and the IDL approach, and other FFI
+systems) inadequate.  SWIG tries to be a little bit smarter
+than IDL by letting you break away from the "this parameter
+is [in], this parameter is [out]" level of abstraction, by
+allowing some weak sorts of pattern matching.  In other
+words, it can take the names of the parameters in a C header
+file and say "make all int parameters named 'point' and
+convert them this way.  But make all the int parameters
+named 'color' and convert them this other way."   But it's
+not general enough, and still makes the mistake of
+annotating the header file rather than making the
+annotations separate.  So when version 2.0 of your header
+files come out, you start from scratch or do some silly
+diff3 mucking around.
+
+I started implementing a new header generator based on the
+idea of describing the annotations as a caml program.
+Basically have a bunch of convienience functions that search
+through a C abstract syntax tree to ask things like this:
+
+1) I need to use function FooOp which takes a datatype Foo*.
+Read mydefs.h which contains their prototypes into the
+current environment.
+
+2) Find me all descendant types which are needed to build
+the struct Foo.
+
+3) Generate me constructor functions to build these ones
+which I declare to be public members, and any of their
+children.  For primitive types, convert using these C code
+snippets I give you (ala SWIG typemaps).
+
+4) Find me all functions which take a Foo* as a first
+parameter.  Write C wrappers for them, caml external
+declarations, and put them together as a class in an OOP
+wrapper ala lablgtk.  Truncate the method names from
+Foo_happyOperation to just myFoo#happyOperation by a regular
+expression substitution, with exceptions which I specify by
+hand.
+
+Anyway, needless to say there's a bunch of stuff to be
+worked out, but I may get back at the project soon, as I am
+needing another API binding.  I really want to short circuit
+the writing each function by hand as you go thing.  The
+problem is that I usually work with APIs that I don't know
+upfront, and want to just generate the stubs in bulk and
+learn the API straight from an ML environment.  (This is one
+of the areas where caml is definitely not as easy as C yet.)
+I think 95% of the necessary information is already
+contained in well stylized header files, we just need a way
+of systematically cleaning up the last 5% into a complete
+IDL level of knowledge.
+
+Two further extensions of such a system would be to
+
+1) produce a language independent output, in other words
+write out IDL instead of C wrappers.
+
+2) construct a language independent input, so that non-caml
+programmers might be seduced.  :-&gt;
+
+Then Jeff Henrikson made the code available:
+
+I stuck it on the web for you.  Don't laugh, it's the first
+thing on my new iDisk.
+
+<a href="http://homepage.mac.com/jehenrik/">http://homepage.mac.com/jehenrik/</a>
+
+<a name="2"/>======================================================================
+2) COM binding &amp; CAMLIDL ?
+----------------------------------------------------------------------
+Samuel Lacas asked and Dmitry Bely answered:
+
+&gt; Reading a recent thread on the list, I noticed that ocaml could be
+&gt; used with COM components on windows. As I currently intensively use
+&gt; the Python COM bindings with MS' text processor whose name I won't
+&gt; say, I wonder if I could use ocaml to the same end.
+
+Probably yes, if you are going to use/create COM components with vtbl-style
+interfaces. Support for IDispatch interfaces is very limited (see camlidl
+manual).
+
+&gt; However, the release notes in the ocaml-win distribution states that
+&gt; the cygwin version lacks COM support,
+
+In fact Cygwin gcc has all necessary COM libraries and camlidl can be
+easily patched to support COM interfaces for Cygwin-build OCaml (I have
+done that if you are interested).
+
+&gt; and the native win32 version
+&gt; partially implements the libraries, among which I find no COM nor IDL
+&gt; link. Does anyone on the list have more information ?
+
+[ocamlREADME.win32]
+
+The native Win32 port has threads and COM support
+
+[camlidlreadme]
+
+In addition, Camlidl provides basic support for COM interfaces and
+components under MS Windows.  It supports both using COM components
+(usually written in C++ or C) from Caml programs, and packaging Caml
+objects as COM components that can then be used from C++ or C.
+
+[end of quote]
+
+So yes, MSVC-compiled OCaml supports Camlidl and COM out-of-the-box.
+
+<a name="3"/>======================================================================
+3) Dynamic Caml v0.2
+----------------------------------------------------------------------
+Dmitry Lomov announced:
+
+I am pleased to announce the availability of Dynamic Caml v.0.2
+from:
+
+<a href="http://oops.tercom.ru/dml/">http://oops.tercom.ru/dml/</a>
+
+Dynamic Caml is a high-level, type-safe (statically typed)
+and efficient dynamic code generation library and a set of
+CamlP4 syntax extensions for Objective Caml.
+
+Though still supporting only bytecode,
+release 0.2 is much more mature than the previous 0.1 release.
+
+This is the list of changes:
+
+- Most of Objective Caml expressions are supported either
+  natively (as constructors of code type) or via functional
+  wrappers that are automatically generated by syntax extensions.
+  Not supported expressions are:
+    * labelled applications   
+    * OO features (method calls and such)
+  Those can be used via manually written functional wrappers.
+
+- Functional wrappers for expressions that are not natively supported
+  are inlined in the generated bytecode, thus removing application
+  overhead.
+
+- Several bugfixes
+
+- More examples added (see directory tests/ in the distribution)  
+
+Your comments and suggestions are welcome!
+
+<a name="4"/>======================================================================
+4) Surreal-0.0.3
+----------------------------------------------------------------------
+Yamagata Yoriyuki announced:
+
+Surreal-0.0.3 is released.
+
+Surreal library is another exact real arithmetic library for objective
+caml.
+
+The library is currently just a rough sketch, and not well tested.
+There is no plan to further development.  I am tired of error bound
+estimation.  However, if someone is interested, I would love to share
+ideas.
+
+For more info, look to the home page. 
+<a href="http://www.mars.sphere.ne.jp/yoriyuki/surreal.html">http://www.mars.sphere.ne.jp/yoriyuki/surreal.html</a>
+
+I would appreciate your feedbacks
+
+<a name="5"/>======================================================================
+5) OCaml packaging problems: findlib helps!
+----------------------------------------------------------------------
+Gerd Stolpmann announced:
+
+I have prepared an experimental version of findlib (download see below)
+that allows users to store DLLs into a shared directory, called "libexec".
+As you may know, findlib organizes packages by directory. For example,
+an installation with three packages X, Y, and Z could look like:  
+
+/usr/local/lib/ocaml/site-lib/X/&lt;files&gt;
+/usr/local/lib/ocaml/site-lib/Y/&lt;files&gt;
+/usr/local/lib/ocaml/site-lib/Z/&lt;files&gt;
+
+Previous versions of findlib put DLLs simply into the package directories,
+and findlib tried to update the ld.conf file (which may fail because of
+missing file permissions). A similar solution is also used by the Debian
+packagers.
+
+There are some problems with it:
+- There are scalability problems when really many directories are in ld.conf
+- Package management systems like dpkg and rpm must use postinstall scripts
+  which makes packaging more difficult
+- There is a conflict between dpkg/rpm packages and additional manual
+  installations: Who is responsible for which line in ld.conf?
+- Name clashes are hard to detect (e.g. X and Y use both dllfoo.so)
+
+The experimental version of findlib recognizes a special directory libexec:
+
+/usr/local/lib/ocaml/site-lib/libexec/&lt;DLL files&gt;
+
+The simple existence of this directory causes that all files with the suffixes
+.so and .dll are copied into this directory (no symlinks). Of course, this breaks  
+the current way of representing the ownership of files. In previous versions,
+all files in the package directory for X are owned by X. This is simple,
+and works for everything else very well. In libexec, there are now .owner files,   
+e.g. for dllfoo.so findlib creates a second file dllfoo.so.owner, containing
+only one line with the name of the owner.
+
+Knowing the owner of files is necessary to delete a package.
+
+The advantages of this solution are:
+- It is not necessary to update ld.conf when a package is installed or deleted.
+  Usually, there are very few such libexec directories, and they are known in
+  advance.
+- dpkg and rpm do no longer need postinstall scripts.
+- The lookup of DLLs is faster.
+- findlib checks whether there are name clashes.
+
+Nothing is perfect:
+- Recognizing a DLL by its file extension may be wrong
+- The .owner files are ugly, and this functionality overlaps with dpkg/rpm.
+- It is still difficult to install several versions of the same library.
+  Although findlib supports several package repositories, this does
+  not help, because all libexec directories must be mentioned in ld.conf,
+  and the order in this file determines which library is loaded. The workaround
+  is to set CAML_LD_LIBRARY_PATH to influence the search order manually.
+
+If you want to look at this experiment, you can download it from
+<a href="http://www.ocaml-programming.de/packages/findlib-0.7-pre.tar.gz">http://www.ocaml-programming.de/packages/findlib-0.7-pre.tar.gz</a>
+
+======================================================================
+
+Alan Schmitt
+</pre></body></html>

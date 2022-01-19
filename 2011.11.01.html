@@ -1,0 +1,286 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Caml Weekly News</title>
+  </head>
+  <body>
+    <a href="2011.10.25.html">Previous week</a> <a href="index.html">Up</a> <a href="2011.11.08.html">Next week</a><p>Hello</p><p>Here is the latest Caml Weekly News, for the week of October 25 to November 01, 2011.</p><ol><li><a href="#1">[JOB] OCaml Developer at Jane Street</a></li><li><a href="#2">Async, a monadic concurrency library</a></li><li><a href="#3">Other Caml News</a></li></ol><a name="1" /><hr /><h3>[JOB] OCaml Developer at Jane Street</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2011-10/msg00119.html">https://sympa-roc.inria.fr/wws/arc/caml-list/2011-10/msg00119.html</a></p><i>Yaron Minsky announced:</i><br /><pre>
+Jane Street is looking to hire functional programmers for our offices
+in New York, London and Hong Kong.  We're looking for both interns for
+this upcoming summer as well as full-time hires.
+
+Jane Street has the largest team of OCaml developers in any industrial
+setting, and probably the world's largest OCaml codebase. We use OCaml
+for running our entire business, supporting everything from
+statistical research to systems administration to automated trading
+systems.  If you're interested in using OCaml to solve real-world
+problems, there's no better place.
+
+Jane Street has (in my humble opinion) a great work environment.  It
+has a very informal feel --- if you dress much nicer than a t-shirt in
+jeans, you'll look out of place --- but it's also an intellectually
+challenging place where you get to wrestle with hard problems and
+learn about the subject matter of trading, a fascinating field in its
+own right.  There's also a strong focus on education, with both on the
+job training and a system of formal classes.  
+
+We also have a strong commitment to OCaml and to open-source software.
+We released our Core suite of libraries a few years back, and we
+continue to extend the reach of our public releases.  And we have and
+will continue to financially support projects to improve the OCaml
+ecosystem.
+
+Compensation is more than competitive, and no prior experience with
+finance is required.
+
+Here are some resources you can use to learn more about Jane Street
+and what we do.
+
+- A talk I gave at CMU about how and why we use OCaml
+  <a href="http://ocaml.janestreet.com/?q=node/61">http://ocaml.janestreet.com/?q=node/61</a>
+- Our technical blog: <a href="http://ocaml.janestreet.com">http://ocaml.janestreet.com</a>
+
+If you want to get a flavor of our approach to software, you might be
+interested in looking at Async, a monadic concurrency library we just
+released:
+
+  <a href="http://ocaml.janestreet.com/?q=node/100">http://ocaml.janestreet.com/?q=node/100</a>
+
+Follow this link to apply:
+
+  <a href="http://janestreet.com/apply">http://janestreet.com/apply</a>
+      </pre><a name="2" /><hr /><h3>Async, a monadic concurrency library</h3><p>Archive: <a href="https://sympa-roc.inria.fr/wws/arc/caml-list/2011-10/msg00121.html?checked_cas=2">https://sympa-roc.inria.fr/wws/arc/caml-list/2011-10/msg00121.html?checked_cas=2</a></p><i>Yaron Minsky announced:</i><br /><pre>
+While we're in the announcing mood, I wanted to announce the first
+public release of Async, Jane Street's monadic concurrency library.
+
+You can find out more about Async here:
+
+   <a href="http://ocaml.janestreet.com/?q=node/100">http://ocaml.janestreet.com/?q=node/100</a>
+      </pre><i>Cedric Cellier asked and Yaron Minsky replied:</i><br /><pre>
+&gt; While comparing async and lwt you forget to mention
+&gt; performances. Didn't you run any benchmark with some result to share ?
+&gt; Or are Async performances irrelevant to your use cases so you never
+&gt; benchmarked ?
+
+Perhaps surprisingly, while we've benchmarked and tuned the
+performance of Async, but we've never done the same for Lwt.
+
+This has to do with history as much as anything else.  We wrote the
+first version of Async years ago, when Lwt was much less mature.  We
+looked at Lwt at the time and decided that there were several design
+choices that made it unsuitable for our purposes, so we wrote Async.
+We've looked back at Lwt for inspiration over the years, but we've
+never again had the question in front of us as to whether to use Lwt
+or Async, so doing the benchmarking has never been high on our list.
+
+We do have some guesses about how performance differs.  For example,
+Lwt's bind is faster than Async's bind because of different
+interleaving policies: Lwt can run the right-hand side of a bind
+immediately, whereas in Async, it's always scheduled to run later, so
+that's more work that Async has to do in.  That said, we prefer the
+semantics of Async's bind, even though it has a performance cost.
+(You can easily implement Lwt-style bind.)
+
+Another thing to note for any intrepid benchmarkers is that the
+released version of Async is missing a useful feature that is already
+available in our development trunk, which is tail-recursive bind.  In
+the released version, the following loop:
+
+let rec loop () =
+   after (sec 30.)
+   &gt;&gt;= fun () -&gt;
+   printf ".%!";
+   loop ()
+
+will allocate an unbounded amount of space, creating one deferred
+value every 30 seconds.  In our development trunk bind is
+tail-recursive, but that hasn't gotten to the public release yet.
+
+You can do the same loop efficiently in Async using the upon operator:
+
+let rec loop () =
+   after (sec 30.)
+   &gt;&gt;&gt; fun () -&gt;
+   printf ".%!";
+   loop ()
+
+This is actually more efficient than using the tail-recursive version
+of bind, since it allocates one less deferred value every time through
+the loop.
+      </pre><i>Gerd Stolpmann commented:</i><br /><pre>
+Which is already the third one (Equeue and Lwt being the others). I'm
+very up to reinventing the wheel, but I guess there is some reason.
+
+Does Janestreet use any open source libraries? Or does the commitment
+not go that far?
+      </pre><i>Yaron Minsky then replied and Gerd Stolpmann said:</i><br /><pre>
+&gt; I admit to a certain amount of ambivalence to releasing Yet Another
+&gt; Monadic Concurrency library.  (I don't think Equeue is in quite the
+&gt; same category, since it has such a different style of interface.) 
+
+Equeue offers several styles. On the lower level it is quite different,
+but the version offered by the Uq_engines module is pretty much the same
+with its own naming style (e.g. seq instead of bind etc.).
+
+&gt;  But I think we had good reasons for creating Async.  As I said in my
+&gt; blog post, the differences in error-handling and interleaving policy
+&gt; were enough that we really felt we needed a different library.
+
+In deed this is interesting. Equeue also follows Lwt's idea not to
+interleave when possible, simply for performance reasons. You can,
+however, demand at any time to interleave (with the eps_e operator), and
+a user wanting this always could build a little layer on top of Equeue
+to force it.
+
+Exceptions are specially represented in Equeue as a different kind of
+return value. Most operators catch exceptions, cancel the remaining part
+of the execution flow (which is also specially supported, simulating a
+"falling through" effect), and return the exception. Effectively, this
+means that exceptions do not need that much attention, and often the
+right thing is done anyway.
+
+&gt; And now that we've created it, there are multiple reasons to release
+&gt; it.  For one thing, we want it for out own open-source projects
+&gt; outside of the office!  And it's a precondition for us for releasing
+&gt; other software that we've developed internally that depends on Async.
+
+Honestly, I'm a bit concerned about the yet-another-async library,
+because a library writer can usually only support one library, and
+remains incompatible with the other ones. What would you do if you
+wanted to use NetAMQP, which is for Equeue? It would be complicated (and
+maybe even impossible) to integrate this library into a program using
+Async otherwise.
+
+For Equeue+Lwt in the same program there is now at least a partial
+solution, but it is not really pleasant.
+
+What I fear is that the community is split up into fractions. The
+community is not so large that we can afford this.
+
+&gt; As an aside, we use lots of OCaml libraries developed outside our
+&gt; walls: RES, PCRE, Lacaml, Postgres bindings and OUnit and xml-light,
+&gt; to name some off the top of my head.
+
+Where some of the developers happen to be Jane Street employees...
+Seriously, in many companies there is a culture to block everything from
+outside, and that's the other half of my concerns.
+
+Not that all this means you shouldn't publish your code. It's great but
+certainly not substituting community interaction.
+      </pre><i>Milan Stanojević asked and Gerd Stolpmann replied:</i><br /><pre>
+&gt; &gt; In deed this is interesting. Equeue also follows Lwt's idea not to
+&gt; &gt; interleave when possible, simply for performance reasons. You can,
+&gt; 
+&gt; Did you mean to say "Lwt interleaves when possible"?
+&gt; 
+&gt; For example
+&gt; 
+&gt; let foo () =
+&gt;     let r = x &gt;&gt;= bar in
+&gt;     ....
+&gt;      r
+&gt; 
+&gt; in Async [bar] will run only after [foo] has completed (therefore
+&gt; there is no interleaving between [foo] and [bar]), while in Lwt [bar]
+&gt; can run in the middle of [foo] so there is an interleaving
+
+You probably mean the case where x has already computed a result.
+
+When developing Uq_engines, I was a bit unsure how to treat this case.
+In the initial version, I just disallowed this case: There was simply no
+way to run into it. If you wanted to create a thread that just yields a
+constant value, the only way was the function eps_e, which "computes"
+the constant in one step (i.e. it is not immediately there, but only
+after rescheduling). Later I allowed this case, and also added const_e,
+which creates a thread with an immediate result.
+
+Nevertheless, almost all code I produced uses eps_e, not const_e,
+because the possible interactions with state changes are easier to
+overlook. However, there is also const_e when speed really matters.
+
+Besides this problem, I'm unsure where the other conceptual differences
+are between the threading implementation. For example, Equeue has
+actually two schedulers: one very simple one, which is only used when no
+I/O and no delays need to be considered (and which is local to
+Uq_engines), and a heavy one when these phenomenons can occur. The
+simple scheduler is really unfair - the next thread at hand is executed,
+often leading to a cache-friendly execution flow with high locality. But
+it's fast. The other scheduler is absolutely fair: all resources are
+treated equal, and events are queued up (fifo order). It is only invoked
+when the simple scheduler cannot continue.
+
+So yes, there are probably differences. I am a bit surprised that Equeue
+(which is part of Ocamlnet, btw) is not recognized as monadic threading
+library, although it was definitely the first public Ocaml library
+exploring this idea (beginnings in 1999), and has probably the largest
+user code base (remember the original wink.com search service was
+written with it). It was "only" never been announced as monadic, and
+uses a different terminology because it's a threading library in the
+first place, and I always hoped it's easier to understand for people
+without Haskell background.
+      </pre><i>Milan Stanojević then said and Gerd Stolpmann replied:</i><br /><pre>
+&gt; &gt; When developing Uq_engines, I was a bit unsure how to treat this case.
+&gt; &gt; In the initial version, I just disallowed this case: There was simply no
+&gt; &gt; way to run into it. If you wanted to create a thread that just yields a
+&gt; 
+&gt; In Async and Lwt I think it quite possible to have this case even if x
+&gt; was not just giving you a constant value. For example, x could be
+&gt; read_char (), and if you have buffered input (like Async does, and
+&gt; probably Lwt) it is quite possible that read_char will be determined
+&gt; immediately (since there is no need to issue a system call)
+
+Right, if functions like read_char are considered as primitives, you can
+have that. In Equeue e.g. Uq_io.really_input_e isn't a primitive, but
+just something built on top of input_e, and if it reads from the buffer,
+the value is returned via eps_e.
+
+So, it depends a bit on the design which functions show this phenomenon.
+      </pre><i>rixed asked:</i><br /><pre>
+What if someday you want to use an external library that uses lwt ?
+Will it be possible to mix the two ?
+Since this kind of monadic library can easily impose its behavior on all
+other library around (if for nothing else than the exception mechanism
+to use), I have the feeling that for us mere users choosing between lwt
+and async is to choose between two large sets of incompatible libraries,
+am I wrong ?
+      </pre><i>Yaron Minsky then said and Jérémie Dimino replied:</i><br /><pre>
+&gt; It's an excellent question, and one I don't yet have a good feel for.  It
+&gt; would be great to find some kind of modus vivendi which would allow the
+&gt; libraries to interoperate.
+
+I think it is not too hard to mix Lwt.t and Defered.t values, one can
+start with something like that:
+
+  let lwt_of_async t =
+    let waiter, wakener = Lwt.wait () in
+    Defered.upon t (Lwt.wakeup wakener);
+    waiter
+
+  let async_of_lwt t =
+    Defered.create (fun ivar -&gt; Lwt.on_success t (Ivar.fill ivar))
+
+But we need to check how this behaves with error handling, and also the
+local storage of Lwt.
+
+For the scheduler the easiest solution is probalby to write a Lwt engine
+based on Async.
+      </pre><a name="3" /><hr /><h3>Other Caml News</h3><i>From the ocamlcore planet blog:</i><br /><pre>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <a href="http://planet.ocamlcore.org/">http://planet.ocamlcore.org/</a>.
+
+Junior Scala Developer at Hugh Gilmore (Full-time):
+  <a href="http://functionaljobs.com/jobs/84/junior-scala-developer-at-hugh-gilmore">http://functionaljobs.com/jobs/84/junior-scala-developer-at-hugh-gilmore</a>
+
+A First-Principles GIF Encoder:
+  <a href="http://alaska-kamtchatka.blogspot.com/2011/10/first-principles-gif-encoder.html">http://alaska-kamtchatka.blogspot.com/2011/10/first-principles-gif-encoder.html</a>
+
+Announcing Async:
+  <a href="http://ocaml.janestcapital.com/?q=node/100">http://ocaml.janestcapital.com/?q=node/100</a>
+      </pre><hr /><h3>Old cwn</h3><p>If you happen to miss a CWN, you can <a href="mailto:alan.schmitt@polytechnique.org">send me a message</a> and I'll mail it to you, or go take a look at <a href="http://alan.petitepomme.net/cwn/">the archive</a> or the <a href="http://alan.petitepomme.net/cwn/cwn.rss">RSS feed of the archives</a>.</p><p>If you also wish to receive it every week by mail, you may subscribe <a href="http://lists.idyll.org/listinfo/caml-news-weekly/">online</a>.</p><hr /><p align="right"><i><a href="http://alan.petitepomme.net/">Alan Schmitt</a></i></p><p align="right"><script type="text/javascript">var sc_project=1252199; 
+                 var sc_invisible=0; 
+                 var sc_partition=11; 
+                 var sc_security="e7c40dd3"; 
+                 var sc_text=3;</script><script type="text/javascript" src="http://www.statcounter.com/counter/counter_xhtml.js" /><script src="http://www.google-analytics.com/urchin.js" type="text/javascript" /><script type="text/javascript">_uacct = "UA-2289702-1";
+								urchinTracker();</script></p></body>
+</html>

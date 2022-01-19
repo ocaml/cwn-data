@@ -1,0 +1,208 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of December 22 to 29, 2009.
+
+1) Sysadmin/programmer combo positions at Jane Street
+2) multicore wish
+3) concurrent cell supports FRP(beta)
+4) Other Caml News
+
+========================================================================
+1) Sysadmin/programmer combo positions at Jane Street
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/661d2b4ce1e85807#>
+------------------------------------------------------------------------
+** Owen Gunden announced:
+
+The generic ad follows. And a specific note for caml-list consumers:
+most of our systems automation software is written in OCaml.
+
+-----
+
+Sysadmin/Programmer combo
+(aka Systems Automation Specialist)
+
+Seeking:
+
+Responsible, careful, passionate and skillful technology specialists to help
+build and maintain our increasingly automated technology infrastructure.
+
+You'll need to be adept with unix (specifically linux) administration. For
+example, you want to be able to format filesystems, install bootloaders, and
+make rpm packages. It's even better if you understand system calls, kernel
+parameters, IO schedulers, and other lower level internals.
+
+You'll also need to be a good programmer. We only want people who've had
+experience writing significant amounts of real-world code. OCaml is our
+language of choice, but it's okay if you don't know it so long as you can learn
+it. Experience in ruby, python, php, perl, scheme, haskell, erlang, and others
+are all acceptable.
+
+About us:
+
+Jane Street is a proprietary trading firm with offices in NYC, London and Tokyo
+(this ad is for NYC positions). We have about 200 employees total, the majority
+of whom work in NYC. While this makes us a medium-sized business, the culture
+more closely resembles that of a small startup: The atmosphere is casual and
+informal; we care about doing good work more than dress codes or hours put in;
+there's not much room for office politics; and, there's a lot of financial
+upside if you do great work.
+
+We have a large datacenter on-site and several colocation facilities, with
+hundreds of servers total. We manage all of this with just a small team by
+leveraging our programming skills to create scalable, automated systems. We use
+a lot of open source tools and write the rest ourselves.
+
+Our systems team is tightly integrated with the rest of the company so you get
+exposure to a broad range of concepts and ideas. Unlike at other large
+financial firms, our technology group is highly regarded and central to our
+business, not just a footnote.
+
+Perks:
+
+In addition to our excellent benefits which you can read about here:
+
+ <http://www.janestreet.com/workplace/benefits.php>
+
+we have on-site classes taught by employees on subjects ranging from
+programming to finance to trading to bridge (yes, the game).
+
+
+If this sounds like a match to your background, skills, and disposition, let us
+know. Send a cover letter indicating why you think you're a good fit, along
+with your resume, to ogunden@janestreet.com.
+			
+========================================================================
+2) multicore wish
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/929a8af139dcdce0/508385d30a035daf>
+------------------------------------------------------------------------
+** Deep in this thread, Goswin von Brederlow said and Gerd Stolpmann added:
+
+> There is one implementation: <http://www.algo-prog.info/ocmc/web/>
+> But as said maybe not a verry good one.
+>
+> I tried implementing parallel threads under the original GC by forking
+> multiple instances of the same program and using a Bigarray to mmap
+> /dev/null for shared memory between the instances. That works for
+> sharing primitive types, flat records (records of primitive types) and
+> even fixed (or bound) sized structures but it gets more and more
+> complex to share each and needs some Obj magic, marshaling or C stubs
+> (except for primitive types). It works but is a real hack.
+
+It works with all types:
+
+<https://godirepo.camlcity.org/svn/lib-ocamlnet2/trunk/code/src/netsys/netsys_mem.mli>
+
+look for init_value. It's non-released code yet.
+
+However, there are some problems: Values outside the heap do not support
+the polymorphic comparison and hash functions. That's a hard limitation,
+e.g. you cannot even compare two strings, or build a hash table with
+strings as keys. That limits the usefulness of shared memory.
+
+Also, as we are striving for safe programs, there is the question when
+shared memory can be safely released. The GC could help here, but there
+are no ways to hook in, e.g. to get notified when there are no pointers
+anymore to a value living in shared memory.
+			
+** Xavier Leroy then added:
+
+In OCaml 3.11 and later, you can call
+
+  caml_page_table_add(In_static_area, start, end)
+
+to inform the run-time system that the address range [start, end)
+contains well-formed Caml data that polymorphic primitives can safely
+work on.  This should solve your problem.
+			
+========================================================================
+3) concurrent cell supports FRP(beta)
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/bebd0fc9ba8c34bd#>
+------------------------------------------------------------------------
+** Satoshi Ogasawara announced:
+
+New beta release of concurrent cell supports thread safe FRP(Functional
+Reactive Programming).
+
+concurrent cell versoin 3.0 beta
+<https://forge.ocamlcore.org/frs/?group_id=42&release_id=227>
+
+There are two new modules Frp.TimeVaryReact and Frp.TimeVaryEvent consists of
+a type and functions as follows:
+
+ module rec TimeVaryReact : sig
+  type 'a t
+  val make : ?src:'a Mbox.t -> 'a -> 'a t * ('a -> unit)
+  val return : 'a -> 'a t
+  val read : 'a t -> 'a
+  val map : ('a -> 'b) -> 'a t -> 'b t
+  val map2 : ('a -> 'b -> 'c) -> 'a t -> 'b t -> 'c t
+  val app : ('a -> 'b) t -> 'a t -> 'b t
+  val join : 'a t t -> 'a t
+  val switch : 'a t -> 'a t TimeVaryEvent.t -> 'a t
+  val bind : 'a t -> ('a -> 'b t) -> 'b t
+  val accum : 'a -> ('a -> 'a) TimeVaryEvent.t -> 'a t
+  val fold : ('a -> 'b -> 'a) -> 'a -> 'b TimeVaryEvent.t -> 'a t
+  val changes : ?eq:('a -> 'a -> bool) -> 'a t -> 'a TimeVaryEvent.t
+  val history : int -> 'a t -> 'a list t
+ end
+ and TimeVaryEvent : sig
+  type 'a t
+  val make : ?src:'a Mbox.t -> unit -> 'a t * ('a -> unit)
+  val map : ('a -> 'b) -> 'a t -> 'b t
+  val listen : ('a -> unit) -> 'a t -> unit
+  val map2 : ('a -> 'b -> 'c) -> 'a t -> 'b t -> 'c t
+  val merge : 'a t -> 'a t -> 'a t
+  val filter : ('a -> bool) -> 'a t -> 'a t
+  val fmap : ('a -> 'b option) -> 'a t -> 'b t
+  val join : 'a t t -> 'a t
+  val accum : 'a -> ('a -> 'a) t -> 'a t
+  val fold : ('a -> 'b -> 'a) -> 'a  -> 'b t -> 'a t
+  val select : 'a t list -> 'a t
+  val switch : 'a t -> 'a t t -> 'a t
+  val history : int -> 'a t -> 'a list t
+  val with_prev : 'a t -> ('a * 'a) t
+  val changes : ?eq:('a -> 'a -> bool) -> 'a t -> 'a t
+ end
+
+This implementation based on this paper. (thanks to Conal Elliott) 
+<http://conal.net/papers/simply-reactive/>
+
+I intend to release version 3.0.0 after checking memory leaks, speed and bugs.
+			
+========================================================================
+4) Other Caml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocamlcore.org/>.
+
+Constructive gem: irrational to the power of irrational that is rational:
+  <http://math.andrej.com/2009/12/28/constructive-gem-irrational-to-the-power-of-irrational-that-is-rational/>
+
+ocaml-mysql 1.1.0 released:
+  <http://forge.ocamlcore.org/forum/forum.php?forum_id=501>
+
+Functional Macramé:
+  <http://alaska-kamtchatka.blogspot.com/2009/12/functional-macrame.html>
+
+Gained in Translation:
+  <http://alaska-kamtchatka.blogspot.com/2009/12/gained-in-translation.html>
+
+ocamlbob - an ocaml irc bot:
+  <https://forge.ocamlcore.org/projects/ocamlbob/>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

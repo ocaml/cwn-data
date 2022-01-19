@@ -1,0 +1,478 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[https://alan.petitepomme.net/cwn/2021.07.13.html][Previous Week]] [[https://alan.petitepomme.net/cwn/index.html][Up]] [[https://alan.petitepomme.net/cwn/2021.07.27.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of July 13 to 20, 2021.
+
+#+TOC: headlines 1
+
+
+* Writing a REST API with Dream
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/writing-a-rest-api-with-dream/8150/1
+
+** Joe Thomas announced
+
+
+I've written a short [[https://jsthomas.github.io/ocaml-dream-api.html][blog post]] about the positive experience I had
+using Dream to build a REST API. The accompanying source code is available here:
+
+https://github.com/jsthomas/sensors
+
+I'm interested in adding more examples and tutorials to the OCaml ecosystem and would be happy to get your feedback
+on this writeup (here or via email/github).
+      
+
+
+
+* OTOML 0.9.0 — a compliant and flexible TOML parsing, manipulation, and pretty-printing library
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/ann-otoml-0-9-0-a-compliant-and-flexible-toml-parsing-manipulation-and-pretty-printing-library/8152/1
+
+** Daniil Baturin announced
+
+
+I don't really like to base a release announcement on bashing another project, but this whole project is motivated by
+my dissatisfaction with [[https://opam.ocaml.org/packages/toml/][To.ml]]—the only TOML library for OCaml, so here we
+go. OTOML is a TOML library that you (hopefully) can use without writing long rants afterwards. ;)
+
+In short:
+
+- [[https://toml.io/en/v1.0.0][TOML 1.0-compliant]] (To.ml is not).
+- Good error reporting.
+- Makes it easy to look up nested values.
+- Bignum and calendar libraries are pluggable via functors.
+- Flexible pretty-printer with indentation.
+
+OPAM: https://opam.ocaml.org/packages/otoml/
+GitHub: https://github.com/dmbaturin/otoml
+
+Now let's get to details.
+
+TOML is supposed to be human-friendly so that people can use it as a configuration file format. For that, both
+developer and end-user experience must be great. To.ml provides neither. I've been using To.ml in my projects for a
+long time, and
+
+*** Standard compliance
+
+TOML is neither minimal nor obvious really, it's much larger than the commonly used subset and the spec is not
+consistent and not easy to read, but To.ml fails at rather well-known things, like dotted keys, arrays of tables and
+heterogeneous arrays.
+
+OTOML passes all tests in the [[https://github.com/BurntSushi/toml-test][test suite]], except the tests related to
+bignum support. Those tests fail because the default implementation maps integers and floats to the native 31/63-bit
+OCaml types. More on that later.
+
+*** Error reporting
+
+Let's look at error reporting. To.ml's response to any parse error is a generic error with just line and column
+numbers.
+
+#+begin_src ocaml
+utop # Toml.Parser.from_string "foo = [" ;;
+- : Toml.Parser.result =
+`Error
+  ("Error in <string> at line 1 at column 7 (position 7)",
+   {Toml.Parser.source = "<string>"; line = 1; column = 7; position = 7})
+#+end_src
+
+Menhir offers excellent tools for error reporting, so I took time to make descriptive messages for many error
+conditions (there _are_ generic "syntax error" messages still, but that's better than nothing at all).
+
+#+begin_src ocaml
+utop # Otoml.Parser.from_string_result "foo = [" ;;
+- : (Otoml.t, string) result =
+Error
+ "Syntax error on line 1, character 8: Malformed array (missing closing square bracket?)\n"
+
+utop # Otoml.Parser.from_string_result "foo = {bar " ;;
+- : (Otoml.t, string) result =
+Error
+ "Syntax error on line 1, character 12: Key is followed by end of file or a malformed TOML construct.\n"
+#+end_src
+
+*** Looking up nested values
+
+Nested sections are common in configs and should be easy to work with. This is how you do it in OTOML:
+
+#+begin_src ocaml
+utop # let t = Otoml.Parser.from_string "[this.is.a.deeply.nested.table]
+answer=42";;
+val t : Otoml.t =
+  Otoml.TomlTable
+   [("this",
+     Otoml.TomlTable...
+
+utop # Otoml.find t Otoml.get_integer ["this"; "is"; "a"; "deeply"; "nested"; "table"; "answer"] ;;
+- : int = 42
+#+end_src
+
+For comparison, this is how it was done in To.ml:
+
+#+begin_src ocaml
+utop # let toml_data = Toml.Parser.(from_string "
+[this.is.a.deeply.nested.table]
+answer=42" |> unsafe);;
+val toml_data : Types.table = <abstr>
+
+utop # Toml.Lenses.(get toml_data (
+  key "this" |-- table
+  |-- key "is" |-- table
+  |-- key "a" |-- table
+  |-- key "deeply" |-- table
+  |-- key "nested" |-- table
+  |-- key "table" |-- table
+  |-- key "answer"|-- int ));;
+- : int option = Some 42
+#+end_src
+
+*** Extra dependencies
+
+The TOML spec includes first-class RFC3339 dates, for better or worse. The irony is that most uses of TOML (and,
+indeed, most configuration files in the world) don't need that, so it's arguably a feature bloat—but if we set out to
+support TOML as it's defined, that question is academic.
+
+The practical implication is that if the standard library of a language doesn't include a datetime type, a TOML
+library has to decide how to represent those values. To.ml makes ISO8601 a hard dependency, so if you don't use
+dates, you end up with a useless dependency. And if you prefer another library (or need functionality no present in
+ISO8601), you end up with two libraries: one you chose to use, and one more forced on you.
+
+Same goes for the arbitrary precision arithmetic. Most configs won't need it, but the standard demands it, so
+something needs to be done.
+
+Luckily, in the OCaml land we have functors, so it's easy to make all these dependencies pluggable. So I made it a
+functor that takes three modules.
+
+#+begin_src ocaml
+module Make (I : TomlInteger) (F : TomlFloat) (D : TomlDate) :
+  TomlImplementation with type toml_integer = I.t and type toml_float = F.t and type toml_date = D.t
+#+end_src
+
+This is how to use Zarith for big integers and keep the rest unchanged:
+
+#+begin_src ocaml
+(* No signature ascription:
+   `module BigInteger : Otoml.Base.TomlInteger` would make the type t abstract,
+   which is inconvenient.
+ *)
+module BigInteger = struct
+  type t = Z.t
+  let of_string = Z.of_string
+  let to_string = Z.to_string
+  let of_boolean b = if b then Z.one else Z.zero
+  let to_boolean n = (n <> Z.zero)
+end
+
+module MyToml = Otoml.Base.Make (BigInteger) (Otoml.Base.OCamlFloat) (Otoml.Base.StringDate)
+#+end_src
+
+*** Printing
+
+To.ml's printer can print TOML at you, that's for certain. No indentation, nothing to help you navigate nested
+values.
+
+#+begin_src ocaml
+utop # let toml_data = Toml.Parser.(from_string "[foo.bar]\nbaz=false\n [foo.quux]\n xyzzy = [1,2]" |> unsafe) |>
+Toml.Printer.string_of_table |> print_endline;;
+[foo.bar]
+baz = false
+[foo.quux]
+xyzzy = [1, 2]
+#+end_src
+
+We can do better:
+
+#+begin_src ocaml
+utop # let t = Otoml.Parser.from_string "[foo.bar]\nbaz=false\n [foo.quux]\n xyzzy = [1,2]" |>
+Otoml.Printer.to_channel ~indent_width:4 ~collapse_tables:false stdout;;
+
+[foo]
+
+[foo.bar]
+    baz = false
+
+[foo.quux]
+    xyzzy = [1, 2]
+val t : unit = ()
+
+utop # let t = Otoml.Parser.from_string "[foo.bar]\nbaz=false\n [foo.quux]\n xyzzy = [1,2]" |>
+Otoml.Printer.to_channel ~indent_width:4 ~collapse_tables:false ~indent_subtables:true stdout;;
+
+[foo]
+
+    [foo.bar]
+        baz = false
+
+    [foo.quux]
+        xyzzy = [1, 2]
+val t : unit = ()
+#+end_src
+
+*** Maintenance practices
+
+Last but not least, good maintenance practices are also important, not just good code. To.ml is at 7.0.0 now. It has
+a [[https://github.com/ocaml-toml/To.ml/blob/master/CHANGES.md][CHANGES.md]] file, but I'm still to see the maintainers
+document what the breaking change is, who's affected, and what they should do to make their code compatible.
+
+For example, in 6.0.0 the breaking change was a rename from ~TomlLenses~ to ~Toml.Lenses~. In an earlier release, I
+remember the opposite rename. Given the standard compatibility problems going unfixed for years, that's like
+rearranging furniture when the roof is leaking.
+
+I promise not to do that.
+
+*** Conclusion
+
+I hope this library will help make TOML a viable configuration file format for OCaml programs.
+
+It's just the first version of course, so there's still room for improvement. For example, the lexer is especially
+ugly: due to TOML being highly context-sensitive, it involves massive amounts of lexer hacks for context tracking.
+Maybe ocamllex is a wrong tool for the job abd it should be replaced with something else (since I'm using Menhir's
+incremental API anyway, it's not tied to any lexer API).
+
+The printer is also less tested than the parser, so there may be unhandled edge cases. It also has some cosmetic
+issues like newlines between parent and child tables.
+
+Any feedback and patches are welcome!
+      
+
+
+
+* soupault: a static website generator based on HTML rewriting
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/ann-soupault-a-static-website-generator-based-on-html-rewriting/4126/15
+
+** Daniil Baturin announced
+
+
+[[https://soupault.app/blog/soupault-3.0.0-release/][soupault 3.0.0]] is now available.
+
+It now uses the new [[https://opam.ocaml.org/packages/otoml/][OTOML]] library for loading the configs, which has some
+positive side effects, e.g. keys in the output of ~soupault --show-effective-config~ (that shows your config plus
+default values you didn't set explicitly) now come in the same order as in your config file.
+
+It also provides TOML and YAML parsing functions to Lua plugins and has colored log headers (can be disabled with
+NO_COLOR environment variables).
+      
+
+
+
+* OCaml 4.13.0, second alpha release
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/ocaml-4-13-0-second-alpha-release/8164/1
+
+** octachron announced
+
+
+The release of OCaml 4.13.0 is approaching. We have released a second alpha version to help fellow hackers join us
+early in our bug hunting and opam ecosystem fixing fun (see below for the installation instructions). You can see the
+progress on this front at https://github.com/ocaml/opam-repository/issues/18791 .
+
+Beyond the usual bug fixes (see the full list below), this second alpha integrates a new feature for native code:
+poll points. Those poll points currently fixes some issues with signals in non-allocating loops
+in native code. More importantly, they are prerequisite for the multicore runtime.
+
+Another change is the removal of the removal of interbranch propagation of type information.
+The feature, already postponed from 4.12, has been removed to focus for now on better error
+message in the ~-principal~ mode.
+
+If you find any bugs, please report them here:
+
+  https://github.com/ocaml/ocaml/issues
+
+The first beta release may follow soon since the opam ecosystem is in quite good shape;
+and we are on track for a full release in September.
+
+Happy hacking,
+Florian Angeletti for the OCaml team.
+
+*** Installation instructions
+
+The base compiler can be installed as an opam switch with the following commands
+#+begin_src shell
+opam update
+opam switch create 4.13.0~alpha2 --repositories=default,beta=git+https://github.com/ocaml/ocaml-beta-repository.git
+#+end_src
+
+If you want to tweak the configuration of the compiler, you can switch to the option variant with:
+
+#+begin_src shell
+opam update
+opam switch create <switch_name> --packages=ocaml-variants.4.13.0~alpha2+options,<option_list>
+--repositories=default,beta=git+https://github.com/ocaml/ocaml-beta-repository.git
+#+end_src
+where <option_list> is a comma separated list of ocaml-option-* packages. For instance, for a flambda and
+no-flat-float-array switch:
+#+begin_src shell
+opam switch create 4.13.0~alpha2+flambda+nffa
+--packages=ocaml-variants.4.13.0~alpha2+options,ocaml-option-flambda,ocaml-option-no-flat-float-array
+--repositories=default,beta=git+https://github.com/ocaml/ocaml-beta-repository.git
+#+end_src
+All available options can be listed with "opam search ocaml-option".
+
+If you want to test this version, it is advised to install the alpha opam repository
+
+https://github.com/kit-ty-kate/opam-alpha-repository
+
+with
+#+begin_src shell
+opam repo add alpha git://github.com/kit-ty-kate/opam-alpha-repository.git
+#+end_src
+This alpha repository contains various fixes in the process of being upstreamed.
+
+The source code for the alpha is also available at these addresses:
+
+- https://github.com/ocaml/ocaml/archive/4.13.0-alpha2.tar.gz
+- https://caml.inria.fr/pub/distrib/ocaml-4.13/ocaml-4.13.0~alpha2.tar.gz
+
+*** Changes since the first alpha release
+
+**** New feature
+
+- [[https://github.com/ocaml/ocaml/issues/10039][10039]]: Safepoints
+  Add poll points to native generated code. These are effectively
+  zero-sized allocations and fix some signal and remembered set
+  issues. Also multicore prerequisite.
+  (Sadiq Jaffer, Stephen Dolan, Damien Doligez, Xavier Leroy,
+  Anmol Sahoo, Mark Shinwell, review by Damien Doligez, Xavier Leroy,
+  and Mark Shinwell)
+
+**** New bug fixes
+
+- [[https://github.com/ocaml/ocaml/issues/10449][10449]]: Fix major GC work accounting (the GC was running too fast). (Damien Doligez, report by Stephen Dolan, review by Nicolás Ojeda Bär and Sadiq Jaffer)
+
+- [[https://github.com/ocaml/ocaml/issues/10454][10454]]: Check row_more in nondep_type_rec.
+  (Leo White, review by Thomas Refis)
+
+- [[https://github.com/ocaml/ocaml/issues/10468][10468]]: Correctly pretty print local type substitution, e.g. type t := ..., with -dsource (Matt Else, review by Florian Angeletti)
+
+- [[https://github.com/ocaml/ocaml/issues/10461][10461]], [[https://github.com/ocaml/ocaml/issues/10498][10498]]: ~caml_send*~ helper functions take derived pointers as arguments.  Those must be declared with type Addr instead of Val. Moreover, poll point insertion must be disabled for ~caml_send*~, otherwise the derived pointer is live across a poll point. (Vincent Laviron and Xavier Leroy, review by Xavier Leroy and Sadiq Jaffer)
+
+- [[https://github.com/ocaml/ocaml/issues/10478][10478]]: Fix segfault under Windows due to a mistaken initialization of thread ID when a thread starts. (David Allsopp, Nicolás Ojeda Bär, review by Xavier Leroy)
+
+- [[https://github.com/ocaml/ocaml/issues/9525][9525]], [[https://github.com/ocaml/ocaml/issues/10402][10402]]: ocamldoc only create paragraphq at the toplevel of documentation comments (Florian Angeletti, report by Hendrik Tews, review by Gabriel Scherer)
+
+- [[https://github.com/ocaml/ocaml/issues/10206][10206]]: Split labels and polymorphic variants tutorials
+  Splits the labels and polymorphic variants tutorial into two. Moves the GADTs
+  tutorial from the Language Extensions chapter to the tutorials.
+  (John Whitington, review by Florian Angeletti and Xavier Leroy)
+
+**** Removed feature
+
+- [ *breaking change* ] [[https://github.com/ocaml/ocaml/issues/9811][9811]]: remove propagation from previous branches Type information inferred from previous branches was propagated in non-principal mode. Revert this for better compatibility with -principal mode. For the time being, infringing code should result in a principality warning. (Jacques Garrigue, review by Thomas Refis and Gabriel Scherer)
+
+The up-to-date list of changes for OCaml 4.13 is available at https://github.com/ocaml/ocaml/blob/4.13/Changes .
+      
+
+
+
+* OCamlFormat 0.19.0
+:PROPERTIES:
+:CUSTOM_ID: 5
+:END:
+Archive: https://discuss.ocaml.org/t/ann-ocamlformat-0-19-0/8167/1
+
+** Guillaume Petiot announced
+
+
+We are happy to announce the release of [[https://github.com/ocaml-ppx/ocamlformat][OCamlFormat 0.19.0]].
+
+OCamlformat is an auto-formatter for OCaml code, writing the parse tree and comments in a consistent style, so that
+you do not have to worry about formatting it by hand, and to speed up code review by focusing on the important parts.
+
+OCamlFormat is beta software. We expect the program to change considerably before we reach version 1.0.0. In
+particular, upgrading the `ocamlformat` package will cause your program to get reformatted. Sometimes it is
+relatively pain-free, but sometimes it will make a diff in almost every file. We are working towards having a tool
+that pleases most usecases in the OCaml community, please bear with us!
+
+To make sure your project uses the last version of ocamlformat, please set
+
+#+begin_example
+version=0.19.0
+#+end_example
+
+in your ~.ocamlformat~ file.
+
+Main changes in ~ocamlformat.0.19.0~ are:
+- OCaml 4.13 features are supported
+- ~ppxlib~ dependency has been dropped
+- A new ~line-endings={lf,crlf}~ option has been added for windows compatibility
+
+Here is the [[https://github.com/ocaml-ppx/ocamlformat/releases/tag/0.19.0][full list of changes]].
+
+We encourage you to try ocamlformat, that can be installed from opam directly ( ~opam install ocamlformat~ ), but
+please remember that it is still beta software. We have a [[https://github.com/ocaml-ppx/ocamlformat#faq-for-new-users][FAQ for new users
+]] that should help you decide if ocamlformat is the right
+choice for you.
+      
+
+** Nicolás Ojeda Bär then added
+
+
+#+begin_quote
+A new ~line-endings={lf,crlf}~ option has been added for windows compatibility
+#+end_quote
+
+Just to expand a bit on this feature: previously, ~ocamlformat~ would use the system EOL convention (ie LF on
+Unix-like OSs and CRLF on Windows). This meant that if you applied ~ocamlformat~ on systems with different EOL
+conventions, you would get a diff on every line on every file purely due to the changed newlines. Furthermore, this
+meant ~ocamlformat~ was hard to use if your project used LF on Windows (a common usage).
+
+With the new option, ~ocamlformat~ enforces a given EOL convention. The system EOL convention is no longer used for
+any purpose and the EOL convention used is the one specified in ~ocamlformat~'s config (LF by default).
+      
+
+
+
+* OCaml Café: Wed, Aug 4 @ 7pm (U.S. Central)
+:PROPERTIES:
+:CUSTOM_ID: 6
+:END:
+Archive: https://discuss.ocaml.org/t/ocaml-cafe-wed-aug-4-7pm-u-s-central/8169/1
+
+** Michael Bacarella announced
+
+
+Please join us at the next OCaml Cafe, a friendly, low stakes opportunity to ask questions about the OCaml language
+and ecosystem, work through programming problems that you’re stuck on, and get feedback on your code. Especially
+geared toward new and intermediate users, experienced OCaml developers will be available to answer your questions.
+Bring your code and we’ll be happy to review it, assist with debugging, and provide recommendations for improvement.
+
+This month, OCaml Café will consist of two parts. First, Rudi Grinberg of [[https://ocamllabs.io/][OCaml Labs]] will
+present an informal introduction to [[https://dune.build/][Dune]], the OCaml build system. Learn about Dune from one
+the people developing it. Following Rudi’s presentation, we will open the discussion to all things OCaml-related.
+
+Full [[https://hfpug.org/event/ocaml-cafe-introduction-to-dune-and-open-forum/][Zoom meeting details here]].
+- Add to your [[https://www.google.com/calendar/event?action=TEMPLATE&text=OCaml+Caf%C3%A9%3A+Introduction+to+Dune+and+Open+Forum&dates=20210804T190000/20210804T210000&details=OCaml+Caf%C3%A9+offers+a+friendly%2C+low+stakes+opportunity+to+ask+questions+about+the+OCaml+language+and+ecosystem%2C+work+through+programming+problems+that+you%E2%80%99re+stuck+on%2C+and+get+feedback+on+your+code.+Especially+geared+toward+new+and+intermediate+users%2C+experienced+OCaml+developers+will+be+available+to+answer+your+questions.%C2%A0+Bring+your+code+and+we%26%238217%3Bll+be+happy+to+review+it%2C+assist+with+debugging%2C+and+provide+recommendations+for+improvement.+%0AThis+month%2C+OCaml+Caf%C3%A9+will+consist+of+two+parts.%C2%A0+First%2C+Rudi+Grinberg+of+OCaml+Labs+will+present+an+informal+introduction+to+Dune%2C+the+OCaml+build+system.%C2%A0+Learn+about+Dune+from+one+the+people+developing+it.%C2%A0+Following+Rudi%26%238217%3Bs+presentation%2C+we+will+open+the+discussion+to+all+things+OCaml-related.+%0AWhether+you%E2%80%99re+still+trying+to+make+sense+of+currying+or+can+spot+non-tail-recursive+code+from+across+the+room%2C+we+hope+that+you%E2%80%99ll+join+us+with+your+questions+about+OCaml%2C+or+just+to+hang+out+with+the+OCaml+community.+%0A%0AClaude+Ru+%28View+Full+Event+Description+Here%3A+https%3A%2F%2Fhfpug.org%2Fevent%2Focaml-cafe-introduction-to-dune-and-open-forum%2F%29&location=Zoom&trp=false&sprop=website:https://hfpug.org&ctz=America%2FChicago][Google Calendar]]
+- Add to your [[https://hfpug.org/event/ocaml-cafe-introduction-to-dune-and-open-forum/?ical=1][iCal]]
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[https://alan.petitepomme.net/cwn/][the archive]] or the [[https://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe [[http://lists.idyll.org/listinfo/caml-news-weekly/][online]].
+
+#+BEGIN_authorname
+[[https://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname

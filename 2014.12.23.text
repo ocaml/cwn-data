@@ -1,0 +1,425 @@
+Hello,
+
+Here is the latest OCaml Weekly News, for the week of December 16 to 23, 2014.
+
+1) New release of Menhir (20141215)
+2) fold missing in string/bytes
+3) ppx_deriving 1.1, ppx_deriving_yojson 2.1
+4) LexiFi is hiring
+5) Other OCaml News
+
+========================================================================
+1) New release of Menhir (20141215)
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2014-12/msg00075.html>
+------------------------------------------------------------------------
+** François Pottier announced:
+
+I have recently started making a series of changes in Menhir, inspired by
+the work of Frédéric Bour on Merlin (a smart emacs-mode for OCaml, which
+uses a modified version of Menhir). Thanks to Frédéric for his stimulating
+ideas, and thanks to Gabriel Scherer for not letting me sleep until I
+promised I would do something about them! :-)
+
+I have made a first release a couple days ago. The relevant chunk of the
+CHANGES file is appended below. In summary, a new incremental API is
+available; Menhir now requires ocaml 4.02; and a couple of obscure features
+(--error-recovery and $previouserror) have been removed in the interest of
+speed and simplicity.
+
+The incremental API means that you can take a snapshot of the parser's state,
+essentially at no cost, at any time. It also means that the parser no longer
+drives the lexer; you drive the lexer, and you provide tokens to the parser
+when it requests them. This can be convenient if the lexer is in a monad (the
+Lwt monad, for instance).
+
+More changes are planned. The type "env" exposed by the new incremental API is
+currently opaque. We are planning to offer a range of functions that allow
+inspecting and building values of type "env". This should allow the user to
+implement new error handling and error recovery strategies outside of Menhir.
+
+The new release is available now as a .tar.gz archive:
+
+  <http://gallium.inria.fr/~fpottier/menhir/menhir-20141215.tar.gz>
+
+It is also available via opam ("opam install menhir").
+
+Cheers,
+
+-- 
+François Pottier
+Francois.Pottier@inria.fr
+<http://gallium.inria.fr/~fpottier/>
+
+2014/12/15:
+New incremental API (in --table mode only), inspired by Frédéric Bour.
+
+2014/12/11:
+Menhir now reports an error if one of the start symbols produces
+either the empty language or the singleton language {epsilon}.
+
+Although some people out there actually define a start symbol that recognizes
+{epsilon} (and use it as a way of initializing or re-initializing some global
+state), this is considered bad style. Furthermore, by ruling out this case, we
+are able to simplify the table back-end a little bit.
+
+2014/12/12:
+A speed improvement in the code back-end.
+
+2014/12/08:
+Menhir now requires OCaml 4.02 (instead of 3.09).
+
+2014/12/02:
+Removed support for the $previouserror keyword.
+Removed support for --error-recovery mode.
+      
+** Gerd Stolpmann then said:
+
+Thanks for this, it is great news. A couple of months ago I tried to
+develop a monadic parser for the IMAP protocol, which has a weird
+grammar and needs some strange interactions between lexing and parsing.
+Lacking a parser generator I started to write the parser manually, but
+it never made good progress. It looks like Menhir can now be used for
+this case, and I'll try it.
+      
+** Nicolas Ojeda Bar then replied:
+
+I wrote an IMAP client library in pure OCaml
+(<https://github.com/nojb/ocaml-imap>).  It can handle the full RFC 3501
+grammar.  This library itself is not yet ready for prime-time, but I
+spent quite a bit of time thinking about the question of parsing since
+it is such a big part of the protocol.
+
+While the incremental parsing in the new Menhir is great I do not
+think it will help to parse IMAP because the token types of IMAP
+grammar are highly context dependent.  By this I mean that there are
+many overlapping token definitions that are valid in different parts
+of the grammar.  While this could be hacked around (by changing the
+lexer used in dummy non-terminals) the complexity of doing so quickly
+gets out of hand.  In my view this almost requires using a scannerless
+parser, which rules out ocamlyacc/menhir-type parsers.
+
+A parser generator that could handle the IMAP grammar nicely is Dypgen
+(which generates GLR parsers).  You can almost copy the IMAP grammar
+verbatim from RFC 3501.  However it can not be made incremental.  This
+means that you need to have all the input available before starting
+the parse.  Since the amount of data is potentially very big, this
+rules using Dypgen for anything else than toy applications.
+
+In my library I use a monadic combinator parser
+(<https://github.com/nojb/ocaml-imap/blob/master/imap/imapParser.ml>).
+When programming monadically you are reifying the continuation at
+every `bind` point so you get the incremental bit for free (I think
+this goes by the fancy name of `iteratees` nowadays).  On the other
+hand it suffers from poor time/space performance common to this type
+of parser.  Also, while combinator parsers can handle arbitrary
+backtracking (and you end up paying for this), IMAP itself requires
+very little, so it would seem that the full flexibility of combinators
+are not needed.
+
+It seems that the "scannerless, incremental" space in parser
+technology is not very developed (in OCaml; maybe other languages is
+different ?).  One intriguing possibility that I am exploring (but
+this is a much longer term project) is to use PEG parsers for this.
+It would be easy to write an IMAP parser with PEG. The main problem is
+that the usual implementation of PEG parsers uses memoization to keep
+parsing time from blowing up exponentially on the length of input (
+(in OCaml the Aurochs parser generator is of this type).  This
+requires storage proportional to input length, which is a problem when
+parsing large amounts of data.  But for grammars that don't need a lot
+of backtracking (like IMAP) the memoization is not actually required,
+so I think there is an interesting space to explore between all these
+constraints.
+
+In any case, I would love to hear about your experience if you do try
+to parse IMAP using Menhir.
+      
+** Daniel Bünzli replied to Nicolas:
+
+For a long time I played with combinator parsers but I never got to
+the point of being satisfied with the result. I also played a little
+bit with iteratees but couldn't get the performance I wanted with the
+full model in all its compositional glory.
+
+Nowadays I simply write my streaming lexers/parsers manually in CPS
+and you can drive them in non-blocking mode with a single, fixed size,
+buffer. See here [1] for an interface and an implementation on a toy
+example.
+
+If you get the lowest continuation decoding bits correctly (e.g. don't
+bind on each byte) you can actually get good time and space
+performance. Once you have handled that (mainly the painful bits about
+read overlapping two input buffers) you get very nice parsing
+flexibility, e.g. for things like text encoding discovery where you
+need to patch the continuation with the appropriate character
+decoder. If you care for your users you can also get very good error
+reporting and error recovery capabilities by applying knowledge
+specific to the decoded protocol. That's the way Uutf [2], Jsonm [3]
+(on top of Uutf) and Dicomm [4] are programmed.
+
+Best,
+
+Daniel
+
+[1] <https://github.com/dbuenzli/nbcodec/blob/master/RATIONALE.md>
+[2] <http://erratique.ch/software/uutf>
+[3] <http://erratique.ch/software/jsonm>
+[4] <http://erratique.ch/software/dicomm>
+      
+** Simon Cruanes then said:
+
+I saw this on mirage's wiki:
+<https://github.com/mirage/mirage-www/wiki/Pioneer-Projects#bigarray-parser-generator>
+
+Apart from using bigarrays for performance, the idea of using a ppx to
+make the combinators more efficient looks interesting.
+
+I also plan to try to mix recursive descent with a monadic "refill"
+function for simple parsers (S-expressions, Bencode, etc.) It will be
+interesting to compare that with Daniel's manual CPS.
+      
+** Gerd Stolpmann also replied to Nicolas:
+
+thanks for pointing me to your project. Maybe I'm just going to use it
+(well, I'd need it to make it compatible with Ocamlnet, and I also need
+TLS and SASL). Regarding the question of whether Menhir is usable: 
+
+Part of the difficulty are the BLOBs that can occur anywhere. Here is an
+example from the RFC (C = sent by client, S = sent by server, i.e. what
+we need to parse):
+
+C:    a004 fetch 12 body[header]
+S:    * 12 FETCH (BODY[HEADER] {342}
+S:    Date: Wed, 17 Jul 1996 02:23:25 -0700 (PDT)
+S:    From: Terry Gray <gray@cac.washington.edu>
+S:    Subject: IMAP4rev1 WG mtg summary and minutes
+S:    To: imap@cac.washington.edu
+S:    cc: minutes@CNRI.Reston.VA.US, John Klensin <KLENSIN@MIT.EDU>
+S:    Message-Id: <B27397-0100000@cac.washington.edu>
+S:    MIME-Version: 1.0
+S:    Content-Type: TEXT/PLAIN; CHARSET=US-ASCII
+S:
+S:    )
+S:    a004 OK FETCH completed
+
+The {342} means that a BLOB with 342 bytes follows. This could be
+completely harmless if we could recognize such tokens in the lexer, and
+switch the lexer to a BLOB lexer before the tokens reach the parser.
+However, this is actually not as easy, as the grammar also allows such
+strings at other places where they do not prefix BLOBs.
+
+My idea was that the lexer marks such tokens as "maybe-prefixes", and we
+initially only parse to that point. These maybe-prefixes are always
+followed by a line ending, so either the response ends and the parser
+finishes (meaning that the maybe-prefix isn't a BLOB prefix), or the
+parser needs more tokens, in which case it is either a BLOB prefix
+followed by a BLOB or completely invalid. I haven't checked yet: could
+we inspect Menhir's state and see whether the only possible
+interpretation is a BLOB prefix? I.e. whether it is in the middle of a
+production
+
+blob := blob-prefix blob-data
+
+and there is no other way of interpreting the tokens? This would make
+the decision somewhat safer how such context-dependent tokens are
+handled.
+      
+** Francois Pottier then said:
+
+At this moment, it is not possible to inspect Menhir's state. In the future,
+we are planning to allow it. However, I don't know if it would help with this
+issue.
+
+An idea that comes to mind is: Menhir's new incremental interface actually
+allows you to fork the parser. When you find {342} in the input stream, you
+could try two alternatives (viewing it as a blob token, and not viewing it as
+a non-blob token) in parallel. If you can be certain that one of the two
+alternatives will quickly die, then this approach might be tenable. It is
+actually a form of poor man's GLR.
+      
+** oleg also replied to Nicolas:
+
+Regarding incremental parsing of protocols like IMAP: I have
+successfully (as in successfully deployed in production and being used
+around the clock, since about 2010 or so) used iteratees for
+incremental parsing of full XML, including CDATA, parsed entities and
+namespaces. The full XML is actually quite difficult to parse: for
+example, parsed entity references like &amp; are not recognized within
+CDATA blocks; the content of attributes has its own whitespace
+handling rules. The parser is used for handling sometimes quite large
+XML documents. The parser is incremental and so can work in constant
+memory.
+
+        <http://okmij.org/ftp/Streams.html#xml>
+
+I have also used iteratees to parse HTTP Log files, also
+incrementally. The log files have an (unintended, I hope) complication:
+the user-agent string (quoted in the log) may, according to RFC,
+itself contain quotes. Since the embedded quotes are not escaped
+(again, according to RFC), we may end up with quoted strings
+containing unescaped quote characters. Parsing will require unbounded
+look-ahead then. Iteratees can handle that -- and report errors
+precisely and recover.
+
+        <http://okmij.org/ftp/Streams.html#good-error>
+        <http://okmij.org/ftp/Streams.html#fork>
+
+Incidentally, there are quite many iteratee libraries. Some, like
+pipes, emphasize apparent simplicity and do no input buffering. The
+performance is indeed pretty bad then. 
+
+        I should also mention that a parser with a call-back interface
+and the absence of visible side-effects can _automatically_ be made
+incremental. The following web page describes incrementalization of
+stdlib's Genlex lexer.
+        <http://okmij.org/ftp/continuations/differentiating-parsers.html>
+      
+** Dario Teixeira replied to the original announcement:
+
+> More changes are planned. The type "env" exposed by the new incremental API is
+> currently opaque. We are planning to offer a range of functions that allow
+> inspecting and building values of type "env". This should allow the  user to
+> implement new error handling and error recovery strategies outside of Menhir.
+
+I have one very concrete parsing problem which can potentially be solved elegantly
+by this new API.  In the Lambtex parser [1], I need to switch between lexers
+mid-parsing (think handling verbatim-like blocks).  The current solution is very
+hackish and complex, to the point that I've seriously considered switching to some
+parser combinator approach.
+
+Anyway, hopefully this particular use case will be solvable by the API once it
+allows inspection of values of type "env"!
+
+Best regards,
+Dario Teixeira
+
+[1] <https://github.com/darioteixeira/lambdoc/tree/master/src/lib/lambdoc_read_lambtex_impl>
+      
+========================================================================
+2) fold missing in string/bytes
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2014-12/msg00086.html>
+------------------------------------------------------------------------
+** Jiten Pathy asked and David Allsopp replied:
+
+> Any rationale, why the stdlib doesn't have fold on string/bytes?
+
+The Standard Library has to remain maintainably small for Inria -
+a line has to be drawn somewhere. There are alternatives available,
+all of which have String folding:
+
+ExtLib: <http://ocaml-extlib.googlecode.com/svn/doc/apiref/ExtString.String.html>
+Batteries: <http://ocaml-batteries-team.github.io/batteries-included/hdoc/BatString.html>
+Jane Street Core: <https://ocaml.janestreet.com/ocaml-core/111.28.00/doc/core_kernel/#Core_string>
+
+ExtLib & Batteries are intended to be drop-in replacements for the
+Standard Library (so all existing standard library functions are
+included); Core is not.
+      
+========================================================================
+3) ppx_deriving 1.1, ppx_deriving_yojson 2.1
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2014-12/msg00098.html>
+------------------------------------------------------------------------
+** Peter Zotov announced:
+
+I'm glad to announce the releases of ppx_deriving[1] and
+ppx_deriving_yojson[2]. These are mainly bugfix releases.
+
+ppx_deriving 1.1
+----------------
+
+  * New plugin: create.
+  * Show, eq, ord: handle `_`.
+  * Show, eq, ord, map, iter, fold: handle inheriting from a parametric
+    polymorphic variant type.
+  * Make Ppx_deriving.poly_{fun,arrow}_of_type_decl construct functions
+    in correct order. This also fixes all derivers with types with
+    more than one parameter.
+  * Add Ppx_deriving.fold_{left,right}_type_decl.
+
+ppx_deriving_yojson 2.1
+-----------------------
+
+  * Handle inheriting from a parametric polymorphic variant type.
+  * Don't leak type variables.
+
+[1]: <https://github.com/whitequark/ppx_deriving>
+[2]: <https://github.com/whitequark/ppx_deriving_yojson>
+      
+========================================================================
+4) LexiFi is hiring
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2014-12/msg00099.html>
+------------------------------------------------------------------------
+** Alain Frisch announced:
+
+LexiFi is hiring!
+
+We are looking for full time software developers, with a passion for
+functional programming, ideally in OCaml, and for beautiful code.
+
+Learn about how LexiFi uses OCaml:
+
+ <http://www.lexifi.com/product/technology/ocaml>
+
+
+No prior knowledge of finance is required.  If you are interested,
+please send your resume to careers@lexifi.com
+
+We also offer quantitative developer positions for those with a
+background in mathematical finance, and internship positions for
+master or PhD students.
+
+
+About LexiFi:
+
+LexiFi is a financial software vendor based in Paris (Boulogne
+Billancourt).  OCaml is our main development language, and we are
+strongly involved in the evolution of OCaml.  We have created
+approaches and tools, rooted in the theory of programming languages,
+to radically simplify the development of financial applications.  Our
+products are used by financial institutions and other software or
+service providers that embed our technology (and sometimes become
+OCaml enthusiasts as well).  For more information, visit
+<http://www.lexifi.com>.
+      
+========================================================================
+5) Other OCaml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocaml.org/>.
+
+LBFGS 0.8.6 released:
+  <https://forge.ocamlcore.org/forum/forum.php?forum_id=918>
+
+Compiling regular expressions (II):
+  <http://shayne-fletcher.blogspot.com/2014/12/compiling-regular-expressions-ii.html>
+
+Compiling regular expressions (I):
+  <http://shayne-fletcher.blogspot.com/2014/12/compiling-regular-expressions-i.html>
+
+LexiFi is hiring OCaml developers:
+  <http://www.lexifi.com/blog/lexifi-hiring-ocaml-developers>
+
+OCaml 4.01 for iOS 8 Simulator:
+  <http://psellos.com/2014/12/2014.12.ocaml-iossim8.html>
+
+Become a BST Ninja - Genin Level:
+  <http://typeocaml.com/2014/12/19/how-to-become-a-bst-ninja-genin/>
+
+OPAM 1.2 and Travis CI:
+  <http://ocaml.org/>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

@@ -1,0 +1,218 @@
+<?xml version="1.0" encoding="ISO-8859-15"?>
+<cwn>
+<cwn_head>
+  <cwn_date>2004.07.27</cwn_date>
+  <cwn_prev>2004.07.20</cwn_prev>
+  <cwn_next>2004.08.03</cwn_next>
+  <cwn_date_text>20 to 27 July, 2004</cwn_date_text>
+</cwn_head>
+<cwn_body>
+  <cwn_entry>
+    <cwn_title>Threads question...</cwn_title>
+    <cwn_who>Corey O'Connor continued last week discussion on threads, and Jacques Garrigue answered</cwn_who>
+    <cwn_what>
+&gt; &quot;The threads library is implemented by time-sharing on a single
+&gt; processor. It will not take advantage of multi-processor machines.
+&gt; Using this library will therefore never make programs run faster.
+&gt; However, many programs are easier to write when structured as several
+&gt; communicating processes.&quot;
+&gt;
+&gt; However, the documentation states that the native threads library is
+&gt; implemented using the system&apos;s native threading. (POSIX threads, in my
+&gt; case)
+&gt;
+&gt; Is the quote above still consistent with the native threads implementation?
+
+Basically, yes.
+With posix threads (or windows threads), every caml thread is mapped
+to a posix thread, but there is a global mutex which any caml thread
+must obtain before running. This makes sure for instance that memory
+allocation and GC work properly.
+So no more than one caml thread may run simultaneously, and you don&apos;t
+gain from multiple CPUs.
+
+However, contrary to vmthreads, this restriction only applies while
+executing caml code. If you call some C function, you may choose to
+first release the global lock (caml_enter_blocking_section), letting
+other caml threads work while you are on the C side. Don&apos;t forget to
+call lock again (caml_leave_blocking_section) when returning, or you
+will crash very soon.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>GODI news: GODI for O'Caml 3.08</cwn_title>
+    <cwn_who>Gerd Stolpmann announced</cwn_who>
+    <cwn_what>
+GODI, the O&apos;Caml source-based distribution, is now available for O&apos;Caml
+3.08. GODI automatically downloads, builds, and installs the core O&apos;Caml
+system together with a growing number of libraries and other add-on
+software. It runs on Linux, Solaris, FreeBSD, NetBSD, Cygwin, HP-UX,
+MacOS X.
+
+The previous O&apos;Caml version, 3.07, is still supported, but it is
+expected that the software packages are not as frequently updated as for
+the new version, 3.08.
+
+If you are new to GODI, read more here:
+http://www.ocaml-programming.de/godi/
+
+This page explains GODI and how to install it from scratch. Note that
+you should use the newest GODI bootstrap tarball
+(http://www.ocaml-programming.de/packages/godi-bootstrap-20040717.tar.gz).
+
+If have already installed GODI for O&apos;Caml 3.07, it is possible to
+upgrade it to 3.08:
+
+- Save the packages in &lt;prefix&gt;/build/packages/All. You can
+  recover your old installation with them (by godi_add&apos;ing them),
+  in the case something fails.
+- Edit &lt;prefix&gt;/etc/godi.conf, and set GODI_SECTION=3.08
+- Start godi_console, select &quot;Update the list of available packages&quot;
+- After that, go to the menu &quot;Select source packages&quot;, and select
+  _only_ godi-core-mk for rebuild (letter &quot;b&quot; in the package view).
+- Perform this single build (&quot;s&quot;tart installation)
+- After that, go back to &quot;Select source packages&quot;, and select
+  godi-ocaml and godi-ocaml-src for build. Most packages are
+  dependent on these, so many further packages will also be rebuilt.
+- Perform this mass build (&quot;s&quot;tart installation)
+
+Important note of users of Linux kernel 2.6: Sorry, you cannot upgrade.
+Please bootstrap again. The reason is a user-visible change of the
+&quot;readdir&quot; system call.
+
+Gerd and the GODI team
+    </cwn_what>
+    <cwn_who>Kamil Shakirov added</cwn_who>
+    <cwn_what>
+I hadn&apos;t any problems upgrading GODI-3.07 to GODI-3.08 without
+bootstrapping (Fedora Core 2, linux-2.6.7).
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Associativity precedence for the user-defined operator.</cwn_title>
+    <cwn_who>Claudio Trento asked and Richard Jones answered</cwn_who>
+    <cwn_what>
+&gt; I&apos;ve defined a set of new operetors, for instance:
+&gt;
+&gt; let ( /+/ ) = add_num   (where add_num is a function that added two sometype
+&gt;                       elements.)
+&gt;
+&gt; but I don&apos;t know if I can set associativity precedence for this operator,
+&gt; writing: el1 ( /+/ ) el2 ( /+/ ) el3 without parenthesis, what happens?
+
+The easiest way to control associativity and precedence seems to be to
+write a Camlp4 extension.  For example here is a Camlp4 extension I
+wrote to create some left-associative (&apos;LEFTA&apos;) ops:
+
+open Pcaml
+
+EXTEND
+   expr: AFTER &quot;apply&quot;
+   [ LEFTA
+       [ e1 = expr; &quot;map_with&quot;; e2 = expr -&gt;
+           &lt;:expr&lt; List.map $e2$ $e1$ &gt;&gt;
+       | e1 = expr; &quot;iter_with&quot;; e2 = expr -&gt;
+           &lt;:expr&lt; List.iter $e2$ $e1$ &gt;&gt;
+       | e1 = expr; &quot;filter_with&quot;; e2 = expr -&gt;
+           &lt;:expr&lt; List.filter $e2$ $e1$ &gt;&gt;
+       | e1 = expr; &quot;concat_with&quot;; e2 = expr -&gt;
+           &lt;:expr&lt; List.concat (List.map $e2$ $e1$) &gt;&gt;
+       | e1 = expr; &quot;apply_with&quot;; e2 = expr -&gt;
+           &lt;:expr&lt; $e2$ $e1$ &gt;&gt;
+       ]
+   ];
+END
+    </cwn_what>
+    <cwn_who>Jean-Baptiste Rouquier also anwered the OP</cwn_who>
+    <cwn_what>
+The manual says that here you have left associativity. See
+http://caml.inria.fr/ocaml/htmlman/manual015.html
+
+# let ( /+/ ) a b =
+ Printf.printf &quot;a=%i, b=%i\n%!&quot; a b;
+ a + b;;
+   val ( /+/ ) : int -&gt; int -&gt; int = &lt;fun&gt;
+# let _ = 1 /+/ 2 /+/ 39;;
+a=1, b=2
+a=3, b=39
+- : int = 42
+    </cwn_what>
+    <cwn_who>John Prevost added</cwn_who>
+    <cwn_what>
+In general, the associativity and precedence of an operator (unless
+you go out to camlp4 or something) is based on the operator&apos;s first
+character.  For example +/ would act like +, */ would act like *, and
+so on.  For this reason, you&apos;ll often see O&apos;Caml operators defined as
+&quot;basic operator followed by some strange symbol.&quot;  In your add_num
+case, +/ and friends would probably mesh well.  Then you also get the
+expected interaction when mixing +/ and */.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Bigarray is a pig</cwn_title>
+    <cwn_who>Brandon J. Van Every said</cwn_who>
+    <cwn_what>
+I have been looking at the sources of the Bigarray implementation.  I am
+chagrined to discover that not only does Bigarray cost a function call
+per array element access, but a number of additional piggish things
+happen per access.  To C/C++ programmers interested in performance, this
+defeats the purpose of using unboxed array elements.  If I wanted to pay
+function call overhead per element, for instance when communicating with
+OpenGL, I&apos;d simply call functions.
+
+I am wondering if there is some way to present a block of C memory to
+OCaml, and then have OCaml use it directly?  If so, I could envision
+writing up something I&apos;d call &apos;Fastarray&apos;.  But I&apos;m interested in any
+pitfalls you might see, such as range check requirements.
+
+In other news, I&apos;ve been trying and trying to announce the next ML
+S*attle meeting on Tuesday, July 27th.   E-mail me for details.  These
+anti-spam filters are maddening.
+    </cwn_what>
+    <cwn_who>Brian Hurt answered</cwn_who>
+    <cwn_what>
+&gt; I have been looking at the sources of the Bigarray implementation.  I am
+&gt; chagrined to discover that not only does Bigarray cost a function call
+&gt; per array element access, but a number of additional piggish things
+&gt; happen per access.
+
+If memory serves, Ocaml can optimize the access if the size and type are
+known, getting rid of the function call overhead and type specialization.
+I don&apos;t think it gets rid of the bounds checking, tho- which is good.
+
+Can someone who actually knows what is going on clarify this?
+
+&gt; To C/C++ programmers interested in performance, this
+&gt; defeats the purpose of using unboxed array elements.  If I wanted to pay
+&gt; function call overhead per element, for instance when communicating with
+&gt; OpenGL, I&apos;d simply call functions.
+
+Function calls aren&apos;t that expensive.  From comments in other forums:
+http://groups.google.com/groups?hl=en&amp;lr=&amp;ie=UTF-8&amp;selm=cdjsuj%24cs6%241%40wolfberry.srv.cs.cmu.edu
+
+may I respectfully suggest that you are prematurely optimizing?  A
+function call to a known function takes 1-2 clock cycles.  A cache miss,
+on the other hand, can take hundreds of clock cycles:
+http://groups.google.com/groups?dq=&amp;hl=en&amp;lr=&amp;ie=UTF-8&amp;threadm=45022fc8.0407221624.6fd81ad0%40posting.google.com&amp;prev=/groups%3Fhl%3Den%26lr%3D%26ie%3DUTF-8%26group%3Dcomp.arch
+    </cwn_what>
+    <cwn_who>Olivier Andrieu answered as well</cwn_who>
+    <cwn_what>
+&gt; I have been looking at the sources of the Bigarray implementation.
+&gt; I am chagrined to discover that not only does Bigarray cost a
+&gt; function call per array element access,
+
+No. Not always: when the type of the array is completely known to the
+compiler at the point the element is accessed, ocamlopt will access
+the element directly, without using the generic C function.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>GNU source-highlight supports Caml and SML</cwn_title>
+    <cwn_who>Lorenzo Bettini sent me a message announcing</cwn_who>
+    <cwn_what>
+GNU source-highlight (http://www.gnu.org/software/src-highlite/) now
+supports CAML and SML.
+    </cwn_what>
+  </cwn_entry>
+</cwn_body>
+</cwn>

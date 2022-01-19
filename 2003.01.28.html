@@ -1,0 +1,236 @@
+<html><head><meta http-equiv="Content-Type" content="text/html" charset=iso-8859-1"><title>Caml Weekly News</title></head><body>
+
+<a href="2003.01.21.html">Previous week</a> &nbsp; <a href="index.html">Up</a> &nbsp; <a href="2003.02.04.html">Next week</a>
+<pre>
+Hello,
+
+Here is the latest Caml Weekly News, week 21 to 28 January, 2003.
+
+1) <a href="#1">load modules by name</a>
+2) <a href="#2">uname for Ocaml</a>
+3) <a href="#3">Books on FP</a>
+4) <a href="#4">New bug fix version of Camlimages library</a>
+
+<a name="1"/>======================================================================
+1) load modules by name
+----------------------------------------------------------------------
+Pietro Abate asked:
+
+I'm trying to figure out how I can build a kind of associative list
+to load a specific module at runtime. I've reread few old messages about
+first-class modules and other oddities, but I've the sensation my
+problem is easier.
+
+I have a library (compiled), an application (compiled) and a bunch of
+user defined modules (that are compiled as well, but these may be vary
+in number). At the moment the application select the rigth module
+statically regarding a command line argument. However this way I must
+recompile my application everytime I add a new module.
+
+What I'd like to do is reading all .cmo files (or .ml files and compile
+them on the fly) in a directory and build a kind of assoc list with 
+(name,module) and at runtime select the right module.
+
+let's say that now I have
+
+let algo = 
+match command_line_option with
+| "mod1" -&gt; Module1.algo
+| "mod2" -&gt; Module2.algo
+...
+| _ -&gt; failwith "module not defined"
+in ...
+
+but I'd rather have something like
+
+let algo =
+	try
+		List.assoc "command_line_option" assoclist
+	with Not_found -&gt; failwith "Module not defined"
+in ...
+
+That would not require any recompilation of my application.
+
+It would also nice to compile on the fly these modules...
+I'm thinking of something like eval in perl...
+
+is it possible ?
+
+And Stefano Zacchiroli answered:
+
+Yes, just use the Dynlink module.
+
+You can find a great usage example in the O'Reilly book [1] (debian
+package available in debian/unstable ocaml-book-{en,fr}).
+
+Anyway, returning to your example you should have an association list
+ref, say "algos", and you should use it as
+
+  let algo =
+    try
+      List.assoc "command_line_option" !algos
+   with Not_found -&gt; failwith "Module not loaded"
+
+Then you should have a set of .cmos that you should load using
+'Dynlink.loadfile', each module should update the 'algos' association
+list adding itself to it.
+
+Hope this helps,
+Cheers.
+
+[1] <a href="http://caml.inria.fr/oreilly-book/html/">http://caml.inria.fr/oreilly-book/html/</a>
+
+<a name="2"/>======================================================================
+2) uname for Ocaml
+----------------------------------------------------------------------
+Basile Starynkevitch announced:
+
+If you need to call uname(2) from some Ocaml program you can steal my
+tiny code in util.ml util.mli util_ml.c on
+
+<a href="http://www2.poesia-filter.org:8000/cgi-bin/cvsweb.cgi/PoesiaSoft/PoesiaMonIcap/">http://www2.poesia-filter.org:8000/cgi-bin/cvsweb.cgi/PoesiaSoft/PoesiaMonIcap/</a>
+
+I actually wish that uname(2) will be incorporated in the Unix module.
+
+Following a discussion on how to capture the output of a system call,
+Issac Trotts said:
+
+You're right: it's shorter to say
+
+  let sys_call cmd =
+    let inc = Unix.open_process_in cmd in
+    let buf = Buffer.create 16 in
+    (try while true do Buffer.add_channel buf inc 1 done with _ -&gt; ());
+    close_in inc;
+    Buffer.contents buf;;
+
+Or we can break the call results into lines:
+
+  let rec input_lines file =
+    try
+      let ln = input_line file in
+      ln :: input_lines file
+    with
+      End_of_file -&gt; [];;
+
+  let sys_lines cmd =
+    let pipe = Unix.open_process_in cmd in
+    let lines = input_lines pipe in
+    close_in f;
+    lines;;
+
+Sometimes it would be better to iterate a function over the lines:
+
+  let sys_iter f cmd =
+    let pipe = Unix.open_process_in cmd in
+    (try while true do f (input_line pipe) done with _ -&gt; ());
+    close_in pipe;;
+
+This can be used for things like
+
+  sys_iter print_endline "ls";;
+
+<a name="3"/>======================================================================
+3) Books on FP
+----------------------------------------------------------------------
+(Editor note: FP = Functional Programming)
+Oliver Bandel asked:
+
+I think about buying a book on FP-programming.
+
+Is there a book, which can be recommended?
+
+I know "The Craft of functional programming",
+but after a while (since jumping from some
+haskell-experiments to OCaml) have not read
+further in it.
+
+It's an interesting book, but too specific
+focussed on haskell.
+
+Are there more general books?
+But I'm not a studied computer scientist, so
+it's better if it is not too much specialized
+mathematics and theory. It should be an introductional
+book, but on an interesting level, which is
+forcing the reader to explore practical problems.
+
+Jocelyn Sérot said:
+
+I would highly recommand Cousineau and Mauny's "The Functional Approach
+to Programming".
+(<a href="http://pauillac.inria.fr/cousineau-mauny/main.html">http://pauillac.inria.fr/cousineau-mauny/main.html</a> ).
+I haven't read the english version, but the french one is very well
+written and shows IMHO a good
+balance between theory and practice.
+
+Mattias Waldau asked and Jocelyn Sérot answered:
+
+&gt;What did you think about the O'Reilly book on www.ocaml.org? 
+
+Great book for doing "real" Ocaml programming (as opposed to learning).
+But the focus is, imho, more on technical than on "fundamental" issues.
+
+Personnaly, i use Cousineau and Mauny as a textbook when teaching
+and the Oreilly as a reference book for my hacking.
+
+Gleb Semenov proposed:
+
+I can recommend the two books:
+
+1. "Structure and Interpretation of Computer Programs", by Abelson,
+    Sussman, and Sussman ("SICP", "Wizard book").
+    <a href="http://mitpress.mit.edu/sicp/">http://mitpress.mit.edu/sicp/</a>
+    One of the bibles in lisp/scheme world.
+
+2. Field, A.J. and Harrison, P.G.,
+   "Functional Programming", Addison-Wesley, 1988.
+   Good theoretical introduction in functional programming.
+   Available from amazon.com (or at local bookstores
+   which are selling used books).
+
+<a name="4"/>======================================================================
+4) New bug fix version of Camlimages library
+----------------------------------------------------------------------
+Jun.Furuse announced:
+
+Version 2.11 of the CamlImages library, by Jun Furuse, François
+Pessaux, and Pierre Weis, is now available.
+
+CamlImages is an image processing library, which provides to the
+objective Caml programmer:
+
+  ** basic functions for image processing and loading/saving various image
+  file formats (hence providing a translation facility from format to format),
+
+  ** an interface with the Caml graphics library allows to display
+  images in the Graphics module screen and to mix them with Caml
+  drawings,
+
+  ** a freetype interface, integrated into the library:
+  you can draw texts into images using any truetype fonts,
+
+  ** a set of example programs, including gif animation, slide show, postscript
+  converter to print images.
+
+Version 2.11 is a bug fix release and does not contain majour changes.
+
+Sources and documentation are available from:  
+
+<a href="http://pauillac.inria.fr/camlimages/eng.htm">http://pauillac.inria.fr/camlimages/eng.htm</a>
+
+<a href="ftp://ftp.inria.fr/lang/caml-light/bazar-ocaml/camlimages-2.11.tgz">ftp://ftp.inria.fr/lang/caml-light/bazar-ocaml/camlimages-2.11.tgz</a> 
+
+======================================================================
+Old cwn
+----------------------------------------------------------------------
+
+If you happen to miss a cwn, you can send me a message
+(alan.schmitt@inria.fr) and I'll mail it to you, or go take a look at
+the archive (<a href="http://pauillac.inria.fr/~aschmitt/cwn/">http://pauillac.inria.fr/~aschmitt/cwn/</a>). If you also wish
+to receive it every week by mail, just tell me so.
+
+======================================================================
+
+Alan Schmitt
+</pre></body></html>

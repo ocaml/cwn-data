@@ -1,0 +1,721 @@
+<?xml version="1.0" encoding="ISO-8859-15"?>
+<cwn>
+<cwn_head>
+  <cwn_date>2005.02.01</cwn_date>
+  <cwn_prev>2005.01.25</cwn_prev>
+  <cwn_next>2005.02.08</cwn_next>
+  <cwn_date_text>25 January to 01 February, 2005</cwn_date_text>
+</cwn_head>
+<cwn_body>
+  <cwn_entry>
+    <cwn_title>Dynaml: Dynamic types hack for O'Caml</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200501/msg00214.html</cwn_url>
+    <cwn_who>Jim Farrand announced</cwn_who>
+    <cwn_what>
+Dynaml is a camlp4 extension to O&apos;Caml which allows values to be typed
+dynamically (at runtime), rather than statically (at compile time).
+
+http://farrand.net/dynaml.shtml
+
+The README file is on the website, and is reasonably instructive.
+
+Features:
+  * Provides &quot;to dynamic&quot; and &quot;to static&quot; cast for converting values
+    from statuc/dynamic.
+  * Type exception is thrown if a value is cast to an incorrect type, to
+    preserve type safety.
+  * Can deal with polymorphic functions and values.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>&apos;a Set?</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200501/msg00229.html</cwn_url>
+    <cwn_who>Mike Hamburg asked</cwn_who>
+    <cwn_what>
+Is there any clean way to make a type &apos;a set, corresponding to Set.Make 
+of a module with type t=&apos;a and compare=Pervasives.compare?  I&apos;m trying 
+to make a module which uses sets of arbitrary types of objects, and I 
+don&apos;t want to have to make it a functor.
+
+So in other words, I&apos;d like to make a module AlphaSet with type
+type &apos;a t,
+val is_empty: &apos;a t -&gt; bool
+val mem: &apos;a -&gt; &apos;a t -&gt; bool,
+etc.
+
+instead of Set which is a functor producing
+types t, elt
+val is_empty: t -&gt; bool
+val mem: elt -&gt; t -&gt; bool,
+etc.
+
+Is there a clean way to do this without removing the code from set.ml 
+and modifying it?
+    </cwn_what>
+    <cwn_who>Jean-Christophe Filliatre answered</cwn_who>
+    <cwn_what>
+Unfortunately, no. 
+
+Note that when duplicating the code from set.ml, you can either keep a
+functorized code, with an additional type parameter:
+
+  module type OrderedType = sig
+    type &apos;a t
+    val compare: &apos;a t -&gt; &apos;a t -&gt; int
+  end
+  module type S = sig
+    type &apos;a elt
+    type &apos;a t
+    ...
+  end
+  module Make(Ord: OrderedType): (S with type &apos;a elt = &apos;a Ord.t)
+
+or directly substitute  Pervasives.compare for the comparison function
+to get a polymorphic data structure (and no functor anymore):
+
+  module AlphaSet : sig
+    type &apos;a elt
+    type &apos;a t
+    ...
+  end
+    </cwn_what>
+    <cwn_who>Jon Harrop also answered (and the thread continued, please read the rest online)</cwn_who>
+    <cwn_what>
+I do not believe so. I have also had to do this.
+
+Compared to a flat set of functions, the functor approach has the advantage of 
+enforcing a consistently used compare function. The same effect can be 
+achieved with &quot;elt = &apos;a&quot; by writing a higher-order function which returns a 
+record containing the Set.* functions using the given function argument as 
+the compare function. Something equivalent to this:
+
+  type &apos;a t = &apos;a list
+  type &apos;a set =
+    { empty : &apos;a t;
+      is_empty : &apos;a t -&gt; bool;
+      add : &apos;a -&gt; &apos;a t -&gt; &apos;a t;
+      mem : &apos;a -&gt; &apos;a t -&gt; bool }
+
+  let rec add compare e = function
+    [] -&gt; [e]
+  | h :: t -&gt; match compare h e with
+      -1 -&gt; e :: h :: t
+    | 0 -&gt; e :: t
+    | _ -&gt; h :: add compare e t
+  let rec mem compare e = function
+    [] -&gt; false
+  | h :: t -&gt; match compare h e with
+      -1 -&gt; false
+    | 0 -&gt; true
+    | _ -&gt; mem compare e t
+
+  let make ?(compare=compare) () =
+    { empty = [];
+      is_empty = (fun s -&gt; s=[]);
+      add = add compare;
+      mem = mem compare }
+
+Possible issues with this are that building closures (i.e. in &quot;make&quot;) is 
+expensive and that the resulting type is monomorphic (&apos;_a). You can probably 
+get a polymorphic type most easily by putting the definitions of &quot;add&quot; etc. 
+in the record definition, rather than partially applying their arguments.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>local Open</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200501/msg00216.html</cwn_url>
+    <cwn_who>Oliver Bandel asked and Julien Signoles answered</cwn_who>
+    <cwn_what>
+&gt; Is it planned to have a local Open-statement in OCaml
+&gt; in newer Versions?
+&gt; This would help a lot to easily write code with
+&gt; opened modules and at the same time to have
+&gt; unpolluted namespace.
+&gt; 
+&gt; There are local modules... but not local Open&apos;s?!
+&gt; 
+&gt; Any idea about that?
+
+openin is probably your friend. It is a camlp4 syntax extension by Alain
+Frisch allowing local open&apos;s and struct&apos;s. The file is available at:
+
+	http://www.eleves.ens.fr/home/frisch/soft.html#openin
+
+exemple:
+
+module M = struct let x = 0 end
+let y = open M in x top
+
+--&gt;
+
+let y =
+  let module OPENIN_1 = struct open M let res = x in
+  OPENIN_1.res
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Phantom types and polymorphic variants</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200501/msg00252.html</cwn_url>
+    <cwn_who>Daniel Bünzli asked and Jacques Garrigue answered</cwn_who>
+    <cwn_what>
+&gt; Suppose I have the following (well-typed) definitions
+&gt; 
+&gt; &gt; type tool = [`Spoon | `Fork]
+&gt; &gt;
+&gt; &gt; type &apos;a t = unit constraint &apos;a = [&lt; tool]
+&gt; &gt;
+&gt; &gt; type &apos;a toolspec = unit constraint &apos;a = [&lt; tool]
+&gt; &gt;
+&gt; &gt; let spoon : [&lt; tool &gt; `Spoon ] toolspec = ()
+&gt; &gt; let fork : [&lt; tool &gt; `Fork ] toolspec = ()
+&gt; &gt;
+&gt; &gt; let create : ([&lt; tool ] as &apos;a) -&gt; &apos;a t = fun t -&gt; ()
+&gt; &gt; let create&apos; : ([&lt; tool ] as &apos;a) toolspec -&gt; &apos;a t = fun t -&gt; ()
+&gt; 
+&gt; I don&apos;t really understand why the type of the value returned by create 
+&gt; and create&apos; differ :
+&gt; 
+&gt; &gt; # create `Spoon;;
+&gt; &gt; - : [&lt; Test.tool &gt; `Spoon ] Test.t = ()
+&gt; &gt; # create&apos; spoon;;
+&gt; &gt; - : [&lt; Test.tool ] Test.t = ()
+&gt; 
+&gt; I expected the second value to have the same type as the first.
+
+The problem is that what you define here is not a phantom type.
+To behave properly, phantom types must be abstract types (or, in ocaml
+3.09, private types).
+In particular, if they are simple type abbreviations, the type checker
+will expand them before unification, and the parameters will never be
+unified. This is why you get the type you gave as annotation, and
+nothing more.
+Even with normal sum types, unification would work, but variance
+information  would allow to change the parameter through coercions,
+making it useless as phantom type.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Ocaml-Packrat 0.1.0</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200501/msg00266.html</cwn_url>
+    <cwn_who>Bardur Arantsson announced</cwn_who>
+    <cwn_what>
+I&apos;d like to announce the availability of version 0.1.0 of my Packrat
+parser generator for OCaml, unimaginatively named OCaml-Packrat. The
+tarball can be fecthed from
+
+    http://www.imada.sdu.dk/~bardur/personal/programs/ocaml-packrat/ocaml-packrat-0.1.0.tar.bz2
+
+The following page provides a good overview of what packrat parsers are
+(and how they are implemented):
+
+    http://www.pdos.lcs.mit.edu/~baford/packrat/
+
+The README includes usage notes, and an example grammar for parsing
+simple expressions (with precedence) is included.
+
+The following are prerequisites for building:
+
+  - ExtLib&gt;=1.3 is required, but the generated parsers do not depend on
+  ExtLib. Removing the ExtLib dependency is one of the first things on my
+  TODO list.
+  
+  - Findlib&gt;=1.0.4 and OMake&gt;=0.9.4 are used to build/install. You can
+  do it without these, but you&apos;d have to compile everything manually.
+
+The current incarnation uses OCaml itself for specifying the grammars and
+&apos;actions&apos; and generates an ML AST with the parser module as output. The
+grammars are specified as lists and actions are specified using ML ASTs.
+See the included example for details.
+
+Finally, I should point out I haven&apos;t done any memory/time profiling yet,
+so the current implementation is probably quite ineffcient.
+
+Comments and suggestions welcomed.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Sourceforge Trove Categories</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200501/msg00288.html</cwn_url>
+    <cwn_who>John Skaller said</cwn_who>
+    <cwn_what>
+I should mention that as a Sourceforge developer I complained
+that their Trove categorisation for developer skills had
+a list of programming languages which did not include Ocaml.
+
+I was informed recently that this system has been changed,
+so that a more general categorisation is now used, which
+does include Ocaml as a skills category (via the programming
+languages category which did include Ocaml). This
+note from the Sourceforge site therefore includes my
+complaint as a feature request, and I believe the changes
+they have done have resulted in a satisfactory fix.
+
+&quot;Software Map, Trove, Skills, Project Help Wanted: An initiative has
+been completed to review and process all outstanding RFEs (Requests for
+Enhancement, Feature Requests) related to addition of categories to the
+Trove system, used for developer skills, the Software Map and the
+Project Help Wanted systems. More than 200 requests have been reviewed
+and processed, resulting in a more complete, well-managed category set
+within the Trove system. Further, a process has been put in to place for
+the regular review and processing of future requests for new Trove
+categories. Projects are encouraged to review the categorization of
+their projects to ensure it is listed in places that end-users would go
+to look for software of that type.&quot;
+
+I just wish my local Employment web site would include
+Ocaml as a programming language (it has Simula, Cobol 
+and IBM JCL but no modern or scripting languages .. :(
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>yacc style</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200501/msg00283.html</cwn_url>
+    <cwn_who>Deep inside a thread on parsing, Jean-Christophe Filliatre said</cwn_who>
+    <cwn_what>
+When parsing C, the lexer  must produce different tokens for variables
+identifiers  and  types identifiers,  otherwise  you may  misinterpret
+things  like &quot;a  * b&quot;  (is it  the  declaration of  a pointer  b or  a
+multiplication?) or casts. The following piece of code is illustrating
+the difficulty:
+
+======================================================================
+int a, b;
+typedef int t, u;
+void f1() { a * b; }
+void f2() { t * u; }
+void f3() { t * b; }
+void f4() { int t; t * b; }
+void f5(t u, unsigned t) {
+  switch ( t ) {
+  case 0: if ( u )
+    default: return;
+  }
+}
+======================================================================
+
+The  solution  is  to  have  the  parser  modifying  the  lexer  while
+parsing. This is quite ugly in practice. The CIL framework includes a
+full C parser written in ocaml, so you can get there one possible way
+of handling this issue; see http://manju.cs.berkeley.edu/cil/
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>perl4caml 0.9.0</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200501/msg00306.html</cwn_url>
+    <cwn_who>Richard Jones announced</cwn_who>
+    <cwn_what>
+I&apos;m pleased to announce the release of version 0.9.0 of perl4caml.
+
+Perl4caml allows you to call Perl code and libraries directly from
+OCaml code.  It is licensed under the LGPL + OCaml linking exception.
+
+http://merjis.com/developers/perl4caml
+
+The reason for the large jump in version number (0.3.15 was the last
+release) is that I have fixed up a lot of reference counting problems
+in the code, so now perl4caml should operate much more reliably, and
+by default frees Perl objects at the correct time.  I have also added
+a test suite (&apos;make test&apos;) which exercises large parts of the library.
+
+I have also wrapped up more CPAN classes, and added more coverage to
+the existing wrappers.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>&apos;_a</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200501/msg00253.html</cwn_url>
+    <cwn_who>Mike Hamburg said and Jacques Garrigue answered</cwn_who>
+    <cwn_what>
+&gt; The appearance of &apos;_a in places where it shouldn&apos;t appear causes some 
+&gt; annoyance, and a good deal of confusion among beginners to O&apos;Caml.  In 
+&gt; particular, List.map (fun x -&gt; x) &quot;ought to&quot; have type &apos;a list -&gt; &apos;a 
+&gt; list, whereas it instead has type &apos;_a list -&gt; &apos;_a list.
+&gt; 
+&gt; Some types are treated specially for creation of &apos;_a, such as refs and 
+&gt; arrays.  For instance, if you have the following two declarations:
+&gt; 
+&gt; # let a = let f x () = [x] in f [];;
+&gt; val a : unit -&gt; &apos;a list list = &lt;fun&gt;
+&gt; # let b = let f x () = [|x|] in f [];;
+&gt; val b : unit -&gt; &apos;_a list array = &lt;fun&gt;
+&gt; 
+&gt; Although I haven&apos;t read the code for O&apos;Caml, I deduce from this that 
+&gt; there is deep magic in place to determine when to turn &apos;a into &apos;_a, and 
+&gt; in many cases, the heuristic is wrong (in the conservative direction: 
+&gt; in this case, &apos;a should not be turned into &apos;_a until b is applied).
+
+There is no deep magic, no heuristics. There is just a type system
+which guarantees type soundness (i.e. &quot;well typed programs cannot
+produce runtime type errors&quot;).
+
+If you want the type system and all the historical details, read my
+paper &quot;Relaxing the value restriction&quot; at
+  http://wwwfun.kurims.kyoto-u.ac.jp/~garrigue/papers/
+
+In a nutshell, ocaml uses an improvement of the value restriction.
+With the value restriction, only definitions which are syntactical
+values (i.e. that do not call functions, etc when defined) are allowed
+to contain polymorphic type variables.
+This is improved by allowing covariant type variables to be
+generalized in all cases. Your first example is ok, because list is a
+covariant type, but your second fails, because array is not (you may
+assign to an array, and you would have to look at the code to see that
+each call to b creates a different array)
+
+Of course, one could think of many clever tricks by looking
+at what the code actually does. The above paper describes some of the
+&quot;crazy&quot; things Xavier Leroy and others tried in the past, which
+actually subsume your ideas, before they all decided this was too
+complicated. The main reason is that, if something is going to break
+at module boundaries, then it is not really useful.
+    </cwn_what>
+    <cwn_who>Dave Berry added</cwn_who>
+    <cwn_what>
+That&apos;s a very interesting paper.  I note that you ask
+
+&quot;Our examples with constructor functions and abstract datatypes were 
+expressible in
+systems predating the value restriction, and are refused by the strict 
+value restriction.
+This makes one wonder why this didn&apos;t cause more problems during the 
+transition.&quot;
+
+At the time that SML&apos;97 was being defined, I was working on Harlequin&apos;s SML 
+compiler and programming environment (which has long since vanished into 
+legal limbo).  The Harlequin team initially opposed the adoption of the 
+value polymorphism rule for precisely the reasons you give.  Eventually we 
+gave in because the other advantages outweighed the disadvantages.  (All 
+these discussions took place in private e-mail).
+
+Basically, the touted advantages of adopting the value polymorphism rule were:
+
+1. The formal semantics became simpler.
+2. Eliminating the different types of type variable made the language 
+easier to explain, without affecting expressibility in practice.
+3.  It enabled typeful compilation (as you note in your paper).
+
+I have never believed either half of point 2.  The value polymorphism rule 
+means that you have to explain about references and their effect on type 
+inference even for some simple programs that don&apos;t use references at all, 
+such as the example that Mike gave.  This &quot;raises the bar&quot; for explaining 
+type inference to beginners.  Furthermore, expressiveness is affected for 
+the examples that you give in your paper.  We had to change several parts 
+of our code when we adopted the value polymorphism rule.  However, we felt 
+(and I still think) that points 1 and 3, particularly point 3, outweigh 
+these disadvantages.
+
+ From a practical point of view, I like your approach.  However, it does 
+negate point 1 above, because it makes the formal semantics more complex 
+again - although this is less of a problem in O&apos;Caml, because its semantics 
+are already so complicated compared to SML97.  (I do not intend that remark 
+as an insult). It will be interesting to see how your approach affects 
+point 2 - novices may still encounter the value restriction in a simple 
+program, and the new system will be more complicated to explain.
+
+I sometimes wonder whether it would help to have a &quot;pure&quot; annotation for 
+function types that would require the implementation to not use references 
+nor to raise exceptions.  I don&apos;t mean a detailed closure analysis, just a 
+simple flag.  Most practical functions would not be pure, but many simple 
+ones could be, and these could be used to introduce people to the basics of 
+functional programming without raising the complication of the value 
+polymorphism rule.  (You wouldn&apos;t get a theory paper out of it 
+though).  Unfortunately I&apos;m no longer working on programming languages and 
+so I don&apos;t have the capability to explore this.   It may be a half-baked 
+idea that doesn&apos;t work in practice.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>C-threads &amp; callbacks</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200501/msg00173.html</cwn_url>
+    <cwn_who>Continuing last week&apos;s thread, Xavier Leroy answered Markus Mottl</cwn_who>
+    <cwn_what>
+&gt; I&apos;m currently interfacing a 3rd-party library that spawns threads
+&gt; to execute callbacks.  I would like those callbacks to be handled by
+&gt; OCaml-code, but have run into some issues here.
+&gt; 
+&gt; As it seems, it is not possible to run OCaml-code linked with thread
+&gt; support while letting C-threads perform callbacks.  This has already
+&gt; been a topic on the list a while ago.
+
+Correct.  This is still on my &quot;to do&quot; list.  It sounds feasible but
+requires some intervention in the runtime system and the threading
+library, so it&apos;s not something that can be done on the side by
+3rd-party code.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>cyclic types</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200501/msg00315.html</cwn_url>
+    <cwn_who>Radu Grigore said and Damien Doligez answered</cwn_who>
+    <cwn_what>
+&gt; For now I have setteled for
+&gt;   type forest = Forest of forest StringMap.t
+&gt;
+&gt; Can you give an example of why rectypes by default is dangerous?
+
+IIRC, rectypes are off by default because they trade a small increment
+in expressive power for a large degradation of the intelligibility of
+type-checking error messages.  I don&apos;t think they are dangerous in the
+sense of breaking the type system.
+    </cwn_what>
+    <cwn_who>Xavier Leroy also answered</cwn_who>
+    <cwn_what>
+&gt; For now I have setteled for
+&gt;   type forest = Forest of forest StringMap.t
+
+This is a very reasonable thing to do.  That, or compile with -rectypes.
+
+&gt; Can you give an example of why rectypes by default is dangerous?
+
+Recursive types don&apos;t break type soundness and are handled fine by the
+OCaml typechecker -- objects and variants use them in an essential way.
+
+The &quot;danger&quot; is that they cause obviously wrong code to pass
+type-checking and receive &quot;impossible&quot; recursive types, so you notice
+the problem not at the point of definition of the bad code, but at
+point of use.  A simplified example is this:
+
+      let f x = x :: x
+
+where the author of that code really intended
+
+      let f x = x @ x
+
+With -rectypes, the wrong definition (with ::) is accepted with type
+
+val f : (&apos;a list as &apos;a) -&gt; &apos;a list = &lt;fun&gt;
+
+and it&apos;s only when you try to apply f to a &quot;normal&quot; list that the
+problem arises, with a hard-to-understand error message:
+
+f [1;2;3];;
+   ^
+This expression has type int but is here used with type &apos;a list as &apos;a
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Debian apt-proxy/apt-cacher replacement</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200501/msg00343.html</cwn_url>
+    <cwn_who>Eric C. Cooper announced</cwn_who>
+    <cwn_what>
+Approx is a proxy server, written in OCaml, that can be used as an
+alternative to apt-proxy or apt-cacher.  I&apos;ve been using it for about
+a month, and I find it faster and more robust than apt-proxy.
+
+You can find the source and a Debian binary package at
+    http://www.cs.cmu.edu/~ecc/software.html
+
+(If any Debian gurus have suggestions on whether/how to announce this
+to the broader Debian community, please contact me off-list.)
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>developing apps with ocaml exercices web pages</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200501/msg00313.html</cwn_url>
+    <cwn_who>Radu Grigore asked and Stefano Zacchiroli answered</cwn_who>
+    <cwn_what>
+&gt; The web pages with exercises in &quot;Developing applications with OCaml&quot;
+&gt; are unreadable with mozilla/firefox (i guess that the &quot;layer&quot;
+&gt; attribute &quot;visibility&quot; is ignored). Maybe there is a quick fix? I&apos;d
+&gt; rather have the solutions always visible (i.e. remove all related
+&gt; javascript).
+
+I while ago I patched the debian package of the o&apos;reilly book to avoid
+exercises texts and solution be layered one on top of the other (which
+made both exercises and solutions unreadeable).
+
+This is the relevant part of the package changelog:
+
+  ocaml-book (1.0-3) unstable; urgency=low
+  ...
+  * {fr,en}/html/videoc.js
+    - hacked JavaScript&apos;s {open,close}PopUp so that they output &lt;div&gt;
+      and &lt;/div&gt; tags around exercises&apos; solutions. This avoid pop up
+      mass on mozilla-like browsers. Solutions aren&apos;t popped up on
+      request but at least they are available and exercises aren&apos;t
+      hidden behind them (Closes: Bug#180799, Bug#185266)
+  ...
+
+You may have a look at the debian package and see if it fixes your
+problem.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Ocaml license - why not GPL?</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200501/msg00302.html</cwn_url>
+    <cwn_who>Editor&apos;s note</cwn_who>
+    <cwn_what>
+There has been yet another huge thread on Ocaml&apos;s license. Please find below 
+some answers from members of the Ocaml team. You may read the whole thread online.
+    </cwn_what>
+    <cwn_who>Jozef Kosoru asked and Luc Maranget answered</cwn_who>
+    <cwn_what>
+&gt; I would like to ask O&apos;Caml developers why they have chosen QPL license
+&gt; for the compiler and GPL for libraries?
+&gt; 
+&gt; Of course they have a full right to choose a license they want but I
+&gt; think that GPL for the compiler and LGPL for the libraries would be a
+&gt; much better choice.
+
+Hello,
+
+Some explanations on the license choice for O&apos;Caml can be found on
+the web
+http://caml.inria.fr/ocaml/LICENSE.html
+It may answer some of your questions.
+
+&gt; 
+&gt; Now it is for example impossible to distribute an O&apos;Caml package as a
+&gt; part of some O&apos;Caml GPL project source package. Users have to know that
+&gt; this program is written in some unusual programming language and they 
+&gt; have to download and compile the O&apos;Campl compiler first. For them it
+&gt; would be much better to just download the application sources and type
+&gt; /configure; make; make install
+&gt; .and build process would compile the ocaml compiler (if it&apos;s not already
+&gt; present) and then compile application sources and install native
+&gt; executable (just like C/C++ apps).
+
+As far as I understand, nothing in a licence prevents easy configuration
+and installation (and indeed installing Ocaml from the site
+http://caml.inria.fr/index-eng.html is what you describe
+(configure/make/make install)
+
+As I see it, different packaging organizations have different policies
+as regards licenses...
+    </cwn_what>
+    <cwn_who>Jacques Garrigue also answered</cwn_who>
+    <cwn_what>
+&gt; I would like to ask O&apos;Caml developers why they have chosen QPL license
+&gt; for the compiler and GPL for libraries?
+&gt; 
+&gt; Of course they have a full right to choose a license they want but I
+&gt; think that GPL for the compiler and LGPL for the libraries would be a
+&gt; much better choice.
+
+Actually, this is already LGPL (with an exception to make it even more
+liberal!) for the runtime and the libraries.
+So your only problem with the QPL would be if you need to modify the
+compiler itself, and are not happy with the conditions of the QPL.
+
+&gt; Now it is for example impossible to distribute an O&apos;Caml package as a
+&gt; part of some O&apos;Caml GPL project source package. Users have to know that
+&gt; this program is written in some unusual programming language and they 
+&gt; have to download and compile the O&apos;Campl compiler first. For them it
+&gt; would be much better to just download the application sources and type
+&gt; /configure; make; make install
+&gt; .and build process would compile the ocaml compiler (if it&apos;s not already
+&gt; present) and then compile application sources and install native
+&gt; executable (just like C/C++ apps).
+
+The QPL is an official open-source license.
+There is nothing preventing you to include the compiler in your
+package, as long as you make it clear that the compiler itself is
+copyrighted and under the QPL.
+(One question is whether you need to include all the tools and
+libraries from the distribution, as the QPL seems to imply. I believe
+this can be clarified with the developpers if needed.)
+
+So I don&apos;t really see your problem...
+    </cwn_what>
+    <cwn_who>Alex Baretta said and Xavier Leroy answered</cwn_who>
+    <cwn_what>
+&gt; Hmmm... This is an interesting point! The toplevel library includes 
+&gt; the compiler code, which is licensed under the QPL,
+
+Correct.
+
+&gt; but yet somehow must be allowed to link to GPLed libraries and
+&gt; programs.
+
+You meant: &quot;I (Alessandro Baretta) needs to link it to GPLed libraries
+and programs&quot;.  There is no moral imperative of being able to link
+something with GPLed stuff.
+
+&gt; If the toplevel library may not be linked with GPLed code,
+&gt; then the toplevel itself become hardly usable,
+
+Again, you meant &quot;... usable to me because of my choice of the GPL&quot;.
+
+&gt; and a significant
+&gt; portion of my code,  which is GPLed and links the toplevel library,
+&gt; would be illegal.
+&gt; Might the caml breeders please comment on this issue?
+
+Only if you stop calling me a &quot;caml breeder&quot;.  Makes me feel like a
+nuclear reactor :-)
+
+More seriously:
+
+- The toplevel library is indeed covered by the QPL.
+
+- Clause 6 of the QPL is pretty clear.  In summary, it stipulates that
+  a QPL-ed library can be linked with pretty much any code that is
+  distributed as open source.  But please don&apos;t take my words for it:
+  read the license.
+
+- The problem in your case is most likely to be with the GPL, which
+  puts much stronger requirements on any piece of code that comes
+  in contact with GPL-ed code.  But don&apos;t take my word for it, as
+  I have no expertise (and no interest) in license compatibility issues.
+  Read the GPL, consult license experts, make up your mind.
+
+- If it turns out you have a QPL/GPL incompatibility, you have exactly
+  three options:
+      1) don&apos;t use the toplevel library
+      2) put your code under another license than the GPL
+      3) get a more liberal license for OCaml by becoming a member
+         of the Caml Consortium.
+
+&gt; This bothers me quite a bit. Am I to expect a legal pursuit from INRIA 
+&gt; for violating the QPL for having released mixed GPL+QPL code?
+
+No, because you didn&apos;t violate our license (the requirements set by
+the QPL are met).
+
+&gt; Or am I to pursue myself because the QPL breaks my own GPLed code?
+
+This is more like it :-)  You, or your customers.  Remember,
+inconsistent license = no license = nobody can do anything with your code.
+
+&gt; I would really appreciate an official response from the INRIA people. I 
+&gt; think Ocaml is a great tool for commercial free software development, 
+&gt; but in order to be able to build a thriving business I must make sure 
+&gt; that Xavier et al. won&apos;t meet me with a team of Dobermans to settle 
+&gt; copyright issues...
+
+Again, your problems are not with us.  The ones that could come after
+you are your customers.
+    </cwn_what>
+    <cwn_who>Nicolas Cannasse said and Xavier Leroy answered</cwn_who>
+    <cwn_what>
+&gt; If I understand well, Alex can choose the (3) and get a license that is GPL
+&gt; compatible. But as it has been said before the only licenses compatible with
+&gt; GPL are weaker license, that are &quot;at least&quot; GPL. So a company getting into
+&gt; the Caml Consortium might get rights to redistribute the compiler as GPL ?
+&gt; Are you sure about that ?
+
+Yes, that would be allowed as part of the Consortium agreement.  But
+you have to keep in mind that Consortium membership is a contract, not
+a license, and that this contract is to be renewed every year.  This
+means that INRIA can unilaterally refuse that someone becomes a member
+of the consortium, or refuse to renew the membership.  
+
+So, if you come to us and say &quot;I want to become a consortium member
+and my sole purpose is to redistribute the OCaml compilers under the
+GPL&quot;, your membership application will most likely be rejected.  And
+if you don&apos;t tell us but become a member, then redistribute the OCaml
+compilers under the GPL, your membership will not be renewed and
+you&apos;ll lose your special privileges for subsequent OCaml releases.
+
+However, if Alex Barretta comes to us with a licensing plan that
+solves his issue but is acceptable to us (i.e. no GPL relicensing of
+the whole OCaml compilers), we&apos;ll do our best to help.
+
+You see, consortium membership is based on mutual trust and the desire
+to do things that will be beneficial to both parties (the member and
+INRIA).  Abuse is possible but won&apos;t get you very far (except being
+labeled as a weasel).
+    </cwn_what>
+  </cwn_entry>
+</cwn_body>
+</cwn>

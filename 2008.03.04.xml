@@ -1,0 +1,592 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+	<cwn_head>
+		<cwn_date>2008.03.04</cwn_date>
+		<cwn_prev>2008.02.26</cwn_prev>
+		<cwn_next>2008.03.11</cwn_next>
+		<cwn_date_text>February 26 to March 04, 2008</cwn_date_text>
+	</cwn_head>
+	<cwn_body>
+		<cwn_entry>
+			<cwn_title>Please a simple Camlp5 example</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/5bd8dd39dd6d3dd2/915fcc21c794c10b#915fcc21c794c10b</cwn_url>
+			<cwn_who>Fabrice Marchant asked and Richard Jones answered</cwn_who>
+			<cwn_what>
+&gt;   I bet this kind of code should be rather common : 
+&gt; let string_of_piece_type = function 
+&gt;   King   -&gt; "King" 
+&gt; | Queen  -&gt; "Queen" 
+&gt; | Rook   -&gt; "Rook" 
+&gt; | Bishop -&gt; "Bishop" 
+&gt; | Knight -&gt; "Knight" 
+&gt; | Pawn   -&gt; "Pawn" 
+&gt;  Please have you got an example where the macro helps to implement such
+&gt; kind of "string_of_type" function ? 
+
+You probably want to look at deriving (http://code.google.com/p/deriving/) 
+or tywith (http://www.seedwiki.com/wiki/shifting_focus/tywith) which 
+can generate these functions automatically.
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>Long-term storage of values</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/2b4a8a9fbc70adf5/87bcf0f0a12968d3#87bcf0f0a12968d3</cwn_url>
+			<cwn_who>Dario Teixeira asked</cwn_who>
+			<cwn_what>
+Suppose I have a value of type Story.t, fairly complex in its definition. 
+I wish to store this value in a DB (like Postgresql) for posterity. 
+At the moment, I am storing in the DB the marshalled representation 
+of the data; whenever I need to use it again in the Ocaml programme 
+I simply fetch it from the DB and unmarshal it. 
+
+This works fine; there is however one nagging problem: the marshalled 
+representation is brittle.  If Story.t changes even slightly, I will 
+no longer be able to retrieve values marshalled with the old version. 
+
+Note that changes to Story.t are likely to be small and will not 
+invalidate backwards compatibility (e.g., here or there another 
+variant might be added, but not removed or renamed). 
+
+I am therefore looking for an alternative to marshalling that a) does 
+not suffer from the brittleness problem, and b) is fast.  At the 
+moment, the best thing that occurs to me is to convert the data into 
+XML and to store it as such in the DB (the data is easily converted 
+into XML). 
+
+This strikes me as problem bound to be common.  How do you guys typically 
+solve this sort of situation?  In addition, if the XML route is indeed 
+the best one, what Ocaml tools would you recommend?  (Again, this is 
+for an application where speed is of the essence).
+			</cwn_what>
+			<cwn_who>David MENTRE suggested</cwn_who>
+			<cwn_what>
+I asked a similar question once. One of the answer was to use Sexplib, 
+to store your values as Lisp S-exp: 
+http://www.ocaml.info/home/ocaml_sources.html#toc11 
+
+You could also use Config_file: http://home.gna.org/cameleon/configfile.en.html
+			</cwn_what>
+			<cwn_who>Basile STARYNKEVITCH also answered</cwn_who>
+			<cwn_what>
+It is even theoretically a very difficult problem. There have been some 
+publications by Cristal, Moscova, Gallium people at INRIA. 
+
+Assuming you have no abstract types, no objects, and no closures, and no 
+polymorphisms i.e. that there is a *.ml source file containing all the 
+type definitions. Then the types are composed by base types (int, 
+string, ...), sums, records, and perhaps arrays. 
+
+Then you could consider what are the deltas on the type definition. 
+
+In a sum like type sumt = A of t1 | B of t2 | C 
+you might consider what happens when you remove let say B, or add let's 
+say a choice | D of t3 
+
+In a record, consider likewise what happens when adding or removing a field. 
+
+Etc.... 
+
+The details are very complex (at least to me, who tried unsucessfully to 
+work on this during my year at INRIA). 
+
+Maybe a semi-hand-crafted generator could help. Adding polymorphisms, 
+closures, objects, abstract types is a big mess. 
+
+Good luck to you. Try to publish something.
+			</cwn_what>
+			<cwn_who>Martin Jambon then replied, and Jake Donham added</cwn_who>
+			<cwn_what>
+&gt; if we restrict the transition to a certain subset of operations, it can be 
+&gt; possible to define a mapping using some Camlp4 tool such as Deriving 
+&gt; (well, that's what I was told, assuming I interpreted correctly). 
+
+&gt; For instance: 
+&gt; - adding a record field: a default value is injected 
+&gt; - removing a record field: just remove it 
+&gt; - adding a variant: do nothing since it doesn't exist in the old data 
+&gt; - changing a type arbitrarily (such as changing a type foo1 into foo2 
+&gt;   everywhere): provide a map function that would override the default map 
+&gt;   function for such nodes. 
+&gt; - functional and abstract values: left as-is 
+
+We do this at Skydeck. We modified Deriving's Typeable module to expose the 
+structure of types, and we marshal values along with a version number (for 
+upgrades) and a type description from Typeable (so you get an error if you 
+change the type and forget to change the version number). 
+
+Our modified Typeable also has reflection functions so if you have a dynamic 
+(a value along with a Typeable.TypeRep) you can examine its parts 
+dynamically (implemented with Obj.magic). On top of that we have a generic 
+function for changing a value of one type into a value of another, as Martin 
+describes--we try to do the translation automatically as far as we can, and 
+provide a way to pass in mapping functions for particular types. 
+
+For the most part this works well. Compared to a SQL database it is very 
+nice to have the OCaml type system for data representation. The upgrade 
+mechanism is much safer than hand-coding SQL schema upgrades. On the other 
+hand, there are many things you get for free with a SQL db that you have to 
+do yourself: e.g. putting IDs on objects so you can refer to them 
+externally, easy hand-inspection of the data (it's annoying navigating big 
+structures in the top-level), to name a couple of small ones.
+			</cwn_what>
+			<cwn_who>Later in the thread, Berke Durak said</cwn_who>
+			<cwn_what>
+I had exactly those kinds of issues during my work at the EDOS project. 
+We were basically treating the metadata for every dat of every component 
+of every architecture of every Debian distribution. 
+
+I started using SQL.  I first tried MySQL then PostgreSQL. 
+Fill performance was bad.  (And didn't get fast enough when Jaap added 
+prepared statements for postgresql). 
+Query performance was worse, because we were interested in things like 
+the transitive dependency closure, and SQL is 
+well-known to not be suitable for such transitive properties.  Maybe I 
+should have tried Sqlite but I didn't know it at the time. 
+
+I then switched to marshalling.  Boy, that was fast!  Of course I got 
+bitten very hard by segmentation faults...  sorry, Xavier, for bothering 
+you about such stupidity.  And yes, I had a version number in my 
+datastructures but, no, it was not automatically updated. 
+
+Also, adding a field was really, really painful.  Marshalling could work when 
+your data structures are stable, but during development, it is painful, 
+especially if you can't use a toy data set for development. 
+
+I then built an I/O combinator library.  Of course, combinators already 
+exist for defining parsers and printers, but I thought that it would be 
+great to combine them both.  (Such an idea has been presented at POPL 
+under the term of "picklers" if I recall correctly.) 
+
+Basically you describe your types using "literates" which can then be used 
+for reading and writing, as in 
+
+   type my_litterate = io_pair (io_list io_int) (io_hasthbl io_int io_string) 
+
+Anyway, that led to the "IO" module available here 
+
+   http://caml.inria.fr/cgi-bin/hump.en.cgi?contrib=537 
+
+and a better version still lives in the EDOS codebase, which is now 
+maintained by Jaap Boender.  I think Jaap made a GODI package for it. 
+
+IO can use multiple backends (binary, ASCII) and that was quite useful. 
+Performance is reasonably good.  One problem is with records and sum types - 
+you have to give pattern-matching functions to define readers/writers for 
+them. However, you can decide how you handle missing values or extra fields. 
+
+Martin Jambon's JSON wheel could also be used here, but I'm waiting for 
+the preprocessor situation to stabilize a little bit... 
+
+One major drawback of IO is that it does not handle sharing or recursive 
+structures.  And I know of no efficient, type-safe way of handling those, 
+especially if you don't want the serializer to add extra sharing (for instance 
+if you have distinct mutable records with the same contents) 
+
+I am still thinking about these problems.  For instance, I have been recently 
+working on Wikipedia revision history (only the Turkish (15 GB) and French 
+ones (200 GB), the English one is too big).  I needed maximal efficiency so I 
+used Marshal, which was pretty fast.  Of course I added a small version 
+header. 
+
+I noticed that when you Marshal a closure, the module puts a MD5 of 
+presumably the whole program in the output (which costs some bytes but that's 
+another problem.) 
+
+It would be nice to have a mechanism for marshalling a value with an MD5 of 
+its types, and unmarshalling only then the MD5 matches.  In non-malicious 
+environments, that is, in environments where no-one fakes MD5s, that would be 
+quite safe. 
+
+Of course it won't be possible to marshal polymorphic types. 
+
+So, I'm asking the experts: is it possible to have a very small extension that 
+would allow this? We could have the following restrictions and it still would 
+be very useful: 
+
+   - the type t must be defined in a module M, which must live in a separate 
+     compilation unit 
+     (i.e. have an available cmi) 
+   - the type t must be ground 
+   - the type t must be named in an interface 
+   - it must be explicitly named when marshalling/unmarshalling 
+   - this is an ugly hack that only works in Marshal 
+
+Something along the lines of : 
+
+   safer_output_to_channel stdout (z : Interface.t) [] 
+
+Trying 
+
+   safer_output_to_channel stdout z [] 
+
+Would yield 
+
+   safer_output_to_channel stdout z [] 
+                                  ^ 
+Error: value must be explicitly annotated with a type 
+
+safer_output_to_channel stdout (33 : int) [] 
+Error: Type needs to be defined in an external interface to be Marshallable. 
+
+safer_output_to_channel stdout (bar : Foo.t) [] 
+Error: Module Foo.t has no interface 
+
+safer_output_to_channel stdout (bar : int Foo.t) [] 
+Error: Type Foo.t is not ground
+			</cwn_what>
+			<cwn_who>Brian Hurt said and Dario Teixeira answered</cwn_who>
+			<cwn_what>
+&gt; You're making two mistakes. 
+
+&gt; Mistake #1: treating a database as a dumb object store.  This is a really 
+&gt; popular idea right now- Hibernate does this, as does Ruby on Rails, and a 
+&gt; number of other ORM packages take this effective approach.  On the other 
+&gt; hand, dynamically typed languages are also really popular.
+
+Thanks for your reply.  It was quite interesting, though I get the feeling 
+you used my question solely as a trigger to share with us a long-held 
+dissatisfaction with the current state of affairs concerning the use of 
+databases, regardless of whether it actually applies to my particular problem. 
+That's fair, and I do agree with practically all your points.  However, 
+if I were you I would refrain from starting such missives with statements 
+as blunt and uncompromising as "You're making two mistakes".  As it turns 
+out, this is one of those cases where the data (tree-like, with recursive 
+structures) does not map well at all with a relational database. 
+
+Moreover, I am far from treating the database as a dumb object storage. In
+fact, a significant portion of the code for this particular application (a web
+app using Ocsigen; you can download a preliminary version of the app from
+http://dario.dse.nl/projects/lambdium-light/) lies on the Postgresql side,
+with the Ocaml code serving as little more than delivery boy. The exception is
+of course those portions where it is far more natural and performant to let
+the Ocaml code take the reins and treat the DB as dumb storage. The complex
+data structure holding the markup of stories/comments is one such example.
+
+&gt; So, mistake number one: either use the data, and structure your data (at 
+&gt; that layer) to take advantage of it, or don't use a database. 
+
+Unfortunately, this is an overly general statement.  I have no doubt that 
+if I were to present you the data I have, your reply would be "in this case, 
+just use the DB as dumb storage". 
+
+&gt; Mistake number two: file formats (and this includes marshalled data 
+&gt; structures), are wire protocols, and need to be designed to be as abstract 
+&gt; as possible- to reveal as little about the internal structure of the 
+&gt; program as possible (preferrably none at all). 
+
+On the other hand, one of the advantages of using a language with such a 
+rich type-system as Ocaml's, is that the application-independent description 
+of the data can be translated on practically a 1:1 basis to native language 
+constructs!  Trust me, I didn't need to bend the data definition to suit 
+the internal structure of the programme.
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>SML and friends go GPCE/OOPSLA 2008</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/7a849b5d2b66fef8/31fad544bf2be58f#31fad544bf2be58f</cwn_url>
+			<cwn_who>Ralf Laemmel announced</cwn_who>
+			<cwn_what>
+[One-liner version: please submit papers/workshop/tutorial proposals 
+for GPCE 2008.] 
+
+The conference on Generative Programming and Component Engineering 
+(GPCE) had some functional programming input over the last few years. 
+SML, Caml, OCaml, MetaOCaml expertise is relevant for GPCE. Think of 
+aggressive optimization, modularization, and staged computation, for 
+example. Also, general advanced programming language folks probably 
+hang out on this list (as is the case on the more lazy Haskell list -- 
+better known to me). This year's GPCE conference again co-locates with 
+OOPSLA. We are looking for strong proposals for workshops and 
+tutorials that complement the GPCE technical programme, and thereby 
+also contribute to the combined GPCE/OOPSLA programme. It will be 
+great to get a submission or two from the SML, Caml, OCaml, MetaOCaml 
+community. Please have a look at the call for proposals, at the list 
+of topics, and at the history of the GPCE conference series. 
+
+I specifically encourage you to reach out for the crowd at GPCE/OOPSLA. 
+
+http://www.hope.cs.rice.edu/twiki/bin/view/GPCE08/ 
+http://www.hope.cs.rice.edu/twiki/bin/view/GPCE08/CallForWorkshops 
+http://www.hope.cs.rice.edu/twiki/bin/view/GPCE08/CallForTutorials 
+
+[Deadline: 20th March] 
+
+Regards, 
+Ralf Laemmel 
+Satellite Chair GPCE 2008 
+Eager type-level programmer 
+
+PS: The paper deadline for GPCE is in May.
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>OCaml version 3.10.2 released</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/f69c8c92e3695499/d873d5f21a391db5#d873d5f21a391db5</cwn_url>
+			<cwn_who>Damien Doligez announced</cwn_who>
+			<cwn_what>
+It is our pleasure to announce the release of OCaml version 3.10.2.
+This is mainly a bug-fix release, see the list of changes below.
+
+It will be available here shortly:
+ &lt;http://caml.inria.fr/download.en.html&gt;
+
+If you're in a real hurry, you can get the source now from
+ &lt;ftp://ftp.inria.fr/INRIA/caml-light/ocaml-3.10/&gt;
+
+Happy hacking,
+
+-- Damien Doligez for the OCaml team.
+
+
+Objective Caml 3.10.2:
+----------------------
+
+Bug fixes:
+- PR#1217 (partial) Typo in ocamldep man page
+- PR#3952 (partial) ocamlopt: allocation problems on ARM
+- PR#4339 (continued) ocamlopt: problems on HPPA
+- PR#4455 str.mli not installed under Windows
+- PR#4473 crash when accessing float array with polymorphic method
+- PR#4480 runtime would not compile without gcc extensions
+- PR#4481 wrong typing of exceptions with object arguments
+- PR#4490 typo in error message
+- Random crash on 32-bit when major_heap_increment &gt;= 2^22
+- Big performance bug in Weak hashtables
+- Small bugs in the make-package-macosx script
+- Bug in typing of polymorphic variants (reported on caml-list)
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>Call for help: identify corrupted bytecode packages on Ubuntu Hardy</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/30328201fab81d25/3285bf354d1d1188#3285bf354d1d1188</cwn_url>
+			<cwn_who>David MENTRE asked</cwn_who>
+			<cwn_what>
+I discovered the some OCaml bytecodes were silently corrupted in Ubuntu
+Hardy (and Gutsy)[1]. The source of corruption, the package
+pkg-create-dbgsym, is now fixed in current Hardy. The package ocamlnet
+which was corrupted has been properly rebuilt and now works.
+
+However, other packages might also be corrupted.
+
+Right now, I have identified the following packages:
+* cameleon
+
+* dag2html
+
+* ocsigen
+
+* omake (not sure)
+
+* polygen-data (not sure)
+
+A rebuilt has been asked here:
+https://bugs.launchpad.net/ubuntu/+source/pkg-create-dbgsym/+bug/197293
+
+But I might have skipt some of the corrupted packages (I don't know the
+expected behavior of all packages). So, if you have access to Ubuntu
+Hardy, could you test your favorite OCaml package and report any issue
+to me or at the above Ubuntu bug.
+
+Yours,
+d.
+
+
+Footnotes: 
+[1]  https://bugs.launchpad.net/ubuntu/+source/ocamlnet/+bug/180364
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>OCaml-Java project : beta version</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/1173790aef3a3292/1439e5ad28f8d174#1439e5ad28f8d174</cwn_url>
+			<cwn_who>Xavier Clerc announced</cwn_who>
+			<cwn_what>
+This post announces the beta release of the OCaml-Java project.
+The goal of the OCaml-Java project is to allow seamless integration of OCaml 
+and Java.
+Home page: http://ocamljava.x9c.fr
+
+This version features a new binary distribution that is packed with all you
+need to run OCaml programs on a JVM. This distribution does not even need the
+standard Objective Caml distribution to be installed on your computer.
+URL: http://ocamljava.x9c.fr/downloads.html
+
+
+All the subprojects of OCaml-Java have of course been updated.
+A detailed changelog from the initial alpha release to the new beta release 
+follows.
+
+Barista subproject:
+ - minor API changes
+ - minor grammar changes
+ - Java API
+
+Cadmium subproject:
+ - scripting support
+ - XML support
+ - file hooks / embedded mode
+ - toplevel enhancements
+ - fr.x9c.cadmium.support.values for easy encoding of OCaml values
+ - SPI support
+
+Cafesterol subproject:
+ - scripting support
+ - standalone linking mode
+ - servlet support
+
+Nickel subproject:
+ - support for 'meta' tags
+
+OCamlScripting subproject:
+ - standalone version
+			</cwn_what>
+			<cwn_who>Richard Jones said</cwn_who>
+			<cwn_what>
+I should add that there's a Fedora tracking bug for ocamljava where
+(if you have Fedora or Red Hat Enterprise Linux) you can play with the
+previous alpha version:
+
+ https://bugzilla.redhat.com/show_bug.cgi?id=434560
+
+I was working on the beta version today but didn't quite get it going.
+When I do it'll appear in the above tracking bug.
+			</cwn_what>
+			<cwn_who>Adrien said and Xavier Clerc replied</cwn_who>
+			<cwn_what>
+Now about ocamljava, ocaml.jar immediately exits with "unable to
+locate ocaml toplevel". I thought it did not need ocaml(.out).
+
+Also, ocamljava.jar has another problem :
+java -jar bin\ocamljava.jar
+Fatal error: exception
+Sys_error("/usr/local/share/camomile/database/general_cat
+egory.mar: java.io.IOException: file does not exist:
+.\usr\local\share\camomile\
+database\general_category.mar")
+
+Well, I have to admit that I made some errors while crafting the binary
+package. I just fixed them and uploaded a new version (check out
+http://ocamljava.x9c.fr/downloads.html).. You should now be able to use the
+various tools. Here is a short test session assuming you have a "source.ml"
+file (typical content: &lt;&lt;let () = List.iter print_endline ["hello ..."; "...
+world"]&gt;&gt;):
+
+Execution of toplevel:
+	java -jar ocaml.jar
+
+Compilation to OCaml bytecode:
+	java -jar ocamlc.jar -o bc source.ml
+Execution of produced btyecode:
+	java -jar ocamlrun.jar bc
+
+Compilation to Java jar file:
+	java -jar ocamljava.jar -standalone -o prog.jar source.ml
+Execution of produced jar file:
+	java -jar prog.jar
+
+
+However, I noticed a bug with the binary package that does not show up if you
+have the standard OCaml distribution installed on your computer: the
+ocamlc.jar/ocamljava.jar compilers will fail if the current directory contains
+the by-product of a previous compilation (e.g. cmo or cmi files). The
+temporary workaround is to delete these files before any compilation.
+
+I suspect this bug has something to do with the embedded mode (the ability for
+the Java-run programs to look for files inside their jar files rather than on
+the local file system). I will hunt this bug and report to the list when it is
+fixed. Sorry for the inconvenience in the meanwhile.
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>PLplot library bindings update (5.8.0)</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/32ebb3c42bbee0ba/f3146e8ef8187b7f#f3146e8ef8187b7f</cwn_url>
+			<cwn_who>Hezekiah M. Carty announced</cwn_who>
+			<cwn_what>
+I would like to announce an update to my PLplot [1] library bindings
+for OCaml.
+
+The code can be downloaded from:
+http://code.google.com/p/ocaml-plplot/
+
+The main changes for this release are:
+- Works now with camlidl from Debian and other non-GODI installs.  The
+ previous release had problems on non-GODI OCaml installations.
+- More or less complete coverage of PLplot 5.8.0 functions.  If anything is
+ missing or needed, please let me know.
+- The version number has changed to match the corresponding PLplot version
+
+Requirements:
+- OCaml (tested with 3.10.0, should work on older versions?)
+- PLplot version 5.7.x or 5.8.x - tested with 5.7.3 through 5.8.0
+- camlidl
+- findlib
+
+The license is the same as PLplot (LGPLv2+).
+
+This code has been developed and tested on Debian Sid and CentOS 5,
+using both GODI and Debian OCaml packages.  I would be happy to hear
+about any successes or failures on other systems.
+
+There are currently two examples included [2], which corresponds to
+examples 11 and 19 on the PLplot website [1].  The PLplot documentation [3]
+is a good reference as this binding is very close to the C library.
+There is some
+documentation available on the ocaml-plplot Google Code wiki as well.  Please
+feel free to ask if you have any questions, problems or requests.
+
+Enjoy!
+
+[1] - http://plplot.sourceforge.net/
+
+[2] - http://code.google.com/p/ocaml-plplot/source/browse/trunk/examples/x11.ml
+and http://code.google.com/p/ocaml-plplot/source/browse/trunk/examples/x19.ml
+
+[3] - http://plplot.sourceforge.net/docbook-manual/
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>PhD positions in Functional Programming at Chalmers in Sweden</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_frm/thread/788ee2e7d384d2d5/d0574a96b5774671#d0574a96b5774671</cwn_url>
+			<cwn_who>Koen Claessen and John Hughes announced</cwn_who>
+			<cwn_what>
+** please forward this to interested students **
+
+PhD Positions in Functional Programming
+at the department of Computer Science and Engineering
+at Chalmers University of Technology, Sweden
+
+http://www.cs.chalmers.se/~koen/phdad.html
+
+Application deadline: March 11, 2008
+Position starts: April 1, 2008 or September 1, 2008
+
+The PhD student will join the research activities at our department in
+applications of functional programming, much of which concentrates
+on the design and application of Domain Specific Embedded Languages.
+Examples of our work are QuickCheck for specification-guided random
+testing, and Lava for hardware design and verification. Our group has
+also developed the award winning automated first-order logic reasoning
+tools Paradox and Equinox, which are both written in Haskell.
+
+There are advertised positions in two focus areas:
+
+1. Development of the next generation of Paradox and Equinox, which
+involves inventing new programming techniques for building a modular,
+flexible automated reasoning tool, as well as developing novel automated
+reasoning algorithms. As new exciting applications for automated
+reasoning tools arise, new demands are placed on the reasoning tools,
+forcing changes in how they are designed and implemented.
+
+2. Development of verification techniques for distributed systems
+implemented in the functional programming language Erlang. Methods
+here include QuickCheck-based testing, model checking and (automated)
+theorem proving techniques, and integration of these different techniques.
+There is a possibility of attacking real-world problems from our industrial
+partners.
+
+For more information, please look at:
+
+http://www.cs.chalmers.se/~koen/phdad.html
+			</cwn_what>
+		</cwn_entry>
+	</cwn_body>
+</cwn>

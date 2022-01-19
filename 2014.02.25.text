@@ -1,0 +1,684 @@
+Hello,
+
+Here is the latest OCaml Weekly News, for the week of February 18 to 25, 2014.
+
+
+
+1) Remaining changes for cross-compilation support in OCaml
+2) InvarGenT v1.2: GADTs for invariants and postconditions
+3) unix domain sockets on windows
+4) Creating an OPAM package that wraps c functions that can be used in a non-custom utop
+5) how to convert strings to Ocaml values at run-time?
+6) OASIS 0.4.2
+7) camlp4 for js_of_ocaml toplevels
+8) Using bisect and coveralls.io
+9) Other OCaml News
+
+========================================================================
+1) Remaining changes for cross-compilation support in OCaml
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2014-02/msg00120.html>
+------------------------------------------------------------------------
+** Adrien Nader said:
+
+Roughly one year ago, late Wojciech Meyer and I started working on the
+integration of a set of patches aimed at enabling the OCaml compiler to
+be used for cross-compilation.
+
+Some of the patches so far have caused issues to some people. The goal
+of this RFC and email thread is to raise awareness of the upcoming work
+and its implications and also to start getting feedback as early as
+possible. The patches should be handled through the github interface
+which Gabriel Scherer mentionned a few weeks ago.
+
+
+******************************** Note ********************************
+The words "target", "host" and "build" below have the meaning that the
+GNU project gives them when it comes to compilation.
+When compiling an application or library:
+- build: the system the compilation process runs on
+- host: the system that will run the binaries that are built
+- target: meaningless
+When compiling a cross-compiler:
+- build: the system the compilation process runs on
+- host: the system that will run the binaries that are built (i.e. the
+  cross-compiler)
+- target: the system for which the cross-compiler builds binaries
+
+
+*************************** Immediate Goals ***************************
+- build "${target}-ocamlc", "${target}-ocamlopt", ..., i.e. a
+  cross-compiler for ${target}
+- typical cross-compilation of projects is expected to go through
+  ocamlfind; in practice, oasis-based projects can be cross-compiled
+  with no change
+
+
+**************************** Further Goals ****************************
+- cross-compile the compiler: build a native Windows toolchain on Linux
+- canadian cross support: ${build}, ${target}, ${host} are all
+  different, i.e. on Linux, build a toolchain that runs on Windows 64b
+  but targets Windows 32b or a different architecture/OS like ARM Linux.
+
+
+*************************** Current status ***************************
+- the compiler makes few assumptions about the target; this is very
+  good.
+- build system is fairly large, has been in flux because of the
+  separation of labltk and camlp4, supports both GNU make and BSD's
+  makes (i.e. it uses no extension beyong POSIX), some things are split
+  between "Makefile" and "Makefile.nt" (and for the ".nt" variant, only
+  GNU make is supported and these files do use GNU make extensions).
+- most of the patches I ended up with have been upstreamed; a couple
+  hairy ones are left and one in particular caused issues when
+  bootstrapping.
+
+
+****************************** Approach ******************************
+
+*** A cross-compiler requires a native toolchain of the same version ***
+A working _native_ compiler toolchain of the _exact_ same version as the
+cross-toolchain is needed, both when building the cross-toolchain and
+when using it; the main reason was camlp4 but I believe it is still a
+valid restriction
+
+
+*** Give up the restriction to POSIX for makefiles ***
+Either remove compatibility with BSD makes, or move GNU-make-isms to
+"GNUMakefile", BSD-makes-isms to "BSDMakefile" and common data to
+"Makefile.common" with the GNU/BSDMakefile files being the
+"entrypoints".
+
+The manual page for GNU make states (and mk is similar but with
+BSDMakefile iirc):
+  "If no -f option is  present, make  will  look for the makefiles
+  GNUmakefile, makefile, and Makefile, in that order."
+
+However, separating the code which benefits from the extension requires
+that:
+- the amount of non-shared code (i.e. the size of GNUmakefile and
+  BSDMakefile files) is small and at least the data can be shared; this
+  is meant for a few specific functions that are currently shelled-out
+  because they are too difficult to write in POSIX make
+- most BSDs, if not all, can be supported without workarounds, kludges
+  or additional hurdles caused by their fragmentation (for instance,
+  OpenBSD's pmake is 10-years late compared to NetBSD's and has
+  several bugs that are long solved in NetBSD)
+
+
+*** Use configure-defined variables instead of "ocaml{c,opt}"... ***
+The creation of the cross-compiler will rely on a native toolchain on
+${build}. As such, ./configure will locate that toolchain and store its
+paths. This forbids any call like "./ocamlopt"; everything must rely on
+the paths found by configure.
+
+
+*** Use Int64.t in the compiler instead of Nativeint ***
+Currently, OCaml uses Nativeint to handle all the integers in the code
+that is being compiled. The "native" is for ${build}, not for ${target}.
+
+With a 64b host and 32b target, OCaml will output its values over 64
+bits in the assembly and ld will then complain and truncate them.
+
+Move to Int64.t instead and delay the conversion to the right bitness
+until code emiting. The following types change: Cmm.expression,
+Cmm.data_item, Arch.specific_operation, Mach.operation. After that it's
+mostly a matter of fixing the type errors (around 50); since I do not
+have all the platforms that OCaml supports, I need to devise a way to
+compile the files for the other architectures too as a quick test.
+
+(types to change: Cmm.{expression,data_item}, Arch.specific_operation,
+Mach.operation)
+
+*** For bytecode, assume C libraries contain the required primitives ***
+
+When doing linking for bytecode with -custom, OCaml will dlopen() the
+corresponding library and dlsym() the primitive as an early check for
+their availability at runtime.
+
+Quite obviously, this fails for cross-compilation and the only solution
+I can think of is to disable the check completely. I have already
+written the corresponding patch; it adds 4 trivial lines and changes
+one.
+
+*** Devil is in the details ***
+
+While I wish the list above was exhaustive, I know for sure that it
+isn't, partly because some of the changes needed are implementation
+details more than general approaches. Do not hesitate to ask for
+clarification on anything you might wonder.
+      
+** oleg then said:
+
+I think the following message is related
+        <https://sympa.inria.fr/sympa/arc/caml-list/2013-09/msg00090.html>
+(please also see the follow-ups)
+
+        and so your patch will also solve my problem. Solving several
+problems seems to make a good case for a patch.
+      
+** Xavier Leroy also replied, and Adrien Nader said:
+
+> > Some of the patches so far have caused issues to some people. 
+> 
+> s/some people/the core OCaml dev team/
+> 
+> > **************************** Further Goals ****************************
+> > - cross-compile the compiler: build a native Windows toolchain on Linux
+> > - canadian cross support: ${build}, ${target}, ${host} are all
+> >   different, i.e. on Linux, build a toolchain that runs on Windows 64b
+> >   but targets Windows 32b or a different architecture/OS like ARM Linux.
+> 
+> That could be a nice touch if it's not too much extra work.  The issue
+> was discussed at the last OCaml dev team meeting that Wojciech
+> attended, and we agreed that some scenarios were less important than
+> others, e.g. nobody really needs to compile from a 32-bit host for a
+> 64-bit target.
+> 
+> > ****************************** Approach ******************************
+> > *** A cross-compiler requires a native toolchain of the same version ***
+> > A working _native_ compiler toolchain of the _exact_ same version as the
+> > cross-toolchain is needed, both when building the cross-toolchain and
+> > when using it; the main reason was camlp4 but I believe it is still a
+> > valid restriction
+> 
+> Perhaps less so now that camlp4 is split off.  The alternative is to
+> configure for the host, populate boot/ with a ocamlrun and standard
+> library appropriate for the host, then reconfigure for the target, and
+> finish the build.
+
+Camlp4 was clearly the main component to require this but I have also
+been wondering about ocamldoc and ocamldep which can break because of
+new syntax.
+
+For now this requirements is probably the safe approach. Note that this
+restriction only checks for x.y.z versions, not for the tags than can
+come after 'z'; it made working with trunk too difficult.
+
+Also, as a packager, I prefer this. I find that the other approach makes
+packaging more difficult.
+
+> > *** Give up the restriction to POSIX for makefiles ***
+> > Either remove compatibility with BSD makes, or move GNU-make-isms to
+> > "GNUMakefile", BSD-makes-isms to "BSDMakefile" and common data to
+> > "Makefile.common" with the GNU/BSDMakefile files being the
+> > "entrypoints".
+> 
+> The unanimous message from the OCaml dev team is to commit on GNU make
+> and forget about compatibility with other variants of make.  BSD
+> people will forgive us, and it looks like the only sane way to merge
+> the Unix and Windows makefiles and support all the cross-compilation
+> scenarios.
+
+OK; I liked pmake and its descendants, partly because of their clean
+syntax with true flow control and thought it could be left as a
+possibility. Anyway, I will take that route.
+
+> > *** Use configure-defined variables instead of "ocaml{c,opt}"... ***
+> > The creation of the cross-compiler will rely on a native toolchain on
+> > ${build}. As such, ./configure will locate that toolchain and store its
+> > paths. This forbids any call like "./ocamlopt"; everything must rely on
+> > the paths found by configure.
+> 
+> See above: this might not be necessary.
+
+I believe you refer to configuring for host, populating boot and then
+configuring again for target. It's something I hadn't thought of and
+could work nicely. I need to experiment with this a bit and see how
+things would work out.
+
+> > *** Use Int64.t in the compiler instead of Nativeint ***
+> > Currently, OCaml uses Nativeint to handle all the integers in the code
+> > that is being compiled. The "native" is for ${build}, not for ${target}.
+> > With a 64b host and 32b target, OCaml will output its values over 64
+> > bits in the assembly and ld will then complain and truncate them.
+> > Move to Int64.t instead and delay the conversion to the right bitness
+> > until code emiting.
+> 
+> Constant propagation and maybe other passes of the compiler also need to
+> take bitsize into account.
+> 
+> If you're going this way, it's not Int64 the appropriate substitute
+> for Nativeint: it's Targetint, defined as Int32 or Int64 depending on
+> target bitsize.  (This can be expressed with first-class modules.)
+> 
+> There might be other ways if we assume bitsize(host) >= bitsize(target).
+
+I wish everyone (at least everyone doing devlopment) would have a 64b
+machine but it's not the case unfortunately. ='( 
+
+This is not an area in the compiler I know much, if any, about. This can
+most probably be worked on separately from the other patches; if someone
+wants to contribute and can do the changes, it will be much
+appreciated. :) 
+
+> > *** For bytecode, assume C libraries contain the required primitives ***
+> > When doing linking for bytecode with -custom, OCaml will dlopen() the
+> > corresponding library and dlsym() the primitive as an early check for
+> > their availability at runtime.
+> > Quite obviously, this fails for cross-compilation and the only solution
+> > I can think of is to disable the check completely. 
+> 
+> Probably there is no choice.  But it pains me to move link-time errors
+> to run-time (more exactly, program startup time).  If we program in
+> OCaml rather than Python, it's also for the early error detection.
+
+I see no cross-platform solution either. However, I expect most people
+to build natively before doing cross-compilation and that should catch
+most link errors hopefully (that's a small consolation).
+      
+** Benoît Vaugon then suggested and Adrien Nader replied:
+
+> For cross-compilation, have you seen opam cross-compiler packages
+> for win32 and win64:
+> <https://github.com/vouillon/opam-windows-repository>, and for
+> android: <https://github.com/vouillon/opam-android-repository>? These
+> repositories also provide opam packages for some cross-compiled
+> libraries, which is not simple because it requires both the host
+> ocaml compilers and the cross-ones. Itmight be interesting to
+> combineour efforts...
+
+I had been pointed to them a few months ago. From what I can tell, these
+patches to the compiler cannot be integrated upstream; they require
+"manual" steps like "make -C dir/ foo && mv bar baz && make -C dir2" and
+a few changes which can only apply to windows targets.
+
+By the way, the patches I've worked on were not started by me. However I
+cannot trace their path properly; as far as I can tell, they were
+started in Fedora, then went through debian and then mxe.cc.
+
+Looking at these pages, I notice that I forgot one component for the
+patches: ocamlfind and build system integration. IOW, how to cross-build
+libraries. I'll add that to the RFC.
+
+> As with your compiler, linking bytecode with -custom doesn't work
+> with these compilers too, due to the same reason.
+
+Actually, the patches I have make it possible to link bytecode with
+-custom; it's simply that the test that would fail for cross-compilation
+is skipped.
+      
+** Gabriel Kerneis then added and Richard Jones replied:
+
+> > By the way, the patches I've worked on were not started by me. However I
+> > cannot trace their path properly; as far as I can tell, they were
+> > started in Fedora, then went through debian and then mxe.cc.
+> 
+> As far as I can tell, Richard Jones, from Red Hat, is the original
+> author:
+> <http://caml.inria.fr/pub/ml-archives/caml-list/2008/11/48e7c6b3a40e5fa1d9555a3447820161.fr.html>
+
+Quite a while back I hacked the OCaml compiler to enable cross-
+compilation.  It kinda-sorta worked, but it was obvious [at that time,
+2008 apparently] that it would take a lot of work upstream to make the
+compiler friendly to cross-compilation.
+
+I haven't look at cross-compilation of OCaml since, although of course
+I'm still working on Fedora packaging, Aarch64 porting &c so I am
+still fairly familiar with the compiler build system & internals.
+
+Anyway, not sure what you were hoping I could do, except wish you good luck!
+      
+========================================================================
+2) InvarGenT v1.2: GADTs for invariants and postconditions
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2014-02/msg00121.html>
+------------------------------------------------------------------------
+** Lukasz Stafiniak announced:
+
+I am pleased to release version 1.2 of InvarGenT, a system that infers
+invariants and postconditions, and exports the corresponding GADTs-based
+OCaml code.
+<https://github.com/lukstafi/invargent/releases>
+
+The highlight of this release is the AVL trees example see:
+<https://github.com/lukstafi/invargent/blob/master/examples/avl_tree.gadt>
+<https://github.com/lukstafi/invargent/blob/master/examples/avl_tree.gadti>.
+target
+InvarGenT finds out that the height of a rotated tree can be the same as
+original tree or one bigger, the same fact for the tree with added
+element, that the height of merger of two trees is at most one bigger
+than that of the larger tree, and that removing an element can decrease
+the height of a tree, by at most 1.
+
+Changes:
+* Several bug fixes.
+* So-called "opti" relations: "k=min(m,n)" and "k=max(m,n)" in the
+numerical sort.
+* So-called "subopti" relations "k<=max(m,n)" and "min(m,n)<=k" in the
+numerical sort.
+* Less confusing syntax for existential types, "datatype" and "datacons"
+keywords.
+* Pattern-matching guards "when e1 <= e2", where e1 and "e2 are
+expressions of type "Num".
+* Positive assert clauses, "assert num e1 <= e2; ..." and "assert type
+e1 = e2; ...".
+* Flagship example: AVL trees with imbalance of 2 (based on the
+implementation from OCaml standard library).
+      
+========================================================================
+3) unix domain sockets on windows
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2014-02/msg00122.html>
+------------------------------------------------------------------------
+** Johannes Kanig asked and Gerd Stolpmann replied:
+
+> I wonder if unix domain sockets are supposed to be supported on
+> Windows? Here is a session with the ocaml toplevel (4.01.0) on my
+> Windows machine:
+> 
+> # #load "unix.cma";;
+> # Unix.socket Unix.PF_UNIX Unix.SOCK_STREAM 0;;
+> Exception: Unix.Unix_error (Unix.EUNKNOWNERR 0, "socket", "").
+> 
+> Is that expected? Replacing PF_UNIX with PF_INET works.
+
+There are no Unix-domain sockets on Windows.
+
+If you need local sockets, there are two possibilities:
+
+1) Use Internet sockets on the loopback device (127.0.0.1)
+
+2) Use named pipes, which work in a similar way as sockets, but have a
+quite different API (btw, "named pipes" on Windows are fundamentally
+different to "named pipes" on Unix). There are bindings for these in
+Ocamlnet (Netsys_win32 module,
+<http://projects.camlcity.org/projects/dl/ocamlnet-3.7.3/doc/html-main/Netsys_win32.html>).
+
+In any case, I'd recommend you read some background knowledge about the
+possibilities of the OS, because there are some hidden traps.
+      
+========================================================================
+4) Creating an OPAM package that wraps c functions that can be used in a non-custom utop
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2014-02/msg00141.html>
+------------------------------------------------------------------------
+** Mads asked and Daniel Bünzli replied:
+
+> I have a small OCaml library that wraps a couple of C functions that I wrote.
+> I'm able to compile the project to a .cmx?a file just fine using ocamlbuild.
+> 
+> I have the following files
+> 
+> src
+>     geolocalisation_c.c
+>     geolocalisation.ml
+>     geolocalisation.mllib
+> 
+> I want to be able to play around with my code in a top-level, and I'm able to
+> do this just fine with the following series of commands.
+> 
+>     ocamlbuild src/geolocalisation_c.o
+>     ocamlbuild -pkgs ounit src/geolocalisation.cma
+>     ocamlmktop -custom -cclib -lGeoIp _build/src/geolocalisation_c.o _build/
+> src/geolocalisation.cma -o myutop
+> 
+> To verify that it works I run
+> 
+>     ./myutop -I _build/src/
+>     #load "geolocalisation.cmo";;
+>     Geolocalisation.create_context;;
+> 
+> and I get the correct type-signature printed in the top-level.
+>
+> The next thing I want to do is create an OPAM package for it that my co-
+> workers and I can use. My question is, will I be able to create the package in
+> such a way that the library can be loaded into utop using topfind so we don't
+> have to build a custom top-level in the projects that use this library?
+
+Yes.
+
+> If it is possible, do you have any pointers to where I might find some
+> information about how to do it?
+
+First for generating the correct artefacts with ocamlbuild you can refer
+to these instructions:
+
+    <https://github.com/ocamllabs/ocaml-ctypes/issues/51#issuecomment-30729675>
+
+It uses ctypes so the stub C files is empty but ignore that, it also
+uses pkg-config for getting the cflags but you should be able to read
+through and simplify the myocamlbuild.ml if you don't need that.
+
+For the opam package use or generate a .install file at the toplevel of
+your distribution that will more or less look like this [1].
+
+Feel free to ask further questions if you need to.  
+
+Best,
+
+Daniel
+
+[1]
+lib: [
+"_build/META" {"META"}
+"_build/geolocalisation.mli" {"geolocalisation.mli"}
+"?_build/geolocalisation.cmti" {"geolocalisation.cmti"}
+"_build/geolocalisation.cmi" {"geolocalisation.cmi"}
+"_build/geolocalisation.cmx" {"geolocalisation.cmx"}
+"_build/geolocalisation.cma" {"geolocalisation.cma"}
+"_build/geolocalisation.a" {"geolocalisation.a"}
+"_build/geolocalisation.cmxa" {"geolocalisation.cmxa"}
+"_build/geolocalisation.cmxs" {"geolocalisation.cmxs"}
+]
+stublibs: [
+"_build/dllgeolocalisation.so" {"dllgeolocalisation.so"}
+]
+      
+========================================================================
+5) how to convert strings to Ocaml values at run-time?
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2014-02/msg00154.html>
+------------------------------------------------------------------------
+** Matej Kosik asked and Tianyi Cui replied:
+
+> I would like to ask, what is the easiest way how to:
+> - take given string, provided by the user at run time
+> - run it through lexer --> parser --> check given value, in the
+> current context, has a given type
+> - and bind the value to a variable (provided there were no
+> lexing/parsing/typechecking problems).
+> 
+> (I am not yet 100% sure, that this is the right direction to solve
+> my problem, but I am quite interested whether I could solve it this
+> way.)
+ 
+If you know the type of this string in advance, you can do so with
+ocaml_plugin: <https://github.com/janestreet/ocaml_plugin>
+      
+** Matej Kosik then asked and Tianyi Cui replied:
+
+> Hm, imagine that the expected type is:
+> 
+> 'a * 'a -> bool
+> 
+> Now, if user provides a string, say:
+> 
+> "fun (a,b) -> a = b"
+> 
+> how can I convert that string to Ocaml value of the above type (like
+> how toplevel does it)?
+> 
+> Is this something ocaml_plugin is able to do for me? I've failed to
+> figure out the trick.
+
+You can try to compile and run the hello_world example of ocaml_plugin:
+<https://github.com/janestreet/ocaml_plugin/blob/master/hello_world>
+
+It has a Plugin_intf module to specify the type of module expected from
+loaded file. For you, it should probably be:
+
+module type S = sig
+val equal : ('a * 'a) -> bool
+end
+
+Then you can use Ocaml_compiler module to dynamically load modules with
+this signature as demonstrated in run.ml
+      
+========================================================================
+6) OASIS 0.4.2
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2014-02/msg00156.html>
+------------------------------------------------------------------------
+** Sylvain Le Gall announced:
+
+I just released OASIS v0.4.2.
+
+  * Major changes:
+
+    * Change BSD3 and BSD4 to BSD-3-clause and BSD-4-clause to comply with
+      DEP5, add BSD-2-clause. BSD3 and BSD4 are still valid but marked as
+      deprecated.
+      More information:
+      <http://dep.debian.net/deps/dep5/#license-specification>
+
+    * Enhance .cmxs supports through the generation of .mldylib files.
+      When one of the modules of a library has the name of the library,
+      ocamlbuild tends to just transform this module into a .cmxs. Now, the use
+      of a .mldylib fix that problem and the .cmxs really contains all modules
+      of the library.
+
+    * Refactor oasis.cli to be able to create subcommand plugins.
+      * Exported modules starts now with CLI.
+      * Display plugins in the manual.
+      * Design so that it is possible to be thread-safe.
+      * Try to minimize the number of functions.
+      * Make better choice of name and API.
+      * A subcommand plugin 'dist' to create tarball is in preparation, as a
+        separate project.
+
+    * Remove plugin-list subcommand, this command was limited and probably not
+      used. A better alternative will appear in next version.
+
+    * Sub-command setup-dev is now hidden and will soon be removed.
+
+  * Minor changes:
+
+    * Refactor ocamlbuild build plugin to have some features in doc plugin.
+      XOCamlbuilExtraArgs and XOCamlbuildPluginTags are now available for
+      Document. The flag '-use-ocamlfind' is set for doc and build plugin.
+
+    * Reorganize the test/data directory, each toplevel test has now its
+      dedicated subdirectory in test/data.
+
+    * Start to work on better support of syntax extension:
+      * Remove archive(syntax,{byte,native}) from the META, this was causing
+        an issue when trying to compile.
+      * Add an example that creates a syntax extension.
+      * Add support for auto-guessing syntax_camlp4o when one of the syntax
+        extension shipped with camlp4 is in a build depends.
+
+    * Allow to include $(X) in CCOpt/CClib.
+      This patch helps to enable variable susbtitution for flags. This allow to
+      write a PostConfCommand script to insert this data in setup.data and have
+      them back when running OCamlbuild.
+
+    * Raise error when "true" or "false" are not spelled correctly.
+
+    * Fix some warnings about "Field X is set but matcing plugin Z is not enabled."
+
+Full blog post here:
+<http://le-gall.net/sylvain+violaine/blog/index.php?post/2014/02/18/Release-OASIS-0.4.3>
+(version in the URL is wrong, sorry about that)
+      
+** Jacques-Pascal Deplaix then announced:
+
+Now available in opam.
+      
+========================================================================
+7) camlp4 for js_of_ocaml toplevels
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2014-02/msg00146.html>
+------------------------------------------------------------------------
+** Andy Ray asked and Anil Madhavapeddy replied:
+
+> Is anyone working on making camlp4 extensions available in a
+> js_of_ocaml toplevel?
+> 
+> I have seen the work the OCamlPro guys have done to get pa_js going by
+> hacking the compiler itself - serious kudos for that!
+> 
+> Is there a reason why that's easier than js_of_ocaml compiling a
+> (static) version of camlp4?
+
+Leo White put together a custom compiler frontend for just this use
+case a while back:
+
+<https://github.com/lpw25/ocaml-with-pp>
+
+The idea is that you build this with a static set of camlp4 extensions,
+and it runs the input through camlp4 and then passes the AST directly
+through to the compiler (via compiler-libs). 
+
+It should be reasonably easy to adapt this to a toplevel model
+as well -- let us know if you need a hand.
+      
+** Andy Ray then added:
+
+A good amount of hacking and I have some camlp4 code running via js_of_ocaml.
+
+I basically took the compilation process of camlp4orf, added pa_js.cmo
+and slightly modified the driver program so it took a static command
+line of the form `-str "let a = b##c"`.  Also needed a bit of hacking
+around temp file generation.
+
+My next step is to try and figure out a way to get camlp4 to transform
+"string -> string" rather than "hacked js_of_ocaml psuedo file ->
+hacked console log in browser".  Can't say I ever really wanted to
+know much about the insides of camlp4, but there you go....
+
+One thing I noticed was when I (accidentally) had unix_isatty
+returning false, and presumably camlp4 attempting to marshal a
+compiler ast the js_of_ocaml runtime would die with a JSON error.  I
+presume this is an issue with js_of_ocaml's marshalling code?
+      
+========================================================================
+8) Using bisect and coveralls.io
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2014-02/msg00166.html>
+------------------------------------------------------------------------
+** Julien Sagot announced:
+
+I would like to let you know that using <https://coveralls.io> (code
+coverage history and stats) is now possible for ocaml projects.
+
+Xavier Clerc modified his bisect tool, adding coveralls output, and I
+wrote a little script to automatically set missing fields and send it
+to coveralls.io
+
+See it here: <https://github.com/sagotch/ocveralls>
+
+As modified version of bisect as not been released yet, you need to
+install it from sources. I uploaded it on my website, so you can use
+this archive directly. See an example of how to install it on travis
+here: <https://github.com/sagotch/ocveralls/blob/master/.travis-ci.sh#L24>
+
+Compile your project as usual, and call the script as you would call
+bisect-report, omitting the output format/name parameters. Examples
+here: <https://github.com/sagotch/ocveralls/blob/master/.travis.yml#L11>
+or here: <https://github.com/pastek-project/pastek/blob/master/.travis.yml#L11>
+
+Any comment or improvement (pull request would be the best) is welcome.
+
+Any confirmation that it works on other platform than travis-ci would be great.
+      
+========================================================================
+9) Other OCaml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocaml.org/>.
+
+Release of OASIS 0.4.2:
+  <http://le-gall.net/sylvain+violaine/blog/index.php?post/2014/02/18/Release-OASIS-0.4.3>
+
+Full Time: Software Developer (Functional Programming) at Jane Street in New York, NY; London, UK; Hong Kong:
+  <http://jobs.github.com/positions/0a9333c4-71da-11e0-9ac7-692793c00b45>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

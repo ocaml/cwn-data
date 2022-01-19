@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+	<cwn_head>
+		<cwn_date>2009.02.24</cwn_date>
+		<cwn_prev>2009.02.17</cwn_prev>
+		<cwn_next>2009.03.03</cwn_next>
+		<cwn_date_text>February 17 to 24, 2009</cwn_date_text>
+	</cwn_head>
+	<cwn_body>
+		<cwn_entry>
+			<cwn_title>Lazy and Threads</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/5f6c1634d72114df#</cwn_url>
+			<cwn_who>Victor Nicollet asked, Yaron Minsky replied, and Xavier Leroy explained</cwn_who>
+			<cwn_what>
+Victor Nicollet wrote:
+&gt; I'm working with both lazy expressions and threads, and noticed that the
+&gt; evaluation of lazy expressions is not thread-safe:
+
+Yaron Minsky wrote:
+&gt; At a minimum, this seems like a bug in the documentation. The
+&gt; documentation states very clearly that Undefined is called when a value
+&gt; is recursively forced.  Clearly, you get the same error when you force a
+&gt; lazy value that is in the process of being forced for the first time....
+&gt; It does seem like fixing the behavior to match the current documentation
+&gt; would be superior to fixing the documentation to match the current behavior.
+
+It's not just the Lazy module: in general, the whole standard library
+is not thread-safe.  Probably that should be stated in the
+documentation for the threads library, but there isn't much point in
+documenting it per standard library module.
+
+As to making the standard library thread-safe by sprinkling it with
+mutexes, Java-style: no way.  There is one part of the stdlib that is
+made thread-safe this way: buffered I/O operations.  (The reason is
+that, owing to the C implementation of some of these operations, a
+race condition in buffered I/O could actually crash the whole program,
+rather than just result in unexpected results as in the case of pure
+Caml modules.)  You (Yaron) and others recently complained that such
+locking around buffered I/O made some operations too slow for your
+taste.  Wait until you wrap a mutex around all Lazy.force
+operations...
+
+More generally speaking, locking within a standard library is the
+wrong thing to do: that doesn't prevent race conditions at the
+application level, and for reasonable performance you need to lock at
+a much coarser grain, again at the application level.  (That's one of
+the things that make shared-memory programming with threads and locks
+so incredibly painful and non-modular.)
+
+Coming back to Victor's original question:
+
+&gt; Aside from handling a mutex myself (which I don't find very elegant for
+&gt; a read operation in a pure functional program) is there a solution I can
+&gt; use to manipulate lazy expressions in a pure functional multi-threaded
+&gt; program?
+
+You need to think more / tell us more about what you're trying to
+achieve with sharing lazy values between threads.
+
+If your program is really purely functional (i.e. no I/O of any kind),
+OCaml's multithreading is essentially useless, as you're not going to
+get any speedup from it and would be better off with sequential
+computations.  If your program does use threads to overlap computation
+and I/O, using threads might be warranted, but then what is the
+appropriate granularity of locking that you'd need?
+
+A somewhat related question is: what semantics do you expect from
+concurrent Lazy.force operations on a shared suspension?  One thread
+blocks while the other completes the computation?  Same but with busy
+waiting?  (if the computations are generally small).  Or do you want
+speculative execution?  (Both threads may evaluate the suspended
+computation.)
+
+There is no unique answer to these questions: it all depends on what
+you're trying to achieve...
+			</cwn_what>
+		</cwn_entry>
+		<cwn_entry>
+			<cwn_title>true parallelism / threads</cwn_title>
+			<cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/5b8405aec126996d#</cwn_url>
+			<cwn_who>Atmam Ta asked</cwn_who>
+			<cwn_what>
+I am trying to evaluate ocaml for a project involving large scale numerical
+calculations. We would need parallel processing, i.e. a library that
+distributes jobs accross multiple processors within a machine and accross
+multiple PCs.
+Speed and easy programability are important. I have tried to search this
+issue first, but the postings I found were usually negative and 4-5 years
+old. On the other hand, I see a number of libraries in the Hump that by now
+might be taking care of these things.
+
+My question is: is ocaml good for parallel processing / hreaded computation,
+are there (mature) libraries or tools that let developers make use of
+multicore and multimachine environments?
+			</cwn_what>
+			<cwn_who>Yoann Padioleau suggested</cwn_who>
+			<cwn_what>
+MPI ... 
+http://pauillac.inria.fr/~xleroy/software.html#ocamlmpi 
+
+Then it's quite easy to define your own helpers on top of that. 
+Here is for example my poor's man google map-reduce in ocaml: 
+http://aryx.kicks-ass.org/~pad/darcs/commons/distribution.ml
+			</cwn_what>
+			<cwn_who>Hezekiah M. Carty also replied</cwn_who>
+			<cwn_what>
+There are several libraries available which seem to be reasonably 
+usable in their current state. 
+Distributed processing across multiple machines: 
+- OCAMLMPI - http://pauillac.inria.fr/~xleroy/software.html 
+- OCamlP3l - http://camlp3l.inria.fr/eng.htm 
+- BSML - http://frederic.loulergue.eu/research/bsmllib/bsml-0.4beta.html 
+
+Fork-based parallelism for exploiting multiple cores/processors locally: 
+- Prelude.ml - http://github.com/kig/preludeml/tree/master 
+
+There is also JoCaml (&lt;http://jocaml.inria.fr/&gt;), which is an extension 
+of OCaml itself.  JoCaml has examples for various distributed 
+processing methods.
+			</cwn_what>
+			<cwn_who>Will M. Farr also replied</cwn_who>
+			<cwn_what>
+I've had some luck using OCaml with MPI (using the OCamlMPI library at
+http://caml.inria.fr/cgi-bin/hump.en.cgi?contrib=401 ).  That may not
+satisfy your needs as far as multi-core goes, but perhaps it will.  I
+can't speak to the speed of the interface (my operations were
+compute-bound on the individual processors, not communication bound,
+so any OCaml overhead on the MPI communication was lost in the noise),
+but it was definitely easy to use.  At the extreme easy-to-use end,
+you can simply send arbitrary OCaml values over the MPI channels; for
+more performance, you can use the functions specific to common types
+(float arrays, int arrays, etc) to speed up the operations.
+
+As far as single-core OCaml speed goes, I find that it is always
+within a factor of 2 of C for straight-line loops (i.e. matrix-vector
+multiply, etc), and usually *much* faster whenever more complicated
+data structures are involved (maps, binary trees, etc), unless you
+really sweat blood with the C implementation.
+			</cwn_what>
+			<cwn_who>Markus Mottl also replied</cwn_who>
+			<cwn_what>
+For heavy-duty linear algebra you might want to use Lacaml:
+
+ http://ocaml.info/home/ocaml_sources.html#lacaml
+
+It interfaces almost all functions in BLAS and LAPACK and allows
+executing multiple computations in several threads in parallel on
+multi-core machines.  If you combine this with some tool for
+distributed computation (e.g. MPI-based, etc.), you should get what
+you need.
+			</cwn_what>
+			<cwn_who>Gerd Stolpmann also replied</cwn_who>
+			<cwn_what>
+ocamlnet contains a mature sunrpc implementation, and a framework for
+multi-processing. It is used in professional cluster environments, e.g.
+by the Wink people searcher.
+
+See here for a commented example:
+http://blog.camlcity.org/blog/parallelmm.html
+			</cwn_what>
+		</cwn_entry>
+	</cwn_body>
+</cwn>

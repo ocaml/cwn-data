@@ -1,0 +1,332 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of December 05 to 12, 2006.
+
+1) updated godi package for wyrd
+2) Creating wrappers for C libraries
+3) A Question About Types and Inlining
+4) APC, IMT, IceDock
+5) OCaml D-Bus 0.01
+
+========================================================================
+1) updated godi package for wyrd
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/564022557689d7c8/134ec5d0deea2049#134ec5d0deea2049>
+------------------------------------------------------------------------
+** Owen Gunden announced:
+
+I've updated the godi package for wyrd to version 1.4.1. 
+Wyrd is a curses-based front-end to remind.  The home page is here: 
+  <http://www.eecs.umich.edu/~pelzlpj/wyrd/>
+			
+========================================================================
+2) Creating wrappers for C libraries
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/17ef21c85b41a729/6b6e3a5c4fa59fd4#6b6e3a5c4fa59fd4>
+------------------------------------------------------------------------
+** Erik de Castro Lopo asked:
+
+I've had a look at chapter 12 of the O'Rielly book as well as the 
+wrapper for ocaml-fftw3 and cairo-ocaml and it all seems a little 
+daunting. 
+
+I was wondering if there was any semi-automated too for creating 
+Ocaml bindings for C libraries. 
+
+Any pointers appreciated.
+			
+** Chris King answered:
+
+I recently discovered that SWIG (<http://www.swig.org/>) supports O'Caml 
+(though I haven't yet used it myself).  If you're looking for speed 
+though it may not be the best choice since all C types are mapped to 
+one variant type in O'Caml.  You can find O'Caml-specific docs here: 
+<http://www.swig.org/Doc1.3/Ocaml.html> 
+I presume you're looking to wrap libsndfile...  I've wrapped a few 
+similar libraries manually with very few problems.  The libsndfile API 
+looks to me like it should be fairly straightforward to wrap thanks to 
+O'Caml's Bigarrays (plus you'll have lots of cut & paste). 
+
+Start by writing a few simple integer, string, or array functions for 
+O'Caml in C to get a feel for the API without having to worry about 
+custom blocks and such.  The curses wrapper in chapter 18 of the 
+O'Caml manual is also a very good starting point.  The custom block 
+from that example can be used nearly verbatim for many C structures 
+(such as SNDFILE *).  I can provide you with the source of a couple 
+other small wrappers if you like.
+			
+** Richard Jones also answered:
+
+Obviously there are some semi-automated ways, such as SWIG and camlidl 
+mentioned already.  But I would definitely urge you to look at doing 
+the wrapping by hand.  It's really not that hard, although you should 
+pay careful attention to ch18 of the manual. 
+Rich. 
+
+ch18: <http://caml.inria.fr/pub/docs/manual-ocaml/manual032.html>
+			
+** Daniel Bünzli added:
+
+Another way is to meta program the bindings using C macros,   
+especially if many stubs have the same structure, have a look at the   
+file ml_gl.h in lablgl [1]. 
+Daniel 
+
+[1] <http://wwwfun.kurims.kyoto-u.ac.jp/soft/lsl/lablgl.html>
+			
+========================================================================
+3) A Question About Types and Inlining
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/05aa9092201b2f75/87dbac19682ca592#87dbac19682ca592>
+------------------------------------------------------------------------
+** Jim Grundy asked:
+
+I'm working on a SAT solver in OCaml.  The solver has various types, 
+like three-valued bools, variables, literals.  I have modules that 
+encapsulate these types and the operations on them. 
+
+Now, as it turns out, all these types are represented as ints, but the 
+other modules that use those types don't need to know that - and as a 
+matter of taste I'd rather not expose this. 
+
+The signatures of these modules currently contain lines like this: 
+
+type variable (* = int *) 
+
+If I uncomment all instances of (* = int *) and reveal the 
+representation to the compiler then I get a ... 36% performance 
+improvement in the SAT solver. 
+
+I have two questions: 
+
+1/ Is there some way I can reveal this representation to the parts of 
+the system that clearly need it for effective optimization, without 
+opening this up for general use. 
+
+2/ Failing that, has someone got a pleasant method of doing conditional 
+compilation so that I can switch these comments on and off with ease? 
+
+I'm using version 3.09.2 of ocamlopt.
+			
+** Chris Stork answered the first question:
+
+<http://martin.jambon.free.fr/opaque/Opaque.html> seem to be what you're
+looking for in the particular case of ints.
+			
+** Philippe Wang suggested:
+
+I saw once that there were a lot of optimizations based on types 
+informations, especially on basic types... So hidding some type 
+information would lead to prevent the compiler from some optimization... 
+
+Well, I wonder about how to hide the information from the users without 
+hiding it to the type checker... 
+
+Typically the function compare (or other comparison operators) have to 
+check the kinds of their arguments, except when the compiler knows that 
+their types are basic types... 
+
+Well, I guess you use a lot the function compare ? 
+
+Have you tried to force the polymorphic functions' types that are only 
+used with integers with the type int ? 
+(to take back the performance, you will have to tell explicitely the 
+compiler to optimise them... or change the compiler code... I guess.)
+			
+** Eric Cooper suggested and Jon Harrop answered:
+
+> You can use 
+>   type variable = Variable of int 
+>   etc. 
+> in your signatures. 
+> This makes the representation visible for optimization purposes, 
+> incurs no representation overhead, 
+
+In OCaml, that imposes a huge representation overhead.
+			
+** Andrej Bauer suggested:
+
+You can use multiple signatures and modules to combine things just the 
+way you want them. For example, you could have modules and signatures 
+organized as follows (I made up some types which don't really make sense 
+for SAT): 
+(** The SAT module as seen from the outside. *) 
+module type SAT = 
+sig 
+   module Solver : 
+   sig 
+     type variable (* abstract *) 
+     type problem  (* abstract *) 
+     type solution = (variable * bool) list 
+     val solve : problem -> solution 
+   end 
+
+   module SomethingUseful : sig ... end 
+end 
+
+module Sat : SAT = 
+struct 
+   (* inside SAT all types are concrete *) 
+
+   type variable = int 
+   type problem = (variable * variable * variable) array 
+   type solution = (variable * bool) list 
+
+   module SatHelper = 
+   struct 
+     (* here is a helper module which is not even seen from outside *) 
+     (* it can rely on internal representation *) 
+     let internal_solve = ... 
+   end 
+
+   (* The module Solver is exported, we put in it exactly what we want 
+       the user to see. *) 
+   module Solver = 
+   struct 
+     type variable = variable 
+     type problem = problem 
+     type solution = solution 
+     let solve = SatHelper.internal_solve 
+   end 
+
+   module SomethingUseful = struct ... end 
+end 
+
+My point is that by nesting modules and exposing just the right amount 
+of their interfaces through several different signatures, you can 
+control precisely what is seen from where. There is no need to always 
+realy on the simplistic view 
+
+   module    = .ml file 
+   signature = .mli file 
+
+which is just a convenient shortcut that works in simple examples. 
+
+Best regards, 
+
+Andrej 
+
+P.S. The example above makes it look as if you have to stick everything 
+inside one huge file. That's not true, as you can use "include", as well 
+as type sharing constraints ("with type1 = type2") to expose certain 
+types between modules.
+			
+** Nicolas Pouillard also answered:
+
+I take the second part of your question since the obvious answer is camlp4: 
+There is an extension called pa_macro that provides conditional compilation. 
+
+Alas this extension doesn't work with signatures so the following 
+example is not (yet) supported: 
+
+(* foo.mli *) 
+IFDEF ABSTRACT THEN 
+type t 
+ELSE 
+type t = int 
+ENDIF 
+
+To address that shortcoming you can write an extension syntax dealing 
+with some semi-opaque types. Such an extension can allow us to write 
+that: 
+
+(* foo.mli *) 
+type t = semi opaque int 
+
+And have compilation option to set: 
+
+# For an abstract version 
+$ ocamlc -c -pp "camlp4o ./pa_opaque.cmo -abstract" foo.mli 
+
+# For a concrete version 
+$ ocamlc -c -pp "camlp4o ./pa_opaque.cmo -concrete" foo.mli 
+
+With this extension: 
+
+-----------8<----------------------------------------------------------
+(* pa_opaque.ml *) 
+open Pcaml;; 
+let abstract = ref true;; 
+EXTEND 
+ctyp: [[ LIDENT "semi"; LIDENT "opaque"; t = SELF -> 
+  if !abstract then <:ctyp< 'abstract >> else t 
+]]; 
+END;; 
+
+Pcaml.add_option "-abstract" (Arg.Set abstract) 
+  "Use abstract types for semi opaque ones";; 
+Pcaml.add_option "-concrete" (Arg.Clear abstract) 
+  "Use concrete types for semi opaque ones";; 
+-----------8<----------------------------------------------------------
+
+Compiled that way: 
+
+$ ocamlc -c -I +camlp4 -pp "camlp4o pa_extend.cmo q_MLast.cmo" pa_opaque.ml
+			
+========================================================================
+4) APC, IMT, IceDock
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/8749f40cea2c4612/33afc80159041316#33afc80159041316>
+------------------------------------------------------------------------
+** malc announced:
+
+At 
+<http://www.boblycat.org/~malc/apc/> 
+<http://www.boblycat.org/~malc/imt/> 
+<http://www.boblycat.org/~malc/icedock/> 
+
+you can find new versions of (0.96, 1.00, 0.4 respectively): 
+CPU load monitor 
+Microsoft command line utilities helper 
+Window Maker like dock utility 
+
+APC was ported to Linux/PPC 
+
+IMT was adjusted to work better with path names with spaces in them 
+
+IceDock finally works correctly on systems with LSB images. 
+The bug was in excellent XLib by Fabrice Le Fessant and was there 
+forever as far as i can see. XLib was also slightly adjusted so 
+that newer OCaml compilers produce less warning messages.
+			
+========================================================================
+5) OCaml D-Bus 0.01
+Archive: <http://groups.google.com/group/fa.caml/browse_frm/thread/6c389cef92adb46a/5da6aa78ea782f00#5da6aa78ea782f00>
+------------------------------------------------------------------------
+** Vincent Hanquez:
+
+Just to announce the first release of ocaml-dbus, version 0.01. 
+This is an alpha release (few memory leaks, missing some proper finalize 
+function, and maybe segfault lurking), and the library is quite big so 
+not everything is wrapped. 
+
+However it should works for basic use, and the test program should be 
+enough to get to know how to use it. 
+
+project page: 
+<http://tab.snarc.org/projects/ocaml_dbus/> 
+
+direct download link: 
+<http://tab.snarc.org/download/ocaml/ocaml_dbus-0.01.tar.bz2>
+			
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

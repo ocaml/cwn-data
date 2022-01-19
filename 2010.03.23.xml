@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2010.03.23</cwn_date>
+    <cwn_prev>2010.03.16</cwn_prev>
+    <cwn_next>2010.03.30</cwn_next>
+    <cwn_date_text>March 16 to 23, 2010</cwn_date_text>
+  </cwn_head>
+	<cwn_body>
+	  <cwn_entry>
+	   <cwn_title>Lazy modules</cwn_title>
+	   <cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/63d04044f0588a37#</cwn_url>
+	   <cwn_who>Dario Teixeira asked</cwn_who>
+	   <cwn_what>
+I've come across a problem which though novel to me, I presume must be
+familiar to those with more ML baggage.  Namely, I need a module whose
+values are not known at the initialisation stage, since they can only
+be determined after reading a configuration file.  If this were a lone
+value, I would declare it as a lazy value which when forced would read
+from the configuration file.  But how can I achieve similar semantics
+with a whole module?
+
+In a sense I need a lazy module.  Also, note that I find the solution
+of declaring all values in that module as lazy a bit inelegant.
+
+I do have a solution which though hackish and relying on a language
+extension (local modules) seems to work: I create the module on demand
+via a functor parameterised over an empty sig:
+
+module Socket_maker (S: sig end) : Client.SOCKET =
+struct
+   let sockaddr = !Config.sockaddr
+   let sockdomain = !Config.sockdomain
+   let socktype = !Config.socktype
+   let sockproto = !Config.sockproto
+end
+
+let foo =
+   let module Socket = Socket_maker (struct end) in
+   ...
+
+But I wonder a) what's the penalty associated with the runtime application of
+the functor, and b) if there's some better way of doing this. Any thoughts?
+	   </cwn_what>
+	   <cwn_who>Alain Frisch replied</cwn_who>
+	   <cwn_what>
+Here is a variant of your version with first-class modules (which will be
+available in OCaml 3.12). Compared to your version, we get the benefit of
+laziness (the "functor body" is evaluated only once).
+
+
+module Config =
+ struct
+   let x = ref "XXX"
+ end
+
+module type S =
+ sig
+   val x: string
+ end
+
+let lazy_module =
+ lazy
+   (
+    let module M =
+      struct
+        let x = !Config.x
+      end
+    in
+    (module M : S)
+   )
+
+let foo () =
+ let module M = (val Lazy.force lazy_module : S) in
+ M.x
+	   </cwn_what>
+	   <cwn_who>David Allsopp said and Alain Frisch replied</cwn_who>
+	   <cwn_what>
+&gt; AFAIK local modules is a syntax extension not a compiler extension - I
+&gt; expect (not looked at it) that the syntax extension simply alpha renames
+&gt; all the local module declarations to make them unique and puts them
+&gt; globally... a very useful extension but no expressive power added.
+
+This is not true. Local modules are not lifted in any way. This is not simply
+a syntax extension. For instance, if the local module has toplevel
+side-effects (e.g. a structure item like: let () = print_endline "Hello"),
+then the side effect will occur every time the local module is evaluated.
+
+At runtime, a structure is represented simply by a block with GC tag 0,
+exactly as a record or a tuple. The block contains dynamic components of the
+structure (values, sub-modules, exceptions, classes) in the order given by its
+signature. Evaluating a structure simply evaluates its runtime components a
+build the block.
+
+A functor is represented as a function.
+
+
+&gt; The module system at present is a compile time feature (I think that's
+&gt; universally true - even with weird things like recursive modules) -
+&gt; functors are simply a way of introducing more modules so there is no
+&gt; runtime overhead in using a functor.
+
+Modules and functors are much more dynamic than what you believe. The
+introduction of first-class module did not require any change in the way
+modules are compiled.
+
+A local module which is a functor application really applies the functor at
+runtime and evaluates the functor body every time the local module expression
+is evaluated.
+	   </cwn_what>
+	  </cwn_entry>
+	  <cwn_entry>
+	   <cwn_title>Building multiple configurations?</cwn_title>
+	   <cwn_url>http://groups.google.com/group/fa.caml/browse_thread/thread/93d840667c29b5f8#</cwn_url>
+	   <cwn_who>Grant Olson asked</cwn_who>
+	   <cwn_what>
+I'm doing something weird here and I'm thinking there has to be a better
+way.
+
+I've got a configuration file that's a .ml file.  And I do want it to be
+an .ml file that gets included at compile time, not some .txt config
+file that gets read in at runtime.  I'm building two different versions
+of my app, with two different configurations.
+
+Basically, I want to do the same thing as a C #ifdef:
+
+#ifdef VERSION2
+  ... include version one
+#else
+  ... include version two
+#endif
+
+And then the two different builds link in two different object files
+that have the same interface, creating the two different versions of the
+app.
+
+At first I thought I could write out the "module" and "module type"
+stuff manually, giving the same module name in two differently named
+files.  But this of course creates a sub-module that isn't bound to the
+right namespace, and linking fails.
+
+What I'm doing now is using the -impl flag.  I've got two files:
+config.ml, and config.alt.  The second version builds with "-impl
+config.alt" in the list of files passed to ocamlopt instead of "config.ml"
+
+This works, but it just seems wrong.  Is there a better way for me to do
+this?
+	   </cwn_what>
+	   <cwn_who>Michael Ekstrand suggested and Grant Olson replied</cwn_who>
+	   <cwn_what>
+&gt; You could also have the two different module implementations under
+&gt; different names and have the build system symlink or copy the correct
+&gt; one in place prior to building.  In OMake, this is easy with the
+&gt; 'ln-or-cp' command.
+&gt;
+
+Exactly what I want.  Now that you've pointed it out, it seems so
+obvious.  Just copy the files and treat the copy as a build artifact.
+Thanks.
+	   </cwn_what>
+	   <cwn_who>Martin Jambon also suggested</cwn_who>
+	   <cwn_what>
+I implemented a "C preprocessor" for OCaml called cppo that lets you do that.
+ It may not be the best choice here but I think it's worth some advertising:
+
+ http://martin.jambon.free.fr/cppo.html
+	   </cwn_what>
+	  </cwn_entry>
+	  <cwn_entry>
+      <cwn_title>Other Caml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocamlcore.org/&gt;.
+
+GADTs for the Rest of Us:
+  &lt;http://alaska-kamtchatka.blogspot.com/2010/03/gadts-for-rest-of-us.html&gt;
+
+Looking for a C software for Formal Verification:
+  &lt;http://bentobako.org/david/blog/index.php?post/2010/03/17/Looking-for-a-C-software-for-Formal-Verification&gt;
+
+OCaml Unix course, the pipes chapter is translated:
+  &lt;http://forge.ocamlcore.org/forum/forum.php?forum_id=562&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

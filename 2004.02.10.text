@@ -1,0 +1,286 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of 03 to 10 February, 2004.
+
+1) Aqua ocamlbrowser on Mac OS X
+2) ocamldelaunay 1.0
+3) MLpcap-0.7 released
+4) How to read a password without displaying it?
+5) Announce: schoca-0.2.0
+6) ocaml-related job openings in Manhattan
+
+========================================================================
+1) Aqua ocamlbrowser on Mac OS X
+------------------------------------------------------------------------
+** Shivkumar Chandrasekaran described:
+
+Following Trevor's suggestions (see
+<http://caml.inria.fr/archives/200211/msg00163.html>) I am now able to
+get *my* labltk programs to run in native Mac OS X Aqua mode (using
+TclTkAquaBI-8.4.5.0.dmg from
+<http://www.maths.mq.edu.au/~steffen/tcltk/TclTkAqua/>). Thanks, Trevor!!
+
+What follows is what I did to get ocamlbrowser to run as a native Aqua
+app. First I followed Trevor's suggestions. That did not work if I
+double-clicked on Ocamlbroswer.app. I then tried from the command line
+
+open -a Ocamlbrowser
+
+That at least let ocamlbrowser display its error message that the
+options to the command line were at fault. All the Console showed in
+the log was a dreaded "RegisterProcess failed (error -50)" message.
+
+So I edited the source file ..../otherlibs/labltk/browser/main.ml and
+essentially commented out the command line argument parsing step. I did
+"make" and moved the new binary into OCamlbrowser.app/Contents/MacOS/
+and everything works pretty nicely now. The only problem I have noticed
+is that clicking in the scroll bar does not work. You have to catch the
+scroll-button and move it with the mouse. Everything else seems to work
+too.
+
+If somebody needs the modified source I can email it. I hope some
+similar hack can make labltk work too.
+
+To make this complete we must find some way of passing the command line
+options, but that is for somebody else to do.
+    
+** Trevor Jim added:
+
+I debugged the following when getting a version of Unison running in
+Aqua:
+
+    /* When you click-start or use the open command, the program is
+invoked with
+       a command-line arg of the form -psn_XXXXXXXXX.  The XXXXXXXX is
+a "process
+       serial number" and it seems to be important for Carbon programs.
+ We need
+       to get rid of it if it's there so the ocaml code won't exit.
+Note, the
+       extra arg is not added if the binary is invoked directly from
+the command
+       line without using the open command. */
+    if (argc == 2 && strncmp(argv[1],"-psn_",5) == 0) {
+        argc--;
+        argv[1] = NULL;
+    }
+
+I just put that in main before calling caml.  (I am calling caml from
+ObjC.)
+    
+========================================================================
+2) ocamldelaunay 1.0
+------------------------------------------------------------------------
+** Issac Trotts announced:
+
+A simple-minded, O(N^2), floating-point, 2D Delaunay triangulator
+without constraints is now available at
+
+  <http://redwood.ucdavis.edu/~issac/software/ocamldelaunay-1.0.tar.gz>
+
+The license is BSD-style, to encourage including the code in other
+projects.
+    
+========================================================================
+3) MLpcap-0.7 released
+------------------------------------------------------------------------
+** Jonathan Heusser announced:
+
+MLpcap-0.7 has been released and can be downloaded from:
+<http://www.drugphish.ch/~jonny/mlpcap.html>
+
+MLpcap provides access to all libpcap functions from Ocaml.
+
+This release includes following changes:
+       o added function pcap_findalldevs
+       o changed pcap_datalink so that it returns
+         directly a value of type datalink (e.g. DLT_EN10MB)
+       o IDL file is now included to generate the stub code
+       o changed Makefiles
+       o fixed example bugs
+    
+========================================================================
+4) How to read a password without displaying it?
+------------------------------------------------------------------------
+** David Mentré asked:
+
+In my textual OCaml program, I would like to read a password. Currently,
+I'm using read_line which is not very satisfying as the password is
+display on screen.
+
+  let passwd = read_line () in
+
+Any idea how I might read the password without displaying it?
+
+I tried the following function, using input_char, but the password is
+still displayed on screen:
+
+let read_password () =
+  let password_chars = ref [] in
+  let loop = ref true in
+  while !loop do
+    let c = input_char stdin in
+    if c <> '\n' then (
+      password_chars := c :: !password_chars
+     ) else (
+      loop := false
+     )
+  done;
+  let password = String.create (List.length !password_chars) in
+  let _, res = List.fold_right (fun c (i, s) -> s.[i] <- c; (i+1, s))
+      !password_chars (0, password) in
+  res
+
+
+Many thanks in advance for any help
+    
+** Maxence Guesdon suggested:
+
+In Cash (<http://pauillac.inria.fr/cash/>), you can turn the echo
+of the tty on and off. It may be what you need.
+    
+** Alain Frisch also suggested and David Mentré replied:
+
+> The field c_echo in the record type Unix.terminal_io might be the
+> solution.
+
+Thanks a lot Alain, you found the right solution.
+
+Here is the working code:
+
+open Unix
+[...]
+let read_password () =
+  let term_init = tcgetattr stdin in
+  let term_no_echo = { term_init with c_echo = false; } in
+  tcsetattr stdin TCSANOW term_no_echo;
+  let password = read_line () in
+  tcsetattr stdin TCSAFLUSH term_init;
+  password
+    
+** David Brown added:
+
+The only suggestion would be to put the read_line in a try clause, and
+restore the terminal settings if an exception is raised.  Otherwise,
+pressing ^C leaves the terminal with echo off.
+    
+========================================================================
+5) Announce: schoca-0.2.0
+------------------------------------------------------------------------
+** Christoph Bauer announced:
+
+There is a new release of schoca at
+<http://sourceforge.net/project/showfiles.php?group_id=2598>
+
+Schoca --- Scheme for OCaml
+---------------------------
+
+Schoca is an implementation of the Scheme language. The primary
+purpose of Schoca is the use as an embedded extension language in
+OCaml applications (e.g. the ibgsclient).
+
+Changes for 0.2.0
+
+   o Fix for call/cc. The implementation in schoca 0.1.0
+     made use of a simple try/catch-block.
+
+     Franklin Chen wrote this demo to show a general problem
+     with this approach:
+
+     (define retry #f)
+
+     (define factorial
+       (lambda (x)
+          (if (= x 0)
+            (call/cc (lambda (k) (set! retry k) 1))
+            (* x (factorial (- x 1))))))
+
+     (factorial 4)
+     (display (retry 2))
+     (newline)
+
+   o apply Philippe Audebaud's patch (typos/make clean)
+   o Fix typos in read_ini_file.ml (reported by Benjamin Geer)
+   o you can now write schoca-Scripts like
+
+       #!/usr/bin/schoca
+
+      (display "Hello World!\n")
+      (newline)
+
+     This was suggested by Benjamin Geer.
+    
+========================================================================
+6) ocaml-related job openings in Manhattan
+------------------------------------------------------------------------
+** Yaron Minsky said:
+
+I hate to spam the list, but I thought that an ocaml-related job
+posting might be welcomed.  I run the (small) quantiative
+research department at a trading company in New York City, called
+Jane St. Capital.  We do some technically very challenging work
+in analyzing and improving trading strategies used by the firm.
+It's an open and informal environment, and one that I've
+personally felt very comfortable moving to from academia.
+
+We're looking to fill one or two assistant researcher positions.
+All of our research code is written in ocaml, and so experience
+in ocaml is a plus.  Here's the kind of skills I'm looking for:
+
+   - Strong unix/linux skills --- I'm looking for someone who
+     knows their way around the standard unix tools, can write a
+     makefile, is comfortable with shell scripts, etc.  We've got
+     a small beowulf cluster for doing more compute-intensive
+     work, and administering that would be part of the job's
+     responsibilities.
+
+   - A well-rounded computer science background.  Familiarity
+     with ideas from optimization, learning theory, NLP, and
+     algorithms, is something we're looking for.
+
+   - As part of the well-rounded CS background, we want someone
+     with a strong background in programming languages other than
+     ocaml, in particular C and Java/C#.
+
+   - One of the positions we're looking to fill will involve
+     taking a big role in testing some of the (non-ocaml)
+     in-house software that is developed here.  We're not talking
+     about bang-on-the-GUI-type testing.  We want someone with
+     good judgment and the ability to write and think carefully
+     about code.  The testing work will involve building testing
+     systems including testing harnesses, simulators and
+     validation code.  Some of this coding will be done in ocaml,
+     some in other languages such as C#.
+
+We are mostly thinking about these as entry-level positions, but
+we are also considering more experienced candidates.  If you're
+interested (or have any students you think might be a good match),
+please send a cover-letter and resume to:
+
+   recruiter3@janestcapital.com
+    
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

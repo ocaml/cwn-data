@@ -1,0 +1,590 @@
+<?xml version="1.0" encoding="ISO-8859-15"?>
+<cwn>
+<cwn_head>
+  <cwn_date>2005.03.08</cwn_date>
+  <cwn_prev>2005.03.01</cwn_prev>
+  <cwn_next>2005.03.15</cwn_next>
+  <cwn_date_text>01 to 08 March, 2005</cwn_date_text>
+</cwn_head>
+<cwn_body>
+  <cwn_entry>
+    <cwn_title>lablGL and the top-level</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200503/msg00008.html</cwn_url>
+    <cwn_who>Jon Harrop asked and Jacques Garrigue answered</cwn_who>
+    <cwn_what>
+&gt; It just occurred to me that the ability to run an interactive top-level to 
+&gt; write and test OpenGL programs would be quite alluring. In particular, this 
+&gt; would be a great way to introduce students to ocaml and graphics.
+&gt; 
+&gt; However, I&apos;d like to use lablglut, which requires execution to be handed over 
+&gt; to glut via a final call to glut.mainLoop. So, what would be the best way to 
+&gt; get glut and the ocaml top-level to interoperate?
+&gt; 
+&gt; I guess you could write a glut idle function which provokes the top-level into 
+&gt; asking for more input, but the display wouldn&apos;t be updated in the mean time.
+&gt; 
+&gt; Any ideas?
+
+Threads are the natural way to do this.
+This is already possible with GlGtk, using lablgtk -thread.
+If you want to do this with glut, I see two possible approaches:
+* Run the glut main loop in a different thread, and have it exit every
+  100ms so you can yield and run the toplevel thread during this time
+  (this is basically the way this is done in lablgtk)
+  This is safe, but supposes there is an easy way to exit and reenter
+  the main loop frequently.
+* Release the ocaml mutex with caml_enter_blocking_section when
+  entering the main loop. This of course means you must call
+  caml_leave_blocking_section before calling any callback. Fortunately
+  there are not too many ways to enter callbacks in glut. However,
+  there is a further difficulty: you must avoid race conditions when
+  making calls to openGL from the toplevel. The simplest way to do
+  that is not doing calls directly, but putting them in a queue, and
+  executing them in an idle callback from glut. Such an infrastructure
+  is defined in gtkThread.ml (for windows users)
+The first way is simpler on Unix (no races for free), but the Windows
+GDI is such that you cannot call graphical functions from another
+thread anyway, so you end up needing the queue. The second approach
+feels cleaner, but is harder to program in.
+    </cwn_what>
+    <cwn_who>Daniel Bünzli added</cwn_who>
+    <cwn_what>
+Just in case you are not aware your problem is easy to solve if you use 
+sdl [1] instead of glut to setup your gl context and handle input. Sdl 
+doesn&apos;t own your main loop, you can poll or wait for events and then 
+continue with your own code.
+
+This simplifies a lot the interaction with the toplevel. For example, 
+you can enter a function from the toplevel which will handle user input 
+until the user presses escape to return to the toplevel and reenter the 
+function later again. Or you can just initialize the context and then 
+paint your window from the toplevel without handling the input in the 
+window.
+
+The features you loose with respect to glut is menus and multiple 
+windows. But with sdl you don&apos;t need threads to solve your problem, you 
+control the loop and this may be simpler for students (unless you want 
+to introduce them to concurrency at the same time...).
+
+
+A more brittle path to follow (with glut or whatever) which I did not 
+investigate deeply is to use the (hidden) Toploop module and to try to 
+render and control the toplevel in one of your glut window. However I 
+don&apos;t know enough about Toploop to be sure you can get to the expected 
+result.
+
+Daniel
+
+[1] http://ocamlsdl.sourceforge.net/
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Cross-platform "Hello, World" graphical application in OCaml</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200503/msg00013.html</cwn_url>
+    <cwn_who>Following last week&apos;s thread, Richard Jones said and Vincenzo Ciancia answered</cwn_who>
+    <cwn_what>
+&gt; What I think would be useful is an OCaml wrapper around Gtk, Win32 and
+&gt; Aqua/COCOA.  The idea would be for the OCaml wrapper to abstract away
+&gt; the differences, allowing cross-platform programming with native
+&gt; widgets.  WxWidgets fits the bill here, but the actual API is clunky.
+&gt; I have a feeling that something could be done better with a functional
+&gt; programming approach.
+
+This has been proposed, discussed and forgotten more than one time on the
+haskell-gui mailing list (of course, s/ocaml/haskell/). The most promising
+projects for haskell in this area are htoolkit and wxhaskell:
+
+http://htoolkit.sourceforge.net/
+http://wxhaskell.sourceforge.net/
+
+I think that to do a serious effort in this direction involves both
+designing the abstracted interface, which is nontrivial and perhaps can&apos;t
+be done much better than wxwidgets, and implementing it - in a way, IMHO,
+that can be used by more than one language. 
+
+Wx fails in that direction, since it&apos;s written in C++ - there are wxcaml and
+wxhaskell of course, but they seem to require lots of manual tuning to
+complete the bindings (don&apos;t take this too seriously, I might be plain
+wrong). Since XML user interfaces are in vogue these days, maybe the best
+thing to do is to implement one of these, fulfilling the required
+properties, and then binding for any language will be easy. Of course, it
+won&apos;t be too efficient but when I see web pages that render faster and look
+smarter than my &quot;efficient&quot; desktop I think that this is a non-issue.
+    </cwn_what>
+    <cwn_who>Gregory Guyomarc&apos;h also answered Richard Jones</cwn_who>
+    <cwn_what>
+I think it has not yet been mentioned in this thread, but as far as I
+understand it, the java Standard Widget Toolkit (SWT) do just that. It
+acts as a thin layer above the native toolkits (in fact it seems above
+the simpler widgets like buttons, labels, etc, others like menu bars are
+re-implemented in java). It already supports an impressive set of
+backends: gtk, windows, carbon, photon, and motif. I don&apos;t know how well
+the API compares to wxWidgets&apos;, I have never used any of them, but it
+seems quite popular.
+
+Here are some links,
+
+http://www.eclipse.org/articles/Article-SWT-Design-1/SWT-Design-1.html
+http://dev.eclipse.org/viewcvs/index.cgi/platform-swt-home/dev.html?rev=1.228
+http://www.developer.com/java/other/article.php/2179061
+    </cwn_what>
+    <cwn_who>Jon Harrop said and Ken Rawlings answered</cwn_who>
+    <cwn_what>
+&gt; I&apos;d suggest sticking to lablglut and writing your own GUI entirely using
+&gt; OpenGL though, as I have found this to be much more stable. I don&apos;t really
+&gt; think users will be too bothered by a slightly-different-looking GUI though
+&gt; especially if it looks better. :-)
+
+I&apos;ve been down this road myself. I posted an OCaml version of Conway&apos;s
+Game of Life on my webpage [1] a while back that uses &quot;Kog&quot;, an OCaml
+OpenGL based GUI I&apos;ve been working on. The Life application only uses
+the label, checkbox and button controls, but Kog also supports
+spinners and drop-down listboxes.
+
+My experiences building Kog were overall positive. However, writing a
+full-featured GUI from scratch is a lot of work, so Kog is likely to
+remain a toy implementation for the foreseeable future. If there&apos;s
+much interest in the OCaml community for this sort of thing though,
+I&apos;d love to work with a group on a project getting a full-featured
+lightweight GUI up and running with OCaml, whether it be on OpenGL
+directly, or one of the higher level vector libraries.
+
+Speaking of GUI libraries, I&apos;m looking into writing a higher-level
+wrapper around the GUI parts of Harry Chomsky&apos;s OCaml-Win32
+library[2]. If anyone has already done this (and made it available
+under a LGPL or BSD like license) and I&apos;ve somehow missed it, please
+let me know and I&apos;ll contribute to your project rather than
+reinventing the wheel.
+
+Thanks,
+Ken Rawlings
+
+[1] http://www.kenrawlings.com/archives/2004/10/06/life/
+[2] http://www.speakeasy.org/~hchomsky/ocaml-win32.html
+    </cwn_what>
+    <cwn_who>Nicolas Cannasse answered</cwn_who>
+    <cwn_what>
+&gt; Speaking of GUI libraries, I&apos;m looking into writing a higher-level
+&gt; wrapper around the GUI parts of Harry Chomsky&apos;s OCaml-Win32
+&gt; library[2]. If anyone has already done this (and made it available
+&gt; under a LGPL or BSD like license) and I&apos;ve somehow missed it, please
+&gt; let me know and I&apos;ll contribute to your project rather than
+&gt; reinventing the wheel.
+
+Osiris is available ! http://tech.motion-twin.com/osiris
+However it required some Api C &quot;extensions&quot; that I wrote.
+BTW I think a more up-to-date version is avaible here :
+http://ocaml-win32.sourceforge.net/ , but it&apos;s currently not developped.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Open position for a research engineer</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200503/msg00029.html</cwn_url>
+    <cwn_who>Alain Frisch announced</cwn_who>
+    <cwn_what>
+The CDuce team is seeking to hire a research engineer for a two month
+position in Paris. CDuce is an XML-oriented functional language
+developed as a joint research project by three different groups in
+Paris (École Normale Supérieure, Université Paris-Sud, INRIA
+Rocquencourt), with an Open Source implementation in OCaml.  We are
+looking for candidates with a good profiency in OCaml and some
+interest in XML-related technologies. An academic background in
+Computer Science would be a plus.
+
+Several projects are possible, according to the engineer&apos;s
+interest and competence. They include:
+
+- improving CDuce packaging, documentation, developing some benchmarks,
+   and a regression test suite;
+
+- designing an infrastructure to develop web services and/or
+   stateful interactive web applications in CDuce;
+
+- redesigning the existing support for XML Schema as an external tool;
+
+- developing real-sized examples of CDuce (or mixed CDuce/OCaml)
+   applications, such as a Bug Tracking System, a Wiki, or a blog
+   manager.
+
+
+Contacts about the position:
+  Giuseppe.Castagna@ens.fr ,
+  Alain.Frisch@inria.fr .
+
+For more information about CDuce, please visit http://www.cduce.org .
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Camomile 0.6.2</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200503/msg00042.html</cwn_url>
+    <cwn_who>Yamagata Yoriyuki announced</cwn_who>
+    <cwn_what>
+I&apos;m pleased to announce Camomile 0.6.2, a bug-fix release of Camomile.
+
+Camomile is a comprehensive Unicode library for objective caml
+(a. k. a. OCaml or O&apos;Caml) language. Camomile provides Unicode
+character type, UTF-8, UTF-16, UTF-32 strings, conversion to/from
+about 200 encodings, collation and locale-sensitive case mappings, and
+more. The library is currently designed for Unicode Standard 3.2.
+
+You can download Camomile 0.6.2 from 
+
+http://prdownloads.sourceforge.net/camomile/camomile-0.6.2.tar.bz2?download
+
+For more information, visit Camomile web page
+
+http://camomile.sourceforge.net/
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>MinCaml: an educational compiler for tiny ML subset (documented inJapanese)</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200503/msg00021.html</cwn_url>
+    <cwn_who>Eijiro Sumii announced</cwn_who>
+    <cwn_what>
+I have implemented a simple but efficient compiler from a tiny ML
+subset to the SPARC assembly language.
+
+  http://min-caml.sourceforge.net/min-caml.tar.gz
+
+The primary purpose is advanced education: the compiler is well
+documented (only in Japanese for now, unfortunately)
+
+  http://min-caml.sourceforge.net/
+
+and has been used in a class at Tokyo for years.
+
+The compiler consists of only 2000 lines of OCaml.  Yet, it produces
+as efficient SPARC code as OCaml and GCC does (for the tiny ML subset
+and equivalent C programs).
+
+  A typical functional program (Ackermann):
+
+    GCC 6.8s
+    OCaml 0.9s
+    MinCaml 0.9s
+
+  A typical imperative program (raytracing):
+
+    GCC 14.7s
+    OCaml 36.7s (could perhaps be improved by using BigArray)
+    MinCaml 17.0s
+
+So, please take a look if you are interested.  Even if you don&apos;t
+understand Japanese, you may be able to understand OCaml!:-)
+    </cwn_what>
+    <cwn_who>Jon Harrop asked and Eijiro Sumii answered</cwn_who>
+    <cwn_what>
+&gt; Did you choose SPARC because of availability or for technical reasons?
+
+Both - Sun is still strong in universities around me and IA-32 is a
+mess (for me, at least) compared to RISC...
+
+&gt; What features of ML are implemented?
+
+Only a _very_ tiny subset: for now, it does not have polymorphism,
+data types, modules, nor garbage collection (so I shouldn&apos;t even call
+it ML, except that the syntax is a subset of OCaml).  However, it
+_does_ have type inference, higher-order functions, floating-point
+numbers, tuples, and arrays with destructive update - which are
+sufficient for minimal examples (such as gcd, ack, matrix, etc.)  and
+one application (raytracing).  Also, it does implement optimizations
+such as known-function calls, tail calls, inlining, constant folding,
+etc.  It can call external functions if you provide the stubs in
+assembly.
+
+The subset is so tiny because MinCaml was developed for an
+undergraduate course, where I put most energy to the ease of
+understanding and couldn&apos;t include many features.  However, adding
+them would be a nice project for more advanced students.
+
+By the way, for the majority of people who do not speak Japanese:-), I
+am preparing an Enlish documentation.
+    </cwn_what>
+    <cwn_who>Eijiro Sumii then announced</cwn_who>
+    <cwn_what>
+I&apos;ve uploaded a (rather quick) translation of my MinCaml compiler
+tutorial:
+
+  http://min-caml.sourceforge.net/index-e.html
+
+It should be readable enough, though I&apos;m not a very good English
+writer (and some comments in the source code are still in Japanese).
+
+Comments are welcome.  I don&apos;t have so much experience even in
+compiler development (unlike Xavier and other real experts here).
+    </cwn_what>
+    <cwn_who>Eijiro Sumii asked and Ken Friis Larsen answered</cwn_who>
+    <cwn_what>
+&gt; I agree.  In fact, I&apos;m looking for a good (as simple and efficient as
+&gt; possible) algorithm of pattern matching.  Any suggestions, anyone?
+
+Peter Sestoft has a nice paper about pattern matching:
+	 &quot;ML pattern match compilation and partial evaluation&quot;
+          In Danvy, Glück, and Thiemann (editors): Partial Evaluation.
+          Dagstuhl Castle, Germany, February 1996.
+          Lecture Notes in Computer Science, vol. 1110, pages 446-464.
+          Springer-Verlag 1996
+	  http://www.dina.kvl.dk/~sestoft/papers/match.ps.gz
+
+Easy to follow and it has a nice trade-off between simplicity and efficiency.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>www.ocaml.org</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200503/msg00025.html</cwn_url>
+    <cwn_who>In this thread, Eijiro Sumii said, Yaron Minsky added, and Xavier Leroy answered</cwn_who>
+    <cwn_what>
+&gt; &gt; I very much agree with this.  PLEASE let us have the access to the old
+&gt; &gt; page as well.  On many occasions, I want to show it to other people
+&gt; &gt; for advertising OCaml!
+&gt; 
+&gt; Let me add my voice to this.  I have at various points been in the
+&gt; position of advocating ocaml to non-technical types, and having a
+&gt; credible web page to point them to is a big help.
+
+I agree with that, and it&apos;s true that nobody is happy with the current
+caml.inria.fr site.
+
+A complete redesign and reimplementation of the caml.inria.fr is in
+progress, and should be completed Real Soon Now.  That should provide
+a Web site (for caml.inria.fr, www.caml.org and www.ocaml.org) that is
+both reasonably modern looking and kept up to date.
+
+There is room for volunteer&apos;s efforts in parallel with our efforts, so
+if someone wants to resurrect the old ocaml.org, or build a Wiki-based
+site for OCaml, you are most welcome and we&apos;ll link to your site.
+    </cwn_what>
+    <cwn_who>Richard Jones answered</cwn_who>
+    <cwn_what>
+We&apos;re building a more business-focused wiki here:
+
+http://wiki.cocan.org/
+
+It has section on, for example, why managers should choose OCaml.  And
+lists of people and companies available who use it.  Also sections on
+how to install OCaml on various different operating systems.
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>SML-&gt;OCaml</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200503/msg00058.html</cwn_url>
+    <cwn_who>Konstantine Arkoudas asked and Martin Jambon answered</cwn_who>
+    <cwn_what>
+&gt; I&apos;m thinking about re-implementing a fairly large SML-NJ project
+&gt; (&gt; 20K lines) in OCaml. Is anybody aware of any tools capable
+&gt; of automatically translating SML code into OCaml, at least
+&gt; partially? Any info would be appreciated. Thanks.
+
+It exists but it is in the &quot;unmaintained&quot; section of camlp4:
+  http://camlcvs.inria.fr/cgi-bin/cvsweb/ocaml/camlp4/unmaintained/sml/
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>New Ocaml indentation for Vim</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200503/msg00077.html</cwn_url>
+    <cwn_who>David Baelde said and Markus Mottl answered</cwn_who>
+    <cwn_what>
+&gt; Regarding integration of omlet with the official ocaml support, as far 
+&gt; as I&apos;m concerned I think it could be done within a few months, when 
+&gt; OMLet will be considered stable. But Markus Mottl didn&apos;t give me his 
+&gt; advice.
+
+Sorry for the long delay, but I&apos;m currently having a huge backlog of
+mails that need to be answered.
+
+I have now found time to take a closer look at your work, and I think
+it looks very promising.  I have just integrated your changes into my
+distribution of Vim-files (see signature for link to my new site).
+
+The two indentation styles are still separate, but I think that once OMLet
+is stable, we can make it the default.  I&apos;ll keep using it as default in
+my projects to track down potential problems, but it looks great so far.
+Thanks a lot for your work!
+    </cwn_what>
+  </cwn_entry>
+  <cwn_entry>
+    <cwn_title>Using camljava library in a multithreaded context</cwn_title>
+    <cwn_url>http://caml.inria.fr/archives/200503/msg00079.html</cwn_url>
+    <cwn_who>El Chaar Rabih asked and Xavier Leroy answered</cwn_who>
+    <cwn_what>
+&gt; I have been using the camljava library for a certain time, in order to
+&gt; establish communications between java and caml.
+&gt; The initial use of the library (maintained by Mr Leroy) supposed explicitly
+&gt; that it is ocaml that initiates the call to java (it is ocaml that creates a
+&gt; jvm instance).
+&gt; 
+&gt; I was confronted to the situation where java is the instancianting process
+&gt; that should initialize the ocaml runtime. This was done by a little effort,
+&gt; by making the following :
+&gt; *     Java makes call through native methods
+&gt; *     At each call, the JNIEnv variable used in the c code in jnistubs.c
+&gt; is set to the actual JNIEnv passed in the native call.
+&gt; *     The instanciation and deltetion of the jvm (used when ocaml was the
+&gt; instanciating process) is not realised, since a valid JNIEnv is passed at
+&gt; each native call.
+
+This looks fine, I would have done it in the same manner.
+
+&gt; This solution seems satisfactory, but should be used (due to use of global
+&gt; variable JNIEnv) in a context where each call to a native method is atomic.
+&gt; This reflects in the java world that the call to native methods should be
+&gt; made synchronised.
+&gt; 
+&gt; I am now facing a context where i need to make the library coherent with a
+&gt; java multi threaded context.
+&gt; The JNI manual states that each java thread will have it&apos;s own JNIEnv inside
+&gt; the jvm. Therefore, two threads calling the same native method will pass two
+&gt; different JNIEnv values. 
+
+Yes, but with correct locking, these two calls will execute in
+sequence, not in parallel, so it is still OK to store the JNIEnv in
+the global variable from jnistubs.c.
+
+The locking can be achieved either at the Java level (by using
+synchronized methods on a unique, global object, or equivalently by
+using the &quot;synchronized&quot; statement over such an object), or at the C
+level using Pthread mutexes or Win32 critical sections.  I&apos;d recommend
+doing the locking at the Java level to ensure maximal compatibility
+with the Java threading model.
+
+&gt; The camljava API used to achieve communications between java and caml should
+&gt; be made reentrant. In order to achieve this, i made a deeper change in the
+&gt; camljava library by making all function calls reentrant, handling the JNIEnv
+&gt; as a method parameter.
+
+This is not necessary with proper locking as described above.
+
+&gt; The idea that i would like to investigate more thoroughly is the possibility
+&gt; to transpose the java threads into caml threads. If this is feasible, will
+&gt; the execution be thread safe inside the GC ??
+
+Probably not.  Moreover, as you mention, Java, Caml and the C layer
+between the two can have different notions of threads, so a direct
+mapping is generally not possible.
+
+&gt; My questions are the following :
+&gt; *     Will i be able to prolonge a java thread into a caml thread
+
+No.
+
+&gt; *     Will this make the execution GC safe
+
+I don&apos;t think so.
+
+&gt; *     If java threads are not native threads, can there still be a work
+&gt; around ?
+
+Locking at the Java level will ensure sequential (not concurrent)
+execution of the Caml code and Caml runtime system functions, which is
+what you need to enforce.
+    </cwn_what>
+    <cwn_who>El Chaar Rabih asked and Markus Mottl answered</cwn_who>
+    <cwn_what>
+&gt; I sent today a mail concenrning external threads (java threads) and caml.
+&gt; When looking inside the caml-list, i came up upon your mail, which attracted
+&gt; my attention.
+&gt; 
+&gt; My goal is to try and switch the jvm thread into a caml thread.
+&gt; 
+&gt; Is it possible to have your opinion upon my post &quot;Using camljava library in
+&gt; a multithreaded context&quot;?
+&gt; Is it also possible to have a small example (C and ocaml) realising this
+&gt; coordination issue ?
+
+Unfortunately, I have no experience with Java so I cannot tell you
+whether there is a way to let Java-threads migrate to OCaml.
+
+My C-solution, which seems to work very well in practice, looks roughly
+as follows:
+
+  pthread_mutex_t cb_act_mtx;
+  pthread_cond_t cb_act_cnd;
+  value *cb_act;
+
+  pthread_mutex_t cb_res_mtx;
+  pthread_cond_t cb_res_cnd;
+
+The first mutex and condition variable protect &quot;cb_act&quot;, the callback
+action to be performed.
+
+If there is a C-thread that wants to call OCaml, it calls the following
+function/method (it&apos;s actually C++):
+
+  void do_cb(value *action)
+  {
+    pthread_mutex_lock(&amp;cb_act_mtx);
+      cb_act = action;
+      pthread_cond_signal(&amp;cb_act_cnd);
+    pthread_mutex_unlock(&amp;cb_act_mtx);
+
+    pthread_mutex_lock(&amp;cb_res_mtx);
+      while (not cb_res_avail) pthread_cond_wait(&amp;cb_res_cnd, &amp;cb_res_mtx);
+    pthread_mutex_unlock(&amp;cb_res_mtx);
+
+    cb_res_avail = false;
+  }
+
+Depending on the kind of action that should be performed, an OCaml-thread
+that has previously gone into C-land will eventually convert C-data to
+OCaml-values before performing the callback.  After returning it will
+signal the C-thread that a result is available (or simply that it has
+completed the job).  The OCaml-thread has to perform all the conversions,
+because the C-thread must not call the GC.  Our C-function, in which
+the OCaml-thread waits for callbacks + associated data looks as follows:
+
+  virtual value handle_cbs()
+  {
+    while (true) {
+      caml_enter_blocking_section();
+        pthread_mutex_lock(&amp;cb_act_mtx);
+          while (cb_act == NULL)
+            pthread_cond_wait(&amp;cb_act_cnd, &amp;cb_act_mtx);
+        pthread_mutex_unlock(&amp;cb_act_mtx);
+      caml_leave_blocking_section();
+
+      if (cb_act == &amp;v_OnRecordUpdateCallback)
+        caml_callback(*cb_act,
+                      vrc_make(rup, free_record_update, lev1_GC_setting));
+      else if (cb_act == &amp;v_Terminate) {}
+      else cb_sc = caml_callback(*cb_act, Val_int(cb_sc));
+
+      pthread_mutex_lock(&amp;cb_res_mtx);
+        cb_act = NULL;
+        cb_res_avail = true;
+        pthread_cond_signal(&amp;cb_res_cnd);
+      pthread_mutex_unlock(&amp;cb_res_mtx);
+
+      if (cb_act == &amp;v_Terminate) return Val_unit;
+    };
+
+    return Val_unit;  // we should never get here
+  }
+
+In OCaml you just need to specify the external function that the
+OCaml-thread should call:
+
+  external handle_cbs : t -&gt; unit = &quot;activ_handle_cbs_stub&quot;
+
+Then do something like the following at startup:
+
+  let wrap_handle_cbs () =
+    try handle_cbs cgc
+    with exc -&gt;
+      (match exc with
+      | Status sc -&gt;
+          eprintf &quot;Activ-exception: Status %s\n&quot; (Status_code.to_string sc)
+      | FieldStatus fs -&gt;
+          eprintf
+            &quot;Activ-exception: FieldStatus %s\n&quot; (Field_status.to_string fs)
+      | _ -&gt;
+          eprintf &quot;Exception escaping callback: %s\n&quot; (Printexc.to_string exc)
+      );
+      exit 2 in
+  ignore (Thread.create wrap_handle_cbs ());
+
+I hope that this info is enough so that you can make OCaml- and C-threads
+interact smoothly.
+    </cwn_what>
+  </cwn_entry>
+</cwn_body>
+</cwn>

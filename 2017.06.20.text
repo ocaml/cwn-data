@@ -1,0 +1,215 @@
+Hello,
+
+Here is the latest OCaml Weekly News, for the week of June 13 to 20, 2017.
+
+1) Micro benchmarks for floating-point operations in OCaml?
+2) Can this code be accelerated by porting it to SPOC, SAREK or MetaOCaml ?
+3) From the OCaml discourse
+4) Ocaml Github Pull Requests
+
+========================================================================
+1) Micro benchmarks for floating-point operations in OCaml?
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2017-06/msg00056.html>
+------------------------------------------------------------------------
+** Evgeny Roubinchtein asked and Gabriel Scherer replied:
+
+> Is there a suite of micro-benchmarks for floating-point operations in
+> OCaml?  If so, could someone point me to such suite(s)?
+
+While they are not "micro-benchmarks" in the sense of "testing only one
+operation", the set of short-running benchmarks in operf-micro contains
+many short floating-point-heavy programs (almabench, fft, kahan_sum...):
+
+<https://github.com/OCamlPro/operf-micro/tree/master/share/operf-micro/benchmarks>
+<https://www.typerex.org/operf-micro.html>
+      
+========================================================================
+2) Can this code be accelerated by porting it to SPOC, SAREK or MetaOCaml ?
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2017-06/msg00062.html>
+------------------------------------------------------------------------
+** Francois BERENGER asked:
+
+I am wondering if some high performance OCaml experts out there
+can know in advance if some code can go faster by executing it
+on a GPU.
+
+I'd like to get some feeling before I invest into some new technology.
+
+I'd like to stay in OCaml, not drop down to C.
+So I mention SPOC, SAREK and MetaOCaml which look like the right technologies.
+
+I have some clear bottleneck in my program.
+Here is how the code looks like:
+
+---
+let f (points: (Vector3.t * float) list) =
+  let acc = ref [] in
+  let ac p1 x (p2, y) =
+    acc := (Vector3.dist p1 p2, x *. y) :: !acc
+  in
+  let rec loop = function
+    | [] -> ()
+    | (p1, x) :: xs ->
+      L.iter (ac p1 x) xs;
+      loop xs
+  in
+  loop points;
+  !acc
+---
+
+So, in terms of size: each point is 3 floats (a 3D coordinate) plus 1 float
+(some value).
+I usually have several thousands of points, but less than 10_000.
+
+The f function will be called thousands of times for one run of the program
+(let's say 300k calls is a big but reasonable use case).
+
+I don't care about the order of points in the input list.
+
+I also don't care about the order of the results in acc.
+
+I very probably don't care about using single point precision (32 bit floats)
+for everything, instead of double precision.
+
+Thanks a lot for any feedback.
+
+Best regards,
+Francois.
+
+PS: vector3 is available in opam, if that helps
+      
+** Ronan Le Hy replied:
+
+As a baseline before attempting anything on the GPU, I'd vectorize
+this. Put all your vectors in a big matrix. Put all your numbers in a
+vector. Compute the distances and the products all at once using
+Lacaml (make sure you use OpenBLAS as a backend). I'd expect it to be
+much faster than the above loop already.
+      
+** Ivan Gotovchits also replied:
+
+Your code is actually bound by memory, not by computation. The problem is
+that you create lots of data, and all the time is spent in the allocation
+functions and GC. The actual computation consumes less than 5% of overall
+program execution, that can be easily seen by profiling (always profile
+before starting optimization). Thus moving to GPU will make this 5% of code
+run faster, at the expense of even higher overhead of moving data between
+CPU and GPU.
+
+So, let's see how we can optimize your code. First of all, your code uses
+too much mutable state, that can have a negative performance impact in
+OCaml due to write barriers. Let's make it a little bit cleaner and faster:
+
+
+let nonmutab points =
+  let rec loop xs acc = match xs with
+    | [] -> acc
+    | (x,w) :: xs ->
+      List.fold_left (fun acc (x',w') ->
+          (Vector3.dist x x', w *. w') :: acc) acc xs |>
+      loop xs in
+  loop points []
+
+This code runs a little bit faster (on 10000 points):
+
+original: 14084.1 ms
+nonmutab: 11309.2 ms
+
+It computes absolutely the same result, using the same computational core,
+and allocating the same amount of trash. The only difference is that we are
+not using a mutable state anymore, and we are rewarded for that.
+
+The next step is to consider, do you really need to produce these
+intermediate structures, if the result of your program is the computed
+data, then you can just store it in a file. Or, if you need later this data
+to be reduced to some value, then you shouldn't create an intermediate
+result, and apply the reduction in place (so called de-foresting). So,
+let's generalize a little bit the function so that instead of producing a
+new list, the function just applies a user-provided function to all
+produced elements, along with an accumulator.
+
+let nonalloc f acc points =
+  let rec loop xs acc = match xs with
+    | [] -> acc
+    | (x,w) :: xs ->
+      List.fold_left (fun acc (x',w') ->
+          f acc (Vector3.dist x x') (w *. w')) acc xs |>
+      loop xs in
+  loop points acc
+
+
+
+This function will not allocate any unnecessary data (it will though
+allocate a pair of floats per each call). So we can use this function to
+implement the `nonmutab` version, by passing a consing operator and an
+empty list. We can also try to use it to store data. The data storage
+process depends on how fast we can reformat the data, and how fast is the
+sink device. If we will output to /dev/null (that is known to be fast),
+then we can use the Marshal module and get about 300 MB/s throughtput. Not
+bad, but still about 10 seconds of running time. If, for example, we just
+need some scalar metrics, then we don't need to pay an overhead of data,
+and it will be as fast as possible. For example, with the following
+implementations of the kernel function
+
+let flags = [Marshal.No_sharing]
+
+let print () x1 x2 =
+  Marshal.to_channel stdout x1 flags;
+  Marshal.to_channel stdout x2 flags
+
+let product total x1 x2 = total +. x1 *. x2
+
+
+We will have the following timings:
+
+printall: 9649.54 ms
+nonalloc: 541.186 ms
+
+
+So, the actual computation took only half a second, the rest is data
+processing.
+
+Please find attached the whole example. You can run it with the following
+command:
+
+ocamlbuild -pkgs vector3,unix points.native -- > /dev/null
+      
+========================================================================
+3) From the OCaml discourse
+------------------------------------------------------------------------
+** The editor compiled this list:
+
+Here are some links to messages at <http://discuss.ocaml.org> that may
+be of interest to the readers.
+
+- Dave Scott talks about "[ANN]: io-page 2.0.0, with packaging changes"
+  <https://discuss.ocaml.org/t/ann-io-page-2-0-0-with-packaging-changes/440/1>
+
+- Reynir Björnsson talks about "Ocp-index-top v0.4.1 - first release on opam"
+  <https://discuss.ocaml.org/t/ocp-index-top-v0-4-1-first-release-on-opam/442/1>
+      
+========================================================================
+4) Ocaml Github Pull Requests
+------------------------------------------------------------------------
+** Gabriel Scherer and the editor compiled this list:
+
+Here is a sneak peek at some potential future features of the Ocaml
+compiler, discussed by their implementers in these Github Pull Requests.
+
+- Unsigned 32-bit and 64-bit integers
+  <https://github.com/ocaml/ocaml/pull/1201>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

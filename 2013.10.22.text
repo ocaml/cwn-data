@@ -1,0 +1,222 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of October 15 to 22, 2013.
+
+1) phphard
+2) IPv6 packet parsing
+3) Marshalling: automatic discard of unmashalable data via ephemerons
+4) Other Caml News
+
+========================================================================
+1) phphard
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-10/msg00136.html>
+------------------------------------------------------------------------
+** Stanis?aw Findeisen announced:
+
+I would like to draw your attention to phphard project, which is a PHP
+source code static analyzer. Its aim is to strong type PHP programs and
+detect as many bugs at compile time as possible.
+
+The project is in its very early stage: most of PHP parsing is done
+(using ocamllex + ocamlyacc), some pretty printing is done, no real
+source code analysis is done. It is now hosted here:
+
+<https://forge.ocamlcore.org/projects/phphard/>
+<https://github.com/sfindeisen/phphard> (source code)
+
+I will welcome your ideas, feedback and contributions to the project.
+This is something I had been working on for some time, but have no
+resources (time+money) to finish this alone.
+
+I thinks it still makes sense to use PHP for web development as LAMP
+stack is quite efficient compared to some other stacks like Java. :)
+Plus there is lots of existing PHP code.
+
+I must confess that I have only superficially scanned through existing
+solutions to this static analysis problem. Some of the existing software
+(like HipHop VM from Facebook) seems quite complex, however I couldn't
+find anything that would be:
+
+* exactly scoped on PHP + static analysis
+* written in a functional language.
+
+Therefore I think this project has a potential and working on it can
+bring you glory. :)
+
+I believe purely functional style (non-modifiable data structures!) will
+be beneficial in this application.
+
+If you want to contribute please join the project on OCaml Forge. The
+source code is now on GitHub and it seems cool to me (but we can discuss
+that if you have arguments).
+      
+** Stéphane Legrand then suggested and David MENTRE added:
+
+> Did you take a look at Pfff? : <https://github.com/facebook/pfff>
+
+And more exactly Scheck: <https://github.com/facebook/pfff/wiki/Scheck>
+      
+========================================================================
+2) IPv6 packet parsing
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-10/msg00144.html>
+------------------------------------------------------------------------
+** Johan Mazel asked and Stéphane Glondu replied:
+
+> I am aware of several implementation for IPv4 packet parsing
+> (ocaml-packet, melange, promiwag and maybe others that I missed).
+> However, up to my knowledge, none of these implementations offer IPv6
+> parsing functionnalities.
+> I would like to know if there is anything available ?
+
+Using bitstring makes parsing binary structures such as IPv6 (and IPv4)
+packets easy:
+
+  <https://github.com/glondu/netacct-crans/blob/master/netacct-crans.ml>
+      
+** rixed also replied:
+
+IPv6 is on the TODO list for robinet[1], a small lib that parse
+network traffic (with the help of bitstring which was already
+suggested). It's hard to tell if this small library fits your use
+case but if it does I'd gladly add support for IPv6.
+
+[1]: <https://github.com/rixed/RobiNet>
+      
+** The following exchange occurred between Anil Madhavapeddy, rixed, and Gerd Stolpmann:
+
+Anil Madhavapeddy:
+> rixed:
+> > Anil Madhavapeddy:
+> > > One feature I'd really like to see in Bitstring is support for Bigarray,
+> > > since that avoids a copy into the OCaml heap and lets us do quite high
+> > > performance parsing.  If I remember right, there was a patch on the
+> > > Bitstring issue tracker, but it wasn't parameterised (so it's either
+> > > Bistring+string or Bitstring+bigarray, which isn't ideal).
+> > 
+> > Pardon my lack of familiarity with bigarrays, but I can't see what's the
+> > difference between copying packets from pcap ring buffer into a bigarray
+> > or into a string. Or do you mean using Bigarray.map_file on the whole
+> > raw ring buffer and handle it without pcap help?
+
+Without knowing details: maybe no copy is required at all? The pcap ring
+buffer could be directly wrapped as Bigarray.
+
+> We have a number of use-cases that run OCaml in kernel mode, directly
+> operating on packets read from a network driver that's also written in
+> OCaml.  Bigarrays are used as the mechanism for passing around externally
+> allocated memory (i.e. network card buffers) directly, whereas inspecting
+> them with a string-based Bigarray requires an expensive data copy.
+> 
+> See: <http://anil.recoil.org/papers/2013-asplos-mirage.pdf>
+> or <http://www.openmirage.org>
+
+For similar reasons, I also added some Bigarray functions to Ocamlnet:
+
+<http://projects.camlcity.org/projects/dl/ocamlnet-3.7.3/doc/html-main/Netsys_mem.html>
+
+If you look at the stub behind e.g. Unix.read, you'll see that the data
+is first read into an internal unaligned buffer, and then copied to the
+string buffer. This means usually two copies of the data: one from the
+kernel buffer to the internal buffer, and one from there to the string.
+
+If you use a Bigarray instead the internal buffer becomes superfluous:
+Bigarrays are malloc'ed memory, and cannot be moved by the GC. Hence,
+you can invoke the read() syscall directly with the Bigarray as buffer.
+If you additionally ensure that the Bigarray is page-aligned, the kernel
+can sometimes even avoid copying at all (though only some OS seem to
+implement such a strategy, as changing the page mapping or doing some
+direct I/O can be more costly than copying).
+
+Another advantage here is that you can freely choose the size of the
+buffer (Unix.read et al use fixed-size 64K for the internal buffer).
+Also you can allocate the buffer in a shared area.
+
+Ocamlnet now prefers Bigarrays as primary buffers where reasonable, and
+where a speedup (or lower CPU consumption) can be expected. E.g. The
+HTTP client first reads data into a bigarray, splits the header there
+into lines (which are then normal strings again), and gathers the data
+chunks from the HTTP body (which can be strings or Bigarrays, at the
+user's choice).
+      
+** rixed then said and Stéphane Glondu replied:
+
+> Ideally, I'd like to pass const pointers to packet bytes provided by
+> libpcap to user callbacks up to bitstring through OCaml [...]
+
+AFAICT, this is what is done in my earlier link:
+
+<https://github.com/glondu/netacct-crans/blob/master/netacct-crans.ml>
+
+rawstring in line 240 is a direct pointer to libpcap's buffer (in
+particular, it is outside the OCaml heap). Of course, it being typed as
+string is unsafe but it allows me to wrap it directly into a bitstring
+(the "dark magic" that comes later) and then bitmatch-ed.
+      
+========================================================================
+3) Marshalling: automatic discard of unmashalable data via ephemerons
+Archive: <https://sympa.inria.fr/sympa/arc/caml-list/2013-10/msg00171.html>
+------------------------------------------------------------------------
+** Continuing the thread from last week, oleg said:
+
+> The system state is made of pretty much anything, and is also user
+> extensible via plugins.  Nothing prevents someone to stick in there
+> values that can hardly be marshalled, like callbacks, file descriptors,
+> lazy_t, and the like.  Of course it is nice to be able to store
+> callbacks or lazy values in the system state, so forbidding all that is
+> not nice.
+
+There is a similar problem when marshalling a captured delimited
+continuation. The continuation captures a part of stack that points to
+various closures in system libraries, which contain lots of
+unserializable stuff. In addition, reference cells (t ref) can't be
+meaningfully serialized as they are copied in the process of the
+serialization, which breaks their semantics. 
+
+The library delimcc proposes a solution. Unlike your situation, I do
+care to properly serialize `bad' value and properly restore. The
+unmarshalled delimited continuation must work properly. I cannot
+afford not to care what the unmarshalled value will look like.
+
+The solution, which involves pre-processing a value before marshalling
+and post-processing after unmarshalling, is described at
+        <http://okmij.org/ftp/ML/ML.html#persistent-delim2cc>
+as well in Sec 8 of
+        <http://okmij.org/ftp/continuations/caml-shift-journal.pdf>
+      
+========================================================================
+4) Other Caml News
+------------------------------------------------------------------------
+** From the ocamlcore planet blog:
+
+Thanks to Alp Mestan, we now include in the Caml Weekly News the links to the
+recent posts from the ocamlcore planet blog at <http://planet.ocaml.org/>.
+
+OCamlCore SARL is now officially closed.:
+  <http://www.ocamlcore.com/wp/2013/10/ocamlcore-sarl-is-now-officially-closed/>
+
+Trevi; Watering Down Storage Hotspots with Cool Fountain Codes:
+  <http://anil.recoil.org/2013/10/18/trevi-fountain-codes-at-hotnets.html>
+
+Full Time: Software Developer (Functional Programming) at Jane Street in New York, NY; London, UK; Hong Kong:
+  <http://jobs.github.com/positions/0a9333c4-71da-11e0-9ac7-692793c00b45>
+
+phphard: PHP source code static analyzer:
+  <https://forge.ocamlcore.org/projects/phphard/>
+
+Reprinting of "OCaml from the Very Beginning":
+  <http://ocaml-book.com/blog/2013/10/15/reprinting-of-ocaml-from-the-very-beginning>
+      
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

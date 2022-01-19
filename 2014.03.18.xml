@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2014.03.18</cwn_date>
+    <cwn_prev>2014.03.11</cwn_prev>
+    <cwn_next>2014.03.25</cwn_next>
+    <cwn_date_text>March 11 to 18, 2014</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>I never succeeded in using Format</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-03/msg00055.html</cwn_url>
+      <cwn_who>Continuing the thread from last week, François Pottier announced</cwn_who>
+      <cwn_what>
+Interesting discussion, which prompted me to come out of my retreat and
+publish a new implementation of PPrint, available now :-)
+
+Oleg is right: the now-old PPrint implementation uses backtracking and its
+time complexity is dependent on the window width.
+
+Oleg's message caused me to think, and I realized that I had missed a major
+opportunity for simplification and optimization, which in fact was shortly
+thereafter mentioned by Bob in his reply to Oleg's message. The idea is
+simple. The PPrint API requires the document to be constructed in an eager,
+bottom-up manner. (One reason for this decision was syntax: I did not want the
+user to have to write "lazy" everywhere, and I did not want to impose the use
+of a syntax extension.) So, we are paying a high cost in space (linear space
+overhead), but in return, it is easy to compute the required width of every
+(sub-)document as it is constructed. This in turn means that the rendering
+process can be performed in linear time, without dependency on the window
+width, without any backtracking or buffering.
+
+I have implemented this idea in the new version of PPrint and compared it with
+the old version. In short, the results are as follows, for a set of
+randomly-generated documents:
+
+  - the construction of the document is roughly just as fast as it was
+    (but documents occupy slightly more space in memory)
+
+  - rendering is faster than before, between 2x and 3x faster
+
+  - the code is much simpler than before (this is the key benefit)
+
+  - two features are lost (namely, the primitive operators [nesting] and
+    [column], which were used to get access to the engine's state during
+    rendering; they are no longer supported because they prevent the width
+    pre-computation).
+
+I should point out that rendering is now between 10x and 20x faster than the
+construction of the document, which (I believe) means that the current
+implementation is essentially unbeatable in terms of throughput. So, in my
+view, the bottom line is, if one is willing to live with linear space
+overhead, then this approach is preferable for its simplicity and efficiency;
+if one must work in constant space, then Oleg's approach is preferable.
+
+The new release of PPrint is available here:
+
+  http://gallium.inria.fr/~fpottier/pprint/pprint.tar.gz
+
+and should reach opam pretty soon ("opam install pprint").
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OpenGL and LWT</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2014-03/msg00056.html</cwn_url>
+      <cwn_who>Deep into this thread, Richard Neswold said and Daniel Bünzli replied</cwn_who>
+      <cwn_what>
+&gt; Most OpenGL bindings (including LabGL) include 'libglut', which is a
+&gt; library that is bundled with OpenGL that opens a UI window with an
+&gt; OpenGL context in it. It would be nice to use this library because it
+&gt; hides these details (i.e. the same code runs on Unix and MacOSX and
+&gt; Windows.) Unfortunately, the way libglut works is you call main_loop()
+&gt; which never returns. Before calling main_loop(), you register
+&gt; callbacks for mouse and keyboard events. You can also register a
+&gt; callback for periodic timeouts. Lastly, there's a callback which gets
+&gt; called whenever the libglut main loop is "idle" (with unspecified
+&gt; latencies, frequency, or guarantees.)
+
+I wouldn't use glut which is no longer bundled on osx, is quite limited
+in functionality and reclaims your main loop. Use SDL, it provides
+similar functionality to setup an OpenGL context in a platform
+independent way but it doesn't reclaim control on your main() which will
+make integration with lwt trivial. There is:
+
+http://ocamlsdl.sourceforge.net/home.html
+
+I also wrote newer and lower level bindings that target SDL2, they are
+not released yet but are becoming stable see:
+
+https://sympa.inria.fr/sympa/arc/caml-list/2013-12/msg00105.html
+
+(the heisenbug on osx mentioned in that message can be solved see [1]).  
+
+Best,
+
+Daniel
+
+[1] http://lists.ocaml.org/pipermail/ctypes/2014-February/000066.html
+      </cwn_what>
+      <cwn_who>Daniel Bünzli later corrected</cwn_who>
+      <cwn_what>
+&gt; I wouldn't use glut which is no longer bundled on osx,
+
+Well that's wrong. But it's no longer recommended, see
+https://developer.apple.com/library/mac/qa/qa1613/_index.html
+      </cwn_what>
+      <cwn_who>Richard Neswold then said and Daniel Bünzli replied</cwn_who>
+      <cwn_what>
+&gt; I could have an Lwt thread call Sdl.poll_event and then go to sleep if
+&gt; no events were available, but I'm trying to make this driven by events
+&gt; and not resort to polling, if possible.
+
+There is certainly more than one way to do that, but that's what I do at
+the moment (with another cooperative threading library). Favor the
+treatement of the UI events, if there's no UI event run the scheduler
+for 10ms.
+
+let rec loop deadline =  
+  while Sdl.poll_event e do do_event e done;
+  run_scheduler ~timeout:10;  
+  loop ()
+
+Regarding Tsdl.Sdl.wait_event, it's not really better than that, if you
+have a look at its C implementation [1] you'll see it tries to get an
+event and if none is available it will sleep for 10ms before trying
+again. This means that any SDL based program using Sdl.wait_event,
+constantly uses ~1.5% cpu (at least on osx), you should be able to bring
+that down by writing your own loop as above and augmenting the timeout
+value when your application is not in the foreground.
+
+Best,
+
+Daniel
+
+[1] http://hg.libsdl.org/SDL/file/4c01875a4620/src/events/SDL_events.c#l421
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocamlcore planet blog</cwn_who>
+      <cwn_what>
+Thanks to Alp Mestan, we now include in the OCaml Weekly News the links to the
+recent posts from the ocamlcore planet blog at &lt;http://planet.ocaml.org/&gt;.
+
+BitMasks Library:
+  &lt;https://forge.ocamlcore.org/projects/bitmasks/&gt;
+
+WODI now officially supports cygwin64:
+  &lt;http://wodi.forge.ocamlcore.org/2014/03/12/cygwin64-support.html&gt;
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

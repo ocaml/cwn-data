@@ -1,0 +1,208 @@
+Hello,
+
+Here is the latest Caml Weekly News, week 20 to 27 May, 2003.
+
+1) Theorem proving example code available
+2) Data structures
+3) Generating a call-graph
+
+==============================================================================
+1) Theorem proving example code available
+------------------------------------------------------------------------------
+John Harrison wrote:
+
+I've made available some simple implementations of common automated
+theorem proving methods. This code, intended to accompany a textbook on
+theorem proving, is written in Objective CAML and covers quite a range
+of techniques, e.g.
+
+ * The Davis-Putnam procedure
+ * Stalmarck's method
+ * Binary decision diagrams
+ * Tableaux
+ * Resolution
+ * Model elimination
+ * Congruence closure
+ * Rewriting
+ * Knuth-Bendix completion
+ * Brand's transformation
+ * Paramodulation
+ * Quantifier elimination over Z, C and R
+ * Groebner bases
+ * Geometry theorem proving
+ * The Nelson-Oppen combination method
+ * CTL and LTL model checking
+ * Symbolic trajectory evaluation
+ * Interactive LCF proof
+ * Mizar-like proofs
+
+For more details, and to browse or download the code, see:
+
+  http://www.cl.cam.ac.uk/users/jrh/atp/index.html
+
+The code is intended to illustrate the techniques described in the
+simplest way I could think of, and *not* to be efficient or practically
+useful. Part of my aim in making it available is to solicit ideas about
+how it might be made simpler and clearer. Any suggestions will be
+gratefully received at <johnh@ichips.intel.com>. I might mention two
+notable features of the code as it stands:
+
+ o The code is entirely functional (well, excluding various status
+   messages that are emitted). In fact, I cheekily redefine the OCaml
+   assignment operator ":=". On the whole, this seems fine, except for
+   some messiness when threading BDD state (e.g. the files "bdd.ml" and
+   "model.ml").
+
+ o To represent sets, I use canonically ordered lists. This is
+   questionable both on grounds of abstraction and efficiency, but
+   there is a certain convenience in having an easy concrete syntax
+   and being able to pick out elements by pattern matching.
+
+==============================================================================
+2) Data structures
+------------------------------------------------------------------------------
+Yamagata Yoriyuki asked and Diego Olivier Fernandez Pons answered:
+
+> I'm looking for the Set/Map like data-structures which can efficiently
+> add and remove large intervals over integers, and support
+> intersections, unions and compliments.  Does anybody make such
+> libraries?  Baire contains interval.ml[i] but misses these
+> functionalities.  Is it easy to add them to Baire, or are Baire's
+> intervals something different than I thought?
+
+Baire's interval Set/Map data structure is based on Martin Erwig's
+paper 'Diets for fat sets, Journal of Functional programming Vol 8,
+N°6, 627-632, 1998'. It seems to be the data structure you are looking
+for (that is an extension to usual sets and maps with a better support
+for interval query, insertion, removal, ...)
+
+Erwig's paper is available from his home page, there is also a version
+by Olivier Andrieu.
+
+There are interval data structures used in computational geometry
+(interval tree, ...) but I don't think this is what you are refering
+to, is it ?
+
+Martin Erwig's paper presents the data structure and says that one
+could easily add
+- a balancing scheme
+- the set operations (union, intersection, ...)
+
+I did the first one longtime ago (should clean the data structure and
+remove some bugs) but didn't have the courage to face the 23 cases of
+interval respective positions needed to implement the 'difference'
+operation over sets.  I also tried some generic implementation
+(extending the 'partition' operation) but never ended that work.
+
+> Failing that, is there Set/Map with order-related operations?  
+> Actually I have one but if there is one actively developed, I would
+> like to use it.
+
+I dont understand exactly what do you mean by 'order-related
+operations'. Anyway, if you have some code, it would be interesting to
+release it.
+
+> By the way, I have a library for arbitrary orders on (finite sets of)
+> integers.  I think comparison of two integer is O(log n ^ 2)
+> time. (n for the size of the finite set.)  Do you think it is worth to
+> make public?
+
+Yes. It could be included to one of the 'data structure projects'
+being developed in Caml.
+
+Oleg Trott wrote and Diego Olivier Fernandez Pons answered:
+
+>> Baire has not even been released after 1 year of work,
+>
+> I understand that you are not designing new algorithms, but coding
+> up ones that are well-known. If so, what is the limiting factor in
+> your work : trying to anticipate what features users might and might
+> not need ?
+
+The first point is not absolutely true : Baire contains a useless
+generalization of balancing schemes, a few operations on zippers,   
+graph data structure based on ternary balanced trees (both inspired by
+Gerard Huet's Zen library), lexical maps, there were dynamic optimal
+trees (see the art of computer programming for the statical version)
+based on Cartesian trees... But this is not the problem.
+
+The main problems are :
+- lack of knowledge
+- lack of time
+- lack of organization
+
+And the worse is the last one.
+
+I wanted to write a library of NP-hard approximation algorithms over
+Baire's graph data structures. I soon understood I would need a  
+LP-solver and an efficient branch-and-bound scheme.
+
+I then experimented on branch-and-bound (huge trees) with two
+techniques : continuations (simulated by exceptions) and zippers.
+Wrote some code. I also experimented a few LP algorithms mostly on
+Bender's decomposition to obtain a quasi-recursive scheme and to be
+able to use a persistent data structure (sparse arrays). Wrote
+some code.
+
+The LP-algorithms had numerical unstability problems. I investigated
+how to face this kind of problem (interval arithmetic, stochastic
+arithmetic, regressive analysis). Chose CESTAC (stochastic arithmetic)
+and wrote some code.
+
+I also investigated a few tree traversal algorithms (classical
+depth-first and best-first but also limited discrepancy search,
+bounded-depth discrepancy seach, interleaved-discrepancy search, ...)
+
+Tired of being rewriting trivial data structure (trees, heaps) because
+I needed an immediate acces to X where X could be { the size, the
+depth on the tree, the number of left segment in the path, ... } I
+said to myself "wrong way...  automatic code generation is the only
+truth".
+
+Worked on automata (pda, lpda), attribute grammars and code
+generation/specialisation. Wrote some code.
+
+Result :
+- a lot of pieces of unrelated code
+- no library, not even a single line of code directly related to the
+initial goal
+- Baire hasn't been maintained and developed as it should have
+
+This is the classical scheme of the 'library project disaster'.
+
+==============================================================================
+3) Generating a call-graph
+------------------------------------------------------------------------------
+Yaron Minsky asked and Xavier Leroy answered:
+
+> Does anyone know a way of generating a call-graph from a set of ocaml
+> sources?  What I want to do is, at a minimum, get a list of all the
+> functions that could be called as a result of a given function invocation.
+
+This requires a non-trivial static analysis called "control flow
+analysis" in the literature; particular instances include Shivers'
+0-CFA and k-CFA, Jagannathan and Wright's "polymorphic splitting",
+etc.
+
+The difficulty is that functions are first-class values, so the
+function you're applying can be a parameter to another function, or a
+member of a data structure.  (Objects raise similar issues.)
+Thus, the control flow cannot be determined independently of the data
+flow, and "control flow analysis" is really a data flow analysis that
+tracks the flow of functional values.
+
+I don't know of any implementation of control-flow analysis for the
+whole OCaml language.
+
+==============================================================================
+Old cwn
+------------------------------------------------------------------------------
+
+If you happen to miss a cwn, you can send me a message
+(alan.schmitt@inria.fr) and I'll mail it to you, or go take a look at
+the archive (http://pauillac.inria.fr/~aschmitt/cwn/). If you also wish
+to receive it every week by mail, just tell me so.
+
+==============================================================================
+
+Alan Schmitt

@@ -1,0 +1,321 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of October 10 to 17, 2006.
+
+1) ocamlopt under win32
+2) forking, threads and events
+3) Release 0.8 of demexp is out
+4) Missing overflow exception message in ocamlopt
+5) Ancient 0.8.0 & Weblogs 2.1 released
+
+========================================================================
+1) ocamlopt under win32
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/42ab6a1c67bda727/2f0bc128e0f968c3#2f0bc128e0f968c3>
+------------------------------------------------------------------------
+** Continuing a thread from last week, Philip A. Viton asked and Dr. Axel Poigné answered:
+
+> Can anyone tell me what's going wrong here? 
+> Computer: running win xp/sp2 on amd 64 
+> ocamlopt: 3.09.0 
+> ms files: from visual studio 6 
+> [...] 
+> libasmrun.lib(compact.obj) : error LNK2001: unresolved external symbol 
+> __ftol2 
+
+This is a classic one. Just add 
+
+ 	 	fix_ftol2.c
+
+		long _ftol2( double dblSource )
+		{ return _ftol( dblSource ); }
+
+to your sources. At least that is what we did.
+			
+========================================================================
+2) forking, threads and events
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/8976ccece284bf88/8156e60c80bdc1e0#8156e60c80bdc1e0>
+------------------------------------------------------------------------
+** Erik de Castro Lopo asked and Gerd Stolpmann answered:
+
+> I'm thinking about to start a new project which has some rather 
+> critical requirements. It will be compiled with the native compiler 
+> initially targeting Linux/Unix but eventually also windoze. 
+
+> The app consists of a main engine which spawns many short lived 
+> child threads or processes. The children go away, do their work and 
+> then pass their results back to the main engine. Many of the children 
+> will spawn another process and read the child process output via a 
+> pipe and many of the children will block on I/O. A small portion of 
+> the children may be I/O bound, but there is not way of telling which 
+> beforehand. 
+
+> Since I would like to maximize the throughput on multi-core and 
+> multi-processor machines I am thinking of using a mix of forking and 
+> threading. 
+
+
+You know that there is no fork on Windows? 
+>  For communications, I was thinking of using the Event 
+> module for communication between threads, but I don't think that 
+> works for forked process (pipes maybe?). 
+> Anybody have any advice for this project? Any war stories from similar 
+> projects? Any readings they can recommend? 
+
+
+If there wasn't the Windows requirement I could recommend this: 
+You may have a look at ocamlnet2. It includes the netplex library that 
+manages parent/children relationships between either forked processes or 
+threads. You can use SunRPC for communication (or whatever you like, but 
+SunRPC support is included). The bad news is that it does not run on the 
+native Windows port, not even in the threaded variant (because there's 
+no socketpair...). 
+
+Ah yes, I have a war story, but cannot tell it now. I can only say it is 
+used for a really big commercial project. 
+
+Download it here: 
+
+<http://www.ocaml-programming.de/packages/ocamlnet-2.2test13.tar.gz> 
+
+An online manual is here: 
+
+<http://ocamlnet.sourceforge.net/manual-2.2/>
+			
+========================================================================
+3) Release 0.8 of demexp is out
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/4e1a461793a0346a/5e8ed5026fdfcc5c#5e8ed5026fdfcc5c>
+------------------------------------------------------------------------
+** Felix HENRY announced:
+
+demexp 0.8 is out! demexp is an electronic voting system for wide 
+scale direct democracy. demexp is developed mainly to support the 
+democractic experience project (<http://www.demexp.org>), but can be 
+used in other contexts (communities, firms, ...). 
+
+Briefly, demexp allows to ask questions ("votes"), to submit 
+answers to those questions ("candidate answers"), and to vote on 
+the submitted answers to elect a winning answer (using Condorcet voting 
+system). 
+
+demexp is implemented as a centralized server and a GTK2 graphical 
+client (a Drupal web client will be available soon). A classification 
+system allows to navigate through questions. 
+
+* What's new in 0.8? 
+  - New configuration file that supports version upgrading; 
+  - Support for client internationalization; 
+  - Translations of the (English) client in French and Esperanto; 
+  - Experimental web client in OCaml (using WDialog); 
+  - Improvement of the Windows installer; 
+  - simplification of the client's interface; 
+  - tooltips on column titles; 
+  - various bug fixes on the client and the server. 
+
+* How can I try it? 
+ The most recent version of the sources (in OCaml) are here: 
+ <http://www.linux-france.org/~dmentre/demexp/latest-src/> 
+
+ Main code is under GNU General Public License (GPL). It relies on 
+ external libraries and code of which licenses are GPL compatible 
+ (see source code for details). 
+
+ Once compiled use it to connect to the demonstration server: 
+ $ demexp-gtk2-client demexp://demo.demexp.org:50000 
+
+ Packages are also available for various Linux distributions (althought 
+ most of them are not 0.8-ready yet). Have a loot at: 
+ <http://www.demexp.org/fr/doku.php?id=telechargement_du_logiciel_demexp> 
+
+* Other links 
+
+ Development: <http://savannah.nongnu.org/projects/demexp> 
+ demexp software wiki: <http://www.demexp.org/en/> 
+ Democratic experience political project: <http://www.demexp.org>
+			
+========================================================================
+4) Missing overflow exception message in ocamlopt
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/cacd6900d7abe2ef/31e188c871bcb2e6#31e188c871bcb2e6>
+------------------------------------------------------------------------
+** Jakob Lichtenberg asked:
+
+Using ocaml-3.09.3-win-msvc 
+
+When I compile the following program as byte code I see a stack overflow 
+(expected).  When using ocamlopt it seems that the program dies and I do 
+not see the expected overflow exception? 
+
+>type overflow.ml 
+
+let array_1=Array.make 229376 42;; 
+let _ = Printf.printf "A\n";; 
+
+flush stdout;; 
+
+let array_2=Array.make 32768 43;; 
+
+let _ = Printf.printf "B\n";; 
+
+flush stdout;; 
+
+let list_1 = Array.to_list(array_1);; 
+
+let _ = Printf.printf "C\n";; 
+
+flush stdout;; 
+
+let list_2 = Array.to_list(array_2);; 
+
+let _ = Printf.printf "D\n";; 
+
+flush stdout;; 
+
+let list_3 = list_1@list_2;; 
+
+let _ = Printf.printf "E\n";; 
+
+flush stdout;; 
+
+>ocamlc overflow.ml -o overflow_ocamlc.exe 
+>overflow_ocamlc.exe 
+
+A 
+B 
+
+C 
+
+D 
+
+Fatal error: exception Stack_overflow 
+
+>echo %ERRORLEVEL% 
+
+2 
+>ocamlopt overflow.ml -o overflow_ocamlopt.exe 
+>overflow_ocamlopt.exe 
+
+A 
+B 
+
+C 
+
+D 
+
+>echo %ERRORLEVEL% 
+
+-1073741819 
+Is this a bug?
+			
+** Xavier Leroy answered:
+
+Right.  Given your e-mail address, you might actually understand 
+better than I why it is so.  Let me explain: 
+The machine code generated by ocamlopt does not test explicitly for 
+stack overflows, relying instead on the operating system to detect and 
+report them.  However, handling of stack overflow conditions varies 
+greatly between processors and operating systems.  Currently: 
+
+- Under Linux/IA32 and Linux/AMD64, stack overflows are properly 
+  turned into a Stack_overflow Caml exception.  Similar handling is 
+  in the CVS for MacOSX/PPC, and MacOSX/Intel might be feasible soon. 
+
+- Other Unix-like operating systems just report stack overflows 
+  as a "segmentation violation" or "bus error" fatal signal. 
+
+- Windows, as you noticed, behaves strangely.  Stack overflows are turned 
+  into Win32 system exceptions, but apparently the structured 
+  exception handling of Win32 just fails to handle them and silently 
+  exits the program.  That might be because the stack frames generated 
+  by ocamlopt are nothing like what Win32 expects. 
+
+If you happen to know how to do better under Windows, you're most 
+welcome to let me know.
+			
+========================================================================
+5) Ancient 0.8.0 & Weblogs 2.1 released
+Archive: <http://groups.google.com/group/fa.caml/browse_thread/thread/80cb9c27c3f45e7d/14c562ef9958151c#14c562ef9958151c>
+------------------------------------------------------------------------
+** Richard Jones announced:
+
+We are pleased to announce the release of Ancient 0.8.0 and 
+Weblogs 2.1. 
+
+====================================================================== 
+Ancient 0.8.0 
+
+The Ancient module allows you to use in-memory data structures which 
+are larger than available memory and so are kept in swap.  If you try 
+this in normal OCaml code, you'll find that the machine quickly 
+descends into thrashing as the garbage collector repeatedly iterates 
+over swapped memory structures.  This module lets you break that 
+limitation.  Of course the module doesn't work by magic :-) If your 
+program tries to access these large structures, they still need to be 
+swapped back in, but it is suitable for large, sparsely accessed 
+structures. 
+
+Secondly, this module allows you to share those structures between 
+processes.  In this mode, the structures are backed by a disk file, 
+and any process that has read/write access that disk file can map that 
+file in and see the structures. 
+
+(more here: <http://merjis.com/_file/ancient-readme.txt> ) 
+
+---------------------------------------------------------------------- 
+Differences in this release: 
+
+Previously a hard-coded limit of 1024 objects could be stored in one 
+backing file.  This limit has now been removed. 
+
+---------------------------------------------------------------------- 
+Download: 
+
+<http://merjis.com/developers/ancient> 
+
+====================================================================== 
+Weblogs 2.1 
+
+Weblogs is an OCaml module for importing weblogs from Apache or IIS 
+web servers. 
+
+In this major release we have modified the API to use arrays of 
+structures instead of lists for efficiency.  We have added support for 
+the Ancient module, so that absolutely huge logfiles can now be loaded 
+into memory and analysed.  To give you an idea of how large: we have 
+analysed 38 GB of logfiles from one customer on a 64-bit desktop 
+machine with just 2 GB of physical RAM. 
+
+---------------------------------------------------------------------- 
+Download: 
+
+<http://merjis.com/developers/weblogs> 
+
+====================================================================== 
+
+Both modules are released under LGPL + OCaml linking exception, to 
+make them compatible with the OCaml library and maximise use even in 
+commercial applications.
+			
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

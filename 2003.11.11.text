@@ -1,0 +1,233 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of 04 to 11 November, 2003.
+
+1) Map efficiency
+2) Why are functors better?
+3) GODI News
+4) Efficient and canonical set representation?
+5) access to the internet
+
+========================================================================
+1) Map efficiency
+------------------------------------------------------------------------
+** Dustin Sallings asked and Jean-Christophe Filliatre answered:
+
+> Should I expect Hashtbl to be more efficient than Map with the same 
+> key type?  I'm taking a small performance hit in a log processing app 
+> after turning a Hashtbl into a Map.
+
+Hashtbl.add runs in O(1) and Hashtbl.find can be so (or almost) when
+the hash function is good enough.
+
+Map.add and Map.find are always in O(ln n) where n is the total number
+of keys.
+
+The main interest of maps wrt hash tables is to be persistent (in the
+sense of Okasaki's book, not of the PERSIL library).
+
+> Also, is there a particular reason Map is so, um, inaccessible to 
+> beginners?  Hashtbl's generic interface is much more inviting than 
+> Map's functorial-only interface, especially to those not terribly 
+> familiar with the module system.
+
+Just copy the body of Map.Make and replace Ord.compare  by
+Pervasives.compare  and you'll get  a polymorphic version of Map, as
+easy to use as Hashtbl's generic interface.
+
+But I agree: it's a shame ocaml does not provide it.
+    
+** Issac Trotts added:
+
+Thanks for the idea.  Here is the modified code:
+
+  <http://redwood.ucdavis.edu/~issac/map2.tar.gz>
+
+# #load "map2.cmo";;
+# let map = ref Map2.empty;;
+val map : ('_a, '_b) Map2.t ref = {contents = <abstr>}
+# map := Map2.add "foo" 23 !map;;
+- : unit = ()
+# map := Map2.add "bar" 42 !map;;
+- : unit = ()
+# Map2.iter (fun key v -> Printf.printf "%s : %i\n" key v) !map;;
+bar : 42
+foo : 23
+- : unit = ()
+    
+** On the subject of Map's functorial interface, Christian Lindig said:
+
+Map depends on keys to be ordered. This in turn requires to allow for a
+user-defined order: assume sets as keys that are implemented by
+unordered lists. Different lists can represent the same set. Hence, it
+must be possible to provide a user-defined order that would treat those
+lists as equal. The functor argument of Map contains the compare() which
+does just that.
+    
+** Alex Baretta answered and Nicolas Cannasse added:
+
+> The order function could just as easily be passed as a parameter to all
+> functions working on the map. There is no reason not to have a
+> polymorphic version of the Map module in the standard library. Am I
+> wrong in believing that someone out there wrote such a module already?
+>
+> Alex
+
+There is one : module PMap , which is part of the ExtLib CVS :
+<http://sourceforge.net/projects/ocaml-lib>
+Since it's been added recently, there is no mli yet.
+    
+========================================================================
+2) Why are functors better?
+------------------------------------------------------------------------
+** Answering Jean-Christophe Filliatre, Yaron Minsky said:
+
+> [ Some discussion of methods for building maps without functors ]
+>
+> (But the functorial interface is definitely the best, of course.)
+
+I don't understand this perspective at all.  Functors seem like a fairly
+problematic corner of the language.  In this case, except for some
+possible efficiency issues, it seems clear that a non-functorial map is
+preferable, for simplicity and ease-of-use issues, and performance
+aside, I can't see much to recommend the current functorial approach.
+
+Functors would be a lot more useful if they could be used as a
+large-scale structural tool.  Sadly, the current implementation makes
+this quite difficult, since there's no good way of parameterizing
+multiple modules at once (as noted in a previous thread.  See
+
+<http://caml.inria.fr/archives/200203/msg00106.html>
+(editor note: link changed to refer to the OCaml mailing list archive)
+
+for details.)  For most situations where you'd really need them, they're
+not powerful enough.  And for the situations where they're powerful
+enough, they're usually overkill.  Map and Set are examples where they
+almost strictly get in the way.
+    
+** Michael Hicks added:
+
+Benjamin Pierce did a nice talk at ICFP a couple of years ago about
+sophisticated module systems, examining where (or if) they are really
+needed.  The slides are at
+
+<http://www.cis.upenn.edu/~bcpierce/papers/modules-icfp.ps>
+
+This is not exactly on target for your point about ease-of-use, but it's
+related.
+    
+========================================================================
+3) GODI News
+------------------------------------------------------------------------
+** Gerd Stolpmann announced:
+
+GODI, the O'Caml source distribution, has been updated with
+the following packages:   
+
+- O'Caml 3.07pl2 (godi-ocaml,godi-ocaml-graphics,godi-ocaml-labltk)
+- PXP 1.1.94.2 (godi-pxp)
+
+This package is new:
+
+- Wdialog 2.0.1 (godi-wdialog,godi-wdialog-manual)
+
+To update the installation, just go into the godi_console, get the new
+list of available packages, and select the mentioned packages for
+(re)build. GODI will install the new packages, and will recompile all
+dependent packages.
+
+Gerd
+
+GODI homepage: <http://ocaml-programming.de/godi/>
+    
+========================================================================
+4) Efficient and canonical set representation?
+------------------------------------------------------------------------
+** John Harrison asked:
+
+Does anyone know a representation of finite sets over an orderable polymorphic type
+that's (1) efficient and (2) canonical? Even better would be a CAML or OCaml
+implementation. More precisely I'm looking for:
+
+  1. Log-time lookup and insertion, and linear-time union, intersection etc.
+
+  2. Equal sets are represented by the same object.
+
+For example, ordered lists satisfy (2) but only part of (1), while all the variants
+of balanced trees I can remember that satisfy (1) --- AVL trees etc. --- fail (2).
+    
+** Diego Olivier Fernandez Pons proposed and Julien Signoles added:
+
+> Patricia sets seem to be what you are looking for.
+>  (1). Efficient usual operations (lookup, insertion, union)
+>  (2). Structural equality
+> 
+> Their only problem is that they cannot handle polymorphic orderable
+> types but only integers...
+>
+> Hash the data, use this key to insert it in a patricia map and solve
+> the collisions by chaining in an ordered list (with the polymorphic
+> [compare] function). (1) and (2) still hold under usual hypothesis on
+> the rate of collisions.
+>
+> A few changes to JCF's implementation should be enough.
+
+I think JCF's Hmap module is what you want.
+A hmap is a map over hash-consed values implemented as Patricia Trees.
+See <http://www.lri.fr/~filliatr/software.en.html> for more details.
+    
+========================================================================
+5) access to the internet
+------------------------------------------------------------------------
+** Pierre Laffitte asked and Richard Jones answered:
+
+> Is it possible from a caml program, to give an internet adress, to get the 
+> result in a file or in a set of character to analyse it.
+
+Actually there are two (at least) ways of doing this:
+
+<http://sourceforge.net/projects/ocurl/>
+
+which is an OCaml wrapper around the Curl library.
+
+Or, you could use some Perl-fu with:
+
+<http://www.merjis.com/developers/perl4caml/>
+
+which includes a wrapper around the Perl LWP and HTML::TreeBuilder
+libraries, so you could not only download the page, but also parse it
+into an HTML tree (the HTML::TreeBuilder parser is about the best
+parser ever written for parsing fuzzy, incorrect HTML, and there's
+really no way you would want reinvent this in OCaml).
+    
+** Artem Prisyznuk added:
+
+I prefer the netclient library.
+
+<http://www.ocaml-programming.de/programming/netclient.html>
+    
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

@@ -1,0 +1,147 @@
+Hello,
+
+Here is the latest Caml Weekly News, for the week of 30 March to 06 April, 2004.
+
+1) What's wrong with win32?
+2) ocaml-xmlr 0.3 (bindings for libxml's xmlreader)
+
+========================================================================
+1) What's wrong with win32?
+------------------------------------------------------------------------
+** Christophe Troestler asked, Loïc Correnson added, and Xavier Leroy answered:
+
+> >   let (ic, oc) = Unix.open_connection (Unix.ADDR_INET(addr, port)) in
+> >
+> > However, when I try to run it under windows 98 [...]
+> >   Fatal error: exception Sys_error("Bad file descriptor")
+>
+> Ok, the trouble comes from the fact that Unix.open_connection uses
+> in_channel_of_descr of which the manual says
+>
+>   in_channel_of_descr  does not work on sockets under Windows 95, 98, ME;
+>                        works fine under NT and 2000
+>
+> Well, I tried the program under Win 2000 Professional and got the same
+> error...
+
+As Loïc Correnson said, Unix.open_connection is broken under Windows
+(all versions) in OCaml 3.07, while it works under NT/2000/XP in
+earlier versions of 3.06.  This is a stupid coding error while fixing
+another bug :-(  The patch against 3.07 sources is simply:
+
+Index: csl/otherlibs/win32unix/unixsupport.c
+diff -c csl/otherlibs/win32unix/unixsupport.c:1.18 csl/otherlibs/win32unix/unixsupport.c:1.19
+*** csl/otherlibs/win32unix/unixsupport.c:1.18  Mon Jan  6 15:52:57 2003
+--- csl/otherlibs/win32unix/unixsupport.c       Thu Apr  1 15:12:36 2004
+***************
+*** 61,66 ****
+--- 61,67 ----
+    value res = alloc_custom(&win_handle_ops, sizeof(struct filedescr), 0, 1);
+    Socket_val(res) = s;
+    Descr_kind_val(res) = KIND_SOCKET;
++   CRT_fd_val(res) = NO_CRT_FD;
+    return res;
+  }
+
+> Anyway, it would be nice that (1) open_connection be
+> mentionend in the manual as not working under win 9*
+
+Will do.
+
+> or, even much better, to make that (2) Unix.open_connection actually
+> works under win32!  IMHO it is quite unfortunate that
+> in_channel_of_descr does not work under windows for sockets since it
+> basically forces the programmer to reimplement input/output
+> functions for these.
+
+It does work (modulo the 3.07 bug) for the NT/2000/XP lineage of Windows.
+Making it work under Windows 9x as well would require significant work
+(see below), and I don't think it is worth it given that 9x is at
+end-of-line.
+
+> Is the current situation made for efficiency reasons (it is costly for
+> in/out channels to carry their type with them) or is there a deeper
+> problem with Win$ platforms?
+
+It's not a question of efficiency, but rather of not reimplementing a
+chunk of the C standard library.  More precisely:
+
+- The buffered I/O channels of OCaml are implemented on top of the
+Unix "file descriptor" abstraction and the Unix system calls open(),
+read(), write(), lseek(), close().
+
+- Under Windows, the C library provides an emulation of these Unix
+idioms that encapsulate Win32 file handles as a Unix-style file
+descriptor.  This emulation handles CRLF <-> LF conversion for files
+opened in text modes, so it's not 100% trivial.
+
+- In Windows NT/2000/XP, just like under Unix, socket handles (type
+SOCKET) are compatible with file handles (type HANDLE), and basic
+system calls that operate on the latter (ReadFile, etc) also work on
+sockets.  Hence, wrapping a socket as a Unix-style file descriptor
+(through the C lib API), then as a buffered I/O channel just works fine.
+
+- In Windows 9x, socket handles are *not* compatible with file handles,
+and ReadFile on a socket handle fails.  Therefore, the wrapping of
+socket handles described above doesn't work.
+
+- The Win32 implementation of the Unix library already maintains the
+information "socket or file" on its file descriptors (type
+Unix.filedescr), and arranges so that e.g. Unix.read calls ReadFile()
+or recv() as appropriate.  However, to exploit this information at the
+level of buffered I/O channels obtained with in_channel_of_descr
+would require to throw away the C library emulation of read() et al,
+and implement our own.  That's not completely trivial due to text mode
+handling, and is in my opinion too much work for the purpose of
+supporting Windows 9x, which is an horrible piece of software that
+should die as quickly as possible.
+    
+========================================================================
+2) ocaml-xmlr 0.3 (bindings for libxml's xmlreader)
+------------------------------------------------------------------------
+** Evan Martin announced:
+
+I've released version 0.3 of my bindings for libxml[1]'s
+XmlTextReader[2] API for OCaml.  This API is modelled on the XmlReader
+classes found originally in C# (I think?) and is both fast and
+convenient.
+
+Major changes since the last announcement:
+ - License changed to MIT, to match libxml.
+ - Many more functions wrapped (now covers most of the API).
+ - Lots of documentation added.
+ - Bug/typo fixes.
+
+Special thanks to Matt Gushee for his feedback on the previous release.
+
+This site has the download:
+<http://neugierig.org/software/ocaml/xmlr/>
+
+[1] <http://xmlsoft.org/>
+[2] <http://xmlsoft.org/xmlreader.html>
+    
+========================================================================
+Using folding to read the cwn in vim 6+
+------------------------------------------------------------------------
+Here is a quick trick to help you read this CWN if you are viewing it using
+vim (version 6 or greater).
+
+:set foldmethod=expr
+:set foldexpr=getline(v:lnum)=~'^=\\{78}$'?'<1':1
+zM
+If you know of a better way, please let me know.
+
+========================================================================
+Old cwn
+------------------------------------------------------------------------
+
+If you happen to miss a CWN, you can send me a message
+(alan.schmitt@polytechnique.org) and I'll mail it to you, or go take a look at
+the archive (<http://alan.petitepomme.net/cwn/>) or the RSS feed of the
+archives (<http://alan.petitepomme.net/cwn/cwn.rss>). If you also wish
+to receive it every week by mail, you may subscribe online at
+<http://lists.idyll.org/listinfo/caml-news-weekly/> .
+
+========================================================================
+
+

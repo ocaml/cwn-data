@@ -1,0 +1,1127 @@
+<?xml version="1.0" encoding="utf-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2020.12.08</cwn_date>
+    <cwn_prev>2020.12.01</cwn_prev>
+    <cwn_next>2020.12.15</cwn_next>
+    <cwn_date_text>December 01 to 08, 2020</cwn_date_text>
+    <cwn_extra_head></cwn_extra_head>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>OCaml 4.12.0, second alpha release</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ocaml-4-12-0-second-alpha-release/6887/1</cwn_url>
+      <cwn_who>octachron announced</cwn_who>
+      <cwn_what>
+The release of OCaml 4.12.0 is approaching. We have released a second alpha
+version to help fellow hackers join us early in our bug hunting and
+opam ecosystem fixing fun.
+
+Beyond the usual bug fixes this new alpha version removes the type system change that
+restricted the propagation of type information between branches of a "match".
+The newly introduced warning was more troublesome than expected, the feature has
+been thus postponed to 4.13 .
+
+The base compiler can be installed as an opam switch with the following commands
+#+begin_src shell
+opam update
+opam switch create 4.12.0~alpha2
+--repositories=default,beta=git+https://github.com/ocaml/ocaml-beta-repository.git
+#+end_src
+If you want to tweak the configuration of the compiler, you can pick configuration options with
+#+begin_src shell
+opam update
+opam switch create &lt;switch_name&gt; --packages=ocaml-variants.4.12.0~alpha2+options,&lt;option_list&gt;
+--repositories=default,beta=git+https://github.com/ocaml/ocaml-beta-repository.git
+#+end_src
+where ~&lt;option_list&gt;~ is a comma separated list of ocaml-option-* packages. For
+instance, for a flambda and afl enabled switch:
+#+begin_src shell
+opam switch create 4.12.0~alpha2+flambda+afl
+--packages=ocaml-variants.4.12.0~alpha2+options,ocaml-option-flambda,ocaml-option-afl
+--repositories=default,beta=git+https://github.com/ocaml/ocaml-beta-repository.git
+#+end_src
+All available options can be listed with "opam search ocaml-option".
+
+The source code for the alpha is also available at these addresses:
+
+- https://github.com/ocaml/ocaml/archive/4.12.0-alpha2.tar.gz
+- https://caml.inria.fr/pub/distrib/ocaml-4.12/ocaml-4.12.0~alpha2.tar.gz
+
+If you want to test this version, it is advised to install the alpha opam repository
+
+https://github.com/kit-ty-kate/opam-alpha-repository
+
+with
+#+begin_src shell
+opam repo add alpha git://github.com/kit-ty-kate/opam-alpha-repository.git
+#+end_src
+This alpha repository contains various packages patched with fixes in the
+process of being upstreamed. Once the repository installed, these patched
+packages will take precedence over the non-patched version.
+
+If you find any bugs, please report them here:
+ https://github.com/ocaml/ocaml/issues
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>ez_subst.0.1.0 and ez_cmdliner.0.2.0</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-ez-subst-0-1-0-and-ez-cmdliner-0-2-0/6888/1</cwn_url>
+      <cwn_who>Fabrice Le Fessant announced</cwn_who>
+      <cwn_what>
+I am please to announce the new releases of two opam packages: ~ez_subst~ and ~ez_cmdliner~. We use
+both of them as dependencies of ~drom~ (and use ~drom~ to manage them).
+
+- ~ez_subst~ is a simple library to perform string replacements in strings. It can be seen as a replacement for ~Printf~ when you are lost with too many ~%s~ in one format, or a replacement for ~Buffer.add_substitute~ when you want a more control. Replacements are chosen by functions, and can be separately specified using optional arguments ~`brace~ (for ~${var}~), ~`paren~ (for ~$(var)~), ~`bracket~ (for ~$[var]~) and ~`var~ (for ~$alphanum~). Separator ~$~ can be changed, and notation can be symmetric (~%{x}%~).
+
+  https://ocamlpro.github.io/ez_subst \\
+  https://ocamlpro.github.io/ez_subst/doc/ez_subst/Ez_subst/V1/EZ_SUBST/index.html
+
+  For example:
+  #+begin_src ocaml
+  open Ez_subst.V1 (* versionned interface *)
+
+  let s = EZ_SUBST.string ~brace:(fun ctxt n -> string_of_int
+     (ctxt + int_of_string n)) ~ctxt:3 "${4} ${5}"
+
+  let s = EZ_SUBST.string ~sep:'!'  ~paren:(fun () s ->
+     String.uppercase s) ~ctxt:() "!(abc) !(def)"
+
+  let s = EZ_SUBST.string ~sym:true ~sep:'%' ~brace:(fun ctxt_ s
+     -> ctxt ^ " " ^ s) ~ctxt:"Hello" "%{John}% %{Sandy}%"
+
+  let s = EZ_SUBST.string_from_list ~default:"unknown" [ "name",
+     "Doe"; "surname", "John" ] "${name} $(surname) is missing"
+  #+end_src
+
+- ~ez_cmdliner~ is a simple layer over ~cmdliner~ to provide an interface à la ~Arg~ module. It provides support for a one-command and sub-commands modes. It also provides a ReST generator to document sub-commands and integrate the documentation in a Sphinx documentation (to use with ~drom~ for example).
+
+  https://ocamlpro.github.io/ez_cmdliner
+
+  For example:
+
+  #+begin_src ocaml
+   open Ezcmd.V2
+   let cmd_new =  EZCMD.sub "new"   (* for `drom new` *)
+    ~args: [
+     [ "dir" ],  Arg.String (fun s -> dir := Some s),
+        EZCMD.info ~docv:"DIRECTORY"
+         "Dir where package sources are stored (src by default)";
+     [ "library" ],  Arg.Unit (fun () -> skeleton := Some "library"),
+        EZCMD.info "Project contains only a library";
+     [ "i"; "inplace" ], Arg.Set inplace, (* for `-i` or `--inplace` *)
+         EZCMD.info "Create project in the the current directory";
+     [],    Arg.Anon (0, fun name -> project_name := Some name),
+         EZCMD.info ~docv:"PROJECT" "Name of the project"
+    ]
+    ~doc:"Create a new project"
+    (fun () ->
+       action ~name:!project_name ~skeleton:!skeleton ~dir:!dir
+         ~inplace:!inplace ~args)
+    ~man: [
+      `S "DESCRIPTION";
+      `Blocks [
+        `P "This command performs the following actions:";
+      ]
+   ]
+   let () = EZCMD.main_with_subcommands ~name:"drom" ~version:"0.1.0"
+      ~doc:"Create and manage an OCaml project" ~man:[] ~argv [ cmd_new ]
+      ~common_args
+  #+end_src
+
+Both packages are now available in opam repository.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>New release of Menhir (20201201)</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-new-release-of-menhir-20201201/6892/1</cwn_url>
+      <cwn_who>François Pottier announced</cwn_who>
+      <cwn_what>
+I would like to announce a new release of Menhir, the LR(1) parser generator
+for OCaml. The most prominent new features are intended to improve the comfort
+of the machinery that allows producing custom syntax error messages: a demo of
+this machinery has been added, new library functions have been added so as to
+make it easier to use, and the commands that deal with ~.messages~ files have
+been improved. An excerpt of the changelog appears below.
+
+#+begin_src shell
+    opam update
+    opam upgrade menhir
+#+end_src
+
+Happy parsing!
+
+*** 2020/12/01
+
+- The module ~MenhirLib.ErrorReports~ is extended with new functions:
+  ~wrap_supplier~, ~extract~, ~sanitize~, ~compress~, ~shorten~, ~expand~.
+
+- The new module ~MenhirLib.LexerUtil~ offers a few functions that help
+  reading a file, setting up a lexing buffer, printing source code positions,
+  etc.
+
+- The new demo ~calc-syntax-errors~ demonstrates how to produce customized
+  syntax error messages.
+
+- The new command ~--merge-errors~ merges two ~.messages~ files. It can be
+  useful when two or more users have independently produced partial
+  ~.messages~ files and wish to combine their work.
+  (Suggested by Gabriel Scherer and François Bobot.)
+
+- The commands that read ~.messages~ files have been hardened so as to
+  tolerate situations where a sentence mentions a nonexistent symbol or does
+  not lead to an error state. When such a sentence is encountered, an error
+  message is produced on the standard error channel; then, this sentence is
+  ignored and processing continues. (As an exception, the command
+  ~--compile-errors~ refuses to proceed in the presence of such sentences.)
+
+*** 2020/11/22
+
+- The new command line switch ~--dump-resolved~ writes a description of the
+  automaton to the file ~.automaton.resolved~ after all conflicts have been
+  resolved and after extra reductions have been introduced. This file also
+  shows which states have a default reduction.
+
+- The command line switch ~--dump~ writes a description of the automaton to
+  the file ~.automaton~ after benign conflicts have been silently resolved,
+  but *before* severe conflicts are resolved and before extra reductions are
+  introduced. (This behavior is unchanged.) The manner in which end-of-stream
+  conflicts are displayed in this file has been improved.
+
+- In the files ~.automaton~ and ~.automaton.resolved~, the reduction table in
+  each state is now presented in a much more compact and readable way.
+
+- In the files ~.automaton~ and ~.automaton.resolved~, the known suffix of the
+  stack in each state is now explicitly shown. (Although it can be deduced
+  from the LR(1) items, showing it helps.)
+
+- Document the problem caused by placing a module alias declaration
+  in an ~.mly~ file. (See *Questions and Answers* in the manual.)
+
+- Turn off a costly internal well-formedness assertion.
+  This allows a 30% speedup in the construction of large automata
+  and in the conflict explanation process. (Reported by Joe.)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>http-multipart-formdata 1.0.0</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-http-multipart-formdata-1-0-0/6893/1</cwn_url>
+      <cwn_who>Bikal Lem announced</cwn_who>
+      <cwn_what>
+It is my pleasure to announce the release of http-multipart-formdata v1.0.0. As the name suggests, the
+library implements functionality to allow HTTP file uploads and form processing. Tangentially, it
+implements the standard [RFC 7578 - Returning Values from Forms:
+multipart/form-data](https://tools.ietf.org/html/rfc7578) which is the standard browsers use to send
+form data to a web server.
+
+I developed this library as part of my endeavour to create ocaml web applications.
+
+It is also an example of the parser construction library
+[reparse](https://discuss.ocaml.org/t/ann-reparse-2-0-0/6868/3) which I also released a few days ago.
+
+- [http-multipart-formdata](https://github.com/lemaetech/http-multipart-formdata)
+- [API docs](https://lemaetech.co.uk/http-multipart-formdata/)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Multicore OCaml: November 2020</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/multicore-ocaml-november-2020/6899/1</cwn_url>
+      <cwn_who>Anil Madhavapeddy announced</cwn_who>
+      <cwn_what>
+Welcome to the November 2020 Multicore OCaml report! This update along with the [previous
+updates](https://discuss.ocaml.org/tag/multicore-monthly) have been compiled by @shakthimaan,
+@kayceesrk, and @avsm.
+
+*Multicore OCaml:* Since the support for systhreads has been merged last month, many more ecosystem
+packages compile.  We have been doing bulk builds (using a specialised [opam-health-check
+instance](http://check.ocamllabs.io:8082)) against the opam repository in order to chase down the last
+of the lingering build bugs. Most of the breakage is around packages using C stubs related to the
+garbage collector, although we did find a few actual multicore bugs (related to the thread machinery
+when using dynlink). The details are under "ecosystem" below. We also spent a lot of time on optimising
+the stack discipline in the multicore compiler, as part of writing a draft paper on the effect system
+(more details on that later).
+
+*Upstream OCaml:* The [4.12.0alpha2
+release](https://discuss.ocaml.org/t/ocaml-4-12-0-second-alpha-release/6887) is now out, featuring the
+dynamic naked pointer checker to help make your code only used external pointers that are boxed. Please
+do run your codebase on it to help prepare.  For OCaml 4.13 (currently the ~trunk~) branch, we had a
+full OCaml developers meeting where we decided on the worklist for what we're going to submit upstream.
+The major effort is on [GC safe points](https://github.com/ocaml/ocaml/pull/10039) and not caching the
+[minor heap pointer](https://github.com/ocaml/ocaml/pull/9876), after which the runtime domains support
+has all the necessary prerequisites upstream.  Both of those PRs are highly performance sensitive, so
+there is a lot of poring over graphs going on (notwithstanding the irrepressible @stedolan offering [a
+massive driveby optimisation](https://github.com/ocaml/ocaml/pull/10039#issuecomment-733912979)).
+
+*Sandmark Benchmarking:* The lockfree and Graph500 benchmarks have been added and updated to Sandmark
+respectively, and we continue to work on the tooling aspects. Benchmarking tests are also being done on
+AMD, ARM and PowerPC hardware to study the performance of the compiler. With reference to stock OCaml,
+the safepoints PR has now landed for review.
+
+As with previous updates, the Multicore OCaml tasks are listed first, which are then followed by the
+progress on the Sandmark benchmarking test suite. Finally, the upstream OCaml related work is mentioned
+for your reference.
+
+*** Multicore OCaml
+
+**** Ongoing
+
+- [ocaml-multicore/ocaml-multicore#439](https://github.com/ocaml-multicore/ocaml-multicore/pull/439)
+  Systhread lifecycle work
+
+  An improvement to the initialization of systhreads for general
+  resource handling, and freeing up of descriptors and stacks. There
+  now exists a new hook on domain termination in the runtime.
+
+- [ocaml-multicore/ocaml-multicore#440](https://github.com/ocaml-multicore/ocaml-multicore/issues/440)
+  ~ocamlfind ocamldep~ hangs in no-effect-syntax branch
+
+  The ~nocrypto~ package fails to build for Multicore OCaml
+  no-effect-syntax branch, and ocamlfind loops continuously. A minimal
+  test example has been created to reproduce the issue.
+
+- [ocaml-multicore/ocaml-multicore#443](https://github.com/ocaml-multicore/ocaml-multicore/issues/443)
+  Minor heap allocation startup cost
+
+  An issue to keep track of the ongoing investigations on the impact
+  of large minor heap size for OCaml Multicore programs. The
+  sequential and parallel exeuction run results for various minor heap
+  sizes are provided in the issue.
+
+- [ocaml-multicore/ocaml-multicore#446](https://github.com/ocaml-multicore/ocaml-multicore/pull/446)
+  Collect GC stats at the end of minor collection
+
+  The objective is to remove the use of double buffering in the GC
+  statistics collection by using the barrier present during minor
+  collection in the parallel_minor_gc schema. There is not much
+  slowdown for the benchmark runs, normalized against stock OCaml as
+  seen in the illustration.
+  https://aws1.discourse-cdn.com/standard11/uploads/ocaml/original/2X/7/7ea3f6d4aed319353e711ad8d75acb5093a087ad.png
+
+**** Completed
+
+***** Upstream
+
+- [ocaml-multicore/ocaml-multicore#426](https://github.com/ocaml-multicore/ocaml-multicore/pull/426)
+  Replace global roots implementation
+
+  This PR replaces the existing global roots implementation with that
+  of OCaml's ~globroots~, wherein the implementation places locks
+  around the skip lists. In future, the ~Caml_root~ usage will be
+  removed along with its usage in globroots.
+
+- [ocaml-multicore/ocaml-multicore#427](https://github.com/ocaml-multicore/ocaml-multicore/pull/427)
+  Garbage Collector colours change backport
+
+  The [Garbage Collector colours
+  change](https://github.com/ocaml/ocaml/pull/9756) PR from trunk for
+  the major collector have now been backported to Multicore
+  OCaml. This includes the optimization for ~mark_stack_push~, the
+  ~mark_entry~ does not include ~end~, and ~caml_shrink_mark_stack~
+  has been adapted from trunk.
+
+- [ocaml-multicore/ocaml-multicore#432](https://github.com/ocaml-multicore/ocaml-multicore/pull/432)
+  Remove caml_context push/pop on stack switch
+
+  The motivation to remove the use of ~caml_context~ push/pop on stack
+  switches to make the implementation easier to understand, and to be
+  closer to upstream OCaml.
+
+***** Stack Improvements
+
+- [Fix stack overflow on scan stack#431](https://github.com/ocaml-multicore/ocaml-multicore/pull/431)
+  Fix issue 421: Stack overflow on scan stack
+
+  The ~caml_scan_stack~ now uses a while loop to avoid a stack
+  overflow corner case where there is a deep nesting of fibers.
+
+- [ocaml-multicore/ocaml-multicore#434](https://github.com/ocaml-multicore/ocaml-multicore/pull/434)
+  DWARF fixups for effect stack switching
+
+  The PR provides fixes for ~runtime/amd64.S~ on issues found using a
+  DWARF validator. The patch also cleans up dead commented out code,
+  and updates the DWARF information when we do ~caml_free_stack~ in
+  ~caml_runstack~.
+
+- [ocaml-multicore/ocaml-multicore#435](https://github.com/ocaml-multicore/ocaml-multicore/pull/435)
+  Mark stack overflow backport
+
+  The mark-stack overflow implementation has been updated to be closer
+  to trunk OCaml. The pools are added to a skiplist first to avoid any
+  duplicates, and the pools in ~pools_to_rescan~ are marked later
+  during a major cycle. The result of the ~finalise~ benchmark time
+  difference with mark stack overflow is shown below:
+
+  https://aws1.discourse-cdn.com/standard11/uploads/ocaml/optimized/2X/e/ee388eb5cd9cb9d5bc49f1ec8cc2f205fd350bf0_2_1380x434.png
+
+- [ocaml-multicore/ocaml-multicore#437](https://github.com/ocaml-multicore/ocaml-multicore/pull/437)
+  Avoid an allocating C call when switching stacks with continue
+
+  The ~caml_continuation_use~ has been updated to use
+  ~caml_continuation_use_noexc~ and it does not throw an
+  exception. The allocating C ~caml_c_call~ is no longer required to
+  call ~caml_continuation_use_noexc~.
+
+- [ocaml-multicore/ocaml-multicore#441](https://github.com/ocaml-multicore/ocaml-multicore/pull/441)
+  Tidy up and more commenting of caml_runstack in amd64.S
+
+  The PR adds comments on how stacks are switched, and removes
+  unnecessary instructions in the x86 assembler.
+
+- [ocaml-multicore/ocaml-multicore#442](https://github.com/ocaml-multicore/ocaml-multicore/pull/442)
+  Fiber stack cache (v2)
+
+  Addition of stack caching for fiber stacks, which also fixes up bugs
+  in the test suite (DEBUG memset, order of initialization). We avoid
+  indirection out of ~struct stack_info~ when managing the stack
+  cache, and efficiently calculate the cache freelist bucket for a
+  given stack size.
+
+***** Ecosystem
+
+- [ocaml-multicore/lockfree#5](https://github.com/ocaml-multicore/lockfree/pull/5)
+  Remove Kcas dependency
+
+  The ~Kcas.Wl~ module is now replaced with the Atomic module
+  available in Multicore stdlib. The exponential backoff is
+  implemented with ~Domain.Sync.cpu_relax~.
+
+- [ocaml-multicore/domainslib#21](https://github.com/ocaml-multicore/domainslib/pull/21)
+  Point to the new repository URL
+
+  Thanks to Sora Morimoto (@smorimoto) for providing a patch that
+  updates the URL to the correct ocaml-multicore repository.
+
+- [ocaml-multicore/multicore-opam#40](https://github.com/ocaml-multicore/multicore-opam/pull/40)
+  Add multicore Merlin and dot-merlin-reader
+
+  A patch to merlin and dot-merlin-reader to work with Multicore OCaml
+  4.10.
+
+- [ocaml-multicore/ocaml-multicore#403](https://github.com/ocaml-multicore/ocaml-multicore/issues/403)
+  Segmentation fault when trying to build Tezos on Multicore
+
+  The latest fixes on replacing the global roots implementation, and
+  fixing the STW interrupt race to the no-effect-syntax branch has
+  resolved the issue.
+
+***** Compiler Fixes
+
+- [ocaml-multicore/ocaml-multicore#438](https://github.com/ocaml-multicore/ocaml-multicore/pull/438)
+  Allow C++ to use caml/camlatomic.h
+
+  The inclusion of extern "C" headers to allow C++ to use
+  caml/camlatomic.h for building ubpf.0.1.
+
+- [ocaml-multicore/ocaml-multicore#447](https://github.com/ocaml-multicore/ocaml-multicore/pull/447)
+  domain_state.h: Remove a warning when using -pedantic
+
+  A fix that uses ~CAML_STATIC_ASSERT~ to check the size of
+  ~caml_domain_state~ in domain_state.h, in order to remove the
+  warning when using -pedantic.
+
+- [ocaml-multicore/ocaml-multicore#449](https://github.com/ocaml-multicore/ocaml-multicore/pull/449)
+  Fix stdatomic.h when used inside C++ for good
+
+  Update to ~caml/camlatomic.h~ with extern C++ declaration to use it
+  inside C++. This builds upbf.0.1 and libsvm.0.10.0 packages.
+
+***** Sundries
+
+- [ocaml-multicore/ocaml-multicore#422](https://github.com/ocaml-multicore/ocaml-multicore/pull/422)
+  Simplify minor heaps configuration logic and masking
+
+  A ~Minor_heap_max~ size is introduced to reserve the minor heaps
+  area, and ~Is_young~ for relying on a boundary check. The
+  ~Minor_heap_max~ parameter can be overridden using the OCAMLRUNPARAM
+  environment variable. This implementation approach is geared towards
+  using Domain local allocation buffers.
+
+- [ocaml-multicore/ocaml-multicore#429](https://github.com/ocaml-multicore/ocaml-multicore/pull/429)
+  Fix a STW interrupt race
+
+  A fix for the STW interrupt race in
+  ~caml_try_run_on_all_domains_with_spin_work~. The
+  ~enter_spin_callback~ and ~enter_spin_data~ fields of ~stw_request~
+  are now initialized after we interrupt other domains.
+
+- [ocaml-multicore/ocaml-multicore#430](https://github.com/ocaml-multicore/ocaml-multicore/pull/430)
+  Add a test to exercise stored continuations and the GC
+
+  The PR adds test coverage for interactions between the GC with
+  stored, cloned and dropped continuations to exercise the minor and
+  major collectors.
+
+- [ocaml-multicore/ocaml-multicore#444](https://github.com/ocaml-multicore/ocaml-multicore/pull/444)
+  Merge branch 'parallel_minor_gc' into 'no-effect-syntax'
+
+  The ~parallel_minor_gc~ branch has been merged into the
+  ~no-effect-syntax~ branch, and we will try to keep the
+  ~no-effect-syntax~ branch up-to-date with the latest changes.
+
+*** Benchmarking
+
+**** Ongoing
+
+- [ocaml-bench/sandmark#196](https://github.com/ocaml-bench/sandmark/pull/196)
+  Filter benchmarks based on tag
+
+  An enhancement to move towards a generic implementation to filter
+  the benchmarks based on tags, instead of relying on custom targets
+  such as _macro.json or _ci.json.
+
+- [ocaml-bench/sandmark#191](https://github.com/ocaml-bench/sandmark/pull/191)
+  Make parallel.ipynb notebook interactive
+
+  The parallel.ipynb notebook has been made interactive with drop-down
+  menus to select the .bench files for analysis. The notebook README
+  has been merged with the top-level README file. A sample
+  4.10.0.orunchrt.bench along with the *pausetimes_multicore.bench
+  files have been moved to the test artifacts/ folder for user
+  testing.
+
+- We are continuing to test the use of ~opam-compiler~ switch
+  environment to execute the Sandmark benchmark test suite. We have
+  been able to build the dependencies, ~orun~ and ~rungen~, the
+  ~OCurrent~ pipeline and its dependencies, and ~ocaml-ci~ for the
+  ocaml-multicore:no-effect-syntax branch. We hope to converge to a
+  2.0 implementation with the required OCaml tools and ecosystem.
+
+**** Completed
+
+- [ocaml-bench/sandmark#179](https://github.com/ocaml-bench/sandmark/issues/179)
+  [RFC] Classifying benchmarks based on running time
+
+  The [Classification of
+  benchmarks](https://github.com/ocaml-bench/sandmark/pull/188) PR has
+  been resolved, which now classifies the benchmarks based on their
+  running time:
+  - ~lt_1s~: Benchmarks that run for less than 1 second.
+  - ~lt_10s~: Benchmarks that run for at least 1 second, but, less than 10 seconds.
+  - ~10s_100s~: Benchmarks that run for at least 10 seconds, but, less than 100 seconds.
+  - ~gt_100s~: Benchmarks that run for at least 100 seconds.
+
+- [ocaml-bench/sandmark#189](https://github.com/ocaml-bench/sandmark/pull/189)
+  Add environment support for wrapper in JSON configuration file
+
+  The OCAMLRUNPARAM arguments can now be passed as an environment
+  variable when executing the benchmarks in runtime. The environment
+  variables can be specified in the ~run_config.json~ file, as shown
+  below:
+
+  #+begin_src json
+   {
+      "name": "orun_2M",
+      "environment": "OCAMLRUNPARAM='s=2M'",
+      "command": "orun -o %{output} -- taskset --cpu-list 5 %{command}"
+    }
+  #+end_src
+
+- [ocaml-bench/sandmark#183](https://github.com/ocaml-bench/sandmark/pull/183)
+  Use crout_decomposition name for numerical analysis benchmark
+
+  The ~numerical-analysis/lu_decomposition.ml~ benchmark has now been
+  renamed to ~crout_decomposition.ml~ to avoid naming confusion, as
+  there are a couple of LU decomposition benchmarks in Sandmark.
+
+- [ocaml-bench/sandmark#190](https://github.com/ocaml-bench/sandmark/pull/190)
+  Bump trunk to 4.13.0
+
+  The trunk version in Sandmark ocaml-versions/ has now been updated
+  to use ~4.13.0+trunk.json~.
+
+- [ocaml-bench/sandmark#192](https://github.com/ocaml-bench/sandmark/pull/192)
+  GraphSEQ corrected
+
+  The minor fix for the Kronecker generator has been provided for the
+  Graph500 benchmark.
+
+- [ocaml-bench/sandmark#194](https://github.com/ocaml-bench/sandmark/pull/194)
+  Lockfree benchmarks
+
+  The lockfree benchmarks for both the serial and parallel
+  implementation are now included in Sandmark, and it uses the
+  ~lockfree_bench~ tag. The time and speedup illustrations are as follows:
+
+  https://aws1.discourse-cdn.com/standard11/uploads/ocaml/optimized/2X/0/01496cbe634b692538b2863768b4a3ed2e99b68a_2_1380x274.png
+  https://aws1.discourse-cdn.com/standard11/uploads/ocaml/optimized/2X/6/6e26c55539151cc4c3658ebac20e7807d672adce_2_1380x266.png
+
+*** OCaml
+
+**** Ongoing
+
+- [ocaml/ocaml#9876](https://github.com/ocaml/ocaml/pull/9876)
+  Do not cache young_limit in a processor register
+
+  The removal of ~young_limit~ caching in a register is being
+  evaluated using Sandmark benchmark runs to test the impact change on
+  for ARM64, PowerPC and RISC-V ports hardware.
+
+- [ocaml/ocaml#9934](https://github.com/ocaml/ocaml/pull/9934)
+  Prefetching optimisations for sweeping
+
+  The PR includes an optimization of ~sweep_slice~ for the use of
+  prefetching, and to reduce cache misses during GC. The normalized
+  running time graph is as follows:
+
+  https://aws1.discourse-cdn.com/standard11/uploads/ocaml/optimized/2X/4/4d3ea2a50b4a40998c23b23a88ff65bbaadafbbf_2_1380x542.png
+
+- [ocaml/ocaml#10039](https://github.com/ocaml/ocaml/pull/10039)
+  Safepoints
+
+  A draft Safepoints implementation for AMD64 for the 4.11 branch that
+  are implemented by adding a new ~Ipoll~ operation to Mach. The
+  benchmark results on an AMD Zen2 machine are given below:
+
+  https://aws1.discourse-cdn.com/standard11/uploads/ocaml/optimized/2X/6/6953eb519379800fda791d122ba3ee6e99ef0b79_2_714x998.png
+
+Many thanks to all the OCaml users and developers for their continued support, and contribution to the
+project.
+
+*** Acronyms
+
+- ARM: Advanced RISC Machine
+- DWARF: Debugging With Attributed Record Formats
+- GC: Garbage Collector
+- JSON: JavaScript Object Notation
+- OPAM: OCaml Package Manager
+- PR: Pull Request
+- PR: Pull Request
+- RFC: Request For Comments
+- RISC-V: Reduced Instruction Set Computing - V
+- STW: Stop-The-World
+- URL: Uniform Resource Locator
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Seq vs List, optimization</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/seq-vs-list-optimization/6885/25</cwn_url>
+      <cwn_who>Deep in this thread, Sacha Ayoun asked and Raphaël Proust said</cwn_who>
+      <cwn_what>
+#+begin_quote
+But then what’s the point of Seq ?
+#+end_quote
+
+A bit of a spoiler for an upcoming release of a few of our libraries at Nomadic Labs…
+
+We had a bug report: calls to some RPCs exposed by some of our binaries would occasionally cause some
+lag. One of the root causes of the issue was JSON serialisation. The original serialisation scheme was
+intended for a limited range of uses (especially, small sizes) but then it was used outside of this
+intended range and some relatively big values were serialised and pushed down the RPC stack.
+
+To circumvent this, we are about to release
+- a “json lexeme sequence” backend for our serialiser library: ~construct_seq : 'a encoding -> 'a -> json_lexeme Seq.t~ where ~json_lexeme = Jsonm.lexeme = [ `Null | `Bool of bool | … | `As | `Ae | `Os | `Oe ]~
+- a json lexeme sequence to string sequence converter.
+
+For this second part, we actually have three different converters intended for slightly different uses.
+They have different granularity, they have different allocation profiles, and they make slightly
+different assumption most notably about concurrency:
+- ~string_seq_of_json_lexeme_seq : chunk_size_hint:int -> json_lexeme Seq.t -> string Seq.t~ which uses one (1) internal buffer of size ~chunk_size_hint~. Consuming one element of the resulting sequence causes several json lexemes to be consumed and printed onto the internal buffer until it is full. When this happens, a snapshot (copy) of the buffer is delivered in the ~Cons~ cell. So for chunk-size-hint of, say, 1Ko, the sequence translator uses roughly 1Ko of memory and emits 1Ko chunks of memory that the consumer is responsible for.
+- ~small_string_seq_of_json_lexeme_seq : json_lexeme Seq.t -> string Seq.t~ which translates each of the lexeme as a single string. It's a little bit more than a simple ~Seq.map~ because it needs to insert separators and escape strings. It mostly returns statically allocated strings so there are no big allocations at all.
+- ~blit_instructions_seq_of_jsonm_lexeme_seq : buffer: bytes -> json_lexeme Seq.t -> (bytes * int * int) Seq.t~ which works somewhat similarly to the first one but uses ~buffer~ instead of allocating its own. And it returns a seq of ~(source, offset, length)~ which are intended to be blitted onto whatever the consumer wants to propagates the data too. This barely allocates at all (it currently does allocate relatively big chunks when escaping strings, but we have planned to improve this in the future. (The sequence returns a source to blit; this source is physically equal to ~buffer~ most of the time but not always; specifically, for large strings that are present within the json data, the sequence just points to them as a source.)
+
+Note that the description above is a simplification: there is a bit more to it than that. Also note
+that all this is still Work In Progress. Check out
+https://gitlab.com/nomadic-labs/json-data-encoding/-/merge_requests/5 (the value to json lexeme
+sequence code) and https://gitlab.com/nomadic-labs/data-encoding/-/merge_requests/19 (the json lexeme
+sequence to string sequence code).
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>dap 1.0.0 -- Debug Adapter Protocol for OCaml</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-dap-1-0-0-debug-adapter-protocol-for-ocaml/6903/1</cwn_url>
+      <cwn_who>文宇祥 announced</cwn_who>
+      <cwn_what>
+This is the [debug adapter protocol](https://microsoft.github.io/debug-adapter-protocol/) library
+extract from [ocamlearlybird](https://github.com/hackwaly/ocamlearlybird). Include types generated from
+specification and a DAP prioritized JSON RPC implementation. It's useful to implement debug adapter in
+OCaml.
+
+Debug adapter protocol
+
+- Project page: https://github.com/hackwaly/ocaml-dap
+- Documentation: https://hackwaly.github.io/ocaml-dap/
+
+*** CHANGES:
+
+Initial release.
+
+- Specification version is 1.43
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>✂️ form2xml - a tiny cli tool to slice http form-data dumps</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-form2xml-a-tiny-cli-tool-to-slice-http-form-data-dumps/6912/1</cwn_url>
+      <cwn_who>😷 Marcus Rohrmoser announced</cwn_who>
+      <cwn_what>
+when doing static web sites, feedback is an issue. form2xml helps you keep the server stupid, but still
+makes form-data feedback possible.
+
+Just dump the form posts, rsync and merge them into your client-side, unix pipe, toolchain.
+
+form2xml bridges the tooling-gap between http and xml/xslt with utmost primitivity in the making. I
+chose simplicity over compliance because form2xml isn't intended to run server-side or unattended. I'm
+aware of excellent prior art, but hesitated to add build dependencies for now and rather see if it
+proves useful as is.
+
+https://mro.name/form2xml
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>http-multipart-formdata 1.0.1</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-http-multipart-formdata-1-0-1/6917/1</cwn_url>
+      <cwn_who>Bikal Lem announced</cwn_who>
+      <cwn_what>
+I have just released a maintenance release of ~http-multipart-formadata~. This is a maintenace release
+to address a reported issue.
+
+ [#10 Fix equality](https://github.com/lemaetech/http-multipart-formdata/issues/10)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Set up OCaml 1.1.4</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-set-up-ocaml-1-1-4/6926/1</cwn_url>
+      <cwn_who>Sora Morimoto announced</cwn_who>
+      <cwn_what>
+We have a changelog since this release.
+
+By the way, I'm preparing to publish v2 of setup-ocaml. It has a cache feature that is entirely
+independent of GitHub, so you don't have to worry about cache limit per repository, and you don't have
+to spend nearly 10 minutes on setup.
+
+https://github.com/avsm/setup-ocaml/blob/master/CHANGELOG.md
+
+https://github.com/avsm/setup-ocaml/releases/tag/v1.1.4
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>First Public Release (beta) of the Memthol memory profiling visualizer</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-first-public-release-beta-of-the-memthol-memory-profiling-visualizer/6927/1</cwn_url>
+      <cwn_who>OCamlPro announced</cwn_who>
+      <cwn_what>
+We are happy to announce the first public release of Memthol, a visualizer and analyzer for memory
+profiling data generated from OCaml programs, thanks to the work of Adrien Champion and Vincent
+Laviron.
+
+*Memthol* is a visualizer and analyzer for program profiling. It works on memory *dumps* containing
+information about the size and (de)allocation date of part of the allocations performed by some
+execution of a program. For information regarding building memthol, features, browser compatibility...
+refer to the [memthol github repository](https://github.com/OCamlPro/memthol).
+*Please note that Memthol, as a side project, is a work in progress that remains in beta status for
+now.*
+
+*** Memthol's background
+
+The Memthol work was started more than a year ago (we had published a short introductory paper at the
+[JFLA2020](http://jfla.inria.fr/jfla2020.html)). The whole idea was to use the previous work originally
+achieved on [ocp-memprof](https://memprof.typerex.org/), and look for some extra funding to achieve a
+usable and industrial version. Then came the excellent [memtrace
+profiler](https://blog.janestreet.com/finding-memory-leaks-with-memtrace/) by Jane Street's team.
+
+The memtrace format is nicely designed and polished enough to be considered a future standard for other
+tools. This is why Memthol supports Jane Street's *dumper* format, instead of our own dumper library's.
+
+Memthol is a self-funded side project, that we think is worth giving to the OCaml community. Its
+approach is valuable, and can be complementary. It is released under the free GPL licence v3.
+
+We welcome any extra funding to achieve a usable and industrial version!
+
+*** [Memthol's features](https://github.com/OCamlPro/memthol):
+
+- multi-client: open several tabs in your browser for the same profiling session to visualize the data separately
+- self-contained: the BUI packs all its static assets, once you have the binary you do not need anything else (except a browser)
+- data-splitting: plot several families of data separately in the same chart by separating them based on size, allocation lifetime, source locations in the allocation callstack, etc.
+
+Issues are welcome. As Memthol is mostly tested on the Chrome web browser, you might experience
+problems with other browsers. Do not hesitate open issues.
+
+We have designed a mini-tutorial on Memthol available on our github repository and our blogpost, which
+you can find by following this link :
+https://www.ocamlpro.com/2020/12/01/memthol-exploring-program-profiling/
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Exception vs Result</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/exception-vs-result/6931/1</cwn_url>
+      <cwn_who>Chas Emerick discussed</cwn_who>
+      <cwn_what>
+Last week, @BikalGurung blogged [On Effectiveness of Exceptions in
+OCaml](https://lemaetech.co.uk/articles/exceptions.html), in part as a follow-up to [his announcement
+of his parser combinator library](https://discuss.ocaml.org/t/ann-reparse-2-0-0/6868)
+[reparse](https://github.com/lemaetech/reparse/), which eschews ~Result~-based error handling in favor
+of exceptions. I've long preferred using ~Result~ (and its equivalents in other languages), and my
+experience so far with OCaml is that that preference is shared by many in the community and by authors
+of key libraries, but I was happy to consider a new counterpoint.
+
+Doing so prompted me to consider my rationale(s) more than I had previously, and do some additional
+reading and research, all of which ended up further cementing my pro-~Result~ bias. What follows are
+counterpoints to Bikal's two most consequential arguments (in my opinion), and some elaboration beyond.
+Many thanks to Bikal for his posting his experience report!
+
+*** Stacktrace / Location Information
+
+First, Bikal focuses in on how useful error handling should "allow us to efficiently, correctly and
+accurately identify the source of our errors". I agree, but he compares exceptions and ~result~ on this
+basis like so:
+
+#+begin_quote
+OCaml exception back traces - or call/stack traces - is one such tool which I have found very
+helpful. It gives the offending file and the line number in it. This make investigating and zeroing
+in on the error efficient and productive.
+
+Using result type means you lose this valuable utility that is in-built to the ocaml language and the
+compiler.
+#+end_quote
+
+It is true that ~Error~ does not _implicitly_ carry backtraces as exceptions do, but there is nothing
+preventing one from choosing to include a backtrace with a returned error, since OCaml backtraces
+helpfully exist separate from its exception facility:
+
+#+begin_src ocaml
+let b x =
+  if x > 0
+  then Ok 0
+  else Error ("unimplemented", Printexc.get_callstack 10)
+
+let a x = b x
+
+let _ = match a (int_of_string @@ Sys.argv.(1)) with
+          | Ok v -> Format.printf "%d@." v
+          | Error (msg, stack) ->
+            Format.fprintf Format.err_formatter "Error: %s@." msg;
+            Printexc.print_raw_backtrace stderr stack
+#+end_src
+
+#+begin_example
+$ ocamlc -g -o demo.exe src/demo.ml
+$ ./demo.exe -1
+Error: unimplemented
+Raised by primitive operation at file "src/demo.ml", line 5, characters 31-56
+Called from file "src/demo.ml", line 9, characters 14-47
+#+end_example
+
+From a strictly ergonomic standpoint, it makes sense to wish that e.g. the ~Error~ constructor were
+treated specially such that values it produced always carried a stack trace (as exceptions do/are), so
+that programmers would not need to opt into it as above. However, that would not come without costs,
+including a maybe-significant runtime penalty that might render ~Result~ a less useful way to _cheaply_
+signal recoverable error conditions (something that other exception-dominant languages/runtimes
+struggle to do given that stacktrace generation is far from free).
+
+*** Correctness
+
+Bikal's final topic was re: correctness, and to what extent using one or another error-handling
+mechanism tangibly affects his work. What he says is short enough to reproduce in full:
+
+#+begin_quote
+I thought this would be the biggest advantage of using ~result~ type and a net benefit. However, my
+experience of *NOT* using it didn't result in any noticeable reduction of *correct by construction*
+OCaml software. Conversely, I didn't notice any noticeable improvement on this metric when *using*
+it. What I have noticed over time is that abstraction/encapsulation mechanisms and type system in
+particular play by far the most significant role in creating *correct by construction* OCaml
+software.
+#+end_quote
+
+There's a lot left undefined here: what "correct by construction" might mean generally, what it means
+in the context of OCaml software development, how it could be measured (_is_ there a metric, or are we
+just reckoning here?), and so on.
+
+While reminding myself of exactly what "correct by construction" meant, I came across a fantastic
+lecture by Martyn Thomas[1] that neatly defines it (and goes into some detail of how to go about
+achieving it); from the accompanying lecture notes[2]:
+
+#+begin_quote
+…you start by writing a requirements specification in a way that makes it possible to analyse whether
+it contains logical omissions or contradictions. Then you develop the software in a way that provides
+very strong evidence that the program implements the specification (and does nothing else) and that
+it will not fail at runtime. We call this making software “correct by construction”, because the way
+in which the software is constructed guarantees that it has these properties.
+#+end_quote
+
+While we aren't working with anything as formal as a theorem prover when we are programming in OCaml,
+it does provide us with a tremendous degree of certainty about how our programs will behave. One of the
+greatest sources of that certainty is its default of requiring functions and pattern matches to be
+exhaustive with regard to the domain of values of the type(s) they accept; i.e. a function that accepts
+a ~result~ must provide cases for all of its known constructors:
+
+#+begin_src ocaml
+let get = function Ok v -> v
+#+end_src
+#+begin_example
+$ ocamlc -g -o demo.exe src/demo.ml
+File "src/demo.ml", line 15, characters 10-28:
+15 | let get = function Ok v -> v
+               ^^^^^^^^^^^^^^^^^^
+Warning 8: this pattern-matching is not exhaustive.
+Here is an example of a case that is not matched:
+Error _
+#+end_example
+
+This one way we "provide evidence" to the OCaml compiler that our code does not not contain "logical
+omissions", to use Prof. Thomas' nomenclature.
+
+There are ways to relax this requirement, though. Aside from simply telling the compiler to not bother
+us with its concerns via an attribute:
+
+#+begin_src ocaml
+let get = function Ok v -> v [@@warning "-8"]
+#+end_src
+
+…we could simply use exceptions instead. For example, an exception-based variant of the program I
+started with earlier:
+
+#+begin_src ocaml
+exception Unimplemented
+
+let a x =
+  if x > 0
+  then 0
+  else raise Unimplemented
+
+let _ = Format.printf "%d@." @@ a (int_of_string @@ Sys.argv.(1))
+#+end_src
+
+This approach is less correct by any measure: the ~Unimplemented~ exception is not indicated in the
+signature of ~a~, making it easy to call ~a~ without handling the exception, or being aware of its
+possibility at all. Insofar as the exceptions in question are not intended to be fatal,
+program-terminating errors, this approach absolutely increases the potential for "logical omissions",
+increases the potential for programs to fail at runtime, and hobbles the exhaustivity guarantees that
+the OCaml compiler provides for us otherwise.
+
+Later in the reparse announcement thread, @rixed said (presumably in response to this tension):
+
+#+begin_quote
+If only we had a way to know statically which exceptions can escape any functions that would be the
+best of both worlds!
+#+end_quote
+
+And indeed, this approach of incorporating known thrown exception types into function signatures is a
+known technique, (in)famously included in Java from the beginning (called *checked exceptions*), but
+widely disdained. I suspect that disdain was more due to Java's other weaknesses in exception handling
+than the principal notion of propagating exception types in function/method signatures. It would be
+interesting to see something like checked exceptions experimented with in OCaml, though it may be that
+doing so would nullify one of the primary benefits that those preferring exceptions enjoy (perceived
+improved aesthetics/clarity), and/or the work needed to achieve this might approximate the typed effect
+handling approaches that @lpw25 et al. have been pursuing for some time.
+
+[1]: *Making Software 'Correct by Construction'*
+https://www.gresham.ac.uk/lectures-and-events/making-software-correct-by-construction \\
+[2]: https://www.gresham.ac.uk/lecture/transcript/download/making-software-correct-by-construction/
+      </cwn_what>
+      <cwn_who>bnguyenvanyen said</cwn_who>
+      <cwn_what>
+Just chiming in to note that there has been an interesting discussion on this topic two years ago:
+https://discuss.ocaml.org/t/specific-reason-for-not-embracing-the-use-of-exceptions-for-error-propagation/1666/40
+
+It's also interesting to note that that discussion also ended up talking about typed effects.
+As I understand it, they would indeed subsume checked exceptions, and I'm quite excited about them.
+      </cwn_what>
+      <cwn_who>Yawar Amin also said</cwn_who>
+      <cwn_what>
+Cristiano Calcagno has been doing some pretty interesting work on this:
+https://github.com/reason-association/reanalyze/blob/72712393459d7e132c78e0700abffc5fc4cd09b8/EXCEPTION.md
+
+Let me quote the central concept from there:
+
+#+begin_quote
+The exception analysis is designed to keep track statically of the exceptions that might be raised at
+runtime. It works by issuing warnings and recognizing annotations. Warnings are issued whenever an
+exception is raised and not immediately caught. Annotations are used to push warnings from he local
+point where the exception is raised, to the outside context: callers of the current function. Nested
+functions need to be annotated separately.
+#+end_quote
+      </cwn_what>
+      <cwn_who>Later in the thread, Chet Murthy said</cwn_who>
+      <cwn_what>
+I'm going to address the general issue of "programming with monads", and not specifically the result
+monad, b/c I think it's just an instance of the general phenomenon.
+
+TL;DR In 1992, when someone told me about "programming with monads", I replied that I *already*
+programmed with monads: I used the "SML Monad".  And this LtU post seems to me to be pithily succinct (http://lambda-the-ultimate.org/node/5504 )
+
+(1) when we talk about program correctness, we mean two things: reasoning about programs, and
+type-safety.  I'll address each in turn below.
+
+(2) All monadic transformations of which I am aware (exceptions, state, control, I/O) are direct
+equivalents to the "standard semantics" for such language-features, e.g. as described in Michael J.C.
+Gordon's book /The Denotational Description of Programming Languages/.  *Programming with monads is
+programming with some combinators and macros, on the right-hand-side of the denotational interpreters*
+in that book.
+
+(3) "reasoning about programs" has historically meant "equational reasoning", and IIUC,
+Felleisen&amp;Sabry's work (and follow-on works) proved pretty conclusively that anything you can prove
+about the right-hand-side of the denotational semantics interpeter defiition, you can "pull back" to
+equational reasoning with extra rules, on the left-hand-side of the DS interpreter.
+
+(4) "type safety":
+
+#+begin_quote
+If only we had a way to know statically which exceptions can escape any functions
+#+end_quote
+
+There was a cottage industry of "effect type systems" to capture/reason-about exceptions, state, maybe
+other things, decades ago.  They were judged too cumbersome for programmers to use, and hence died-out.
+>10yr ago there was a caml-light (OCaml?) variant that checked exceptions in function-types; it didn't
+catch on.  Look at Java, where some exceptions are "checked" and others are not: some exceptions, it's
+just too cumbersome to track in the type system.  And so either your "result" monad only captures some
+of the exceptions, or it's going to be wildly cumbersome.
+
+(5) Monads are less-efficient than direct-style, memory-wise.  For me, the moment in 1992 when I (an
+avowed SML/NJ bigot) became convinced of the superiority of caml-light (notwithstanding 2.5x slower on
+average) was when I realized that it was -so- much less memory-intensive.  Because it didn't allocate
+stack-frames on the heap, and closures started out on the stack and only moved to the heap on-demand.
+Henry Baker made the observation >20yr ago that the stack is a form of nursery.  Writing in monadic
+style is sacrificing this obviously performance advantage.  In the era of multicore, arguments made
+back then about memory, can be recast as arguments about the cache today, since (as hardware designers
+put it) "memory is at infinity" today.
+
+P.S. And yet, I use monads sometimes, too.  Rarely.  But for instance, it's a good model for (e.g.)
+writing a type-checker that wants to type-check a list of expressions (no unification, hence no
+side-effects) and not stop at the firs type-error, but rather gather together errors from all the
+expressions in the list, and produce an error with all of them combined.  So the type-checker at the
+top of each member of the list catches any raised exception, stores it in an accumulator, and goes on
+to the rest of the list; at the end of the list, if the accumulator is empty, it returns the list of
+result-types; otherwise it raises an exception containing list of errors stored in the accumulator.
+
+It's rare, and if the Result monad didn't exist, I'd hack something together, but .... it's literally
+the only use I can think of, that wasn't driven by a library (e.g. ~bos~) using the Result monad itself
+(and my needing to use that library).
+
+And this *efficiency* is the real reason that exception-based backtraces are better: IIUC, OCaml
+exceptions are *really* cheap because they don't materialize that backtrace until demanded.  It means
+that you have to be careful what code you put between the "try-with" and the demand for the backtrace,
+but it's *efficient*.  Materializing the backtrace for every exception raised would be ..... pretty
+horrendously inefficient, and yet that's what you have to do if you use the result monad.
+      </cwn_what>
+      <cwn_who>Malcolm also said</cwn_who>
+      <cwn_what>
+I wrote two blog posts on my experience using ~result~ awhile ago, linked below.  Much of it still
+holds.  Many of the pain points others have mentioned do exist, but in my judgement, *given the current
+state of Ocaml*, results are strictly better (at the very least at the API boundary, assuming you can
+convince yourself no exceptions escape it) than exceptions.  I also believe that the reasonable error
+values are necessary.  For example, I know some APIs like some variation of ~('a, string) result~
+which, IMO, is not a great API as I end up comparing strings and hoping the string value is actually
+part of the API and not some rando value tossed in there.  Double for when meaningful aspects of the
+error are encoded in the string and I have to decode it to decide what to do.
+
+For my own things I do require that all errors are convertible to a string so I can just show them to
+the user, this is especially important for development and debugging, IME.  This is one of the few
+places where I do wish we had something like type classes so I could do something like:
+
+#+begin_src ocaml
+foo ()
+>>= function
+| Ok () -> yadda
+| Error err -> show err
+#+end_src
+
+YMMV
+
+http://functional-orbitz.blogspot.com/2013/01/experiences-using-resultt-vs-exceptions.html
+
+http://functional-orbitz.blogspot.com/2013/01/introduction-to-resultt-vs-exceptions.html
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Making web calls to OCaml</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/making-web-calls-to-ocaml/6932/1</cwn_url>
+      <cwn_who>Peter Fishman asked</cwn_who>
+      <cwn_what>
+Hi, I am new to OCaml and in fact, I'm not a even a programmer (although I did study CS at Cornell back
+in the 80's and learned functional programming in a language called scheme.)  I am thinking about
+developing financial wellness web applications with the underlying computations in OCaml, but with the
+user interface in something else - like java script.  How would a java script website make a call to an
+Ocaml program (or function)?  Or put another way, can I publish a financial model built in OCaml so
+that a web (or mobile) application could call it - passing arguments to the function and receiving back
+the result of evaluating the functional expression?    My apologies if this is not asked correctly or
+if it is a very basic question, but I am not sure I have the right terminology to ask the question
+properly!  Help is appreciated!
+      </cwn_what>
+      <cwn_who>Wojtek Czekalski replied</cwn_who>
+      <cwn_what>
+You can, there are multiple ways to achieve what you want. If I understand correctly you want to build
+a web server in OCaml and a web app front end. Here's a list of what different projects used:
+https://discuss.ocaml.org/t/your-production-web-stack-in-2020/6691/11
+
+Edit: To elaborate because I realized I didn't answer your question, typically you'd have a frontend
+which uses something like [rest](https://en.wikipedia.org/wiki/Representational_state_transfer) or
+[graphql](https://en.wikipedia.org/wiki/GraphQL) to fetch data from your server. There's a lot to
+unpack here. I'm sure you'll be able to pull it off but if you're not comfortable with programming make
+sure that you approach the problem gradually and make sure to avoid analysis paralysis.
+      </cwn_what>
+      <cwn_who>Yawar Amin also replied</cwn_who>
+      <cwn_what>
+Hi, a couple of thoughts here. As @wokalski said, you will need to set up a server application, and a
+web frontend. I don't know much about your background but, my guess is you would like to avoid
+complexity and keep things simple. Personally here's what I would recommend:
+
+1. Write a simple command-line application, in the style of a [[https://en.wikipedia.org/wiki/Filter_(software)#Unix][Unix filter]], in OCaml that takes 'requests' in the form of plain text on standard input and prints its calculation result to standard output. E.g., to take an input of ~add 2 2~ and output ~4~, it could work like this:
+
+   #+begin_example
+   $ echo 'add 2 2' | my_calculator.exe
+   4
+   #+end_example
+
+2. Next, use [websocketd](https://github.com/joewalnes/websocketd) to wrap your calculator tool and serve it over WebSocket, which is a standard Web technology that allows clients to continuously talk to servers (2-way communication). So, clients could send a plain text command like ~add 2 2~ (note, exactly the same as you would have on the command line), and get back a response ~4~.
+
+3. Finally, write a web application (just some HTML and JavaScript) that connects to the WebSocket server from step (2) and sends and receives messages. Here is an example of that: https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API/Writing_WebSocket_client_applications
+
+The reason I am recommending this strategy, is to let you start small and simple, and skip over much of
+the complexity of dealing with modern web application development. You can focus on writing your
+calculator as a simple command-line tool, and 'outsource' the server part to a specialized tool.
+
+Final thought: if you are working on a financial wellness tool, you almost certainly need decimal
+arithmetic (as opposed to binary arithmetic from OCaml's built-in float type). You will want to use a
+decimal package like https://github.com/janestreet/bigdecimal , or (disclaimer: mine)
+https://opam.ocaml.org/packages/decimal/ .
+
+Good luck!
+      </cwn_what>
+      <cwn_who>😷 Marcus Rohrmoser also replied</cwn_who>
+      <cwn_what>
+@peter  I think I'm doing something similar – a simple web tool for geographic calculations from
+character sequences called geohash to gps coordinate pairs and vice versa. Here is it:
+https://demo.mro.name/geohash.cgi/u154. You'll find the source there, too.
+
+Key is, I scale towards n=1, need no state.
+
+The backend is &lt;200 LOC to handle all the http stuff (there isn't much, no auth, no state, no cookies)
+and another ~100 LOC for the actual computation.
+
+1 dependency, no 'modern' web toolkit, no client libs/frameworks, no concurrency
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>wasmtime 0.0.1: lightweight WebAssembly runtime</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-wasmtime-0-0-1-lightweight-webassembly-runtime/6936/1</cwn_url>
+      <cwn_who>Laurent Mazare announced</cwn_who>
+      <cwn_what>
+We just released a first version of a package providing OCaml bindings to the
+[wasmtime](https://wasmtime.dev) WebAssembly runtime. The package is available on opam and can be found
+in this [GitHub repo](https://github.com/LaurentMazare/ocaml-wasmtime). It can be used to run .wasm
+modules in an OCaml process, including modules making system calls through [WASI](https://wasi.dev/).
+For now, the package only provides a low-level api closely matching the Rust implementation. We intend
+to provide a higher level api on top of this.
+The GitHub repo contains various examples in the ~tests~ directory which reproduce some examples from
+the main wasmtime repo.
+Feedback/issue reports are very welcome!
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>First release of Lwt-exit</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-first-release-of-lwt-exit/6938/1</cwn_url>
+      <cwn_who>Raphaël Proust announced</cwn_who>
+      <cwn_what>
+On behalf of [Nomadic Labs](https://nomadic-labs.com/), I'm happy to announce the first release of
+Lwt-exit, a small opinionated library to cleanly handle exits and signals in applications that use Lwt.
+
+The library is available through opam: ~opam install lwt-exit~,
+hosted on gitlab: https://gitlab.com/nomadic-labs/lwt-exit,
+distributed under the MIT license: https://gitlab.com/nomadic-labs/lwt-exit/-/blob/master/LICENSE
+and the documentation is available online: https://nomadic-labs.gitlab.io/lwt-exit/
+
+This library is used in the [Tezos codebase](https://gitlab.com/tezos/tezos) to clean up system
+resources (flush buffered writes, cleanly close p2p connections, etc.) during exits. It is also used to
+attach signal handlers (both for interactive use via Ctrl+C and for daemonisation via systemctl).
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>

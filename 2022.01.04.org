@@ -1,0 +1,461 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[https://alan.petitepomme.net/cwn/2021.12.28.html][Previous Week]] [[https://alan.petitepomme.net/cwn/index.html][Up]] [[https://alan.petitepomme.net/cwn/2022.01.11.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of December 28, 2021 to January 04, 2022.
+
+#+TOC: headlines 1
+
+
+* A hack for toplevel breakpoints using effect handlers
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/a-hack-for-toplevel-breakpoints-using-effect-handlers/9065/1
+
+** wiktor announced
+
+
+I started playing with effect handlers and wondered if they could be used to implement toplevel breakpoints. It's a
+big hack and probably unsound at the moment, but it works and here's an example interaction:
+
+#+begin_src ocaml
+let arr =
+  let fact n =
+    let arr = Array.make (n+1) 1 in
+    let rec loop i =
+      if i <= n then begin
+        Break.break ["i", i; "arr", arr];
+        arr.(i) <- arr.(i-1) * i;
+        loop (i+1)
+      end
+    in
+    (loop 1; arr)
+  in
+    fact 5;;
+# (* We hit a breakpoint and obtain the continuation k *)
+  k ();;
+- : bool = true
+# (* the bools are leaking from the execute_phrase function
+   * inside the toplevel *)
+  k ();;
+- : bool = true
+# i;;
+- : int = 3
+# arr;;
+- : int array = [|1; 1; 2; 1; 1; 1|]
+# (* let's disturb the computation of factorials *)
+  arr.(i-1) <- 42;;
+- : unit = ()
+# k ();;
+- : bool = true
+# (* btw: here the user is like a scheduler for yield-based async *)
+  k ();;
+- : bool = true
+# k ();;
+val arr : int array = [|1; 1; 42; 126; 504; 2520|]
+- : bool = true
+#+end_src
+
+Currently I don't try to clean up bindings or values, which is a source of unsoundness. After the last ~k ()~ we got
+two results: First the computation of ~let arr ...~ finished, and then the computation of ~k ()~ finished. But ~k~ is
+a part of the execution of ~let arr ...~, so these two executions "intersect" without one being contained in the
+other. This makes the question of what should the current variable bindings be complicated. Setting the bindings at
+end of execution is futile, when a continuation may in such a way leak bindings from breakpoint time.
+
+Possibly a stack discipline for the execution of phrases is required to make the environments behave properly: at the
+end of executing a phrase we cancel (with another effect, maybe) other executions which "depend" on the current
+execution (evaluate the ~k~ obtained from a breakpoint in the current execution). This should eliminate these
+"intersections" and we could throw out the bindings added by the cancelled executions.
+
+I haven't tried anything with polymorphism yet, but type variables should probably be changed into abstract types
+inside the binders.
+
+Here's the code:
+https://github.com/ocaml-multicore/ocaml/compare/multicore-pr...wiktorkuchta:toplevel-break
+      
+
+** wiktor later said
+
+
+Well, this might have been unnecessary, as most of it can be done properly in userspace (with more syntactic
+overhead).
+
+#+begin_src ocaml
+open EffectHandlers
+open Deep
+
+type ('a, 'b) res =
+  | Bp of 'a * ((unit, ('a, 'b) res) continuation)
+  | Fin of 'b
+
+module type P1 = sig  val i : int  val arr : int array end
+type payload = P1 of (module P1)
+type _ eff += Break : payload -> unit eff
+
+let arr () =
+  let fact n =
+    let arr = Array.make (n+1) 1 in
+    let rec loop i =
+      if i <= n then begin
+        perform (Break (P1 (module struct let i = i let arr = arr end)));
+        arr.(i) <- arr.(i-1) * i;
+        loop (i+1)
+      end
+    in
+    (loop 1; arr)
+  in
+    fact 5;;
+
+let with_break th =
+  try_with (fun () -> Fin (th ())) ()
+  { effc = fun (type a) (e : a eff) ->
+      match e with
+      | Break p -> Some (fun (k : (a,_) continuation) -> Bp (p, k))
+      | _ -> None }
+
+let cont = function
+  | Bp (_, k) -> continue k ()
+  | Fin _ -> failwith "computation finished, cannot continue"
+
+let get = function
+  | Bp (r, _) -> r
+  | Fin _ -> failwith "computation finished, no breakpoint payload"
+
+let get1 r = match get r with P1 m -> m
+#+end_src
+
+#+begin_src ocaml
+# let r = with_break arr;;
+val r : (payload, int array) res = Bp (P1 <module>, <abstr>)
+# open (val get1 r);;
+val i : int = 1
+val arr : int array = [|1; 1; 1; 1; 1; 1|]
+#+end_src
+
+The main pain point is having to define the payload types. In basic cases the payload type could be just a simple
+polymorphic variant. It would be nice if it could be completely inferred, but it's unlikely as `Break` has to have a
+statically known argument.
+
+With a bit of help from tooling (ppxes for code generation and shorthands in the toplevel), this could be better than
+printf debugging.
+      
+
+** Guillaume Munch-Maccagnoni then said
+
+
+This is an interesting experiment.
+- This reminds me of the idea of high-level stack inspection for debugging and security (articulated for instance in Clements' PhD thesis _[[https://www2.ccs.neu.edu/racket/pubs/dissertation-clements.pdf][Portable and high-level access to the stack with Continuation Marks]]_; here's [[https://dl.acm.org/doi/10.1145/3385412.3385981][another more recent paper]] from the Racket people that might be relevant). One can ask whether a PPX can provide high-level stack inspection or if one needs support from the compiler for that. It's nice to experiment.
+- A few years ago someone asked whether there could be a use to untyped algebraic effects in OCaml (in the sense that they do not appear in the effect annotation in function types). I proposed debugging as an example. Someone suggested that it is not too hard to adapt the interface types of all functions in the call chain to add the appropriate effect annotation (and remove it afterwards), but I was not convinced.
+      
+
+
+
+* Multi-shot continuations gone forever?
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/multi-shot-continuations-gone-forever/9072/1
+
+** cyberpink asked
+
+
+What happens with multi-shot continuations now that Obj.clone_continuation was removed?
+([[https://github.com/ocaml-multicore/ocaml-multicore/pull/651][https://github.com/ocaml-multicore/ocaml-multicore/pull/651]])
+
+Anything that requires a "fork" operation, like say, a probabilistic programming EDSL, needs this. None of the old
+examples I've looked at like [[https://github.com/ocaml-multicore/effects-examples/blob/master/delimcc.ml][Delimcc on top of
+effects]] have been updated to use a new
+method, and I haven't been able to find any hints of one.
+
+Are multi-shot continuations just not possible now? Are there plans to add something equivalent back in later?
+      
+
+** Nicolás Ojeda Bär replied
+
+
+Yes, multi-shot continuations are gone and is unlikely that they will find their way back any time soon. One (good)
+reason is explained in https://dl.acm.org/doi/10.1145/3434314 :
+
+https://aws1.discourse-cdn.com/standard11/uploads/ocaml/original/2X/8/8d26520ef0f790fd3dc4407458d925c1a28fdbca.png
+
+and
+
+https://aws1.discourse-cdn.com/standard11/uploads/ocaml/original/2X/b/b28fa14f967364743277c0132a804c430d2d66d1.png
+      
+
+** Guillaume Munch-Maccagnoni then said
+
+
+I think the question still stands. You cut the sentence “_Extending our system with multi-shot continuations is
+future work (§8)_”. Also the paper is about a particular model based on separation logic rather than OCaml itself
+(for instance the authors also mention that their continuations are affine instead of linear unlike in OCaml
+multicore).
+
+Nevertheless, the multicore designers were aware that duplicating continuations makes it complicated to reason about
+resources. The topic of mixing continuations and linearity has been better studied from the angle of algebraic models
+of computation and proof theory. Essentially, with an effect system you could ensure that certain kinds of effects do
+not happen in the delimited part of the program (including allocating a resource), which controls copiability of the
+stack from the point of view of reasoning about the program. This is inspired by some logics that mix classical and
+intuitionistic or linear logic. From this angle the ability to copy a continuation would be restricted to a sub-part
+of the language which is pure to some degree. This should also be a suitable starting point if one wanted to develop
+a program logic to formalise the reasoning about such programs.
+
+However according to [[https://github.com/ocaml-multicore/ocaml-multicore/pull/651][#651]] there were more technical
+reasons to drop ~clone_continuation~, such as breaking compiler optimizations. I am curious as well to know whether
+there are plans to reintroduce ~clone_continuation~ at some point, but obviously this would require some effort.
+      
+
+** KC Sivaramakrishnan said
+
+
+@nojb and @gadmm have already answered why we've dropped support for ~clone_continuation~ now. We will need to track
+the copiability of the continuation in the continuation type and compiler optimisations also need to be made aware of
+the possibility of copying. Given the pervasive nature of its effects, there are no immediate plans to bring the
+feature back. We will have to come back to this after we have typed effects.
+
+#+begin_quote
+Anything that requires a “fork” operation, like say, a probabilistic programming EDSL
+#+end_quote
+
+One can get pretty far with PPL with just one-shot continuations. My student and I did some experiments building a
+DSL for a PPL to learn about the space: https://github.com/Arnhav-Datar/EffPPL. Having spoken to PPL experts there
+are indeed some usecases where multi-shot continuations are useful, but from what I understand, the one-shotness
+isn't a blocker for PPL.
+
+I would be interested in collecting usecases where multi-shot continuations are absolutely necessary.
+      
+
+** gasche then said
+
+
+Interesting!
+
+My (probably naive) mental model of HANSEI-style libraries, using multishot continuations, is that they are
+extensions/generalization of a non-probabilistic "logic/non-deterministic monad" that searches for the set of
+solutions to a problem. Multishot continuations are naturally used in non-deterministic computations at backtracking
+points, to explore different search directions and collect the result. It is possible to avoid multishot
+continuations by replaying the whole search from the start each time (reference: [[https://arxiv.org/pdf/1710.10385][Capturing the future by replaying
+the past]]), but this involves duplicated computations so it is less efficient
+(reference: [[https://arxiv.org/abs/2007.00605][Asymptotic speedup with first-class control]]).
+
+Can you give some intuition of how other approaches to probalistic inference work, that do not require multishot
+continuations? Are they also duplicating computations, or are they using a magic trick to avoid this issue with a
+different inference algorithm?
+
+I tried to find an answer to this question by reading the [[https://github.com/Arnhav-Datar/EffPPL/blob/main/EffPPL_Report.pdf][internship
+report]], but I couldn't locate an answer. (The
+report mentions HANSEI in the related work, but it does not discuss this question.) The report explains that the
+inference algorithm, called HMC (Hamiltonian Monte Carlo), uses automatic differenciation; so it uses a sort of
+symbolic manipulation / analysis of the probabilistic program to sample. But does this avoid repeated computations?
+It may be the case instead that the differential is as large or larger than the program itself, and that the search
+algorithm using this differential in effect perform a program-sized computation at each search step, duplicating
+computations.
+      
+
+** Sadiq said
+
+
+Not a PPL but I've been hacking on a little effects-based model checker for concurrent data structures that
+implements dynamic partial order reduction (https://github.com/sadiqj/dscheck/ - a WIP!). Multi-shot continuations
+would have been very useful.
+
+I ended up implementing something that involves maintaining a schedule and repeatedly replaying the computation. It
+looks very similar to what [[https://arxiv.org/pdf/1710.10385][Capturing the future..]] proposes.
+      
+
+
+
+* New release of Menhir (20211230)
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/ann-new-release-of-menhir-20211230/9077/1
+
+** François Pottier announced
+
+
+Dear OCaml & Menhir users,
+
+I am pleased to announce a new release of Menhir, with a major improvement.
+
+The code back-end has been rewritten from the ground up by Émile Trotignon
+and by myself, and now produces efficient and well-typed OCaml code. The
+infamous Obj.magic is not used any more.
+
+Furthermore, the new code back-end produces code that is more aggressively
+optimized, leading to a significant reduction in memory allocation and a
+typical performance improvement of up to 20% compared to the previous code
+back-end.
+
+#+begin_src shell
+  opam update
+  opam install menhir.20211230
+#+end_src
+
+Happy well-typed parsing in 2022!
+
+*** 2021/12/30
+
+- The code back-end has been rewritten from the ground up by Émile Trotignon
+  and François Pottier, and now produces efficient and *well-typed* OCaml
+  code. The infamous ~Obj.magic~ is not used any more.
+
+  The table back-end and the Coq back-end are unaffected by this change.
+
+  The main side effects of this change are as follows:
+
+  - The code back-end now needs type information. This means that \\
+    /either/ Menhir's type inference mechanism must be enabled
+             (the easiest way of enabling it is to use Menhir via ~dune~
+              and to check that the ~dune-project~ file says
+              ~(using menhir 2.0)~ or later) \\
+    /or/ the type of every nonterminal symbol must be
+         explicitly given via a ~%type~ declaration.
+
+  - The code back-end no longer allows the type of any symbol to be an
+    open polymorphic variant type, such as ~[> `A ]~. As a workaround,
+    we suggest using a closed polymorphic variant instead.
+
+  - The code back-end now adheres to the /simplified/ error-handling strategy,
+    as opposed to the /legacy/ strategy.
+
+    For grammars that do /not/ use the ~error~ token, this makes no difference.
+
+    For grammars that use the ~error~ token in the limited way permitted by
+    the simplified strategy, this makes no difference either. The simplified
+    strategy makes the following requirement: the ~error~ token should always
+    appear at the end of a production, whose semantic action should abort the
+    parser by raising an exception.
+
+    Grammars that make more complex use of the ~error~ token, and therefore
+    need the ~legacy~ strategy, cannot be compiled by the new code back-end.
+    As a workaround, it is possible to switch to the table back-end (using
+    ~--table --strategy legacy~) or to the ancient code back-end (using
+    ~--code-ancient~). *In the long run, we recommend abandoning the use of
+    the ~error~ token*. Support for the ~error~ token may be removed
+    entirely at some point in the future.
+
+  The original code back-end, which has been around since the early days of
+  Menhir (2005), temporarily remains available (using ~--code-ancient~). It
+  will be removed at some point in the future.
+
+  The new code back-end offers several levels of optimization, which remain
+  undocumented and are subject to change in the future. At present, the main
+  levels are roughly as follows:
+
+  - ~-O 0 --represent-everything~ uses a uniform representation of the stack
+    and produces straightforward code.
+  - ~-O 0~ uses a non-uniform representation of the stack; some stack cells
+    have fewer fields; some stack cells disappear altogether.
+  - ~-O 1~ reduces memory traffic by moving ~PUSH~ operations so that they
+    meet ~POP~ operations and cancel out.
+  - ~-O 2~ optimizes the reduction of unit productions (that is, productions
+    whose right-hand side has length 1) by performing a limited amount of
+    code specialization.
+
+  The default level of optimization is the maximum level, ~-O 2~.
+
+- The new command line switch ~--exn-carries-state~ causes the exception
+  ~Error~ to carry an integer parameter: ~exception Error of int~. When the
+  parser detects a syntax error, the number of the current state is reported
+  in this way. This allows the caller to select a suitable syntax error
+  message, along the lines described in
+  [[http://cambium.inria.fr/~fpottier/menhir/manual.html#sec68][Section 11]]
+  of the manual. This command line switch is currently supported by the code
+  back-end only.
+
+- The ~$syntaxerror~ keyword is no longer supported.
+
+- Document the trick of wrapping module aliases in ~open struct ... end~,
+  like this: ~%{ open struct module alias M = MyLongModuleName end %}~.
+  This allows you to use the short name ~M~ in your grammar, but forces
+  OCaml to infer types that refer to the long name ~MyLongModuleName~.
+  (Suggested by Frédéric Bour.)
+      
+
+
+
+* Improved documentation for Fix
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/ann-improved-documentation-for-fix/9079/1
+
+** François Pottier announced
+
+
+My last contribution for 2021 is an improved documentation for Fix, a library that helps with various algorithmic
+constructions that involve memoization, recursion, and numbering.
+
+The documentation can be [[http://cambium.inria.fr/~fpottier/fix/doc/fix/][viewed online]].
+
+It can also be viewed locally (on your own machine) as follows:
+
+#+begin_src shell
+  opam update
+  opam install fix.20211231
+  opam install odig
+  odig odoc                 # this may take some time
+  odig doc fix              # this opens the doc in your browser
+#+end_src
+
+Happy fix'in' in 2022!
+      
+
+
+
+* pp-binary-ints 0.1.1
+:PROPERTIES:
+:CUSTOM_ID: 5
+:END:
+Archive: https://discuss.ocaml.org/t/ann-pp-binary-ints-0-1-1/9080/1
+
+** Ifaz Kabir announced
+
+
+Tired of printing octals and hexadecimals and then mentally converting them to bits. Ever wanted to just see the bits
+in an int? Now you can!
+
+Just run ~opam install pp-binary-ints~ and off you go:
+#+begin_src ocaml
+# Pp_binary_ints.Int.to_string 0b10101001;;
+- : string = "10101001"
+#+end_src
+
+You can find the documentation for the project and more examples of how to use it
+[[https://ifazk.github.io/pp-binary-ints/pp-binary-ints/index.html][here]].
+
+The library is very customizable.
+
+- You can choose to print with ~0b~ prefixes and ~_~ separators.
+- You can choose to print zeros just like the non-zeros, with prefixes and separators.
+- If you use zero padding, you can control how many leading zeros show up with the ~~min_width~ argument.
+- It correctly handles the edge cases when adding ~_~ separators: you won’t get leading underscores.
+- It includes pretty printers that work with ~Format~ and ~Fmt~ , not just ~to_string~ functions.
+- Supports ~int~, ~int32~, ~int64~, and ~nativeint~.
+- Don't like the default prefixes and suffixes? Customize the prefixes and suffixes with the provided functor.
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[https://alan.petitepomme.net/cwn/][the archive]] or the [[https://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe [[http://lists.idyll.org/listinfo/caml-news-weekly/][online]].
+
+#+BEGIN_authorname
+[[https://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname
