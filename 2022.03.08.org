@@ -1,0 +1,805 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[https://alan.petitepomme.net/cwn/2022.03.01.html][Previous Week]] [[https://alan.petitepomme.net/cwn/index.html][Up]] [[https://alan.petitepomme.net/cwn/2022.03.15.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of March 01 to 08, 2022.
+
+#+TOC: headlines 1
+
+
+* Ttweetnacl 0.1.0
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/ann-ttweetnacl-0-1-0/9436/1
+
+** Daniel Bünzli announced
+
+
+It's my pleasure to announce the first release of ttweetnacl.
+
+Ttweetnacl provides thin bindings to the [[https://tweetnacl.cr.yp.to/][TweetNaCl]] cryptographic library.
+
+Ttweetnacl has no dependencies. The binding code is distributed under the ISC license and the integrated TweetNaCl C
+code is in the public domain.
+
+The binding has only been lightly used so far. Early adopters should pay special attention (or even better, review
+the binding code  :–)
+
+- Home page: https://erratique.ch/software/ttweetnacl
+- Docs: https://erratique.ch/software/ttweetnacl/doc/  (or ~odig doc ttweetnacl~)
+- Install: ~opam install ttweetnacl~ (once [[https://github.com/ocaml/opam-repository/pull/20828][this]] is merged)
+      
+
+
+
+* Dmap : type-safe dependent (heterogeneous) immutable maps
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/ann-dmap-type-safe-dependent-heterogeneous-immutable-maps/9437/1
+
+** Benoit Montagu announced
+
+
+It is my pleasure to announce the release of ~Dmap~.
+
+~Dmap~ is an OCaml library that implements dependent (heterogeneous) immutable maps. The type of keys is indexed by
+the type of the associated values, so that the maps can contain data whose types may depend on the values of keys. It
+is adapted from the implementation code for maps that is used by the [[https://ocaml.org/][OCaml]] standard library.
+
+For instance:
+
+#+begin_src ocaml
+module IntBool = struct
+  (* The type for the keys of our maps. The index ['a] denotes the type
+     of the values that will be associated to the keys. In the case of the
+     [Int] constructor, the map will expect data of type [string]. In the
+     case of the [Bool] constructor, the map will expect values of type [char].
+  *)
+  type 'a t = Int : int -> string t | Bool : bool -> char t
+
+  (* Total order on values of type [_ t]. *)
+  let compare (type a1 a2) (v1 : a1 t) (v2 : a2 t) : (a1, a2) cmp =
+    match (v1, v2) with
+    | Int n1, Int n2 -> if n1 = n2 then Eq else if n1 < n2 then Lt else Gt
+    | Bool b1, Bool b2 ->
+        if b1 = b2 then Eq else if (not b1) || b2 then Lt else Gt
+    | Bool _, Int _ -> Lt
+    | Int _, Bool _ -> Gt
+end
+
+(* We create a module of maps whose keys have type [IntBool.t] *)
+module IntBoolMap = Dmap.Make(IntBool)
+
+(* Definition of a map of type [IntBoolMap.t]. *)
+let m = IntBoolMap.(empty |> add (Int 42) "hello" |> add (Bool true) 'A')
+
+(* Some queries on the map [m] *)
+let () =
+  assert (IntBoolMap.find_opt (Int 42) m = Some "hello");
+  assert (IntBoolMap.find_opt (Bool true) m = Some 'A');
+  assert (IntBoolMap.find_opt (Bool false) m = None)
+#+end_src
+
+This creates a new module ~IntBoolMap~ , with a new type ~IntBoolMap.t~ of maps from ~IntBool.t~ to ~string~ or
+~char~ . As specified by the GADT definition of ~IntBool.t~ , the values associated to the keys of the form ~Int n~
+have type ~string~ , and the values associated to the keys of the form ~Bool b~ have type ~char~ .
+
+You can install ~Dmap~ using opam by running ~opam install dmap~
+
+Repository: https://gitlab.inria.fr/bmontagu/dmap
+      
+
+** Hannes Mehnert asked and Benoit Montagu replied
+
+
+#+begin_quote
+thanks for your release announcement. Did you look into other similar libraries, and have a perspective how they are
+different from dmap? What comes to my mind are [[https://erratique.ch/software/hmap][hmap]] and
+[[https://github.com/hannesm/gmap][gmap]]. Are there other design goals, or different performance tradeoffs/guarantees?
+#+end_quote
+
+thanks for asking. Here are the differences with [[https://erratique.ch/software/hmap][hmap]] and
+[[https://github.com/hannesm/gmap][gmap]], as far as I understand. Please correct me if I misunderstood some parts.
+
+- [[https://erratique.ch/software/hmap][hmap]] only supports keys with no contents. In particular, no total ordering of keys is required. Instead, you can dynamically create new keys, with the type index that you want. It is fully type-safe (no ~assert false~, no ~Obj.magic~, etc). It does not support (but maybe it could) a polymorphic ~map~ function (this requires second-order polymorphism). It reuses the standard library's ~Map~ implementation by calling ~Map.Make~.
+- [[https://github.com/hannesm/gmap][gmap]] supports keys with contents, and expects a total ordering function that returns a GADT to witness type equality, exactly as I did in [[https://gitlab.inria.fr/bmontagu/dmap][dmap]]. It supports a polymorphic ~map~ function (using second-order polymorphism). It reuses the standard library's ~Map~ implementation by calling ~Map.Make~. The implementation records the keys twice: as keys, and as part of the associated data, so that type equality witnesses can be exploited. This results in extra calls to the comparison functions on keys (see the code of ~get~ for an example). The extra calls and the double recording of keys might have an impact in terms of cost, that I cannot quantify. I should be measured. The code is /almost/ type-safe: it relies on the invariant the key is the same as the key part that is recorded as data for that that binding. The impossible cases returned by the comparison function are given the ~assert false~ behavior.
+- [[https://gitlab.inria.fr/bmontagu/dmap][dmap]] also supports a polymorphic ~map~ function. It does not store keys twice: as in the standard library's implementation, the keys are stored only once. In comparison to [[https://github.com/hannesm/gmap][gmap]], the comparisons on keys are not done twice. The code is completely type-safe: no ~assert false~ is introduced to handle the impossible cases of key comparison. The implementation /duplicates/ the one of the standard library, rather than calling ~Map.Make~. The exported functions and their names are on par with the standard library's ~Map~.
+      
+
+** Daniel Bünzli then said
+
+
+#+begin_quote
+hmap…
+It does not support (but maybe it could) a polymorphic ~map~ function (this requires second-order polymorphism).
+#+end_quote
+
+That reminds me of a PR I completely forgot about https://github.com/dbuenzli/hmap/pull/6
+      
+
+
+
+* bls12-381.3.0.0
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/ann-bls12-381-3-0-0/9438/1
+
+** Danny Willems announced
+
+
+It is my pleasure to announce the release of the cryptographic library bls12-381.3.0.0 (keep reading for more details
+about the library content and engineering problems we faced and solved).
+The changelog from 2.0.1 can be found [[https://gitlab.com/dannywillems/ocaml-bls12-381/-/tags/3.0.0][here]].
+The release is available in the public opam-repository. You can install it using
+#+begin_src shell
+opam install bls12-381.3.0.0
+#+end_src
+
+- Repository: https://gitlab.com/dannywillems/ocaml-bls12-381
+- Release: https://gitlab.com/dannywillems/ocaml-bls12-381/-/tags/3.0.0
+- License: [[https://gitlab.com/dannywillems/ocaml-bls12-381/-/blob/3.0.0/LICENSE][MIT]]
+- Documentation: https://dannywillems.gitlab.io/ocaml-bls12-381/bls12-381/index.html
+- Nomadic Labs website: https://nomadic-labs.com
+
+This is also the first public announcement of a bls12-381 release. And, for this reason, I would like to describe the
+history of the library and the different challenges we faced as it may interest OCaml engineers, and also describe
+the content of bls12-381.
+
+/Editor’s note: please find the rest of this long message at the archive link above./
+      
+
+
+
+* Set up OCaml 2.0.0
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/ann-set-up-ocaml-2-0-0/9444/1
+
+** Sora Morimoto announced
+
+
+After a long time, it's time to officially release setup-ocaml v2!
+With the official caching functionality introduced from v2, setup is much faster. (Notable thing: we've spent some
+time with the GitHub team pulling Actions and the ecosystem itself to the level where it "actually works".)
+We hope you will enjoy this release with a lot of other functionalities that we really need to do real development,
+such as support for semver-style versioning (~ocaml-compiler: 4.13.x~).
+And please report any bugs you encounter!
+Thank you!
+
+/Editor’s note: the full changelog is available at the archive link above./
+      
+
+
+
+* Set up OCaml 2.0.1
+:PROPERTIES:
+:CUSTOM_ID: 5
+:END:
+Archive: https://discuss.ocaml.org/t/ann-set-up-ocaml-2-0-1/9458/1
+
+** Sora Morimoto announced
+
+
+*** Changed
+
+- Update the package index if the system package installation fails.
+
+https://github.com/ocaml/setup-ocaml/releases/tag/v2.0.1
+      
+
+
+
+* Load Balancer on FPGA - a Hardcaml Project
+:PROPERTIES:
+:CUSTOM_ID: 6
+:END:
+Archive: https://discuss.ocaml.org/t/load-balancer-on-fpga-a-hardcaml-project/9447/1
+
+** Jakub Urbańczyk announced
+
+
+My name is Jakub and I am a CS student. I would like to share with you a Hardcaml project that I have been working
+for the past few months, which is a network load balancer. It has no practical usage, but I decided to publish it
+because of (hopefully) educational value.
+
+Link to the project: [[https://github.com/xThaid/fpga-lb][https://github.com/xThaid/fpga-lb]]
+
+When I was learning Hardcaml, the biggest barrier for me was the lack of existing projects. It would be extremely
+useful to take a look at such a project to get to know some techniques, tricks, or how a big project should look like
+in general. Therefore, I post this with hope that somebody will find it useful. Hardcaml seems to be a really
+interesting alternative to other hardware description languages and I wish it had broader recognition.
+
+Brief documentation of the architecture and more comments about the project are available in the repo.
+
+Please let me know if you have any comments!
+      
+
+
+
+* Tutorial: Roguelike with effect handlers
+:PROPERTIES:
+:CUSTOM_ID: 7
+:END:
+Archive: https://discuss.ocaml.org/t/tutorial-roguelike-with-effect-handlers/9422/6
+
+** Continuing this thread, rand said
+
+
+Fun read with the rogue-like! - especially concerning your experiments with avoiding the gameloop via effects, as
+I've been thinking about gameloopy stuff in the context of FRP.
+
+I don't think the structure you propose scales very well concerning the complexity of extending the game semantics
+over time, which you also stumbled over - but I guess that wasn't the intention.
+
+A problem related to what you mentioned about updating other entities life, and having them update their state before
+they are done sleeping - is that you would need to update your state after each resume of your continuation based on
+what other entities communicated via the shared state. So in the end the code doesn't look as elegant, and becomes
+more errorprone.
+
+If others are interested in the "alternative gameloop" aspects - I implemented a simple browser-game with an
+Elm-style gameloop using FRP in OCaml some years ago: https://github.com/rand00/flappy/blob/master/src/flap.ml#L29
+      
+
+
+
+* Software Engineer Position at beNEXT.io
+:PROPERTIES:
+:CUSTOM_ID: 8
+:END:
+Archive: https://discuss.ocaml.org/t/job-internship-software-engineer-position-at-benext-io/9451/1
+
+** Martin Halford announced
+
+
+beNEXT, an Australian-based startup, is hiring for the *"Software Engineer"*.
+
+beNEXT is creating the next generation of Smart Legal Contracts based on the Accord Project.
+
+Our plan is to change the way contracts are negotiated and executed, and relegate paper and dumb PDFs to the recycle
+bin of history, by turning contracts into discrete pieces of software that execute and interact with the real world!
+
+You can learn more about beNEXT by visiting [[https://benext.io][https://benext.io]] or the *Accord Project* by
+visiting [[https://accordproject.org][https://accordproject.org]]
+
+beNEXT is looking for a highly motivated and intelligent individual with solid and demonstrable skills in one or more
+of the following:
+
+- OCaml;
+- Q*cert compiler;
+- Coq;
+
+Ideally this person would also have experience with Node.js and/or various Javascript frameworks.
+
+An understanding of the *Accord Project* (including *Ergo*, *Concerto* and *Cicero*) would be advantageous
+but not mandatory.
+
+Candidates can be located anywhere in the world, provided they have access to reliable, high-speed internet and are
+prepared to work hours which overlap with Australian Eastern Time - typically UTC+10:00.
+
+If the successful candidate were lucky enough to live in Melbourne, Australia, then attending the *beNEXT office*
+in Collingwood is an option. However, our assumption is that this engineer would work from their home office and/or a
+local domestic office of their choosing.
+
+We are open to engaging the successful candidate in either a *full-time, part-time or freelance role* depending on
+the individual circumstances or preferences.
+
+Alternatively, this could be an *internship role* for a final year computer science student with the view to
+becoming a permanent employee upon graduation.
+
+The successful candidate would primarily be working on contributions to the Accord Project, in addition to working on
+the beNEXT ~smartLEGAL~ platform, as necessary.
+
+Interested persons can contact us via email at ~hello@benext.io~ or by replying to this message.
+      
+
+
+
+* Sexp_decode: monadic decoders of S-expressions
+:PROPERTIES:
+:CUSTOM_ID: 9
+:END:
+Archive: https://discuss.ocaml.org/t/ann-sexp-decode-monadic-decoders-of-s-expressions/9455/1
+
+** Benoit Montagu announced
+
+
+It is my pleasure to release the ~Sexp_decode~ library.
+
+~Sexp_decode~ is a library of monadic combinators for decoding S-expressions (as defined in the [[https://github.com/ocaml-dune/csexp][Csexp
+library]]) into structured data. S-expressions are a simple serialisation format
+for data exchange, that is (in particular) used in ~dune~. Decoders are a form of parsers for S-expressions.
+
+Repository: https://gitlab.inria.fr/bmontagu/sexp_decode
+
+~Sexp_decode~ is available on ~opam~.
+You can install it by typing ~opam install sexp_decode~
+
+*** Example
+
+The purpose of the library is to help the translation of S-expressions into structured data.
+
+For example, you may want to transform an address book encoded as an S-expression into structured data, that is
+easier to process.
+
+Let's assume your address book looks like the following:
+
+#+begin_src ocaml
+open Sexp_decode
+
+let address_book : sexp =
+List
+  [
+    List
+      [
+        Atom "entry";
+        List [ Atom "name"; Atom "John Doe" ];
+        List [ Atom "country"; Atom "New Zealand" ];
+      ];
+    List
+      [
+        Atom "entry";
+        List [ Atom "name"; Atom "Mary Poppins" ];
+        List [ Atom "email"; Atom "umbrella@imaginary-domain.uk" ];
+      ];
+    List
+      [
+        Atom "entry";
+        List [ Atom "name"; Atom "Groot" ];
+        List [ Atom "country"; Atom "Groot" ];
+      ];
+  ]
+#+end_src
+
+A representation as an OCaml value that is probably easier to work with, is by using the following ~entry~ type:
+
+#+begin_src ocaml
+type entry =
+  { name : string; country : string option; email : string option }
+
+type address_book = entry list
+#+end_src
+
+It is easy to define decoders that produce values of types ~entry~ and ~address_book~ :
+
+#+begin_src ocaml
+let entry_decoder : entry decoder =
+field "entry"
+@@ let* name = field "name" atom in
+   let* country = maybe @@ field "country" atom in
+   let+ email = maybe @@ field "email" atom in
+   { name; country; email }
+
+let address_book_decoder : address_book decoder = list entry_decoder
+#+end_src
+
+Then, you can execute the ~run~ function, that has type ~'a decoder -> sexp -> 'a option~ . It produces the following
+result on our ~address_book~ example:
+
+#+begin_src ocaml
+let result = run address_book_decoder address_book
+(* result =
+     Some
+      [{name = "John Doe"; country = Some "New Zealand"; email = None};
+       {name = "Mary Poppins"; country = None;
+        email = Some "umbrella@imaginary-domain.uk"};
+       {name = "Groot"; country = Some "Groot"; email = None}]
+*)
+#+end_src
+
+In addition to the ~field~ , ~maybe~ , ~atom~ and ~list~ decoders, the ~Sexp_decode~ library provides combinators to
+build compound decoders from basic ones, and compose them together. In particular, decoders for variants and records
+are provided.
+
+For example, with the ~fields~ combinator, you could define ~entry_decoder~ as follows:
+
+#+begin_src ocaml
+let entry_decoder_alt : entry decoder =
+  field "entry"
+  @@ fields
+       ~default:{ name = ""; country = None; email = None }
+       [
+         ("name", atom >>| fun name entry -> { entry with name });
+         ( "country", atom >>| fun country entry -> { entry with country = Some country });
+         ("email", atom >>| fun email entry -> { entry with email = Some email });
+       ]
+#+end_src
+
+With this alternative decoder for entries, the fields ~"name"~ ~"country"~ and ~"email"~ might occur in any order,
+and any number of times.
+      
+
+
+
+* Robur Reproducible Builds
+:PROPERTIES:
+:CUSTOM_ID: 10
+:END:
+Archive: https://discuss.ocaml.org/t/ann-robur-reproducible-builds/8827/2
+
+** Hannes Mehnert announced
+
+
+We (@rand @reynir @hannes) have several updates in this project:
+- binary package repositories (debian, ubuntu, FreeBSD) are now available with monotonic version numbering
+- the https://builds.robur.coop website has an updated look and feel, and includes dependency visualizations and "which module uses how much space" visualizations (a treemap, based on @Drup modulectomy)
+
+Instructions on how to get started to setup unikernels at https://robur.coop/Projects/Reproducible_builds
+      
+
+
+
+* OCaml compiler development newsletter, issue 5: November 2021 to February 2022
+:PROPERTIES:
+:CUSTOM_ID: 11
+:END:
+Archive: https://discuss.ocaml.org/t/ocaml-compiler-development-newsletter-issue-5-november-2021-to-february-2022/9459/1
+
+** gasche announced
+
+
+I’m happy to publish the fifth issue of the “OCaml compiler development newsletter”. You can find all issues using
+the tag [[https://discuss.ocaml.org/tag/compiler-newsletter][compiler-newsletter]].
+
+Note: the content of the newsletter is by no means exhaustive, only a few of the compiler maintainers and contributor
+had the time to write something, which is perfectly fine.
+
+Feel free of course to comment or ask questions!
+
+If you have been working on the OCaml compiler and want to say something, please feel free to post in this thread! If
+you would like me to get in touch next time I prepare a newsletter issue (some random point in the future), please
+let me know by Discuss message or by email at (gabriel.scherer at gmail).
+
+*** Context
+
+The [[https://discuss.ocaml.org/t/ocaml-compiler-development-newsletter-issue-4-october-2021/8833][last issue (October
+2021)]] corresponded to
+the last development period before merging the Multicore OCaml implementation and the "Sequential freeze" (a freeze
+on non-multicore-related changes to facilitate the Multicore merge).
+
+Since then there has of course been a massive amount of work by the Multicore team (see the massive [[https://discuss.ocaml.org/t/multicore-ocaml-january-2022-and-post-merge-activity/9294][Multicore
+newsletter for January 2022]]).
+The upstream development pace has been unusual: there is less non-multicore activity than before (last-minute changes
+for the 4.14 release, and long-running projects moving on in parallel), there is a fair amount of work cleaning up
+things that were broken by the Multicore merge, with an influx of new contributors and also some non-new contributors
+which are still complete beginners with respect to the Multicore runtime.
+
+Things are moving along at a reasonable pace, and we expect to release 5.0 at some point :-)
+
+*** Individual reports
+
+**** @gasche Gabriel Scherer
+
+***** Shapes
+
+In #[[https://github.com/ocaml/ocaml/issues/10718][10718]], @voodoos Ulysse Gérard, @trefis Thomas Refis and @lpw25 Leo
+White proposed "shapes", a new form of static information about OCaml modules that would be computed and stored by
+the OCaml compiler to help other tools, in particular Merlin, work with OCaml names/definitions. (This is entirely
+their work, not mine!) The work was merged in the 4.14 development version.
+
+After the merge, opam-wide testing by @kit-ty-kate Kate Deplaix revealed performance issues on some functor-heavy
+code, in particular Irmin. Shape computation in the compiler would blow up, in computation time and/or size of the
+generated build artifacts.
+
+The core mechanism of "shapes" is an evaluator for lambda-terms. In
+#[[https://github.com/ocaml/ocaml/issues/10825][10825]] I worked on a more efficient evaluator (with help from
+@Edkohibs Nathanaëlle Courant), using relatively advanced machinery (strong call-by-need reduction), and it gives
+good results in practice -- there are no known cases of time or size blowup anymore. There was a lot of
+back-and-forth between different design and implementation choices, and additional testing by Ulysse helped a lot!
+Finally we had an in-person review meeting with Ulysse, Thomas, @Octachron Florian Angeletti and Nathanaëlle, and it
+was a lot of fun, especially in these times of low in-person activity.
+
+***** GADT and pattern generalization
+
+In #[[https://github.com/ocaml/ocaml/issues/1097][1097]], @dongyan reported a soundness bug in the OCaml type-checker
+due to the interaction of polymorhpism (generalisation) and GADT existential types in the type inference of
+pattern-matching. We analyzed the issue and I proposed a restriction of the typing rule to reject unsound examples;
+@lpw25 Leo White refined the proposal further. I tried to implement the fix/restriction myself, but it's not easy
+when one is not familiar with the OCaml codebase. Jacques Garrigue proposed a full implementation in
+#[[https://github.com/ocaml/ocaml/issues/10907][10907]], which is now merged. (This implements only my initial
+criterion, not Leo's refinement, which is harder to implement within the current type inference implementation for
+patterns.)
+
+***** Beginner-level Multicore hacking
+
+These days, OCaml maintainers are gently encouraged into working on the Multicore-related post-merge tasks, instead
+of slacking off working on cool optimisations or type system bugs. (The two tasks above have the excuse that they
+helped preparing the 4.14 release.) But most people knew nothing about the Multicore runtime until a few months ago,
+so everyone is a beginner here!
+
+I worked on small refactoring or minor bugfixes as I spotted them reading the code, with three larger pieces:
+
+1. #[[https://github.com/ocaml/ocaml/issues/10887][10887]]: I kept working with @xavierleroy on the Domain.DLS interface to let OCaml libraries store per-domain global state; now it's possible to create per-domain state that is "inherited" on Domain.spawn (the child state is computed from the parent state). This was a necessary building block to replace the Random implementation by a splittable random number generator, which was finally done in #[[https://github.com/ocaml/ocaml/issues/10742][10742]] by Xavier using LXM as planned.
+
+2. #[[https://github.com/ocaml/ocaml/issues/10971][10971]]: this issue by @sabine Sabine Schmaltz is discussing how to change the size of the reserved memory address space used for minor heaps, when the user asks for larger minor heaps or for more domains. (Each domain has its own minor heap, but they are contiguous for fast `Is_young` checking.) Sabine and I are working on an implementation. I sent various preparation PRs such as #[[https://github.com/ocaml/ocaml/issues/10974][10974]] (changing the mechanism to compute unique domain identifiers, which relied on a fixed Max_domains limit).
+
+3. gc stats (#[[https://github.com/ocaml/ocaml/issues/11008][11008]], #[[https://github.com/ocaml/ocaml/issues/11047][11047]]): the code to compute GC statistics needs some love, it changed significantly in the Multicore runtime but is also trying to preserve the interface exposed by the previous GC, and some things are slightly wrong. I started reading the code from the Max_domains angle (it is storing per-domain statistics in a fixed-sized array), but ended up working on it with help from @Engil Enguerrand Decorne.
+
+**** @xavierleroy Xavier Leroy
+
+On January 10th 2022, I had the privilege to push the "merge" button on pull request
+#[[https://github.com/ocaml/ocaml/issues/10831][10831]], thus bringing Multicore OCaml into the OCaml "trunk" and
+giving birth to OCaml 5.
+
+Before and after this glorious moment, the Multicore OCaml development team, the other reviewers and I have been
+spending considerable amounts of time studying and reviewing the Multicore OCaml sources, reviewing the big pull
+request, and fixing the issues that remain after the merge.  I also spent much time reworking our Jenkins CI system
+to handle OCaml 5 and adapting the test suite accordingly.
+
+The transition to OCaml 5 is also a great opportunity to remove long-obsolete features and simplify the code base.
+For example, in #[[https://github.com/ocaml/ocaml/issues/10898][10898]], I was able to remove a lot of cruft for signal
+handling that is no longer relevant now that signal handlers no longer run immediately on receiving the signal and
+stack overflow is explicitly managed by ocamlopt-generated code.  Another example is
+#[[https://github.com/ocaml/ocaml/issues/10935][10935]], which deprecates the ~Thread.exit~ function and offers a
+simpler, exception-based mechanism for early thread termination.
+
+Last but not least, I was finally able to merge my reimplementation of the Random module on top of the lovely LXM
+pseudo-random number generator (#[[https://github.com/ocaml/ocaml/issues/10742][10742]]), thanks to @gasche's work on
+domain-local state.
+
+**** @Octachron Florian Angeletti
+
+***** Benchmarking compilation time and compilation artefact size for shapes
+
+As described by @gasche, OCaml 4.14 introduces a new kind of metadata called ~shape~. The computation of shapes
+metadata has some cost in term of compilation time. During the initial review, I had completely underestimated that
+cost, which lead to the compilation time blow up reported by irmin. When it was time to fix that mistake, I wanted to
+have a more global view of the effect of the shape computation on a significant slice of the opam repository.
+Thus I measured both the compilation time and the size of compilation artefacts with and without the shape
+computation for over a thousand of opam packages (the half of the opam repository with the most reverse
+dependencies).
+Fortunately, this performance measurement campaign concluded that for 90% of source files, the increase of
+compilation time was less than 10%:
+
+| percentile | relative compilation time increase|
+|---|------------------------|
+| 1% | -9% |
+| 10% |  0% |
+| 25% |  0% |
+| 50% |  0% |
+| 75% | +4% |
+| 90% |  +10% |
+| 99% |  +20% |
+| 99.9% | +32% |
+| 99.99% | +46% |
+
+***** Documentation tags for a new era
+
+With Multicore OCaml, OCaml libraries will need to document how safe they are to use in a multicore context, in
+particular if they use some global state. To make it as easy as possible to document that point, I have started to
+implement new ocamldoc tags for multicore safety in  #[[https://github.com/ocaml/ocaml/issues/10983][10983]] . However,
+the developers of odoc weren't keen on the idea of adding more tags, and proposed that this information should be
+conveyed in attributes that could be lifted to the documentation. @julow Jules Aguillon proposed an implementation in
+#[[https://github.com/ocaml/ocaml/issues/11024][11024]], that I have reviewed. This change by itself improves the state
+of alert in the documentation which is already a great improvement and should allow us to reach better design for
+multicore-safety documentation later on.
+
+***** Beginner-level multicore hacking
+
+To participate a little to the stabilisation of OCaml 5.0, I spend some time to make the ~Dynlink~ library
+thread-safe in the easiest way: by a adding a global lock to the library. This is one of the few cases where a adding
+global lock to an existing library makes sense since we simultaneously don't expect call to ~Dynlink~ function to be
+performance critical and really don't want race condition in ~Dynlink~ to corrupt the state of the whole program.
+
+**** @garrigue Jacques Garrigue
+
+***** Cleaning up variance computation
+
+For many, the computation of variances in type definitions is quite mysterious. The only available specification is a
+short abstract at the OCaml Meeting 2013, and it is actually incomplete. With Takafumi Saikawa, I took a fresh look
+at the problem and we came up with a clearer lattice, and more explicit algorithms. This is still a draft PR
+#[[https://github.com/ocaml/ocaml/issues/11018][11018]].
+
+***** Separate typing of counter-examples from ~type_pat~
+
+Since the introduction of GADTs, ~type_pat~, the function that types patterns, is also used to discard impossible
+cases during the exhaustiveness check. Moreover, it was later turned into continuation-passing style to allow
+backtracking, in order to check type inhabitation. Originally this seemed a good idea, allowing to factorize much
+code, but then new functionality was added to ~type_pat~, and the two roles started to diverge.
+#[[https://github.com/ocaml/ocaml/issues/11027][11027]] is another draft PR that separates them, reverting ~type_pat~
+to direct style, and adding a new ~retype_pat~ function which takes as input a partially typed tree. Interestingly,
+this de-factorization actually reduces the code size by more than a hundred lines.
+
+***** Coqgen
+
+The experimental Gallina generating backend is still progressing albeit slowly.
+For those intrested there are now slides describing it.
+http://www.math.nagoya-u.ac.jp/~garrigue/papers/coqgen-slides-tpp2021.pdf
+
+**** @nojb Nicolas Ojeda Bär
+
+We are taking advantage of the 5.0 release to get rid of a lot of cruft that had built up over time:
+- #[[https://github.com/ocaml/ocaml/issues/10897][10897]]: Remove everything officially marked as deprecated before the 5.0 release.
+- #[[https://github.com/ocaml/ocaml/issues/10863][10863]]: Remove the ~<caml/compatibiliy.h>~ header which contained the definition of some runtime symbols without the ~caml_~ prefix for compatibility.
+- #[[https://github.com/ocaml/ocaml/issues/10896][10896]]: Remove ~Stream~, ~Genlex~ and ~Pervasives~ from the standard library, as well as the *standalone* ~bigarray~ library (no longer needed since the ~Bigarray~ module was moved into the standard library).
+- #[[https://github.com/ocaml/ocaml/issues/11002][11002]]: No longer use the ~Begin_roots~/~End_roots~ macros in the runtime system. These were not yet removed because they are used by some external projects (eg [[https://github.com/xavierleroy/camlidl][~camlidl~]]).
+- #[[https://github.com/ocaml/ocaml/issues/10922][10922]], #[[https://github.com/ocaml/ocaml/issues/10923][10923]]: Add deprecation attributes to some symbols that did not have them so that we can remove them in some future release.
+
+Apart from all this spring cleaning, a small addition to the standard library that I had missed for a long time:
+
+- #[[https://github.com/ocaml/ocaml/issues/10986][10986]]: Add ~Scanf.scanf_opt~, ~Scanf.sscanf_opt~ and ~Scanf.bscanf_opt~ option-returning variants.
+
+**** @dra27 David Allsopp
+
+***** mingw-w64 port for native Windows OCaml 5
+I did the original port of multicore OCaml way back in 2018 (see [[https://discuss.ocaml.org/t/multicore-ocaml-on-windows/1844][Discuss
+post]]); that got rebased to 4.10 and updated to include
+native code support during summer 2020, but the testing story wasn't quite there. However, it got updated in the
+autumn and was merged just-in-time for the main PR to ocaml/ocaml! At the moment, we only support the mingw-w64 port
+on Windows: OCaml 4.x has a hand-crafted implementation of all the required pthreads primitives in the systhreads
+library, but for 5.x we're, at least for now, using the winpthreads library from the mingw-w64 project.
+
+In the meantime, the Cygwin64 port is mostly broken for slightly complicated reasons and the MSVC port isn't working
+from a combination of a lack of C11 atomics support and the aforementioned winpthreads library which is in mingw-w64.
+It's extremely unlikely that the MSVC port will be ready for OCaml 5.0, but I have got a version of it just about
+working using C++ atomics and a manual build of the winpthreads library using Visual Studio, so there is light at the
+end of the tunnel for the MSVC port, hopefully for OCaml 5.1!
+
+***** FlexDLL updates for Visual Studio
+Recent changes in the Windows SDK required some alterations in the ~flexlink~ linker, used in both the native Windows
+ports and the Cygwin port of OCaml. This project got a little bit of merging attention and a release, so recent
+updates of Visual Studio 2017 and 2019 and also Visual Studio 2022 now successfully build OCaml 4.x, even with the
+Windows 11 SDK.
+
+***** Native toplevel library in 4.14
+I helped to upstream some work done by others, and also narrowed the differences between ~ocaml~ and ~ocamlnat~ for
+4.14. In OCaml 4.14, the native toplevel _library_ is now always installed, which paves the way for native code
+programs which wish to interpret toplevel statements (e.g. a native version of the ~mdx~ tool). Part of this work
+also inserted some hooks into the toplevel which allow the external linker to be replaced with a dynamic code emitter
+(so-called "ocaml-jit", but the use of _JIT_ seems to cause a lot of confusion - the point is that the overhead of
+repeatedly calling an external assembler is removed, which is measurable when compiling lots of individual phrases).
+
+***** glibc 2.34 back-ports
+glibc 2.34 includes a change to the way alternate stacks for the signal handlers must be allocated. The issue was
+partially fixed in 4.13, but as newer distributions started to ship with this newer glibc, the change in behaviour
+for older OCaml versions was becoming problematic - for example, you couldn't install OCaml 4.12 or earlier on the
+latest release of Ubuntu or Fedora. Xavier worked on the second half of the fix already in 4.13 (to deallocate the
+alternate stack on termination), and I managed the process of back-porting it to all the versions of OCaml in
+opam-repository (3.07+!). We also took the decision to push these patches to the old release branches on GitHub,
+partly as a convenient place to store them, since opam-repository references them from there, and partly as it allows
+the older branches still to be compiled directly from a git clone.
+      
+
+
+
+* HACL* in OCaml: safe bindings for verified C code using Ctypes
+:PROPERTIES:
+:CUSTOM_ID: 12
+:END:
+Archive: https://discuss.ocaml.org/t/hacl-in-ocaml-safe-bindings-for-verified-c-code-using-ctypes/9470/1
+
+** Victor Dumitrescu announced
+
+
+I wanted to share a [[https://research-development.nomadic-labs.com/improving-the-implementation-of-cryptography-in-tezos-octez.html][blog
+post]]
+that we wrote a while back at Nomadic Labs. I thought this might be interesting to folks here, particularly the more
+in-depth discussion on how we use Ctypes to safely interface with the formally verified C code of the HACL*
+cryptography library in OCaml and on the design of our high-level API.
+      
+
+
+
+* OUPS meetup march 2022 (french only)
+:PROPERTIES:
+:CUSTOM_ID: 13
+:END:
+Archive: https://discuss.ocaml.org/t/oups-meetup-march-2022-french-only/9471/1
+
+** zapashcanon announced
+
+
+(this is in french only as the talks will be in french it’s probably not relevant for english speakers)
+
+Le prochain OUPS aura lieu le *jeudi 10 mars* 2022. Le rendez-vous est fixé à *18h30* en *salle 15-16 101* .
+
+Ce meetup aura lieu dans les locaux de l'[[https://www.irill.org][IRILL]] au [[https://www.openstreetmap.org/#map=19/48.84650/2.35457][4 place Jussieu, 75005 Paris]] en *salle 101* . Pour accéder à
+la salle, il faut aller à la colonne 15 ou 16, monter un étage et accéder au couloir 15-16. Voir les [[https://www.irill.org/pages/access.html][instructions
+d'accès]].
+
+*L'inscription est obligatoire* pour pouvoir accéder au meetup ! Votre nom complet doit être disponible. Merci de
+vous [[https://www.meetup.com/fr-FR/ocaml-paris][inscrire]] *le mercredi 9 mars* au plus tard.
+
+Le meetup consistera en deux exposés à la suite de quoi, les traditionnels pot et pizza party ne pouvant avoir lieux
+à l'IRILL, nous proposerons à ceux qui le souhaitent de se rendre au [[https://www.openstreetmap.org/node/2298160176][Baker Street Pub]] pour prolonger les
+discussions. Le passe sanitaire sera demandé pour participer à cette partie de l'évènement.
+
+Le programme des exposés de cette édition est donné ci-dessous et nous profitons de l'occasion pour rappeler que nous
+sommes toujours à la recherche de /propositions/ d'exposés pour les meetups suivants. Si vous souhaitez proposer un
+exposé, contactez-nous sur le [[https://oups.zulipchat.com][zulip OUPS]].
+
+*** Interfacing OCaml with Sundials for numerical simulation, par Timothy Bourke
+
+Sundials/ML is an OCaml interface to (most of) the Sundials suite of numerical solvers. It provides access to the
+underlying C library and exploits features of the OCaml type and module systems to document and ensure its correct
+utilisation. We reimplemented a hundred-odd of the examples provided with Sundials to aid in developing, debugging,
+and benchmarking the OCaml library. The standard examples, iterated hundreds or thousands of times, are rarely twice
+as slow in OCaml as in C and usually less than 50% slower. We also found many bugs in our code (and a few in Sundials
+itself) by executing these examples with valgrind.
+
+https://github.com/inria-parkas/sundialsml
+
+*** Epidemiological inference in OCaml, par Benjamin Nguyen
+
+OCaml is a great choice for simulating mathematical models: Its functional nature and its type and module system
+allow to easily express mathematical models and to simulate them in a modular and (reasonably) efficient manner.
+I will share some of the code and results from my PhD about the Bayesian inference of infectious diseases, with
+simulation of stochastic processes, MCMC, phylogenetic inference, and musical populations.
+
+https://gitlab.com/bnguyenvanyen/ocamlecoevo
+      
+
+
+
+* VSCode OCaml Platform 1.10.0
+:PROPERTIES:
+:CUSTOM_ID: 14
+:END:
+Archive: https://discuss.ocaml.org/t/ann-vscode-ocaml-platform-1-10-0/9481/1
+
+** Max Lantas announced
+
+
+We are happy to announce the 1.10.0 release of [[https://github.com/ocamllabs/vscode-ocaml-platform][VSCode OCaml
+Platform]], a Visual Studio Code extension for OCaml. It is now
+available on the [[https://marketplace.visualstudio.com/items?itemName=ocamllabs.ocaml-platform][VSCode Marketplace]].
+
+This release adds an offline opam package documentation generation and viewing feature by
+[[https://github.com/tatchi][@tatchi]]. It is available by clicking the icon of a opam package in the OCaml sidebar.
+
+Please feel free to share feedback.
+
+*** Change Log
+
+**** 1.10.0
+
+- Add the possibility to generate and show the documentation of an installed
+  package right into VSCode. ([[https://github.com/ocamllabs/vscode-ocaml-platform/pull/771][#771]])
+      
+
+
+
+* Other OCaml News
+:PROPERTIES:
+:CUSTOM_ID: 15
+:END:
+** From the ocamlcore planet blog
+
+
+Here are links from many OCaml blogs aggregated at [[http://ocaml.org/community/planet/][OCaml Planet]].
+
+- [[https://tarides.com/blog/2022-03-01-segfault-systems-joins-tarides][Segfault Systems Joins Tarides]]
+- [[http://ocaml-book.com/blog/2022/2/18/ocaml-from-the-very-beginning-now-free-in-html-and-pdf-formats][OCaml from the Very Beginning now free in HTML and PDF formats]]
+- [[http://frama-c.com/jobs/2022-02-01-permanent-computer-scientist-cyber-security-verification.html][Permanent Computer Scientist Position at CEA LIST - LSL]]
+- [[https://tarides.com/blog/2022-01-27-ocaml-labs-joins-tarides][OCaml Labs Joins Tarides]]
+- [[https://blog.janestreet.com/project-pairing/][How Jane Street Pairs Interns to Projects and Teams During the Software Engineering Internship]]
+- [[http://math.andrej.com/2022/01/12/projective-setoids/][Is every projective setoid isomorphic to a type?]]
+- [[http://math.andrej.com/2022/01/12/two-new-doctors/][Two new doctors!]]
+- [[https://blog.janestreet.com/magic-trace/][Magic-trace: Diagnosing tricky performance issues easily with Intel Processor Trace]]
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[https://alan.petitepomme.net/cwn/][the archive]] or the [[https://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe [[http://lists.idyll.org/listinfo/caml-news-weekly/][online]].
+
+#+BEGIN_authorname
+[[https://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname
