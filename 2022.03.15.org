@@ -1,0 +1,295 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[https://alan.petitepomme.net/cwn/2022.03.08.html][Previous Week]] [[https://alan.petitepomme.net/cwn/index.html][Up]] [[https://alan.petitepomme.net/cwn/2022.03.22.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of March 08 to 15, 2022.
+
+#+TOC: headlines 1
+
+
+* Robur Reproducible Builds
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/ann-robur-reproducible-builds/8827/6
+
+** Continuing this thread, Hannes Mehnert announced
+
+
+The background article by @rand is now online
+https://r7p5.earth/blog/2022-3-7/Builder-web%20visualizations%20at%20Robur
+      
+
+
+
+* OCaml TeXmacs plugin
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://sympa.inria.fr/sympa/arc/caml-list/2022-03/msg00009.html
+
+** Nicolas Ratier announced
+
+
+I made a basic OCaml plugin for TeXmacs (http://www.texmacs.org)
+I would like to keep it simple, but comments and improvements are welcome.
+http://forum.texmacs.cn/t/ocaml-a-basic-ocaml-plugin-for-texmacs/813
+      
+
+
+
+* Release of ocaml-sf/learn-ocaml:0.14.0
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/ann-release-of-ocaml-sf-learn-ocaml-0-14-0/9491/1
+
+** Yurug announced
+
+
+We are very pleased to announce the latest stable release of [[https://github.com/ocaml-sf/learn-ocaml][Learn-OCaml]], version ~0.14.0~.
+
+Many thanks to all users and developers who reported bugs, contributed features, or patches! Special thanks to
+@erikmd who made many of the changes included in this release.
+
+A (mostly) comprehensive list of the features, fixes, and enhancements offered by this release is available in [[https://github.com/ocaml-sf/learn-ocaml/releases/tag/v0.14.0][the Release Notes ]].
+
+A brief and incomplete summary of the changes:
+
+- A long-standing bug has been fixed. This bug was triggered when the user opened several sessions: the auto-sync mechanism could lead to overwriting the student's code with an older version.
+
+- The release assets now include a zip file containing the contents of the `www` directory. This eases the usage of the distributed binaries.
+
+If need be, feel free to open issues in the [[https://github.com/ocaml-sf/learn-ocaml/issues][Learn-OCaml bug tracker]] or the [[https://github.com/pfitaxel/learn-ocaml.el/issues][learn-ocaml.el bug tracker]], or post in this thread to share thoughts or
+experience-feedback.
+
+Happy OCaml learning and teaching!
+      
+
+
+
+* Tutorial: Roguelike with effect handlers
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/tutorial-roguelike-with-effect-handlers/9422/18
+
+** Continuing this thread, stw said
+
+
+Sorry about the late reply, I was busy actually verifying that my concept works out. Thankfully it does :smile:
+
+The UI framework is inspired by
+[[https://ajnsit.github.io/concur-documentation/ch02-01-anatomy-of-a-widget.html][Concur]] which means that every
+widget listens for some set of events and suspends computation until one of these events occurs. Once it does, it
+continues execution until it encounter the next await at which point it will suspend once more. Once a widget has
+fulfilled its purpose it terminates with some return value (e.g. text input is confirmed with enter -> return with a
+string).
+Complex UIs are then built by composing simpler widgets. A more detailed explanation can be found in the link above.
+
+I've implemented this concept using an await function that takes a list of triggers and a handler for each possible
+event:
+#+begin_src ocaml
+effect Await : Event.t list -> Event.t
+let rec await triggers handler =
+  handler (EffectHandlers.perform (Await triggers))
+
+let rec check_box checked  =
+  (* display check box *)
+  ...;
+  await [Mouse_press; Key_press] (function
+  | Mouse_press ->
+    print_endline "I've been (un-)checked!";
+    check_box (not checked)
+  | Key_press -> (* Terminate if any key is pressed *) checked)
+#+end_src
+
+Every widget can then be implemented as a function which displays the widget and performs an ~Await triggers~ which
+is resumed by passing an event from ~triggers~, for example the check box above.
+
+The most complex widget I've implemented so far is a single line text input. It can be clicked or selected with tab.
+Moving the mouse while holding the button down changes the selection. As an automaton:
+
+https://aws1.discourse-cdn.com/standard11/uploads/ocaml/original/2X/5/574e164b6189608283de32d9f375534ca80caffa.png
+
+Obviously, this is not a directed acyclic graph and therefore not a perfect fit for the implicit state stored in the
+continuation. Specifically, ~Pressed~ has an edge to one of its multiple parents. We can extract the ~Pressed~ state
+into its own function and therefore avoid this issue by 'duplicating' this state. Now ~Pressed~ no longer has
+multiple parents:
+
+https://aws1.discourse-cdn.com/standard11/uploads/ocaml/original/2X/7/70a34d2f4bb81800a5e3b12b8e49147a0d80ece4.png
+
+Some cycles remain and we can't remove them because they are essential to the functionality. Instead we throw an
+~exception Repeat~ that returns us to a parent node (explicitly shown for Focused -> Pressed -> Released -> Focused).
+To do that we modify ~await~:
+#+begin_src ocaml
+let rec await triggers handler =
+  try handler (EffectHandlers.perform (Await triggers)) with
+  | Repeat -> await triggers handler
+#+end_src
+In the end this results in this main method for the text input, with only minor simplifications:
+#+begin_src ocaml
+method execute =
+  (* Represent the Pressed state.
+     We await the Mouse_release and handle Mouse_motion while we wait. *)
+  let pressed (x,_) =
+    selection <- Point x;
+    await [`Mouse_release; `Mouse_motion] @@ function
+    | `Mouse_release (_, LMB) ->
+      ()
+    | `Mouse_motion (x,_) ->
+      self#select x;
+      raise Repeat (* This restarts the await function *)
+    | _ ->
+      raise Repeat
+  in
+
+  (* We start in the Unfocused state *)
+  begin
+    await [`Mouse_press; `Key_press] @@ function
+    | `Mouse_press (pos, LMB) ->
+       (* We have registered the press, but only when it is released
+          will we be focused. *)
+       pressed pos
+    | `Key_press Tab ->
+      selection <- Area (0, List.length keys)
+    | _ -> raise Repeat
+  end;
+
+  (* We move into the Focused state *)
+  begin
+    await [`Codepoint; `Key_press; `Mouse_press] @@ function
+    | `Key_press Tab | `Key_press Return ->
+      () (* The only path without raising Repeat.
+            Therefore we only leave this await when a tab or return occurs *)
+    | `Mouse_press (pos, LMB) ->
+      pressed pos;
+      raise Repeat
+    | `Key_press c ->
+      self#insert c;
+      raise Repeat
+    | _ -> raise Repeat
+  end;
+  (* We have reached the finished state. We can now return the entered text. *)
+  self#text
+#+end_src
+I think that this method captures the automaton above quite nicely and can be relatively easily understood (hopefully
+even when one is unfamiliar with the framework and accepts that some magic is happening in the background (: ).
+Implementing automatons in terms of effect handlers seems to work quite well, at least for games and UIs. What these
+automatons have in common is that they can be thought of as flows, starting at some state and ending at one of
+multiple final states and only have few edges that don't fit this scheme, turning them into 'directed almost acyclic
+graphs'.
+
+There is obviously a lot more necessary for a UI framework (e.g. resizing the window/widgets, delegating the events
+to the correct widget, composing widgets, drawing on the screen etc.) and I plan to write about it at some point in
+the future. But for that I will first need to actually solve these problems as right now their implementation is
+quite barebones. The code can be found here for those interested (still very early in development!):
+https://github.com/Willenbrink/bogue/
+      
+
+
+
+* Awesome Multicore OCaml and Multicore Monorepo
+:PROPERTIES:
+:CUSTOM_ID: 5
+:END:
+Archive: https://discuss.ocaml.org/t/awesome-multicore-ocaml-and-multicore-monorepo/9515/1
+
+** Patrick Ferris announced
+
+
+A short announcement of two repositories which some people may or may not have seen. Firstly, [[https://github.com/patricoferris/awesome-multicore-ocaml][Awesome Multicore
+OCaml]], a place for gathering all of the rapidly changing
+experiments, ideas, libraries and resources for Multicore OCaml (including some of the discuss threads). If you are
+working on something or feel anything is missing please open a PR!
+
+Secondly, a [[https://github.com/patricoferris/ocaml-multicore-monorepo][Multicore Monorepo]] which aims to provide a
+very quick and easy way to try out effects and parallelism with quite a few libraries (such as Eio, Dream etc.). The
+breaking changes introduced by OCaml 5 can make it frustrating to get such a setup in place, although this is less
+and less true thanks to the [[https://github.com/kit-ty-kate/opam-alpha-repository][alpha repository]]. The idea is
+that you should just be able to clone this repository, create a new ~5.0.0+trunk~ switch, install ~dune~ and start
+hacking. If that's not the case please do open an issue.
+      
+
+
+
+* ppx_viewpattern initial release
+:PROPERTIES:
+:CUSTOM_ID: 6
+:END:
+Archive: https://discuss.ocaml.org/t/ann-ppx-viewpattern-initial-release/9516/1
+
+** Simmo Saan announced
+
+
+I'm glad to announce the initial release of [[https://github.com/sim642/ppx_viewpattern][ppx_viewpattern]] --
+transformation for view patterns in OCaml.
+
+It _attempts to_ imitate [[https://ghc.gitlab.haskell.org/ghc/doc/users_guide/exts/view_patterns.html][Haskell view
+patterns]]. I wrote this ppx rewriter
+mostly out of curiosity, rather than need, but it turned out neat enough that others might find it interesting or
+even useful.
+
+*** Syntax
+Use ~[%view? pat when exp]~ as a pattern to apply ~exp~ to whatever the pattern is matching and match the result of
+the ~exp~ application against ~pat~.
+This is analogous to the Haskell view pattern ~exp -> pat~.
+
+The above extension node payload syntax is the best I could come up with to combine an expression and a pattern.
+Honestly, I was even surprised that ~when exp~ is attached to a pattern in the AST (not a case), because normally it
+isn't part of the pattern itself.
+
+*** Example
+This allows one to write
+#+begin_src ocaml
+(* These cases are exactly like reduction rules! *)
+let rec reduce = function
+  | Add (Int n1, Int n2) -> Some (Int (n1 + n2))
+  | Add ([%view? Some p1' when reduce], p2) -> Some (Add (p1', p2))
+  | Add (p1, [%view? Some p2' when reduce]) -> Some (Add (p1, p2'))
+  (* ... *)
+  | _ -> None
+#+end_src
+instead of
+#+begin_src ocaml
+(* These nested cases are so annoying! *)
+let rec reduce = function
+  | Add (Int n1, Int n2) -> Some (Int (n1 + n2))
+  | Add (p1, p2) ->
+    begin match reduce p1 with
+      | Some p1' -> Some (Add (p1', p2))
+      | None ->
+        begin match reduce p2 with
+          | Some p2' -> Some (Add (p1, p2'))
+          | None -> None
+        end
+    end
+  (* ... *)
+  | _ -> None
+#+end_src
+
+See [[https://github.com/sim642/ppx_viewpattern/tree/master/example][~examples/~ on GitHub]] for more.
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[https://alan.petitepomme.net/cwn/][the archive]] or the [[https://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe [[http://lists.idyll.org/listinfo/caml-news-weekly/][online]].
+
+#+BEGIN_authorname
+[[https://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname
