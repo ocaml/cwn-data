@@ -1,0 +1,635 @@
+                          ━━━━━━━━━━━━━━━━━━━
+                           OCAML WEEKLY NEWS
+                          ━━━━━━━━━━━━━━━━━━━
+
+
+[Previous Week] [Up] [Next Week]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of May 31 to June 07,
+2022.
+
+Table of Contents
+─────────────────
+
+carray.0.0.1
+ML Family Workshop 2022: Final Call for Presentations
+OCaml Users and Developers Workshop 2022
+dkml-c-probe.2.0.0: Cross-compiler friendly definitions for C compiling
+Full-Stack Web Dev in OCaml Tutorial w/ Dream, Bonsai, and GraphQL
+Sketch.sh now supports multiple compiler versions, starting with 4.13.1
+Explicit type binding and mutual recursion
+findlib-1.9.4
+omake-0.10.4
+Old CWN
+
+
+[Previous Week] <https://alan.petitepomme.net/cwn/2022.05.31.html>
+
+[Up] <https://alan.petitepomme.net/cwn/index.html>
+
+[Next Week] <https://alan.petitepomme.net/cwn/2022.06.14.html>
+
+
+carray.0.0.1
+════════════
+
+  Archive: <https://discuss.ocaml.org/t/ann-carray-0-0-1/9938/6>
+
+
+Deep in this threas, Fabian said
+────────────────────────────────
+
+  Note that you can, to a certain degree, build your own flat structures
+  with the `Bytes' module. Compared to bigarrays, `Bytes.t' has less
+  indirection, a lower constant memory overhead and can be allocated on
+  the minor heap. The contents of `Bytes.t' are not scanned by the GC,
+  just like bigarrays.
+
+  For example, a more efficient `int32 Array.t':
+
+  ┌────
+  │ module Int32_array : sig
+  │   type t
+  │   val equal : t -> t -> bool
+  │   val create : int -> t
+  │   val length : t -> int
+  │   val get : t -> int -> int32
+  │   val set : t -> int -> int32 -> unit
+  │   val sub : t -> int -> int -> t
+  │   val to_list : bytes -> int32 list
+  │ end = struct
+  │   type t = Bytes.t
+  │   let equal = Bytes.equal
+  │   let create len = Bytes.create (4 * len)
+  │   let length t = Bytes.length t / 4
+  │   let get t i = Bytes.get_int32_le t (4 * i)
+  │   let set t i x = Bytes.set_int32_le t (4 * i) x
+  │   let sub t pos len = Bytes.sub t (4 * pos) (4 * len)
+  │   let to_list t = List.init (length t) (get t)
+  │ end
+  └────
+
+  A more efficient `(int * int)':
+
+  ┌────
+  │ module Point : sig
+  │   type t
+  │   val create : int -> int -> t
+  │   val x : t -> int
+  │   val y : t -> int
+  │ end = struct
+  │   external get_int64_unsafe : bytes -> int -> int64 = "%caml_bytes_get64u"
+  │   external set_int64_unsafe : bytes -> int -> int64 -> unit = "%caml_bytes_set64u"
+  │   type t = Bytes.t
+  │   let create x y =
+  │     let p = Bytes.create 16 in
+  │     set_int64_unsafe p 0 (Int64.of_int x);
+  │     set_int64_unsafe p 8 (Int64.of_int y);
+  │     p
+  │   let x t = Int64.to_int (get_int64_unsafe t 0)
+  │   let y t = Int64.to_int (get_int64_unsafe t 8)
+  │ end
+  └────
+
+  (making a more efficient `(int * int) Array.t' is left as an exercise
+  to the reader)
+
+  The downside compared to bigarrays is that it doesn't support `sub'
+  without copying. Also, bytes can be moved by the GC (during minor GCs
+  or compaction), and therefore you cannot release the runtime lock when
+  passing them to C. The latter point is less relevant with the
+  multicore extensions, especially since there is no compactor
+  yet. There is some related discussion on the eio repository:
+  <https://github.com/ocaml-multicore/eio/issues/140>
+
+
+ML Family Workshop 2022: Final Call for Presentations
+═════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ml-family-workshop-2022-final-call-for-presentations/9877/2>
+
+
+Benoit Montagu announced
+────────────────────────
+
+ML Family Workshop 2022: DEADLINE EXTENSION
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  To increase your chances of submitting your work to the ML workshop,
+  *the submission deadline is extended by a week*.  The new deadline is
+  Friday 10th June (AoE).
+
+  A quick reminder:
+  • The workshop does not have proceedings, making it the perfect venue
+    to run some ideas with the community or present some work in
+    progress within a friendly environment.
+  • The work load as an author is low: submissions are only 3 pages long
+    (excluding references)
+  • YOU have the power to make the ML workshop a success!
+  • You have one more full week to submit to
+    <https://ml2022.hotcrp.com/> (please register your submission
+    early!)
+  • All the details are here:
+    <https://icfp22.sigplan.org/home/mlfamilyworkshop-2022#Call-for-Presentations>
+  • The ML workshop is colocated with ICFP 2022
+    <https://icfp22.sigplan.org/>
+
+
+OCaml Users and Developers Workshop 2022
+════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ocaml-users-and-developers-workshop-2022/9726/4>
+
+
+Matija Pretnar announced
+────────────────────────
+
+  To offer additional opportunities to contribute to the OCaml workshop,
+  and to align with the [ML family workshop], to which you are also
+  cordially invited, the submission deadline has been extended by a week
+  to *Friday, June 10* (anywhere on Earth).
+
+
+[ML family workshop]
+<https://icfp22.sigplan.org/home/mlfamilyworkshop-2022#Call-for-Presentations>
+
+
+dkml-c-probe.2.0.0: Cross-compiler friendly definitions for C compiling
+═══════════════════════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-dkml-c-probe-2-0-0-cross-compiler-friendly-definitions-for-c-compiling/9950/1>
+
+
+jbeckford announced
+───────────────────
+
+  Summary: dkml-c-probe is a new package for maintainers who compile or
+  link C code. Install it with `opam install dkml-c-probe'. Full docs
+  are at [https://github.com/diskuv/dkml-c-probe#readme]
+
+
+[https://github.com/diskuv/dkml-c-probe#readme]
+<https://github.com/diskuv/dkml-c-probe#readme>
+
+Problem
+╌╌╌╌╌╌╌
+
+  You are creating an OCaml package that has foreign C code. Perhaps you
+  need special C headers or libraries when you are targeting Apple
+  users, or perhaps you need to execute custom OCaml code for Android
+  users. More generally you need a way to determine whether your OCaml
+  or C code is compiling for a Linux AMD/Intel 64-bit, Android ARM
+  32-bit, or any other ABI target.
+
+
+Solution
+╌╌╌╌╌╌╌╌
+
+  A user of your OCaml package may, for example, be on a 64-bit
+  AMD/Intel Linux machine using a 32-bit OCaml system compiled with `gcc
+  -m32'; additionally they have a 32-bit Android ARM cross-compiler
+  toolchain. `dkml-c-probe' will tell you the target operating system is
+  `Linux' and the target ABI is `Linux_x86' except when the
+  cross-compiler toolchain is invoked. With the cross-compiler toolchain
+  `dkml-c-probe' will tell you the target operating system is `Android'
+  and the target ABI is `Android_arm32v7a'.
+
+
+How it works
+╌╌╌╌╌╌╌╌╌╌╌╌
+
+  `dkml-c-probe' uses C preprocessor definitions (ex. `#if
+  TARGET_CPU_X86_64', `#if __ANDROID__', etc.) to determine which ABI
+  the C compiler (ex. `ocamlopt -config | grep native_c_compiler') is
+  targeting.
+
+  This isn't a new idea. The pattern is used in Esy and Mirage code as
+  well. `dkml-c-probe' just codifies the pattern for use in your own
+  code.
+
+
+Usage
+╌╌╌╌╌
+
+  In OCaml code you can use the /versioned/ module:
+
+  ┌────
+  │ module V2 :
+  │   sig
+  │     type t_os = Android | IOS | Linux | OSX | Windows
+  │     type t_abi =
+  │ 	Android_arm64v8a
+  │       | Android_arm32v7a
+  │       | Android_x86
+  │       | Android_x86_64
+  │       | Darwin_arm64
+  │       | Darwin_x86_64
+  │       | Linux_arm64
+  │       | Linux_arm32v6
+  │       | Linux_arm32v7
+  │       | Linux_x86_64
+  │       | Linux_x86
+  │       | Windows_x86_64
+  │       | Windows_x86
+  │       | Windows_arm64
+  │       | Windows_arm32
+  │     val get_os : (t_os, Rresult.R.msg) result Lazy.t
+  │     val get_abi : (t_abi, Rresult.R.msg) result Lazy.t
+  │     val get_abi_name : (string, Rresult.R.msg) result Lazy.t
+  │   end
+  └────
+
+  In C code you can use the [provided `dkml_compiler_probe.h' header]
+  from within Dune or Opam. Here is a snippet that handles part of the
+  Linux introspection:
+
+  ┌────
+  │ #elif __linux__
+  │ #   if __ANDROID__
+  │ #       ...
+  │ #   else
+  │ #       define DKML_OS_NAME "Linux"
+  │ #       define DKML_OS_Linux
+  │ #       if __aarch64__
+  │ #           define DKML_ABI "linux_arm64"
+  │ #           define DKML_ABI_linux_arm64
+  │ #       elif __arm__
+  │ #           if defined(__ARM_ARCH_6__) || defined(__ARM_ARCH_6J__) ||
+  │ defined(__ARM_ARCH_6K__) || defined(__ARM_ARCH_6Z__) || defined(__ARM_ARCH_6ZK__) ||
+  │ defined(__ARM_ARCH_6T2__)
+  │ #               define DKML_ABI "linux_arm32v6"
+  │ #               define DKML_ABI_linux_arm32v6
+  │ #           elif defined(__ARM_ARCH_7__) || defined(__ARM_ARCH_7A__) ||
+  │ defined(__ARM_ARCH_7R__) || defined(__ARM_ARCH_7M__) || defined(__ARM_ARCH_7S__)
+  │ #               define DKML_ABI "linux_arm32v7"
+  │ #               define DKML_ABI_linux_arm32v7
+  │ #           endif /* __ARM_ARCH_6__ || ...,  __ARM_ARCH_7__ || ... */
+  │ #       elif __x86_64__
+  │ #           define DKML_ABI "linux_x86_64"
+  │ #           define DKML_ABI_linux_x86_64
+  │ #       elif __i386__
+  │ #           define DKML_ABI "linux_x86"
+  │ #           define DKML_ABI_linux_x86
+  │ #       elif defined(__ppc64__) || defined(__PPC64__)
+  │ #           define DKML_ABI "linux_ppc64"
+  │ #           define DKML_ABI_linux_ppc64
+  │ #       elif __s390x__
+  │ #           define DKML_ABI "linux_s390x"
+  │ #           define DKML_ABI_linux_s390x
+  │ #       endif /* __aarch64__, __arm__, __x86_64__, __i386__, __ppc64__ || __PPC64__,
+  │ __s390x__ */
+  └────
+
+
+[provided `dkml_compiler_probe.h' header]
+<https://github.com/diskuv/dkml-c-probe#c-header>
+
+
+Versioning and Contributing
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  Whenever a new ABI is added, it goes into a new version (ex. `module
+  V3'). Your existing code that uses `module V2' will be unaffected.
+
+  But each new ABI needs to have its own maintainer because I don't have
+  access to every hardware platform on the planet!
+
+  For example, PowerPC (`ppc64') and Linux on IBM Z (`s390x') are
+  supported in the C Header but not the OCaml module because there are
+  no PowerPC and S390x maintainers.
+
+  Please consider contributing, especially if you want others to have an
+  easier compilation story for your favorite hardware platform.
+
+
+Full-Stack Web Dev in OCaml Tutorial w/ Dream, Bonsai, and GraphQL
+══════════════════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/full-stack-web-dev-in-ocaml-tutorial-w-dream-bonsai-and-graphql/9963/1>
+
+
+Alexander (Sasha) Skvortsov announced
+─────────────────────────────────────
+
+  Hi everyone! I’ve written a tutorial blog series about full-stack web
+  development in OCaml, and wanted to share it here.
+
+  Last semester, I took Penn State's [CMPSC 431W], where our final
+  project was to build a database-driven web application. Since I'm
+  fairly familiar with web programming through my work on [Flarum] and
+  past internships/side projects, I decided to use this opportunity to
+  explore the OCaml web development ecosystem. I used [Dream] for the
+  backend, and [Bonsai] for the frontend.
+
+  While working on this project, I realized two things:
+
+  • OCaml is very underrated for web development. In addition to all the
+    language’s great features and safety guarantees, the ecosystem is
+    pretty good! Dream near-perfectly coincides with my vision of
+    backend webdev, and Bonsai has a great balance of
+    flexibility/elegance and safety.
+  • I couldn’t find realistic but accessible full-stack web projects in
+    OCaml available for reference. I found [tutorials] for [bits] and
+    [pieces], but nothing that connected all the dots.
+
+  I really enjoyed writing an article series on [hardware design with
+  OCaml], so I decided to do so for web development as well. In total, I
+  wrote 7 articles that walk through my project’s:
+
+  1. [Full-Stack WebDev in OCaml Intro]. This includes some background
+     on the project, and instructions for accessing the [live demo].
+  2. [Backend WebDev w/ Dream and Caqti].
+  3. [Building GraphQL APIs with Dream]
+  4. [Setting up Bonsai].
+  5. [Understanding Bonsai]. I actually wrote the first draft of this
+     before I decided to do a blog, while trying to, well, understand
+     Bonsai. It goes over some underlying concepts (SPAs, Frontend State
+     Management, Algebraic Effects, Monads), as well as Bonsai’s core
+     design.
+  6. [Using GraphQL in Bonsai].
+  7. [Routing in Bonsai and Project Conclusion].
+
+  Additionally, the [project’s README] has a comprehensive overview of
+  the tech stack, folder structure, and usage instructions. It also
+  includes some reflections on design decisions and my experience
+  working with these libraries.
+
+  I had a lot of fun writing these, and I hope they’re useful to anyone
+  considering OCaml for web development. Would be happy to answer any
+  questions or comments.
+
+
+[CMPSC 431W]
+<https://bulletins.psu.edu/university-course-descriptions/undergraduate/cmpsc/#:~:text=CMPSC%20431W%3A%20Database%20Management%20Systems>
+
+[Flarum] <https://flarum.org/>
+
+[Dream] <https://aantron.github.io/dream/>
+
+[Bonsai] <https://github.com/janestreet/bonsai>
+
+[tutorials] <https://github.com/paurkedal/ocaml-caqti>
+
+[bits] <https://jsthomas.github.io/ocaml-dream-api.html>
+
+[pieces]
+<https://github.com/janestreet/bonsai/blob/master/docs/getting_started/counters.mdx>
+
+[hardware design with OCaml]
+<https://discuss.ocaml.org/t/hardcaml-mips-cpu-learning-project-and-blog/8088>
+
+[Full-Stack WebDev in OCaml Intro]
+<https://ceramichacker.com/blog/26-1x-full-stack-webdev-in-ocaml-intro>
+
+[live demo] <https://cmpsc431.ceramichacker.com/>
+
+[Backend WebDev w/ Dream and Caqti]
+<https://ceramichacker.com/blog/28-2x-backend-webdev-w-dream-and-caqti>
+
+[Building GraphQL APIs with Dream]
+<https://ceramichacker.com/blog/29-3x-building-graphql-apis-with-dream>
+
+[Setting up Bonsai]
+<https://ceramichacker.com/blog/30-4x-setting-up-bonsai>
+
+[Understanding Bonsai]
+<https://ceramichacker.com/blog/31-5x-understanding-bonsai>
+
+[Using GraphQL in Bonsai]
+<https://ceramichacker.com/blog/32-6x-using-graphql-in-bonsai>
+
+[Routing in Bonsai and Project Conclusion]
+<https://ceramichacker.com/blog/33-77-routing-in-bonsai-and-project-conclusion>
+
+[project’s README] <https://github.com/askvortsov1/nittany_market>
+
+
+Alexander (Sasha) Skvortsov later added
+───────────────────────────────────────
+
+  Also, forgot to mention this originally, but I recommend accessing the
+  demo with one of the emails from [this file] or [this file] (all
+  passwords are still [here]), as those users can also demo
+  create/update functionalities.
+
+
+[this file]
+<https://github.com/askvortsov1/nittany_market/blob/main/data/Local_Vendors.csv>
+
+[this file]
+<https://github.com/askvortsov1/nittany_market/blob/main/data/Sellers.csv>
+
+[here]
+<https://github.com/askvortsov1/nittany_market/blob/main/data/Users.csv>
+
+
+Daniel Bünzli replied
+─────────────────────
+
+  People who are looking for more lightweight alternatives – and want to
+  do web programming without bothering too much about front end insanity
+  can have a look at [hc] (yes indeed: sending HTML over `fetch', web
+  programming excels at running in circles).
+
+  The front JavaScript for that [CRUD webapp] comes out at 132Ko
+  uncompressed without even trying to tweak anything.
+
+
+[hc] <https://erratique.ch/software/hc>
+
+[CRUD webapp] <https://github.com/dbuenzli/hyperbib>
+
+
+Sketch.sh now supports multiple compiler versions, starting with 4.13.1
+═══════════════════════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-sketch-sh-now-supports-multiple-compiler-versions-starting-with-4-13-1/9971/1>
+
+
+Javier Chávarri announced
+─────────────────────────
+
+  The interactive OCaml sketchbook [sketch.sh] has now support to store,
+  edit and run sketches in different versions of the OCaml compiler.
+
+
+[sketch.sh] <https://sketch.sh/>
+
+Support for 4.13
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  Storing and running sketches using the compiler version 4.13.1 is now
+  possible, this functionality has been added to the already existing
+  support for version 4.06.1. The Reason parser and formatting tool
+  refmt were also updated to a more recent version that supports 4.13.1.
+
+  Here you can see a sketch showcasing the monadic let syntax, using the
+  example from the official OCaml docs: [ZipSeq - Sketch.sh].
+
+
+[ZipSeq - Sketch.sh] <https://sketch.sh/s/8cnNChTTq6IoGeFQarbvN2/>
+
+
+Existing sketches and forks
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  Previously existing sketches remain in 4.06.1, while newly created
+  sketches will be on 4.13.1. For now, the only way to "migrate" a
+  sketch to the newer version of the compiler is by copying its content
+  and pasting it in a new sketch.
+
+  Forked sketches inherit the compiler version of the forked sketch.
+
+
+Future plans
+╌╌╌╌╌╌╌╌╌╌╌╌
+
+  In the future, there are plans to support version 4.14.0 of the
+  compiler, and we are considering adding a way so that the version of
+  the compiler can be chosen for a given sketch. We are also working on
+  migrating the editor UI codebase to a more recent version of
+  ReasonReact, and use JSX3 instead of JSX2.
+
+
+Feature requests and bugs
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  Please [let us know] in case you have a feature request, or if you
+  encounter any issues or bugs. Also, don't hesitate to reach out via DM
+  or any other means if you would like to contribute or participate in
+  the project in some way.
+
+  Thanks to [Ahrefs] for supporting an Open Source Day initiative, which
+  allowed to allocate time to work on this improvement for sketch.sh,
+  and for providing the infrastructure to run the sketch.sh service for
+  the community. Thanks as well to the authors and maintainers of the
+  OCaml compiler, js_of_ocaml, and ReScript, that sketch.sh relies upon.
+
+
+[let us know] <https://github.com/Sketch-sh/sketch-sh/issues/new>
+
+[Ahrefs] <https://ahrefs.com/>
+
+
+Explicit type binding and mutual recursion
+══════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/explicit-type-binding-and-mutual-recursion/9973/3>
+
+
+Deep in this thread, octachron explained
+────────────────────────────────────────
+
+  For most use cases, if you want an explicit annotation for recursive
+  function, it will be much simpler to use the `type a. ...' form:
+  ┌────
+  │ let rec foo: type a. a -> a = fun x -> x
+  │ and bar: type a. a -> a = fun x -> foo x
+  └────
+  This form is a shortcut for both adding an explicit universal
+  quantified and and a corresponding locally abstract type (in other
+  words ~let f : 'a . …. = fun (type a) -> … ~).
+
+  The root issue with
+
+  ┌────
+  │ let rec f (type a) (x:a) = f x
+  └────
+  is that the locally abstract type `a' is introduced after
+  `f'. Moreover, without an explicit type annotation, a recursive
+  function like `f' is monomorphic in its body and a monorphic function
+  cannot be called on a type that was defined after the function.
+
+  In other words, the issue is that in term of type scopes, the function
+  `f' is equivalent to
+  ┌────
+  │ let f = ref Fun.id
+  │ type t = A
+  │ let x = !f A
+  └────
+  which also fails with
+  ┌────
+  │ Error: This expression has type t but an expression was expected of type 'a
+  │        The type constructor t would escape its scope
+  └────
+  This is why the second solution proposed by @Gopiandcode
+  works. Indeed, in
+
+  ┌────
+  │ let foo, bar = fun (type a) ->
+  │   let rec foo (x: a) : a = x
+  │   and bar (x: a) : a = foo x in
+  │   foo, bar
+  └────
+  the type `a' is defined before the recursive functions `foo' and
+  `bar', thus `foo a' does not break any scope constraint.
+
+
+findlib-1.9.4
+═════════════
+
+  Archive:
+  <https://sympa.inria.fr/sympa/arc/caml-list/2022-06/msg00004.html>
+
+
+Gerd Stolpmann announced
+────────────────────────
+
+  findlib-1.9.4 is out. It mainly includes a change in the configuration
+  script needed for OCaml-4-14.
+
+  For manual, download, manuals, etc. see here:
+
+  <http://projects.camlcity.org/projects/findlib.html>
+
+  An updated OPAM package will follow soon.
+
+
+omake-0.10.4
+════════════
+
+  Archive:
+  <https://sympa.inria.fr/sympa/arc/caml-list/2022-06/msg00005.html>
+
+
+Gerd Stolpmann announced
+────────────────────────
+
+  I just released omake-0.10.4, the build utility. This finally includes
+  the fix for Apple Silicon, but also a couple of small changes (roughly
+  everything since PR#100 to PR#146 on GitHub).
+
+  For docs and the download link see
+  <http://projects.camlcity.org/projects/omake.html>. opam is underway.
+
+
+Old CWN
+═══════
+
+  If you happen to miss a CWN, you can [send me a message] and I'll mail
+  it to you, or go take a look at [the archive] or the [RSS feed of the
+  archives].
+
+  If you also wish to receive it every week by mail, you may subscribe
+  [online].
+
+  [Alan Schmitt]
+
+
+[send me a message] <mailto:alan.schmitt@polytechnique.org>
+
+[the archive] <https://alan.petitepomme.net/cwn/>
+
+[RSS feed of the archives] <https://alan.petitepomme.net/cwn/cwn.rss>
+
+[online] <http://lists.idyll.org/listinfo/caml-news-weekly/>
+
+[Alan Schmitt] <https://alan.petitepomme.net/>
