@@ -1,0 +1,217 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[https://alan.petitepomme.net/cwn/2022.06.21.html][Previous Week]] [[https://alan.petitepomme.net/cwn/index.html][Up]] [[https://alan.petitepomme.net/cwn/2022.07.05.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of June 21 to 28, 2022.
+
+The mailing list mode of discuss.ocaml.org seems to have been down for a few days, so I had to manually scrape the messages. My apologies if I missed any.
+
+#+TOC: headlines 1
+
+
+* An amusing use of first-class modules: reading from plaintext and compressed files
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/an-amusing-use-of-first-class-modules-reading-from-plaintext-and-compressed-files/10073
+
+** Chet_Murthy explained
+
+
+I was recently trying to write a thing in Rust, and having problems, so I wrote the same thing in OCaml, just to make sure that it was doable. I thought I’d post about it, b/c maybe it’s an example of what we’ll find more tractable, once we have modular implicits.
+
+The problem: I have both compressed and plaintext files, and I want to run a function over the uncompressed contents. I’d like a combinator that I can apply to the filename and the function, that will do the work of opening the file, calling the function, closing the file, etc.
+
+This isn’t so hard.
+
+1. define a type of READER (and two instances for plaintext and gzipped). This is the equivalent of Rust’s “io::BufRead”.
+
+   #+begin_src ocaml
+   module type READER =
+     sig
+       type in_channel
+       val open_in : string -> in_channel
+       val input_char : in_channel -> char
+       val close_in : in_channel -> unit
+     end
+   let stdreader = (module Stdlib : READER) ;;
+   let gzreader = (module Gzip : READER) ;;
+   #+end_src
+
+2. then define a type of “in channel user” (“ICUSER”) and the generic version of it
+
+   #+begin_src ocaml
+   module type ICUSER = sig
+     type in_channel
+     val use_ic : in_channel -> unit
+   end
+   module type GENERIC_ICUSER = functor (R : READER) -> (ICUSER with type in_channel = R.in_channel)
+   #+end_src
+
+3. then define our function that takes a generic in_channel, and uses it – “Cat”
+
+   #+begin_src ocaml
+   module Cat(R : READER) : ICUSER with type in_channel = R.in_channel = struct
+     type in_channel = R.in_channel
+     let use_ic ic =
+     let rec rerec () =
+       match R.input_char ic with
+         c -> print_char c ; rerec ()
+       | exception End_of_file -> ()
+     in rerec ()
+   end
+   #+end_src
+
+4. And then write our “with_input_file” function, that takes a filename, the function from #3, and applies it to either a normal in_channel, or one produced from a gzip-reader.
+
+   #+begin_src ocaml
+   let with_input_file fname (module R : GENERIC_ICUSER) =
+     let (module M : READER) =
+       if Fpath.(fname |> v |> has_ext "gz") then
+         gzreader
+       else stdreader in
+     let open M in
+     let ic = M.open_in fname in
+     let module C = R(M) in
+     try let rv = C.use_ic ic in close_in ic ; rv
+     with e -> close_in ic ; raise e
+   #+end_src
+
+And now we can use it:
+
+#+begin_src ocaml
+with_input_file "/etc/passwd" (module Cat) ;;
+with_input_file "foo.gz" (module Cat) ;;
+#+end_src
+
+Easy-peasy. I don’t remember enough about the modular implicits proposal to remember if this can be cast in the supported language there, so I suppose I should get some version of that code (or the newer versions from others) up-and-running, and see if this can be made to work.
+      
+
+** hyphenrf asked and Chet_Murthy replied
+
+
+#+begin_quote
+can’t we get rid of the ~GENERIC_ICUSER~ requirement and just ask for functions that take a packed module of type ~READER~
+
+by that I mean the signature of ~with_input_file~ becomes ~string -> ((module READER) -> 'a) -> 'a~
+#+end_quote
+
+It’s a good question, and as a newbie user of first-class modules, I don’t know the typing rules well enough to answer. But I did try:
+
+#+begin_src ocaml
+let with_input_file' fname f =
+  let (module M : READER) =
+    if Fpath.(fname |> v |> has_ext "gz") then
+      gzreader
+    else stdreader in
+  let open M in
+  let ic = M.open_in fname in
+  f (module M : READER) ic
+#+end_src
+
+and got
+
+#+begin_src ocaml
+File "ioabs.ml", line 96, characters 24-26:
+96 |   f (module M : READER) ic
+                             ^^
+Error: This expression has type M.in_channel
+       but an expression was expected of type 'a
+       The type constructor M.in_channel would escape its scope
+#+end_src
+
+ETA: I remember in the modular implicits paper, that there was a lot of wrappering code in structs (that didn’t start off in structs). I wonder if that’s evidence that you really do have to “push up” code to the module level in order to make it work.
+      
+
+** octachron then said
+
+
+You don’t need modular implicits to simplify your code. Your packed module type is equivalent to:
+
+#+begin_src ocaml
+type channel = { input_char: unit -> char; close_in: unit -> unit }
+type channel_generator = string ->  channel
+#+end_src
+
+We could go fancy and manifest the type with an existential
+
+#+begin_src ocaml
+type 'a channel =
+  { open_fn: string -> 'a; input_char: 'a -> char; close_in: 'a -> unit }
+type chan = Any: 'a channel -> chan
+#+end_src
+
+but this has mainly the advantage to illustrate the fact that you are never using the non-existentially qualified ~'a channel~ which means that in the current version of your code, modular (explicits or) implicits is not a good fit: we are not selecting a module to provide functions for a type, we have an object (aka an existentially qualified record) with some hidden inner type that we never need to know.
+      
+
+** c-cube later said
+
+
+I think it’s kind of counter-productive to want a ~in_channel~ type at all. This is what I’ve been doing, more and more:
+
+#+begin_src ocaml
+module type INPUT = sig
+  val read_char : unit -> char
+  val read : bytes -> int -> int -> int
+  val close : unit -> unit
+end
+
+type input = (module INPUT)
+
+let open_file (filename:string) : input =
+  let ic = open_in filename in
+  (module struct
+    let read_char() = input_char ic
+    let read = input ic
+    let close() = close_in ic
+ end)
+
+
+let do_sth (module IN:INPUT) =
+  IC.read_char ();
+  IC.read …
+#+end_src
+
+This behaves like classic objects in other languages and there’s no complicated typing going on (what with each implementation having its own channel type).
+      
+
+
+
+* Lwt.5.6.0 (and other Lwt packages)
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/ann-lwt-5-6-0-and-other-lwt-packages/10077
+
+** raphael-proust announced
+
+
+It is a real pleasure to announce the release of Lwt version 5.6.0 as well as Lwt-domain.0.2.0, Lwt-ppx.2.1.0 and Lwt-react.1.2.0. With this release Lwt is now compatible with OCaml version 5.
+
+https://github.com/ocsigen/lwt/releases/tag/5.6.0
+
+Thank you to the many contributors for the fixes, the improvements, and the OCaml5 compatibility! Check out the changelog for full details on each contribution.
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[https://alan.petitepomme.net/cwn/][the archive]] or the [[https://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe [[http://lists.idyll.org/listinfo/caml-news-weekly/][online]].
+
+#+BEGIN_authorname
+[[https://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname
