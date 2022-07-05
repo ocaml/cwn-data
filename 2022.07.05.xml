@@ -1,0 +1,241 @@
+<?xml version="1.0" encoding="utf-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2022.07.05</cwn_date>
+    <cwn_prev>2022.06.28</cwn_prev>
+    <cwn_next>2022.07.12</cwn_next>
+    <cwn_date_text>June 28 to July 05, 2022</cwn_date_text>
+    <cwn_extra_head></cwn_extra_head>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>An amusing use of first-class modules: reading from plaintext and compressed files</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/an-amusing-use-of-first-class-modules-reading-from-plaintext-and-compressed-files/10073/9</cwn_url>
+      <cwn_who>Continuing this thread, Maëlan asked and Simon Cruanes replied</cwn_who>
+      <cwn_what>
+#+begin_quote
+You got me curious: what’s the reason for using a first-class module here instead of a record or an object?
+#+end_quote
+
+Of course!
+
+- compared to records, I find first-class modules to be a lot more convenient for this use case. I still use records for _data_, but a record-of-function is often less convenient. For example, modules allow you to use ~include~, they directly handle down-casting as a way to hide internal state (whereas for modules you need to close over values created before the record); module types are structural, so I don't need to worry about disambiguation, whereas records need more care there. In terms of performance both seem exactly the same, from my toy benchmarks.
+- compared to objects, first-class modules are a bit less convenient (no runtime-free cast, no true inheritance/mixin), but LSP and other tools are fragile. In addition, invoking an object method seems to be roughly twice as slow as a record/module field access — I suppose it's because the latter is just an access via offset. That's on a micro benchmark so in reality it might be worse.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>TLS signature with opam:tls</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/tls-signature-with-opam-tls/9399/10</cwn_url>
+      <cwn_who>Marcus Rohrmoser announced</cwn_who>
+      <cwn_what>
+just implemented key generation https://codeberg.org/mro/seppo/src/branch/develop/lib/as2.ml#L95
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Open Source tooling engineer at Jane Street</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/job-open-source-tooling-engineer-at-jane-street/10083/1</cwn_url>
+      <cwn_who>Yaron Minsky announced</cwn_who>
+      <cwn_what>
+We're looking to hire someone to join our build-systems team with a focus on open-source tooling. We currently
+release almost a million lines of code of our internal libraries and tools, including things like Sexplib, Base,
+Core, Async, Incremental, Bonsai, Hardcaml, memtrace-viewer, and patdiff.
+
+We have internal tooling for moving code from our internal repositories to Github and for publishing to opam, and for
+ferrying information back from Github to our internal tools, so that developers can more easily and promptly respond
+to PRs and issues coming from the outside.
+
+We want to make open-sourcing our code better and faster, so it's easier for us to work with outside contributors,
+and improvements can get out to the community more quickly. Your work would be to make our releases delightfully easy
+and reliable!
+
+I wrote a bit more about it here:
+
+https://twitter.com/yminsky/status/1536766031313739776?s=20&amp;t=sCyUlHGHO1y3znBh4pl0Xw
+
+If you're interested, go ahead and make an [ordinary application](https://www.janestreet.com/join-jane-street/apply/)
+to our software engineering role, and mention that you're interested in "open-source tooling". We're happy to hire
+for this role in both London and New York.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Dune how to define custom build task</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/dune-how-to-define-custom-build-task/10092/1</cwn_url>
+      <cwn_who>cnmade explained</cwn_who>
+      <cwn_what>
+dune has very powerful extensions, but the documentation doesn't tell you directly. Today I'll share a specific
+example of how we can make dune do many things with a dune configuration.
+
+For example
+
+- Publish compiled documents to our documentation server
+- Sending email notifications to email groups
+- Sending SMS notifications to administrators
+- Build a document and open a browser to preview the document page
+
+Let's start with an example, we create a dune file in the root directory of our project, which you may not have
+originally, you have to create a new one, we enter the following
+
+#+begin_example
+; now we tell you how to define a custom rule
+; rule start with (rule )
+(rule
+; (alias is point  the command name , so you can run this rule by call  dune build @docopen
+ (alias docopen)
+ ; following line is very important, it tell dune do not cache this build command, so it will running every call
+without any cache
+ (deps (universe))
+ ; action  (system  to told system run command by `sh` in your Linux/MacOS, windows user may running cmd.exe
+ ; cd ../.. is change the base directory of the running command ,or the default directory will be _build/default
+ (action (system "cd ../.. &amp;&amp; pwd &amp;&amp;  dune build @doc &amp;&amp; open _build/default/_doc/_html/index.html" ))
+)
+; end of one piece of rule
+
+; and we define more and more rule as we want
+(rule
+  (alias whoami)
+  (deps (universe))
+  (action (system "uname -a;whoami"))
+)
+#+end_example
+
+In this example, we define two rules, the rules are the tasks that dune can recognize, in dune, it is called rules
+
+Because it is a custom build command, we use alias to take a unique and non-repeating alias.
+
+The first build command is to build the document and open the browser preview.
+
+Our alias is docopen
+
+Then deps we add universe to tell dune that you don't want to cache and give me a new build every time. If you don't
+add this line, dune will only give you one build, and then because of the cache, you won't be able to execute it
+later.
+
+action  following by  system here, action is the command to start, system means to use the system shell (windows is
+cmd, linux macos is sh) to give you the execution of the code you specify.
+
+You can see the first we are first change the directory to the project root directory [because the default directory
+is _build/default], and then we perform the build document generation, and then open open the generated html page.
+
+The first build command is this, if you want to perform the first build task, you can type
+
+~dune build @docopen~
+
+Then our second build command, relatively simple, with reference to the first, we can add a lot of build commands we
+want to add inside this dune configuration file.
+
+We just need to specify different alias aliases for them, no duplication.
+
+The official documentation also specifies some other available commands,   I won't go into them one by one. Since I
+prefer to use shell scripts, I really only need the system to execute my shell scripts for me.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Lwt.5.6.0 (and other Lwt packages)</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-lwt-5-6-0-and-other-lwt-packages/10077/2</cwn_url>
+      <cwn_who>Raphaël Proust announced</cwn_who>
+      <cwn_what>
+*** Lwt 5.6.1
+
+Version 5.6.1 of the Lwt package has been released. This version contains a fix for a bug introduced in 5.6.0 whereby
+devnull file descriptor would be closed during some uses of ~Lwt_process~.
+
+https://github.com/ocsigen/lwt/releases/tag/5.6.1
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Windows-friendly OCaml 4.12 distribution - Diskuv OCaml 0.1.0</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-windows-friendly-ocaml-4-12-distribution-diskuv-ocaml-0-1-0/8358/21</cwn_url>
+      <cwn_who>jbeckford announced</cwn_who>
+      <cwn_what>
+The 0.4.0 release of Diskuv OCaml for Windows users is available! It is usable enough that I've let my school-age
+kids (elementary through high school) install it and go through some tutorials.
+
+https://github.com/diskuv/dkml-installer-ocaml#readme
+
+The links to the documentation are available from the above link as well.
+
+Here are the one-time inconveniences if you install this release:
+1. The built-in antivirus Windows Defender treats newly signed binaries like spam. There needs to be enough people who "Report this file as safe" before the binaries are trusted. /If you do nothing but mark it safe or install it on Windows, you are helping others!/
+2. The installer will automatically install the Visual Studio compiler if needed. But Visual Studio sometimes requires a reboot. The instructions will tell you if you need the reboot.
+3. The Visual Studio Code OCaml plugin defaults to expecting a legacy ~ocamlenv~ program on Windows. You have to search for ~ocamlenv~ in Visual Studio Code Settings and disable it. This should have a fix, but not in time for this release.
+
+*** Windows parity with Unix
+1. ~opam~ commands like ~opam install~ should work without any wrappers. But
+   you should create new switches with ~opam dkml init~ (see ~--help~ for options).
+2. ~dune~ commands like ~dune build~ should work without any wrappers. The only
+   hiccup is that aliases like ~dune build @runtest~ need to be escaped in
+   PowerShell like:
+   #+begin_example
+   dune build `@runtest
+   #+end_example
+3. You have partial support if your home directory has spaces, since it is very common on Windows to have your username be ~FirstName LastName~. So far I've configured/patched most things to work with spaces, but there could be common packages that were missed, and only NTFS drives work.
+4. OCaml 4.12.1. I'd like to upgrade to 4.13 or 4.14, but having support for Visual Studio Code debugging with [4.12-only ocamlearlybird](https://github.com/hackwaly/ocamlearlybird/issues/38) is more important, especially for traditional Windows users.
+5. Dune 2.9.3. I've bundled in support in 2.9.3 for fswatch/inotify so that ~dune build --watch~ works on Windows. Nothing is blocking an upgrade to 3.x except time (ie. not now) and a reason.
+6. Opam 2.1.2 plus some PRs that are pending the not-yet-released version 2.2.
+7. Git performance on Windows just sucks. It is like someone designed it for a Linux kernel 🤨. Apparently [Git FSMonitor in 2.37.0](https://github.blog/2022-06-29-improve-git-monorepo-performance-with-a-file-system-monitor/) can be enabled to speed things up, but I don't have real-world experience with it because it was just released yesterday.
+8. MSYS2, which can be accessed with ~with-dkml bash~, now uses the CLANG64 variant. There are thousands of up-to-date third-party libraries available and, unlike MinGW, they are ABI compatible with the dominant Windows compiler (MSVC). And if you are interested there is an [ocamlverse Help Wanted](https://ocamlverse.github.io/content/help_wanted.html) to add the CLANG64 compiler as an alternative to the Administrator-requiring, reboot-needing MSVC compiler.
+
+Thanks to OCaml Software Foundation for sponsoring this!
+
+0.4.x will be the last minor versions of the "preview". I'll be shifting to closing out any show-stopping bugs, and
+updating the various Windows onboarding guides for OCaml to officially include Diskuv OCaml.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OCamlFormat Web Configurator</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-ocamlformat-web-configurator/10103/1</cwn_url>
+      <cwn_who>Louis Roché announced</cwn_who>
+      <cwn_what>
+It is my pleasure to share with you the [ocamlformat configurator](https://ahrefs.github.io/ocamlformat/) as a web
+page.
+
+Ocamlformat is a great tool that really makes editing code a more pleasant experience. It has a bunch of different
+built in profiles and many additional options to fine tune how the code should look like. While I would encourage
+most people and new projects to use one of the default profiles, the many options are helpful when transitioning an
+existing codebase. Unfortunately it is not super easy to figure out which options to use and how to combine them.
+There are [58 parameters](https://raw.githubusercontent.com/ocaml-ppx/ocamlformat/main/ocamlformat-help.txt)! I've
+spent a long time trying different combinations by changing an option in my .ocamlformat, running `dune build @fmt`,
+checking the code, going back to the first step... It is a tedious work. So I decided to make a simple web interface
+with all of the options available and a faster feedback loop.
+
+https://global.discourse-cdn.com/standard11/uploads/ocaml/optimized/2X/2/24e891e9e1400d4a47debf9e34b3ea414bebf418_2_1380x826.jpeg
+
+Thanks to js_of_ocaml the task was not too complicated. Ocamlformat can be compiled to javascript, there is nothing
+special to do. Which means everything can be done in the browser, the code won't leak to anyone, there is no need to
+maintain a server, and the result will be guaranteed to be identical as a formatting with the cli tool.
+
+The configuration can be set through text (just put the content of your `.ocamlformat` in the text box) and through a
+bunch of dropdown. They will be combined together. The dropdown takes precedence over the textual configuration if an
+option is set in both.
+
+The project has been started as part of the "open source day" at Ahrefs (we try to dedicate some time to open source
+projects that we use internally). It is still in its infancy. Please pardon the terrible style, I am not a web
+developer and didn't have time to make it look nicer yet. There are some annoying things to fix (no feedback when the
+code is invalid and can't be formatted), and many improvements to come (a way to download the configuration for
+example). But I think that it is already working well enough to be used by others.
+
+You can find the configurator at https://ahrefs.github.io/ocamlformat/ \\
+The source code is on github at https://github.com/ahrefs/ocamlformat/tree/ahrefs/web-ui/bin/web-ui
+
+If you like ocaml and want to look for a job, we have some [positions available](https://ahrefs.com/jobs)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Release of optiml-transport</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-release-of-optiml-transport/10128/1</cwn_url>
+      <cwn_who>Igarnier announced</cwn_who>
+      <cwn_what>
+Hi! [optiml-transport](https://github.com/igarnier/optiml-transport) was just released on opam. This library binds
+C++ primitives to solve the
+[optimal transportation](https://en.wikipedia.org/wiki/Transportation_theory_(mathematics)) problem between finite
+weighted point clouds (i.e. finite measures). Concretely, this allows to lift any
+[metric](https://en.wikipedia.org/wiki/Metric_space) on a base space to a metric on finitely supported probability
+measures over that base space. (In fact, the library works with cost functions more general than that satisfying the
+metric axioms.) The library also outputs an optimal coupling between any two such measures. Optimal transportation
+has many applications in statistics, graphics, optimization, etc.
+
+The library consists in bindings to https://github.com/nbonneel/network_simplex
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>
