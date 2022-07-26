@@ -1,0 +1,372 @@
+<?xml version="1.0" encoding="utf-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2022.07.26</cwn_date>
+    <cwn_prev>2022.07.19</cwn_prev>
+    <cwn_next>2022.08.02</cwn_next>
+    <cwn_date_text>July 19 to 26, 2022</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>Help w. my first GADT : unwrapping Sqlite3.Data.t</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/help-w-my-first-gadt-unwrapping-sqlite3-data-t/10202/1</cwn_url>
+      <cwn_who>Philippe Strauss asked</cwn_who>
+      <cwn_what>
+I would like to convert sqlite3-ocaml returns from Sqlite3.Data.t array to plain ocaml types in a tuple. I guess
+unwrapping the Data.t can be done using a GADT, here's my very very first attempt:
+
+#+begin_src ocaml
+(* simulate Sqlite3.Data.t *)
+
+type t =
+| NONE
+| NULL
+| INT of int64
+| FLOAT of float
+| TEXT of string
+| BLOB of string ;;
+
+(* a simple GADT to unwrap Sqlite3.Data.t *)
+
+type _ dbval =
+    | INT : int64 -> int64 dbval
+    | FLOAT : float -> float dbval
+    | TEXT : string -> string dbval
+    | BLOB : string -> string dbval
+    | NONE | NULL ;;
+
+let unwrap_data : type a. a dbval -> a = fun dbval ->
+    match dbval with
+    | INT x -> x
+    | FLOAT x -> x
+    | TEXT str -> str
+    | BLOB str -> str ;;
+
+let tuple_of_array4 (arr: t array) =
+    assert (Array.length arr = 4) ;
+    (unwrap_data arr.(0), unwrap_data arr.(1), unwrap_data arr.(2), unwrap_data arr.(3)) ;;
+#+end_src
+
+Compilation fails with this typing error:
+
+#+begin_src ocaml
+File "database.ml", line 233, characters 17-24:
+233 |     (unwrap_data arr.(0), unwrap_data arr.(1), unwrap_data arr.(2), unwrap_data arr.(3)) ;;
+                       ^^^^^^^
+Error: This expression has type t but an expression was expected of type
+         'a dbval
+#+end_src
+
+What am I doing wrong? I need to make type t compatible with type 'a dbval.
+Thanks in advance.
+      </cwn_what>
+      <cwn_who>octachron replied</cwn_who>
+      <cwn_what>
+You cannot make the type ~t~ and ~'a dbval~ compatible, there are different types.
+
+A very important point to keep in mind with GADTs is that one cannot create type-level information from dynamical
+values. In other words, there are no functions of type ~ x : t ->  f(x) dbval~that will infer the type of its return
+from the value of its argument in OCaml.
+
+Thus the type of the final result must come from your code source rather than from the dynamical data.
+For instance, you can define constructor from the type ~t~ to the right ~dbval~ type:
+#+begin_src ocaml
+exception Type_error
+
+let int: t -> _ dbval = function
+| INT x -> INT x
+| _ -> raise Type_error
+
+let float: t -> _ dbval = function
+| FLOAT x -> FLOAT x
+| _ -> raise Type_error
+#+end_src
+Then if you know the type of the tuple, you can write it as:
+#+begin_src ocaml
+let tuple_of_array4 (arr: t array) =
+    assert (Array.length arr = 4) ;
+    int arr.(0), int arr.(1), int arr.(2), int arr.(3)
+#+end_src
+or possibly as
+#+begin_src ocaml
+let int4 = int, int, int, int
+let tuple (a,b,c,d) arr =
+  assert (Array.length arr = 4) ;
+  a arr.(0), b arr.(1), c arr.(2), d arr.(3)
+#+end_src
+There are more complex alternatives based on type witness, that allow to implement a form of static matching over the
+dynamical type of data, but the core idea that the types are always present in the source code in some way is the
+same.
+      </cwn_what>
+      <cwn_who>Philippe Strauss then said</cwn_who>
+      <cwn_what>
+Oh I didn't noticed it would be dynamical typing! I'm too used to ppx (and previously camlp4) written db abstraction
+layer!
+
+I'm simply replacing sqlexpr by plain sqlite3-ocaml in some existing code of mine. sqlexpr quick doco:
+
+https://github.com/mfp/ocaml-sqlexpr
+
+But I can live with a Data.t array!
+      </cwn_what>
+      <cwn_who>Yawar Amin then added</cwn_who>
+      <cwn_what>
+Everybody has their favourite way of wrapping SQLite. Here's mine (no PPX):
+https://github.com/yawaramin/ocaml_sql_query
+
+It has a little data translation layer to convert from ~Data.t~ array to the desired return type.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>DocuLib 3.1.2 and MetaDB 1.0.2 now on OPAM</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/doculib-3-1-2-and-metadb-1-0-2-now-on-opam/10204/1</cwn_url>
+      <cwn_who>nguermond announced</cwn_who>
+      <cwn_what>
+I'm pleased to announce the release of ~doculib~ and ~metadb~, now available on OPAM.
+
+*DocuLib* is a GUI for document management, particularly for all the textbooks and articles you've accumulated but
+know you'll never read :thinking:. The idea of DocuLib is to keep track of metadata of files stored across multiple
+libraries on your file system in such a way that you can move, reorganize, or rename a file without losing your
+metadata. You can additionally lookup metadata on ~openlibrary.org~ or ~semanticscholar.org~. DocuLib will also warn
+about missing and duplicate files. Stored metadata presently includes author, title, year, tags, and DOI/ISBN.
+
+https://global.discourse-cdn.com/standard11/uploads/ocaml/original/2X/f/fa064cd32bce6e52722d30047d8e0ef21fa09684.png
+
+For more screenshots and details: https://github.com/nguermond/doculib
+
+*Metadb* is the JSON database for manipulating file metadata underlying DocuLib, in hopes that it may be useful
+somewhere else. Data is stored in the following way:
+#+begin_example
+path/to/library
+|- .metadata
+   |- ./foo.txt.json
+   |- ./blah/bar.pdf.json
+   |- ./foobar.pdf.json
+|- ./foo.txt
+|- ./blah/bar.pdf
+|- ./foobar.pdf
+#+end_example
+For documentation: https://github.com/nguermond/metadb
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>dune 3.4.0</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-dune-3-4-0/10211/1</cwn_url>
+      <cwn_who>Etienne Millon announced</cwn_who>
+      <cwn_what>
+On behalf of the dune team, I’m pleased to announce the release of version 3.4.0.
+
+Bug fixes, a couple new features, better hints and error messages - I won't restate what's in the changelog below.
+Thanks to everyone involved in this release!
+
+- Make ~dune describe~ correctly handle overlapping implementations
+  for virtual libraries (#5971, fixes #5747, @esope)
+
+- Building the ~@check~ alias should make sure the libraries and executables
+  don't have dependency cycles (#5892, @rgrinberg)
+
+- [ctypes] Add support for the ~errno~ parameter using the ~errno_policy~ field
+  in the ctypes settings. (#5827, @droyo)
+
+- Fix ~dune coq top~ when it is invoked on files from a subdirectory of the
+  directory containing the associated stanza (#5784, fixes #5552, @ejgallego,
+  @rlepigre, @Alizter)
+
+- Fix hint when an invalid module name is found. (#5922, fixes #5273, @emillon)
+
+- The ~(cat)~ action now supports several files. (#5928, fixes #5795, @emillon)
+
+- Dune no longer uses shimmed ~META~ files for OCaml 5.x, solely using the ones
+  installed by the compiler. (#5916, @dra27)
+
+- Fix handling of the ~(deps)~ field in ~(test)~ stanzas when there is an
+  ~.expected~ file. (#5952, #5951, fixes #5950, @emillon)
+
+- Ignore insignificant filesystem events. This stops RPC in watch mode from
+  flashing errors on insignificant file system events such as changes in the
+  ~.git/~ directory. (#5953, @rgrinberg)
+
+- Fix parsing more error messages emitted by the OCaml compiler. In
+  particular, messages where the excerpt line number started with a blank
+  character were skipped. (#5981, @rgrinberg)
+
+- env stanza: warn if some rules are ignored because they appear after a
+  wildcard rule. (#5898, fixes #5886, @emillon)
+
+- On Windows, XDG_CACHE_HOME is taken to be the ~FOLDERID_InternetCache~ if
+  unset, and XDG_CONFIG_HOME and XDG_DATA_HOME are both taken to be
+  ~FOLDERID_LocalAppData~ if unset.  (#5943, fixes #5808, @nojb)
+      </cwn_what>
+      <cwn_who>Etienne Millon then added</cwn_who>
+      <cwn_what>
+This broke 32-bit cygwin installations, so 3.4.1 was released with a fix.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OCaml 5.0, first normal alpha release</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ocaml-5-0-first-normal-alpha-release/10216/1</cwn_url>
+      <cwn_who>octachron announced</cwn_who>
+      <cwn_what>
+The stabilisation of OCaml 5.0 has been progressing well during the last month.
+We have thus released a first normal alpha release of OCaml 5.0.0 to help
+fellow hackers join us early in our bug hunting and opam ecosystem fixing fun
+(see below for the installation instructions).
+
+You can follow the progress in stabilising the opam ecosystem on
+
+  https://github.com/ocaml/opam-repository/issues/21526
+
+If you find any bugs, please report them here:
+
+  https://github.com/ocaml/ocaml/issues
+
+Compared to the zeroth alpha release, this alpha release restores the support
+for the bytecode debugger, and integrates a change of type in the FFI API that
+might trigger some warnings in FFI code.
+
+We also have a change in the installed files: the compiler distributes now its
+own META files rather than relying on either findlib or dune to provide those
+files. This should simplify the tasks of both tools in future version.
+
+Note there are still some changes expected in the Effect module before the next
+candidate release. Generally, both the Effect and Domain modules are still
+experimental and might change API even during the beta releases.
+
+If you are interested by the ongoing list of bug fixes, the
+updated change log for OCaml 5.0.0 is available at:
+
+  https://github.com/ocaml/ocaml/blob/5.0/Changes
+
+A short summary of the changes since the zeroth alpha release is also available
+below.
+
+*** Installation instructions
+The base compiler can be installed as an opam switch with the following commands
+on opam 2.1:
+#+begin_example
+opam update
+opam switch create 5.0.0~alpha1
+#+end_example
+For previous version of opam, the switch creation command line is slightly more verbose:
+#+begin_example
+opam update
+opam switch create 5.0.0~alpha1 --repositories=default,beta=git+https://github.com/ocaml/ocaml-beta-repository.git
+#+end_example
+If you want to test this version, it is strongly advised to install the alpha
+opam repository
+
+https://github.com/kit-ty-kate/opam-alpha-repository
+
+with
+#+begin_example
+opam repo add alpha git+https://github.com/kit-ty-kate/opam-alpha-repository.git
+#+end_example
+You can check that the alpha repository has been correctly installed with
+
+#+begin_example
+$ opam repo
+
+&lt;&gt;&lt;&gt; Repository configuration for switch 5.0.0~alpha1 &lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;&lt;&gt;
+ 1 alpha   git+https://github.com/kit-ty-kate/opam-alpha-repository.git
+ 2 default https://opam.ocaml.org
+#+end_example
+
+This alpha repository contains various fixes in the process of being upstreamed which
+vastly increases the number of opam packages currently compatible with OCaml 5.0.0 .
+
+If you want to tweak the configuration of the compiler, you can switch to the option variant with:
+#+begin_example
+opam update
+opam switch create &lt;switch_name&gt; ocaml-variants.5.0.0~alpha1+options &lt;option_list&gt;
+#+end_example
+
+where ~option_list~ is a comma separated list of ~ocaml-option-*~ packages. For instance, for a flambda and
+no-flat-float-array switch:
+#+begin_example
+opam switch create 5.0.0~alpha1+flambda+nffa ocaml-variants.5.0.0~alpha1+options ocaml-option-flambda
+ocaml-option-no-flat-float-array
+#+end_example
+The command line above is slightly more complicated for opam version anterior to 2.1:
+#+begin_example
+opam update
+opam switch create &lt;switch_name&gt; --packages=ocaml-variants.5.0.0~alpha1+options,&lt;option_list&gt;
+--repositories=default,beta=git+https://github.com/ocaml/ocaml-beta-repository.git
+#+end_example
+
+In both cases, all available options can be listed with ~opam search ocaml-option~.
+
+The source code for the alpha is also available at these addresses:
+
+- https://github.com/ocaml/ocaml/archive/5.0.0-alpha1.tar.gz
+- https://caml.inria.fr/pub/distrib/ocaml-5.0/ocaml-5.0.0~alpha1.tar.gz
+
+*** Changes since the zeroth alpha release:
+
+**** Runtime system:
+
+- [#11400](https://github.com/ocaml/ocaml/issues/11400): Runtime events counters fixes
+  Fixes mismatch between OCaml and C APIs, removes events from 4.x that
+  are not present in the 5.0 GC and adds some missing probes.
+  (Sadiq Jaffer, review by Gabriel Scherer, Florian Angeletti)
+
+- [#11368](https://github.com/ocaml/ocaml/issues/11368): Runtime events buffer size OCAMLRUNPARAMS fix
+  The runtime events buffer size can now be set via the 'e' OCAMLRUNPARAM.
+  This is previously mistakenly enabled/disabled tracing instead.
+  (Sadiq Jaffer, review by KC Sivaramakrishnan, David Allsopp, Damien Doligez)
+
+- [#11304](https://github.com/ocaml/ocaml/issues/11304): Fix data race on Windows file descriptors
+  (Olivier Nicole and Xavier Leroy, review by Xavier Leroy, David Allsopp,
+   and Sadiq Jaffer)
+
+- *breaking change* [#11337](https://github.com/ocaml/ocaml/issues/11337): pass 'flags' metadata to root scanners, to optimize stack scanning in the bytecode interpreter. Changes the interface of user-provided root-scanning hooks. (Gabriel Scherer, review by Xavier Leroy, Guillaume Munch-Maccagnoni, Sadiq Jaffer and Tom Kelly)
+
+- [#11144](https://github.com/ocaml/ocaml/issues/11144): Restore frame-pointers support for amd64
+  (Fabrice Buoro, review by Frederic Bour and KC Sivaramakrishnan)
+
+- *breaking change* [#11255](https://github.com/ocaml/ocaml/issues/11255): in the C interface, ~&amp;Field(v, i)~ now has type ~volatile value *~ instead of ~value *~ in OCaml 4.  This makes the memory model for mixed OCaml/C code better defined, but can cause warnings or type errors in user C code. (KC Sivaramakrishnan, review by Xavier Leroy, Gabriel Scherer and Guillaume Munch-Maccagnoni, additional discussions with Stephen Dolan and Luc Maranget)
+
+**** Standard library:
+
+- [#10867](https://github.com/ocaml/ocaml/issues/10867), +[#11345](https://github.com/ocaml/ocaml/issues/11345): Remove deprecated values: …, the infix operator (.[  ]&lt;-). (Nicolás Ojeda Bär, review by Damien Doligez)
+
+- [#11309](https://github.com/ocaml/ocaml/issues/11309), [#11424](https://github.com/ocaml/ocaml/issues/11424), [#11427](https://github.com/ocaml/ocaml/issues/11427): Add Domain.recommended_domain_count. (Christiano Haesbaert, Konstantin Belousov, review by David Allsopp, KC Sivaramakrishnan, Gabriel Scherer, Nicolas Ojeda Bar)
+
+**** Tools:
+
+- [#11065](https://github.com/ocaml/ocaml/issues/11065): Port the bytecode debugger to 5.0, adding support for effect handlers. (Damien Doligez and fabbing, review by fabbing and Xavier Leroy)
+
+- [#11382](https://github.com/ocaml/ocaml/issues/11382): OCamlmktop use a new initialization module "OCamlmktop_init" to
+  preserve backward-compatibility with user-module provided modules that install
+  toplevel printers.
+  (Florian Angeletti, review by Gabriel Scherer and David Allsopp)
+
+**** Installation:
+
+- [#11007](https://github.com/ocaml/ocaml/issues/11007), [#11399](https://github.com/ocaml/ocaml/issues/11399): META files for the stdlib, compiler-libs and other libraries (unix, dynlink, str, runtime_events, threads, ocamldoc) are now installed along with the compiler. (David Allsopp, Florian Angeletti, Nicolás Ojeda Bär and Sébastien Hinderer, review by Daniel Bünzli, Kate Deplaix, Anil Madhavapeddy and Gabriel Scherer)
+
+**** Bug fixes:
+
+- [#10768](https://github.com/ocaml/ocaml/issues/10768), [#11340](https://github.com/ocaml/ocaml/issues/11340): Fix typechecking regression when combining first class modules and GADTs. (Jacques Garrigue, report by François Thiré, review by Matthew Ryan)
+
+- [#10790](https://github.com/ocaml/ocaml/issues/10790): don't drop variance and injectivity annotations when pretty printing ~with~ constraints (for example, ~with type +!'a t = ...~). (Florian Angeletti, report by Luke Maurer, review by Matthew Ryan and Gabriel Scherer)
+
+- [#11289](https://github.com/ocaml/ocaml/issues/11289), [#11405](https://github.com/ocaml/ocaml/issues/11405): fix some leaks on systhread termination (Fabrice Buoro, Enguerrand Decorne, Gabriel Scherer, review by Xavier Leroy and Florian Angeletti, report by Romain Beauxis)
+
+- [#11314](https://github.com/ocaml/ocaml/issues/11314), [#11416](https://github.com/ocaml/ocaml/issues/11416): fix non-informative error message for module inclusion (Florian Angeletti, report by Thierry Martinez, review by Gabriel Scherer)
+
+- [#11358](https://github.com/ocaml/ocaml/issues/11358), [#11379](https://github.com/ocaml/ocaml/issues/11379): Refactor the initialization of bytecode threading, This avoids a "dangling pointer" warning of GCC 12.1. (Xavier Leroy, report by Armaël Guéneau, review by Gabriel Scherer)
+
+- [#11387](https://github.com/ocaml/ocaml/issues/11387), module type with constraints no longer crash the compiler in presence of both shadowing warnings and the ~-bin-annot~ compiler flag. (Florian Angeletti, report by Christophe Raffalli, review by Gabriel Scherer)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocaml.org blog</cwn_who>
+      <cwn_what>
+Here are links from many OCaml blogs aggregated at [[https://ocaml.org/blog/][the ocaml.org blog]].
+
+- [[https://tarides.com/blog/2022-07-19-tarides-is-on-the-wavestone-radar][Tarides is on the Wavestone Radar!]]
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>
