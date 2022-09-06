@@ -1,0 +1,359 @@
+<?xml version="1.0" encoding="utf-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2022.09.06</cwn_date>
+    <cwn_prev>2022.08.30</cwn_prev>
+    <cwn_next>2022.09.13</cwn_next>
+    <cwn_date_text>August 30 to September 06, 2022</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>Day of the Camel 2022: OCaml in Academia and Industry (online, 9 September 2022)</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/day-of-the-camel-2022-ocaml-in-academia-and-industry-online-9-september-2022/10415/1</cwn_url>
+      <cwn_who>Roberto Blanco announced</cwn_who>
+      <cwn_what>
+The Day of the Camel 2022 is a one-day hybrid workshop dedicated to the
+OCaml programming language and its industrial users.
+
+It comprises talks and discussions with members of the OCaml development
+team and companies using the language to solve complex and interesting
+problems.
+
+We will present a broad picture of the OCaml ecosystem and, more widely,
+of functional programming as a viable and powerful choice for building
+correct and reliable computer systems.
+
+The event is organized as part of an OCaml summer school at the
+University of Zaragoza, and sponsored by the OCaml Software Foundation.
+
+Participation is free and open to everyone. For more details about the
+schedule, updates and links to the online seminar, see the website:
+
+https://webdiis.unizar.es/evpf/event.html
+
+9 September 2022, all times CEST (UTC+2)
+
+Morning - Language session
+
+| 09:15-10:00: | Welcome and reception
+|              | Darío Suárez (CS Department Secretary, University of
+|              | Zaragoza)
+| 10:00-11:00: | Gabriel Scherer (Inria) - The OCaml project and ecosystem
+|              | https://ocaml.org/
+| 11:00-11:30: | Break
+| 11:30-12:30: | OCaml developers - Round table and Q&amp;A
+
+Afternoon - Industry session
+
+| 14:30-14:55: | Ulysse Gérard (Tarides)
+|              | https://tarides.com/ - Building functional systems
+| 14:55-15:20: | Nicolás Ojeda Bär (LexiFi)
+|              | https://www.lexifi.com/ - Modeling language for finance
+| 15:20-15:45: | Javier Chávarri (Ahrefs)
+|              | https://ahrefs.com/ - Petabyte-scale web crawler
+| 15:45-16:10: | Grant Passmore (Imandra)
+|              | https://www.imandra.ai/ - Automated reasoning as a service
+| 16:10-16:30: | Break
+| 16:30-17:30: | Industry speakers - Round table and Q&amp;A
+
+We look forward to seeing you there!
+      </cwn_what>
+      <cwn_who>Roberto Blanco later added</cwn_who>
+      <cwn_what>
+Quick correction: Paul-Elliot Anglès d'Auriac from Tarides will be presenting instead of Ulysse. :slight_smile:
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Advice for combining multiple monads</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/advice-for-combining-multiple-monads/10409/5</cwn_url>
+      <cwn_who>Continuing this thread, Raphaël Proust said</cwn_who>
+      <cwn_what>
+In [the Octez project](https://gitlab.com/tezos/tezos) we have face a similar issue: we use both ~Lwt~ and ~Result~
+pervasively.
+
+TL;DR:
+- We use dedicated syntax module for each monad (Lwt, result, Lwt+result) which export binding operators (~let*~, ~let+~, ~return~, etc.).
+- We have a Stdlib supplement exposing monadic variants of all the Stdlib's traversal functions (like ~Lwt_list~ but much more extensive)
+
+*** Some time ago
+
+Until not so long ago we used infix operators for bind. And we would mix different operators depending on what
+sub-monad a specific expression would be in. So we would have ~>>=?~ for Lwt+result, ~>>?~ for result-only, and
+~>>=~ for Lwt-only. Plus we had a dedicated operator for when you use a result-only expression in an Lwt+result
+context: ~>>?=~. We don't need the other specialised binder because Lwt-only and Lwt+result mix quite well: ~(_, _)
+result Lwt.t~ is just a specific case of ~_ Lwt.t~ so ~>>=~ just works.
+
+We also had a very flat namespace where all the operators as well as some helper functions (e.g., we had ~error :
+'err -> ('a, 'err) result~ and ~fail : 'err -> ('a, 'err) result Lwt.t~) were exported by an ~Error_monad~ module
+which was opened everywhere (using ~-open~ as a build flag).
+
+*** Now
+
+We have changed a few things.
+
+- We use binding operators (~let*~ and such) which are exported by dedicated syntax modules.
+    - [~Lwt_syntax~](https://tezos.gitlab.io/api/odoc/_html/tezos-lwt-result-stdlib/Tezos_lwt_result_stdlib/Lwtreslib/Bare/Monad/Lwt_syntax/index.html) is essentially our local version of ~Lwt.Syntax~
+    - [~Result_syntax~](https://tezos.gitlab.io/api/odoc/_html/tezos-lwt-result-stdlib/Tezos_lwt_result_stdlib/Lwtreslib/Bare/Monad/Result_syntax/index.html) is for the result-monad
+    - [~Lwt_result_syntax~](https://tezos.gitlab.io/api/odoc/_html/tezos-lwt-result-stdlib/Tezos_lwt_result_stdlib/Lwtreslib/Bare/Monad/Lwt_result_syntax/index.html) is for the combination monad
+    - (We also have [~Option_syntax~](https://tezos.gitlab.io/api/odoc/_html/tezos-lwt-result-stdlib/Tezos_lwt_result_stdlib/Lwtreslib/Bare/Monad/Option_syntax/index.html) and [~Lwt_option_syntax~](https://tezos.gitlab.io/api/odoc/_html/tezos-lwt-result-stdlib/Tezos_lwt_result_stdlib/Lwtreslib/Bare/Monad/Lwt_option_syntax/index.html), but we don't use those as often.)
+- Our Lwt+result monad syntax includes dedicated binding operators for Lwt-only and result-only expressions
+    - [~let*!~](https://tezos.gitlab.io/api/odoc/_html/tezos-lwt-result-stdlib/Tezos_lwt_result_stdlib/Lwtreslib/Bare/Monad/Lwt_result_syntax/index.html#val-let*!) is for Lwt-only (mnemonic: you must(!) wait for the promise to resolve)
+    - [~let*?~](https://tezos.gitlab.io/api/odoc/_html/tezos-lwt-result-stdlib/Tezos_lwt_result_stdlib/Lwtreslib/Bare/Monad/Lwt_result_syntax/index.html#val-let*?) is for result-only (mnemonic: there may(?) be a value there or maybe an error)
+    - Same for the ~Lwt_option_monad~ syntax module
+- Internally, we recommend to only open those locally. So you start your function by ~let open Lwt_result_syntax~ (or whichever monad you are actually using there).
+- We have [an extensive Stdlib supplement](https://tezos.gitlab.io/api/odoc/_html/tezos-lwt-result-stdlib/Tezos_lwt_result_stdlib/Lwtreslib/index.html) with many of the monadic variants of the provided traversors baked in. E.g., [~List.map_s~](https://tezos.gitlab.io/api/odoc/_html/tezos-lwt-result-stdlib/Tezos_lwt_result_stdlib/Lwtreslib/Bare/List/index.html#val-map_s) is the Lwt-only equivalent of ~List.map~, [~List.map_e~](https://tezos.gitlab.io/api/odoc/_html/tezos-lwt-result-stdlib/Tezos_lwt_result_stdlib/Lwtreslib/Bare/List/index.html#val-map_e) is the result-only, and [~List.map_es~](https://tezos.gitlab.io/api/odoc/_html/tezos-lwt-result-stdlib/Tezos_lwt_result_stdlib/Lwtreslib/Bare/List/index.html#val-map_es) is the Lwt+result.
+    - We also have concurrent variants (e.g., [~List.map_p~](https://tezos.gitlab.io/api/odoc/_html/tezos-lwt-result-stdlib/Tezos_lwt_result_stdlib/Lwtreslib/Bare/List/index.html#val-map_p) and [~List.map_ep~](https://tezos.gitlab.io/api/odoc/_html/tezos-lwt-result-stdlib/Tezos_lwt_result_stdlib/Lwtreslib/Bare/List/index.html#val-map_ep)) for the traversals where it makes sense.
+    - We have [a consistent semantic](https://tezos.gitlab.io/api/odoc/_html/tezos-lwt-result-stdlib/Tezos_lwt_result_stdlib/Lwtreslib/index.html#semantic) regarding error management across all those traversors.
+    - We have [several modules: ~List~, ~Map~, ~Set~, ~Seq~, etc.](https://tezos.gitlab.io/api/odoc/_html/tezos-lwt-result-stdlib/Tezos_lwt_result_stdlib/Lwtreslib/Bare/index.html)
+
+One thing I didn't mention is that we actually have a specialised ~result~ called ~tzresult~: ~'a tzresult = ('a,
+tzrerror trace) result~ where ~tzerror~ is a custom error type and ~trace~ is a data-strucutre holding several
+errors. Traces (of errors) allows us to combine errors in different ways. The first way is you can add an error to a
+trace to add higher-level context about the lower-level error. The second way is for errors that happen concurrently
+(e.g., you evaluate concurrently several Lwt+result expressions and more than one fails). This ability to combine
+concurrent errors gives us a semantic for
+[~and*~](https://tezos.gitlab.io/api/odoc/_html/tezos-lwt-result-stdlib/Traced_sigs/Monad/module-type-S/Lwt_traced_result_syntax/index.html#val-and*)
+in the Lwt+result syntax module.
+
+There are several downsides to our current approach, but all in all it works well enough.
+- Even for functions of modest size, it's not always immediately visible which monad you are located in. This is even worse when you are viewing just a chunk of a diff.
+- Some parts of the Stdlib don't lend themselves to our monadification (e.g., ~Seq~) or require a bit of boilerplate because they don't expose internal representations (e.g., [~Map~'s monadic traversors](https://gitlab.com/tezos/tezos/-/blob/v14.0/src/lib_lwt_result_stdlib/bare/structs/map.ml) are largely implemented in terms of ~Seq~).
+- The Stdlib supplement is a lot of code with a lot of tests and a lot of comments. It's just a large volume of low-complexity code to deal with.
+
+There are also some very pleasant upsides:
+- The separate monad syntax modules encourages you to write each function with the smallest monad that it needs. This in turns
+    - encourages you to split your function into smaller components which are more easily testable,
+    - makes the type of functions informative: an ~Lwt.t~ function is very likely to actually be doing I/O at some point down the line, and a ~result~ function is very likely to actually return ~Error~ in some situations.
+- The Stdlib supplement makes it quite easy to adapt code for one monad to another.
+
+For more complete information, you can check [the Error-monad
+tutorial](https://tezos.gitlab.io/developer/error_monad.html).
+
+*** Later
+
+There are a few things we want to change. Albeit we have no urgent need to do so.
+- Remove some legacy helper functions that are still hanging around.
+- Organise the namespace better.
+- Generate a lot of the code and doc of Lwtreslib automatically.
+- Improve traces (currently, for mostly historical reasons, we use ~list~).
+      </cwn_what>
+      <cwn_who>Daniel Bünzli replied</cwn_who>
+      <cwn_what>
+#+begin_quote
+We use dedicated syntax module for each monad (Lwt, result, Lwt+result) which export binding operators (~let*~,
+~let+~, ~return~, etc.).
+#+end_quote
+
+[Brr](https://erratique.ch/software/brr) uses the same approach for its futures which are used to FFI with
+JavaScript promises (these are not called promises because they don't directly map on JavaScript promises as those
+have a [non-monadic
+semantics](https://github.com/dbuenzli/brr/blob/81bc1d704974c818c891b7201ce65502901612e0/src/fut.ml#L6-L26) which
+would break OCaml type safety).
+
+Basically you have [futures](https://erratique.ch/software/brr/doc/Fut/index.html#futs), [future
+results](https://erratique.ch/software/brr/doc/Fut/index.html#fut) and [two
+syntaxes](https://erratique.ch/software/brr/doc/Fut/index.html#syntax) to choose from depending on your context.
+      </cwn_what>
+      <cwn_who>Rahul asked and Raphaël Proust replied</cwn_who>
+      <cwn_what>
+#+begin_quote
+I quite like the trace idea - I wish I’d thought of this for our codebase, but it would require too many changes in
+the calling code to adopt now. We just use ~string~ for the error type in our codebase and I’m not entirely
+satisfied with the “just pick the first error / fail fast” semantics I proposed for [~and*~ in
+~Lwt_result.Syntax~](https://github.com/ocsigen/lwt/pull/775). Another choice might even have been to parametrize
+the ~Syntax~ module over desired behavior of how to combine concurrent errors, but we decided against it to avoid
+having to invoke a functor repeatedly all over the code (we’re already quite verbose - we don’t do global opens, and
+try to be explicit, e.g: ~let open Lwt_result.Syntax in~ - to know exactly which monad we’re talking about).
+#+end_quote
+
+Implementation details on our side:
+- We do have [a functor for Tracing](https://tezos.gitlab.io/api/odoc/_html/tezos-lwt-result-stdlib/Tezos_lwt_result_stdlib/Lwtreslib/index.html#module-Traced) which is parametrised by an implementation of trace.
+- We only initialise it once in the production part of our code-base. We also initialise another time for some tests.
+- We provide examples for trace implementations including [a version that gives you the left-most error](https://gitlab.com/tezos/tezos/-/blob/v14.0/src/lib_lwt_result_stdlib/examples/traces/traces.ml#L128).
+
+I'd say that ~string~ is quite manageable for error management. If you want to structure it a bit more you can mash
+strings together a bit. Something like
+
+#+begin_src ocaml
+val trace : string -> ('a, string) result -> ('a, string) result
+let trace high_msg = function
+  | Ok v -> Ok v
+  | Error low_msg ->
+    (* indent all of the local errors *)
+    let low_msg = "\t" ^ String.concat "\n\t" (String.split '\n' low_msg) in
+    (* layout high error and low error *)
+    Error (Printf.sprintf "%s\n%s" high_msg low_msg)
+
+val parmash : ('a, string) result list -> ('a list, string) result
+let parmash rs =
+  let rec loop acc = function
+    | (Ok v) :: xs -> loop (v :: acc) xs (* accumulate Oks *)
+    | (Error msg) :: xs -> loop_err [msg] xs (* Switch to err loop on first Error *)
+    | [] -> Ok (List.rev acc) (* just return accumulated Oks *)
+  and loop_err acc = function
+    | Ok _ :: xs -> loop_err acc xs (* Discard Oks *)
+    | Error msg :: xs -> loop_err (msg :: acc) xs (* Accumulate Errors *)
+    | [] -> match acc with
+        | [] -> assert false
+        | [msg] -> Error msg (* single error: return as-is *)
+        | _ :: _ :: _ as msgs ->
+            (*multiple errors: pretty-print with separators *)
+            Error ("|" ^ String.concat "\n|" (List.rev msgs))
+    )
+  in
+  loop [] rs
+#+end_src
+
+Or something along those lines. And then ~and*~ calls ~parmash~ on the resolved promises to make line-separated
+~|~-prefixed error messages.
+
+Basically you end-up just doing the printing of the trace in advance. And it's heavier than to carry a ~type trace =
+Nest of string * string trace | Par of string trace list | Leaf of string~ and do the printing only once. Plus you
+can't have fine control over the printing like hbox and vbox. But it might be acceptable if the errors are truly the
+exceptional case and you don't have too many levels of them.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>New OCaml meetup group in Toulouse (in French)</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/new-ocaml-meetup-group-in-toulouse-in-french/10420/1</cwn_url>
+      <cwn_who>David Declerck announced</cwn_who>
+      <cwn_what>
+[this post is about a new French-speaking OCaml meetup group in Toulouse, thus the remainder of the text will be in
+French]
+
+Bonjour à tous les cameleux toulousains !
+
+Ma collègue @rjbou et moi-même mettons en place un [meetup group OCaml](https://www.meetup.com/fr-FR/ocaml-toulouse/) à Toulouse.
+
+S'inspirant des meetups "OUPS" à Paris, nous avons souhaité créer un événement similaire à Toulouse. L'objectif de
+ces meetups est de rassembler des personnes aux profils variés, qu'ils soient utilisateurs débutants ou chevronnées
+d'OCaml (développeurs, chercheurs...), ou qui souhaitent simplement découvrir ce langage. Les orateurs sont invités
+à présenter un sujet *qui leur plaît*, qu'il s'agisse d'une nouvelle librairie ou un nouvel outil, les nouvelles
+fonctionnalités du langages, des travaux de recherche, un bout de code *amusant* (liste non exhaustive)... Ces
+meetups se termineront par des discussions autour d'une collation et/ou un apéritif (sponsorisés par
+[OCamlPro](https://www.ocamlpro.com)).
+
+Le premier meetup devrait se tenir fin septembre / début octobre. La date exacte et le programme seront communiqués
+sous peu. N'hésitez pas à vous inscrire dès maintenant dans le
+[groupe](https://www.meetup.com/fr-FR/ocaml-toulouse/) pour ne manquer aucune information !
+
+Les meetups se dérouleront à [l'ENSEEIHT](https://www.enseeiht.fr) (2 Rue Charles Camichel, 31000 Toulouse), que
+nous remercions chaleureusement pour la mise à disposition de ses locaux.
+
+Nous projetons d'ores et déjà d'organiser ces événements approximativement tous les deux mois. N'hésitez pas à venir
+présenter un sujet qui vous tient à coeur !
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>GADTs for tracking dimensions of multidimensional arrays?</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/gadts-for-tracking-dimensions-of-multidimensional-arrays/10407/12</cwn_url>
+      <cwn_who>Deep in this thread, Markus Mottl said</cwn_who>
+      <cwn_what>
+Lennart Augustsson has recently developed a Haskell library called
+[Orthotope](https://hackage.haskell.org/package/orthotope) for dealing with multidimensional arrays.  It can reflect
+shape and dimension information in types.  You can also watch a [video
+presentation](https://www.youtube.com/watch?v=rtc_j8Hnzac) about Orthotope.
+
+There is likely no way to translate this to OCaml without significant type system extensions, but some of the
+concepts and ideas might inspire similar work.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>ocaml-eris 1.0.0 - Encoding for Robust Immutable Storage (ERIS) (+ Using Zig code compiled to WebAssembly from OCaml)</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-ocaml-eris-1-0-0-encoding-for-robust-immutable-storage-eris-using-zig-code-compiled-to-webassembly-from-ocaml/10429/1</cwn_url>
+      <cwn_who>pukkamustard announced</cwn_who>
+      <cwn_what>
+I'm pleased to announce an initial release of ocaml-eris - an OCaml implementation of the Encoding for Robust
+Immutable Storage ([ERIS](http://purl.org/eris)): https://codeberg.org/eris/ocaml-eris/releases/tag/v1.0.0 (also
+available on [OPAM](https://opam.ocaml.org/packages/eris/)).
+
+ERIS defines an encoding of arbitrary content into a set of uniformly sized, encrypted and content-addressed blocks
+as well as a short identifier that can be encoded as an URN. The content can be reassembled from the blocks only
+with this identifier. ERIS allows a form of content-addressing that is optimized for transport over networks and
+allows content to be made available robustly.
+
+ERIS is application and transport agnostic. A very similar encoding (ECRS) is used in [GNUNet](https://gnunet.org/)
+for file-sharing. Applications include [transporting small pieces of RDF data](https://openengiadina.net/) or
+[distributing Guix substitutes](https://issues.guix.gnu.org/52555). Possible transports include
+[HTTP](https://eris.codeberg.page/eer/eer-001/),
+[IPFS](https://codeberg.org/eris/guile-eris/src/branch/main/examples/ipfs.org), CoAP and
+[Sneakernets](https://en.wikipedia.org/wiki/Sneakernet).
+
+ERIS is [formally specified](http://purl.org/eris) and implementations for other language exist (and are being
+developed).
+
+The OCaml ERIS implementation allows:
+
+- Streaming encoding: Allows large content to be encoded while only keeping a minimal amount in memory.
+- Random-access decoding: Decode small pieces of large content while de-referencing a minimal amount of blocks.
+- Cross-platform support: See section below.
+
+*** Cross-platform support
+
+ERIS requires two cryptographic functions:
+
+- Blake2b (with keying support)
+- ChaCha20 (IETF variant as defined by [RFC 8439](https://tools.ietf.org/html/rfc8439))
+
+Multiple implementations are provided for various platforms. Users can choose the implementation by using one of
+following packages (same trick as used by ~digestif~):
+
+- ~eris.crypto-monocypher~: Uses the [Monocypher](https://monocypher.org/) cryptographic library via the [ocaml-monocypher](https://inqlab.net/git/ocaml-monocypher.git/) bindings. This implementation works well on the Unix platform and is selected by default.
+- ~eris.crypto-zig~: Uses the cryptographic primitives provided in the [Zig](https://ziglang.org/) standard library. This implementation works on the Unix platform and requires the Zig compiler installed.
+- ~eris.crypto-wasm~: Uses the cryptographic primitives provided by the Zig standard library compiled to WebAssembly. This implementation can be used with [js_of_ocaml](https://ocsigen.org/js_of_ocaml/) and requires the Zig compiler installed. The WASM code is bundled using [Crunch](https://github.com/mirage/ocaml-crunch) so users do not need to worry about provisioning or loading WASM.
+
+~eris.crypto-zig~ is an example of how Zig code can be used from OCaml. ~eris.crypto-wasm~ is an example of how Zig code compiled to WebAssembly can be used from OCaml.
+
+One large appeal of using Zig is that the entire build infrastructure is much smaller than compared to using
+something like [Emscripten](https://emscripten.org/). it is also possible to guarantee reproducible and
+boot-strappable builds (using [Guix](https://guix.gnu.org/)).
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OCamlverse updates</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ocamlverse-updates/9665/3</cwn_url>
+      <cwn_who>Deep in this thread, Yotam Barnoy announced</cwn_who>
+      <cwn_what>
+Note: ocamverse has now moved to [ocamlverse.net](ocamlverse.net).
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Diskuv OCaml 1.x.x; Windows OCaml installer no longer in preview</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-diskuv-ocaml-1-x-x-windows-ocaml-installer-no-longer-in-preview/10309/9</cwn_url>
+      <cwn_who>jbeckford announced</cwn_who>
+      <cwn_what>
+*** Diskuv OCaml 1.0.1 Release
+
+This is mostly a bug fix. It is available at
+https://github.com/diskuv/dkml-installer-ocaml/releases/download/v1.0.1/setup-diskuv-ocaml-windows_x86_64-1.0.1.exe
+and the full release notes are at https://github.com/diskuv/dkml-installer-ocaml/releases/tag/v1.0.1
+
+Summary of changes:
+
+- The installer now checks whether files are in use when overwriting a previous installation just like the uninstaller already did.
+- Fix Dune shim so ~dune build~ works consistently on Windows. https://github.com/diskuv/dkml-installer-ocaml/issues/6
+- Fix detection of Jane Street package versions so ~ppx_jane~ dependencies like ~fieldslib~, and other JS packages, are pinned to versions like ~v0.14.0~ (etc.). Also pin transitive dependencies of ~ppx_jane~. https://github.com/diskuv/dkml-installer-ocaml/issues/8
+- MSYS2 variables are available as Opam global variables. The list is [here](https://gitlab.com/diskuv/diskuv-ocaml/-/blob/main/CHANGES.md#msys2-variables-101). For example, ~opam var --global msystem~ is ~CLANG64~ and ~opam var --global mingw-package-prefix~ is ~mingw-w64-clang-x86_64~. They will become useful when Opam depext functionality is added for MSYS2.
+- Fix version in Add/Remove Programs that was ~dev~ instead of ~1.0.1~ (etc.)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Does OCaml infer types between files?</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/does-ocaml-infer-types-between-files/10435/7</cwn_url>
+      <cwn_who>Deep in this thread, Yawar Amin said</cwn_who>
+      <cwn_what>
+Yes, OCaml decouples compilation of modules from each other. I collected some thoughts on that here:
+https://dev.to/yawaramin/ocaml-interface-files-hero-or-menace-2cib
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocaml.org blog</cwn_who>
+      <cwn_what>
+Here are links from many OCaml blogs aggregated at [[https://ocaml.org/blog/][the ocaml.org blog]].
+
+- [[https://tarides.com/blog/2022-08-26-tarides-goes-on-holiday][Tarides Goes on Holiday!]]
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>
