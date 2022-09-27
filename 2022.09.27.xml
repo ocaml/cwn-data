@@ -1,0 +1,467 @@
+<?xml version="1.0" encoding="utf-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2022.09.27</cwn_date>
+    <cwn_prev>2022.09.20</cwn_prev>
+    <cwn_next>2022.10.04</cwn_next>
+    <cwn_date_text>September 20 to 27, 2022</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>Esperanto, when OCaml meets Cosmopolitan</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-esperanto-when-ocaml-meets-cosmopolitan/10501/1</cwn_url>
+      <cwn_who>Calascibetta Romain announced</cwn_who>
+      <cwn_what>
+I am delighted to present the first *experimental* release of Esperanto. This project is a new OCaml _toolchain_
+that creates binaries compiled with the [Cosmopolitan C library](https://justine.lol/cosmopolitan/) and linked with the [αcτµαlly
+pδrταblε εxεcµταblε](https://justine.lol/ape.html) link script. The binary produced is then portable to different platforms:
+
+https://worker.jart.workers.dev/redbean/linux.png
+https://worker.jart.workers.dev/redbean/windows10.png
+https://worker.jart.workers.dev/redbean/msdos60.png
+https://worker.jart.workers.dev/redbean/macos.png
+https://worker.jart.workers.dev/redbean/freebsd64.png
+https://worker.jart.workers.dev/redbean/openbsd.png
+https://worker.jart.workers.dev/redbean/netbsd2.png
+
+The main objective of Esperanto is to provide a toolchain capable of producing a portable binary from an existing
+project. This would allow to finally be able to distribute software for all these platforms without having to:
+1) manage multiple platforms orthogonally, the Cosmopolitan C library offers you the POSIX API for all platforms (including Windows)
+2) Produce several versions of the same software for each platform. Only the binary is needed to run on all platforms
+
+Cosmopolitan *does not* however produce a binary with a multi-platform assembler. At this stage, our distribution
+only supports the ~x86_64~ assembler (the most common one) but we are working on the possibility to produce a binary
+with different assemblers.
+
+I would like to give special thanks to Justine, the author of the Cosmopolitan project (to develop
+[redbean](https://redbean.dev/), a small portable HTTP server) for her excellent work.
+
+*** A _toolchain_
+
+In OCaml, the "toolchain" principle allows the existence of several compilers within an OPAM switch and to choose
+one of them when it comes to cross-compiling a project. This principle, even though it is not clearly defined and
+even though its use remains very limited, exists through the `ocamlfind` tool.
+
+You can find these toolchains in your switch:
+#+begin_src shell
+$ ls $(opam var lib)/findlib.conf.d/
+esperanto.conf solo5.conf
+#+end_src
+
+From our experience with Mirage as well as the work done in ~dune~ regarding cross-compilation, the choice to
+propose a new _toolchain_ in order to allow cross-compilation of projects with OPAM is both a historical choice but
+also the most relevant one in our opinion [1].
+
+**** Why we need to cross-compile?
+
+The term cross-compilation can be misunderstood if we only consider the question of the assembler issued by the
+compiler (does it match the host assembler or not). In our case, cross-compilation is a broader term that implies
+the use of external artefacts to the compiler that are different from the default and the use of compiler options
+that must be used throughout the production of the final binary.
+
+In other words, even though we are emitting the same assembler, we are doing so in a different "context" which
+requires the definition of a new _toolchain_ which includes our artefacts and compiler options.
+
+One of these artefacts is of course the C library used by the compiler which will then be systematically used by the
+_runtime caml_, the well named ~libasmrun.a~. This is why, for example, there is a version of OCaml with
+[musl](https://musl.libc.org/). So there must be a version of OCaml with Cosmopolitan.
+
+This new _toolchain_ also allows you to include the necessary options for compiling C files because, yes, you can
+compile a C file with ~ocamlopt~.
+
+In order to provide a coherent _workflow_ for a project, we need to provide not only a ~libasmrun.a~ compiled with
+our Cosmopolitan C library but also an OCaml compiler capable of invoking the C compiler with the right options
+required by Cosmopolitan.
+
+Finally, we also need to describe in this _toolchain_ how to link the object files together to actually produce a
+portable binary using the APE script.
+
+**** A simple example with this new _toolchain_
+
+Installing Esperanto is very easy with OPAM. It will install the cross-compiler and the necessary files so that
+~ocamlfind~/~dune~ can recognise this new _toolchain_:
+#+begin_src shell
+$ opam install esperanto
+#+end_src
+
+Finally, let's try to produce a simple binary that displays "Hello World!":
+#+begin_src shell
+$ cat &gt;main.ml &lt;&lt;EOF
+let () = print_endline "Hello World!"
+EOF
+$ ocamlfind -toolchain opt main.ml
+$ objcopy -S -O binary a.out
+$ file a.out
+a.out: DOS/MBR boot sector
+#+end_src
+
+The binary produced can already be executed. However, there are still some issues that have been fixed since then
+but which are probably not yet integrated in your system. They concern ~zsh~ and ~binfmt_misc~ in particular.
+
+The first problem with ~zsh~ is that it does not recognise the binary correctly. This problem has been fixed in the
+latest version of ~zsh.5.9.0~.
+#+begin_src shell
+$ zsh --version
+zsh 5.8.1
+$ zsh
+$ ./a.out
+zsh: exec format error: ./a.out
+#+end_src
+
+The second problem concerns ~binfmt_misc~ which intervenes upstream at the execution of your programs in order to
+choose how to execute them. In this case, ~binfmt_misc~ recognises Cosmopolitan binaries as Windows software by
+default.
+
+Here too, a solution is available and described by the author of Cosmopolitan here: [APE loader](https://justine.lol/apeloader/#binfmt_misc)
+
+***** Execution &amp; Assimilation
+
+If you are not concerned by the above problems, you can simply run the program:
+#+begin_src shell
+$ ./a.out
+Hello World!
+#+end_src
+
+There is a final solution that requires a little explanation of what αcτµαlly pδrταblε εxεcµταblε is. Indeed, the
+latter makes it possible to create a polyglot binary whose first point of entry is not your program but a small
+program which tries to recognize on which platform the binary tries to run.
+
+After this recognition, this little program will "inject" values corresponding to the platform in which you try to
+run your program in order to finally let Cosmopolitan manage the translation between its interface and the real
+POSIX interface that your system offers.
+
+Of course, this step has a cost as it adds an indirection between what your program wants to do and what is
+available on the system running your program. However, APE offers a very special option that allows the program to
+be assimilated to the platform in which it wants to run.
+#+begin_src shell
+$ file a.out
+a.out: DOS/MBR boot sector
+$ sh -c "./a.out --assimilate"
+$ file a.out
+a.out: ELF 64-bit LSB executable, x86-64
+$ ./a.out
+Hello World!
+#+end_src
+
+This option makes your application truly native to the platform in which you run it. This means above all that the
+program is *no longer* portable.
+
+***** Esperanto, ~dune~ &amp; ~opam monorepo~
+
+The ~dune~ software also incorporates this toolchain idea using the ~-x~ option. More pragmatically, it is possible
+to define a new dune context to use Esperanto as a compilation toolchain.
+
+However, the original aim of Esperanto is to produce a portable binary. This implies, among other things, that it
+should not depend on remaining artefacts in order to run and, in this sense, the compilation of your project should
+be a static compilation. This means that all dependencies of your project must be available to compile in the same
+context as your project.
+
+Again, this is particularly necessary if any of your dependencies include C files, so they need to be compiled in
+some way.
+
+This is where ~opam monorepo~ comes in, it will simply "vendor" your dependencies into a "duniverse" folder. Here
+are the steps needed to compile a project with Esperanto. We'll take [~decompress~](https://github.com/mirage/decompress) as an example which
+produces a binary that can compress/decompress documents:
+#+begin_src shell
+$ git clone https://github.com/mirage/decompress
+$ cd decompress
+$ cat &gt;&gt;bin/dune &lt;&lt;EOF
+(rule
+ (target decompress.com)
+ (enabled_if
+  (= %{context_name} esperanto))
+ (mode promote)
+ (deps decompress.exe)
+ (action (run objcopy -S -O binary %{deps} %{target})))
+EOF
+$ cat &gt;dune-workspace &lt;&lt;EOF
+(lang dune 2.0)
+(context (default))
+(context
+ (default
+  (name esperanto)
+  (toolchain esperanto)
+  (merlin)
+  (host default)))
+$ opam monorepo lock --build-only
+$ opam monorepo pull
+$ dune build bin/decompress.com
+$ sh -c "echo 'Hello World' | ./bin/decompress.com -d | ./bin/decompress.com"
+Hello World
+#+end_src
+
+*** Issues
+
+Apart from the outcomes described above, however, the Esperanto toolchain is not complete. Indeed, the OCaml
+distribution gives several libraries such as ~unix.cmxa~ and ~threads.cmxa~. A little work has been done to make the
+former available. The second one is however unavailable for the moment since Cosmopolitan only partially implements
+~pthread~.
+
+However, it seems that the author of Cosmopolotian wants to implement the rest of the ~pthread~ API which will then
+allow us to provide support for ~threads.cmxa~ and OCaml 5.
+
+This of course makes support for the projects more limited than we imagined (and that's why this release is
+experimental) however, an effort has already been made to lwt into Cosmopolitan's hypothetical future support for
+~pthread~.
+
+*** Future
+
+As explained above, support for ~threads.cmxa~ and OCaml 5 remains the priority. however, an effort has already been
+made to support [Lwt](https://github.com/ocsigen/lwt/) via Cosmopolitan's hypothetical future support for ~pthread~.
+
+However, it is possible that Cosmopolitan could become a target for the MirageOS project in the same way as Solo5
+(or our recent experiment on Raspberry Pi 4).
+
+In this sense, we will surely propose an integration in MirageOS so that projects can both produce unikernels with
+Solo5 or portable binaries with Cosmopolitan.
+
+[1] However, the question remains open at several levels, that of the compiler, that of OPAM and of course that of ~dune~. It is clear that the current situation is not the best in terms of what we need to do to produce such a cross-compiler. Only the feedback from Solo5 (which requires cross-compilation) allows us to say that it is surely the right choice for what we want to offer.
+
+*** Conclusion
+
+We hope that this project will facilitate the distribution of software. You can read a more technical article about
+our work [here](https://blog.osau.re/articles/esperanto.html). Finally, I would like to thank [robur.io](https://robur.io/) (an association you [can help](https://robur.io/Donate)) for allowing me to do this project.
+
+*EDIT*: The author of Cosmopolitan just released Cosmopolitan with ~pthread~ support. So we will definitely try to
+improve our distribution to include OCaml with ~threads.cmxa~ support and move forward with OCaml 5!
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OBazl Toolsuite - tools for building OCaml with Bazel</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/obazl-toolsuite-tools-for-building-ocaml-with-bazel/10021/15</cwn_url>
+      <cwn_who>Deep into this thread, Yawar Amin asked and Gregg Reynolds replied</cwn_who>
+      <cwn_what>
+#+begin_quote
+Doesn’t dune get advertised as being able to handle multiple programming languages, including C/C++?
+#+end_quote
+
+There's really no comparison. Dune evidently can use the (C ABI) outputs of a "foreign" build (if you write the glue
+code needed to make this work) but there's no real /build/ integration, and no hermeticity guarantees.  Under Bazel
+different languages use different rulesets but they're all Bazel rulesets, so you get one dependency graph across
+all languages, and if the rulesets are hermetic you get a hermetic build.  Without ABI restrictions. For example if
+your build needs to run a Python (or Javascript, Ruby, whatever) tool, Bazel will build the tool and run it for you.
+
+Even for C I think Bazel has much better integration.  The rules in rules_cc (e.g. cc_library producing a .a file)
+deliver a CcInfo provider (a provider is a kind of struct whose fields contain the artifacts delivered by a build
+action).  The rules in rules_ocaml (e.g. ocaml_module) understand CcInfo dependencies and pass them around using
+OcamlProvider (a provider specific to the ocaml rules). Bazel supports a merge operation for CcInfo, and the ocaml
+rules always merge their CcInfo deps and pass them on. So every build target delivers the merge of all its CcInfo
+deps. The ocaml_binary rule that links its dependencies into an executable merges its CcInfo deps (which include
+merged CcInfo from their deps, recursively) and ends up with a single CcInfo containing every cc dependency in the
+dep graph, in the right order, with no duplicates. Then its simply a matter of constructing the link command with
+the appropriate --ccopt options. More succinctly: you can add a C dep directly to the module that needs it, and
+Bazel it pass it up the dependency chain, ensuring that it ends up on the command line when needed - building
+archives or executables.  You don't need to add a C dep to an archive target when only one of n modules in the
+archive actually depends on it.
+
+I've just started working on rules_jsoo, which I think will nicely demonstrate the virtues of Bazel integration.
+The Bazel ecosystem includes a bunch of tools for working with Javascript; for example rules_js and rules_nodejs
+make it easy to control which node toolchain version to use, integrate npm stuff, etc. Wouldn't it be nice to be
+able to use such tools directly, without writing a bunch of glue code?  Now a key element of Bazel integration is
+the use of providers.  Rules deliver providers, and since providers act as a kind of rudimentary type system, I can
+use the JsInfo provider (defined by rules_js) to integrate rules_jsoo with the larger Bazel js ecoystem.  For
+example, the jsoo_library rule takes the OcamlProvider provider delivered by ocaml_module rules, which contains the
+.cmo file.  So jsoo_library runs those .cmo files through the jsoo compiler and delivers the resulting js files in a
+JsInfo provider. That provider is suitable as input to the rules in rules_js, which gives us seamless integration.
+So we can use the js_binary rule of rules_js to run code produced by jsoo_library under node. All that's needed is
+to list the latter as a dependency of the former.  That's the plan, anyway. Isn't that nice?
+      </cwn_what>
+      <cwn_who>Gregg Reynolds said and Daniel Bünzli replied</cwn_who>
+      <cwn_what>
+#+begin_quote
+Ideally somebody learning a new language should not need to spend any time (at first) dealing with a build language
+too.
+#+end_quote
+
+This doesn't only apply to learning. It also applies to prototyping, hypothesis generation and testing.
+
+That's the reason why I built [~brzo~](https://erratique.ch/software/brzo) which I hope I'll be able to release at
+some point (still needs a good design review and changes to the OCaml strategy since it assumed we were moving
+towards a model that didn't happen in the end – namely the [library linking
+proposal](https://github.com/ocaml/RFCs/pull/17), I'd also like to add more languages to the mix but that could
+wait).
+
+None of my projects do not start with ~brzo~ing these days and the hassle free build experience is exhilarating.
+
+#+begin_quote
+Build systems often are “complex and confusing”, but that’s largely because the problem space itself is complex and
+confusing. There’s no getting around that.
+#+end_quote
+
+Note however that this is largely /accidental/ complexity due to the fact that compilers work in idiosyncratic ways
+for what build systems need in order to do their incremental and parallelization business.
+
+They are still stuck in a world where people would invoke their compiler manually at the cli level or specify the
+invocations themselves in a ~Makefile~.
+
+In fact if it were not for the actual tools and the (lack) of information they give us, build is in fact an
+excessively simple problem.
+
+More specific to OCaml, the compiler clis have an insane amount of quirks and the whole system greatly suffers from
+an underspecified linking model. Basically it was not a good idea to let that be defined by a third party tool, if
+only so that you can actually talk about libraries in error messages from the compiler.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Orsetto: structured data interchange languages (release 1.1.2)</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-orsetto-structured-data-interchange-languages-release-1-1-2/10506/1</cwn_url>
+      <cwn_who>james woodyatt announced</cwn_who>
+      <cwn_what>
+Announcing the release to OPAM of [Orsetto 1.1.2](http://opam.ocaml.org/packages/orsetto/), an update to a personal
+project of mine not sponsored by my employer. Licensed with BSD 2-Clause.
+
+*Q. What is Orsetto?*
+
+Aspires to do eventually for OCaml more or less what [Serde](https://serde.rs) has done for Rust, i.e. to be a
+curated and self-contained collection of structured data interchange languages with a cohesive and unified model of
+serialization and deserialization.
+
+Two interchange languages are currently supported: [JSON ](https://json.org) and [CBOR ](https://cbor.io).
+
+*Q. What is new in this release?*
+
+Mostly error corrections, particularly in the CBOR library, produced by improving test coverage.
+
+The change log for the release is here: [CHANGES.md ](https://bitbucket.org/jhw/orsetto/src/r1.1.2/CHANGES.md)
+
+Highlights:
+
+- Major improvements in test coverage.
+- Many corrections for logic errors.
+- A few minor usability improvements.
+
+Some things have not changed:
+
+- Still has no Programmer Guide or Tutorial, or really any introduction at all.
+- Still requires *ocamlfind* and builds with *omake*, which is currently not compatible with OCaml 5.0.
+- Still only supports JSON and CBOR.
+
+*Q. It looks incomplete. What are your plans for future development?*
+
+Yes, it’s a personal project, and yes, I'm aware there are no reverse dependencies on it currently in the public
+OPAM repository. Still, I’d welcome opportunities to collaborate with others who share my vision for the project. As
+long as it’s just me working on this, development will continue to be somewhat slow, as I'm prone to over-engineer
+things I care about. I have a lot of projects, and this is the only open source one.
+
+- *Orsetto 1.0.3* is the previous release. It offered parsers and emitter combinators for JSON and CBOR for OCaml &gt;= 4.06.1 (including 4.13~alpha1). The quality of its JSON support is adequate, and it scores well on the &gt;[nst/JSONTestSuite](https://github.com/nst/JSONTestSuite) tests. The quality of its CBOR support is provisional, &gt;and not recommended.
+- *Orsetto 1.1.2* is the current release. It adds generalized and extensible structured data interchange models with specializations for producing emitters and parsers for JSON and CBOR. The quality of the CBOR support is much improved, and I'm using it with good results in other projects. Supported on OCaml &gt;= 4.08.
+- *Orsetto 1.2* is the next planned release. It will drop interfaces marked `@caml.deprecated` in the 1.1 release. It will also drop support for OCaml &lt; 4.10, and it will stop depending on **ocamlfind**. I hope to add a PPX for deriving parsers and emitters from OCaml data type definitions. I might also consider one or more new interchange languages— suggestions are heartily encouraged.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Interest in a Http_sig library?</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/interest-in-a-http-sig-library/10518/1</cwn_url>
+      <cwn_who>Kiran Gopinathan announced</cwn_who>
+      <cwn_what>
+Heyo all! I've been working on an activitypub server for a while now, and while it's still not yet complete,
+recently I've reached a point where I realised that I've actually been sitting on some libraries that the community
+might benefit from, as the current ecosystem doesn't seem to handle these things.
+
+One such component that seemed to be in a state that was suitable to split off from was a small helper module to
+implement a particular http signature scheme that seems to be rather common in the activitypub scene.
+
+In particular, the scheme I'm referring to is defined here:
+https://datatracker.ietf.org/doc/html/draft-cavage-http-signatures-12
+
+#+begin_example
+                         Signing HTTP Messages
+                    draft-cavage-http-signatures-12
+
+Abstract
+   When communicating over the Internet using the HTTP protocol, it can
+   be desirable for a server or client to authenticate the sender of a
+   particular message.  It can also be desirable to ensure that the
+   message was not tampered with during transit.  This document
+   describes a way for servers and clients to simultaneously add
+   authentication and message integrity to HTTP messages by using a
+   digital signature.
+#+end_example
+
+I've written a small library that glues together some components in the OCaml ecosystem to somewhat handle the
+signing (I have been mainly working off an "implement-enough-to-make-the-system-work" process rather than directly
+transcribing the specification above):
+
+#+begin_src ocaml
+(** [verify ~signed_string ~signature key] returns true iff
+   [signature] over [signed_string] is valid according to [key]. *)
+val verify: signed_string:string -> signature:string -> X509.Public_key.t -> bool
+
+(** [verify_request ~resolve_public_key req] verifies that a dream
+   request has been signed according to the HTTP signature scheme *)
+val verify_request:
+  resolve_public_key:(string -> (X509.Public_key.t, 'a) Lwt_result.t) ->
+  Dream.request -> (bool, 'a) result Lwt.t
+
+(** [build_signed_headers ~priv_key ~key_id ~headers ~body_str
+   ~current_time ~method_ ~uri] returns a list of signed headers using
+   [priv_key] according to the HTTP signature scheme. [key_id] should
+   be a string that can be used to look up the public key associated
+   with [priv_key]. *)
+val build_signed_headers:
+  priv_key:X509.Private_key.t ->
+  key_id:string ->
+  headers:string StringMap.t ->
+  body_str:string ->
+  current_time:Ptime.t -> method_:string -> uri:Uri.t -> (string * string) list
+#+end_src
+
+The library is currently published at https://github.com/Gopiandcode/http_sig_ocaml under the LGPL, but I haven't
+released it on opam.
+
+Anyway, I was wondering if anyone else had interest in this kind of package, and whether it would be a good
+candidate for submission to opam - or if there are actually already existing libraries in the OCaml ecosystem that
+would actually already do this.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Outreachy summer '22 closing commemoration session on 23rd Sept</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/outreachy-summer-22-closing-commemoration-session-on-23rd-sept/10450/5</cwn_url>
+      <cwn_who>Patrick Ferris announced</cwn_who>
+      <cwn_what>
+Thank you to everyone that could make it to the presentation today. The presentation is now live:
+https://watch.ocaml.org/videos/watch/dc5bbf5b-3dd9-4c8d-b26a-71e730a67788 :camel:
+
+In particular a massive congratulations and thank you to @moazzammoriani and @IIITM-Jay. Thank you also to @sudha
+for being the driving force behind making the presentation happen again this round! See you all for the next round!
+
+Aside: if anybody has any issues with the live video please do reach out here either publicly or privately, we gave
+prior warning of our intentions to record and put the video on watch.ocaml.org, but I appreciate some people joined
+a little later/might have some reservations etc.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title> findlib-1.9.6</cwn_title>
+      <cwn_url>https://sympa.inria.fr/sympa/arc/caml-list/2022-09/msg00007.html</cwn_url>
+      <cwn_who>Gerd Stolpmann announced</cwn_who>
+      <cwn_what>
+findlib-1.9.6 is out, now supporting OCaml-5.00 (as far as we know it).
+There are also a few other install-related fixes in it.
+
+For manual, download, manuals, etc. see here:
+
+http://projects.camlcity.org/projects/findlib.html
+
+An updated OPAM package will follow soon.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Interesting OCaml Articles</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/interesting-ocaml-articles/1867/100</cwn_url>
+      <cwn_who>Deep in this thread, alan said</cwn_who>
+      <cwn_what>
+An interesting paper that uses OCaml is http://gallium.inria.fr/~fpottier/publis/fpottier-elaboration.pdf by
+Francois Pottier, which gives a declarative DSL for implementing type rules with applicative functors. It has an
+associated library, https://opam.ocaml.org/packages/inferno/.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocaml.org blog</cwn_who>
+      <cwn_what>
+Here are links from many OCaml blogs aggregated at [[https://ocaml.org/blog/][the ocaml.org blog]].
+
+- [[https://tarides.com/blog/2022-09-23-tarides-sponsors-high-school-hackers][Tarides Sponsors High School Hackers]]
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>
