@@ -1,0 +1,266 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[https://alan.petitepomme.net/cwn/2022.10.25.html][Previous Week]] [[https://alan.petitepomme.net/cwn/index.html][Up]] [[https://alan.petitepomme.net/cwn/2022.11.08.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of October 25 to November 01, 2022.
+
+#+TOC: headlines 1
+
+
+* What are pros and cons of Eliom web framework?
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/what-are-pros-and-cons-of-eliom-web-framework/10658/7
+
+** Deep in the thread, ZAN DoYe said
+
+
+I've made a cjkv info app with eliom, the old demo version is here(most of its functions are turned off and hidden):
+https://cjkv.smaji.org/
+It collects variation, source info, input method code of characters among China, Japan, Korea, Vietnam, Hongkong,
+Taiwan, ethnic minorities and ancient books. e.g.
+
+https://cjkv.smaji.org/search/4ee4
+
+https://cjkv.smaji.org/char_list?step=16&offset=184032&stop=191471&start=183984
+
+Overall, eliom framework is fantastic. All the links are eliom_service, its parameters and itself are typed. Session
+manage is powerful and flexible. Components are reactive with each other, seamlessly between server and client. An
+app written in eliom is intrinsically an SSR SPA, an integral whole.
+
+Writing an eliom app, all I want to say is: damn! it's too good!
+
+*** Cons:
+
+- dune support
+- merlin, ocaml-language-server
+
+  Your project is built by a manually managed Makefile and merln/lsp support is broken when you mix client/server code
+  together in the same folder.
+
+  You only get these supports when you write standalone server and client separately.
+
+  But these flaws can be overcome. I wrote a custom code translator, which generates server code and client code from
+  an eliom file into separate folder and make them still work together seamlessly. And in this case, I don't need a
+  Makefile, dune and ocaml-lsp works as normal projects.
+
+- ocsigenserver
+
+  It's good. But it updates infrequently and doesn't keep pace with other libraries closely. Because eliom depends on
+  it and its dependence constraint sometimes requires old libraries, better create a separate opam switch when working
+  with an eliom project.
+
+*** Wart
+
+In fact, it's not a wart of eliom. It's lwt https://github.com/mirage/ocaml-cohttp/issues/545
+That's why I stop working on the old demo and now rewriting it again with another tec stack.
+
+*** ...
+If only eliom depended on lwt/async optionally and came with an official code translator to overcome the dune/lsp
+integration issue.
+      
+
+
+
+* Domain-shims: an implementation of `Domain` for OCaml 4 (beta version)
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/domain-shims-an-implementation-of-domain-for-ocaml-4-beta-version/10706/1
+
+** gasche announced
+
+
+I just wrote a small package, ~domain-shims~, that provides a non-multicore implementation of the new ~Domain~
+module of the OCaml 5 standard library:
+
+repository: https://gitlab.com/gasche/domain-shims
+
+the one source file: https://gitlab.com/gasche/domain-shims/-/blob/trunk/lib/domain.ml
+
+This is a fun hack, but it may also be useful for people who write some code using ~Domain~ to test it under OCaml
+5, but still want to be able to build and run their project using their normal OCaml 4 setup.
+
+I haven't put a version number and made a formal release yet.
+
+The main limitation of the library is that it does not implement the ~Effect~ module providing effect handlers, so
+it is not true that all OCaml 5 code will be compatible. I discuss this in more details in the [[https://gitlab.com/gasche/domain-shims#no-effect-support][README # no effect
+support]], quoted below:
+#+begin_quote
+OCaml 5 also provides effect handlers as a new ~Effect~ module of the standard library. We do not provide an
+implementation of ~Effect~, which is much harder to emulate using regular OCaml 4.
+
+Someone could experiment with an implementation using the [[https://opam.ocaml.org/packages/delimcc/][delimcc]]
+library for delimited control. (Please do this and report! It is probably fun.) We expect that the result would be
+much slower than the OCaml 5 implementation, probably by an order of magnitude. This would be okay for toy
+experiments. But it would not be good enough to seriously run libraries relying on effect handlers for
+performance-sensitive operations, such as Domainslib or Eio.
+
+The other option would be to implement shim versions of Effect-using libraries. We are considering providing a
+shim for Domainslib in particular, which is very easy to do without emulating effects at all. This general
+approach sounds scary (no limit to the number of programs you need to provide shims for), but remember that OCaml
+5 users are not supposed to use effect handlers too much yet, it was only made available for lightweight
+concurrent schedulers.
+#+end_quote
+
+Happy hacking :-)
+      
+
+
+
+* OCaml Platform Installer alpha release
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/ann-ocaml-platform-installer-alpha-release/10652/5
+
+** Deep in this thread, Hannes Mehnert asked and Paul-Elliot replied
+
+
+Hello Hannes and thanks for your interest!
+
+#+begin_quote
+do you have machine-readable data what went into the binaries that are being downloaded (i.e. which version of
+what) [nowadays the buzzword is "Software Bill of Materials] – NB: and opam switch export --full --freeze is a
+good start for the opam packages
+#+end_quote
+
+In fact, currently only the ~ocaml-platform~ binary is being downloaded. The tools are then compiled in a sandbox
+switch on the local machine, and cached in a local opam repository. Only the version of OCaml and of the tool is
+kept as info in the local cache.
+
+#+begin_quote
+ do you have security in mind? the curl | sudo bash is not very nice from a security perspective, since that may do
+ any harm.
+#+end_quote
+
+We do have security in mind! We wanted a one line copy-paste installation for new users. So, we went for an install
+script, although we will consider your advice on setting up a package repository!
+
+#+begin_quote
+ is there an update path? when I run your installer, how to upgrade to the latest version of “platform installer”
+ (can I check whether an update is available and what will change?)?
+#+end_quote
+
+Currently, the update path is simply to re-run the install script:
+
+#+begin_example
+bash < <(curl -sL https://github.com/tarides/ocaml-platform-installer/releases/latest/download/installer.sh)
+#+end_example
+
+But there is no way to know if there is a new release, apart from checking the github releases page. Thanks a lot
+for the inputs! I'll reach out to you soon by private message, as your work and experience on reproducible builds
+might help for the ongoing remote repo!
+      
+
+
+
+* geojson and geojsone
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/ann-geojson-and-geojsone/10738/1
+
+** Patrick Ferris announced
+
+
+On behalf of the [[https://github.com/geocaml][geocaml]] org, I'm happy to announce the first release of [[https://github.com/geocaml/ocaml-geojson][geojson and
+geojsone]].
+
+*** What is GeoJSON?
+
+GeoJSON is defined in [[https://www.rfc-editor.org/rfc/rfc7946][RFC7946]] as
+
+#+begin_quote
+...a geospatial data interchange format based on JavaScript Object Notation (JSON).
+#+end_quote
+
+It is a schema for writing geospatial information in JSON often as some combination of "geometries" (e.g. a Point or
+a Polygon). These are all using the [[https://en.wikipedia.org/wiki/World_Geodetic_System#1984_version][World Geodetic System 1984
+(WGS84)]] coordinate reference system.
+
+*** An example
+
+A collections of features where the first feature contains a single point.
+
+#+begin_src json
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Place du Capitole"
+      },
+      "geometry": {
+        "coordinates": [
+          1.4433418775990958,
+          43.60443107383625
+        ],
+        "type": "Point"
+      }
+    }
+  ]
+}
+#+end_src
+
+*** Geojson Library
+
+The ~geojson~ library provides functions for reading and writing GeoJSON objects. You must, however, provide a
+simple interface for the JSON library of your choosing. This was a design decision made to offer better support for
+using the library in the browser. You can [[https://github.com/geocaml/ocaml-geojson#geojson][read more about it in the
+documentation]].
+
+*** Geojsone Library
+
+The ~geojsone~ library is inspired by the [[https://erratique.ch/software/jsonm][jsonm]] library. It vendors jsonm and
+ports it to a non-blocking implementation provided using effects. Internally it then reconstructs
+[[https://github.com/mirage/ezjsonm][ezjsonm]] using [[https://github.com/ocaml-multicore/eio][eio]] dubbed ~ezjsone~.
+The purpose of this library is to deal with the fact that GeoJSON documents can be quite big. It should be
+considered quite experimental. I did a [[https://github.com/geocaml/ocaml-geojson/pull/49#issuecomment-1242945412][little bit of
+benchmarking]] and it seemed to suggest
+that effects helps lower the memory usage (sometimes...).
+
+*** Thanks
+
+Thanks to all of the Outreachy applicants that helped with this library and in particular @IIITM-Jay who did some
+work at the start of his Outreachy internship on the library.
+      
+
+
+
+* Other OCaml News
+:PROPERTIES:
+:CUSTOM_ID: 5
+:END:
+** From the ocaml.org blog
+
+
+Here are links from many OCaml blogs aggregated at [[https://ocaml.org/blog/][the ocaml.org blog]].
+
+- [[https://tarides.com/blog/2022-10-28-the-mirageos-retreat-a-journey-of-food-cats-and-unikernels][The MirageOS Retreat: A Journey of Food, Cats, and Unikernels]]
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[https://alan.petitepomme.net/cwn/][the archive]] or the [[https://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe [[http://lists.idyll.org/listinfo/caml-news-weekly/][online]].
+
+#+BEGIN_authorname
+[[https://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname
