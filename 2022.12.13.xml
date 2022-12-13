@@ -1,0 +1,565 @@
+<?xml version="1.0" encoding="utf-8"?>
+<cwn>
+  <cwn_head>
+    <cwn_date>2022.12.13</cwn_date>
+    <cwn_prev>2022.12.06</cwn_prev>
+    <cwn_next>2022.12.20</cwn_next>
+    <cwn_date_text>December 06 to 13, 2022</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>Status update: Bazel-enabled OCaml toolchain</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/status-update-bazel-enabled-ocaml-toolchain/10892/1</cwn_url>
+      <cwn_who>Gregg Reynolds announced</cwn_who>
+      <cwn_what>
+[https://github.com/obazl-repository/ocamlcc](https://github.com/obazl-repository/ocamlcc)
+
+From the readme:
+
+- New name: ocamlcc - the OCaml Compiler Collection. Analogous to GCC, the GNU Compiler Collection. Not only do we have multiple compilers - ocamlc.byte, ocamlopt.byte, etc., the compilers themselves may serve to drive a C toolchain, to compile, assemble, and link C code.
+- Platforms and toolchains have been revised to support recursive (staged) builds.
+- Recursive builds. Well, at least quasi-recursive. There is only one target for building a compiler, bin:ocamlcc; to build the compiler, this target needs a compiler, which it gets from a toolchain, which depends on bin:ocamlc, which needs a compiler, …​ recursively, until we get to the base case, the precompiled boot/ocamlc compiler. So the boot compiler (boot/ocamlc) builds the stage 1 compiler which builds the stage 2 compiler which builds the stage 3 compiler. See Staged builds.
+- Revised configuration logic. The goal is to eliminate dependency on autotools (./configure). This is very much a Work-In-Progress; the code is in //config. For more info see notes/autoconf.
+- Use the link command from the Bazel CC toolchain. OBazl now uses information from the cc toolchain selected (and configured) by Bazel to set the command string used by OCaml to run the C linker (Config.mkexe). For more info see ocaml_cc_config and notes/linking. [TODO: same thing for the assemble command Config.asm]
+- Revised preprocessing. OBazl eliminates shell scripts and tools, instead using a template engine written in portable C to generate code.
+
+In other words, this version includes some stuff beyond just getting the Bazel build to work, in particular concerning configuration
+and preprocessing. Part of the motivation there is to pave the way to Windows support by eliminating dependency on Unix-ish stuff.
+
+Maintainers of the Makefiles may be interested in some of that stuff. Using templates for code generation instead of sh, awk, sed,
+etc. The template engine is written in portable C. Personally I find that using templates simplifies things considerably.
+
+Feedback always welcome. The issue tracker is enabled on the github repo, and a discourse server is at
+https://discord.gg/wZCSq2nq6y.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>First release candidate for OCaml 5.0.0</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/first-release-candidate-for-ocaml-5-0-0/10922/1</cwn_url>
+      <cwn_who>octachron announced</cwn_who>
+      <cwn_what>
+The release of OCaml version 5.0.0 is imminent. As a final step before the release,
+we are publishing a release candidate that you can test while waiting for the release
+in the upcoming weeks.
+
+If you find any bugs, please report them here:
+
+  https://github.com/ocaml/ocaml/issues
+
+Compared to the second beta release, this release contains one toplevel bug fix
+and a minor type system fix.
+
+If you are interested by the bug fixes beyond the new multicore runtime, the
+full change log for OCaml 5.0.0 is available at:
+
+  https://github.com/ocaml/ocaml/blob/5.0/Changes
+
+A short summary of the two changes since the second beta release is also available below.
+
+This release candidate will be followed shortly by a release candidate for OCaml 4.14.1 .
+This updated minor version for OCaml 4.14 will mirror the safe bug fixes from the OCaml 5.0
+branch.
+
+*** Installation instructions
+The base compiler can be installed as an opam switch with the following commands on opam 2.1:
+#+begin_src shell
+opam update
+opam switch create 5.0.0~rc1
+#+end_src
+For previous version of opam, the switch creation command line is slightly more verbose:
+#+begin_src shell
+opam update
+opam switch create 5.0.0~rc1 --repositories=default,beta=git+https://github.com/ocaml/ocaml-beta-repository.git
+#+end_src
+It might be also interesting to check the new support for parallelism by installing the domainslib library with
+#+begin_src shell
+opam install domainslib
+#+end_src
+The source code for the release candidate is available at these addresses:
+
+- https://github.com/ocaml/ocaml/archive/5.0.0-rc1.tar.gz
+- https://caml.inria.fr/pub/distrib/ocaml-5.0/ocaml-5.0.0~rc1.tar.gz
+
+**** Fine-tuned compiler configuration
+
+If you want to tweak the configuration of the compiler, you can switch to the option variant with:
+#+begin_src shell
+opam update
+opam switch create &lt;switch_name&gt; ocaml-variants.5.0.0~rc1+options &lt;option_list&gt;
+#+end_src
+where ~&lt;option_list&gt;~ is a comma separated list of ~ocaml-option-*~ packages. For instance, for a flambda and no-flat-float-array
+switch:
+#+begin_src shell
+opam switch create 5.0.0~rc1+flambda+nffa ocaml-variants.5.0.0~rc1+options ocaml-option-flambda ocaml-option-no-flat-float-array
+#+end_src
+The command line above is slightly more complicated for opam versions anterior to 2.1:
+#+begin_src shell
+opam update
+opam switch create &lt;switch_name&gt; --packages=ocaml-variants.5.0.0~rc1+options,&lt;option_list&gt;
+--repositories=default,beta=git+https://github.com/ocaml/ocaml-beta-repository.git
+#+end_src
+In both cases, all available options can be listed with "opam search ocaml-option".
+
+*** Changes since the second beta release
+
+**** Bug fixes
+
+- [11776](https://github.com/ocaml/ocaml/issues/11776): Extend environment with functor parameters in `strengthen_lazy`.
+  (Chris Casinghino and Luke Maurer, review by Gabriel Scherer)
+
+- [11533](https://github.com/ocaml/ocaml/issues/11533), [11534](https://github.com/ocaml/ocaml/issues/11534): follow synonyms again in #show_module_type (this had stopped working in 4.14.0) (Gabriel Scherer, review by Jacques Garrigue, report by Yaron Minsky)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>First release candidate for OCaml 4.14.1</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/first-release-candidate-for-ocaml-4-14-1/10929/1</cwn_url>
+      <cwn_who>octachron announced</cwn_who>
+      <cwn_what>
+The release of OCaml version 4.14.1 is (also) imminent.
+
+This companion release to the OCaml 5.0.0 release will backport many safe bug
+fixes from the currently experimental 5.0 branch to the stable 4.14 branch.
+A full list of bug fixes is available below.
+
+In order to ensure that the future release works as expected, we are testing
+a release candidate during the upcoming weeks.
+
+If you find any bugs, please report them here:
+
+  https://github.com/ocaml/ocaml/issues
+
+*** Installation Instructions
+The base compiler can be installed as an opam switch with the following commands on opam 2.1:
+#+begin_src shell
+opam update
+opam switch create 4.14.1~rc1
+#+end_src
+For previous version of opam, the switch creation command line is slightly more verbose:
+#+begin_src shell
+opam update
+opam switch create 4.14.1~rc1 --repositories=default,beta=git+https://github.com/ocaml/ocaml-beta-repository.git
+#+end_src
+It might be also interesting to check the new support for parallelism by installing the `domainslib` library with
+#+begin_src shell
+opam install domainslib
+#+end_src
+The source code for the release candidate is available at these addresses:
+
+- https://github.com/ocaml/ocaml/archive/4.14.1-rc1.tar.gz
+- https://caml.inria.fr/pub/distrib/ocaml-5.0/ocaml-4.14.1~rc1.tar.gz
+
+**** Fine-Tuned Compiler Configuration
+
+If you want to tweak the configuration of the compiler, you can switch to the option variant with:
+#+begin_src shell
+opam update
+opam switch create &lt;switch_name&gt; ocaml-variants.4.14.1~rc1+options &lt;option_list&gt;
+#+end_src
+where ~&lt;option_list&gt;~ is a comma-separated list of ~ocaml-option-*~ packages. For instance, for a ~flambda~ and
+~no-flat-float-array~ switch:
+#+begin_src shell
+opam switch create 4.14.1~rc1+flambda+nffa ocaml-variants.4.14.1~rc1+options ocaml-option-flambda ocaml-option-no-flat-float-array
+#+end_src
+The command line above is slightly more complicated for opam versions before 2.1:
+#+begin_src shell
+opam update
+opam switch create &lt;switch_name&gt; --packages=ocaml-variants.4.14.1~rc1+options,&lt;option_list&gt;
+--repositories=default,beta=git+https://github.com/ocaml/ocaml-beta-repository.git
+#+end_src
+In both cases, all available options can be listed with ~opam search ocaml-option~.
+
+*** Changes Since OCaml 4.14.0
+
+**** Compiler user-interface and warnings:
+
+- [#11184](https://github.com/ocaml/ocaml/issues/11184), [#11670](https://github.com/ocaml/ocaml/issues/11670): Stop calling ranlib on created / installed libraries (Sébastien Hinderer and Xavier Leroy, review by the same)
+
+**** Build System:
+
+- [#11370](https://github.com/ocaml/ocaml/issues/11370), [#11373](https://github.com/ocaml/ocaml/issues/11373): Don't pass CFLAGS to flexlink during configure. (David Allsopp, report by William Hu, review by Xavier Leroy and Sébastien Hinderer)
+
+- [#11487](https://github.com/ocaml/ocaml/issues/11487): Thwart FMA test optimization during configure (William Hu, review by David Allsopp and Sébastien Hinderer)
+
+**** Bug Fixes:
+
+- [#10768](https://github.com/ocaml/ocaml/issues/10768), [#11340](https://github.com/ocaml/ocaml/issues/11340): Fix typechecking regression when combining first class modules and GADTs. (Jacques Garrigue, report by François Thiré, review by Matthew Ryan)
+
+- [#11204](https://github.com/ocaml/ocaml/issues/11204): Fix regression introduced in 4.14.0 that would trigger Warning 17 when calling virtual methods introduced by constraining the self type from within the class definition. (Nicolás Ojeda Bär, review by Leo White)
+
+- [#11263](https://github.com/ocaml/ocaml/issues/11263), [#11267](https://github.com/ocaml/ocaml/issues/11267): caml/{memory,misc}.h: check whether ~_MSC_VER~ is defined before using it to ensure that the headers can always be used in code which turns on -Wundef (or equivalent). (David Allsopp and Nicolás Ojeda Bär, review by Nicolás Ojeda Bär and Sébastien Hinderer)
+
+- [#11314](https://github.com/ocaml/ocaml/issues/11314), [#11416](https://github.com/ocaml/ocaml/issues/11416): fix non-informative error message for module inclusion (Florian Angeletti, report by Thierry Martinez, review by Gabriel Scherer)
+
+- [#11358](https://github.com/ocaml/ocaml/issues/11358), [#11379](https://github.com/ocaml/ocaml/issues/11379): Refactor the initialization of bytecode threading, This avoids a "dangling pointer" warning of GCC 12.1. (Xavier Leroy, report by Armaël Guéneau, review by Gabriel Scherer)
+
+- [#11387](https://github.com/ocaml/ocaml/issues/11387), module type with constraints no longer crash the compiler in presence of both shadowing warnings and the ~-bin-annot~ compiler flag. (Florian Angeletti, report by Christophe Raffalli, review by Gabriel Scherer)
+
+- [#11392](https://github.com/ocaml/ocaml/issues/11392), [#11392](https://github.com/ocaml/ocaml/issues/11392): assertion failure with -rectypes and external definitions (Gabriel Scherer, review by Florian Angeletti, report by Dmitrii Kosarev)
+
+- [#11417](https://github.com/ocaml/ocaml/issues/11417): Fix regression allowing virtual methods in non-virtual classes. (Leo White, review by Florian Angeletti)
+
+- [#11468](https://github.com/ocaml/ocaml/issues/11468): Fix regression from [#10186](https://github.com/ocaml/ocaml/issues/10186) (OCaml 4.13) detecting IPv6 on Windows for mingw-w64 i686 port. (David Allsopp, review by Xavier Leroy and Sébastien Hinderer)
+
+- [#11489](https://github.com/ocaml/ocaml/issues/11489), [#11496](https://github.com/ocaml/ocaml/issues/11496): More prudent deallocation of alternate signal stack (Xavier Leroy, report by @rajdakin, review by Florian Angeletti)
+
+- [#11516](https://github.com/ocaml/ocaml/issues/11516), [#11524](https://github.com/ocaml/ocaml/issues/11524): Fix the ~deprecated_mutable~ attribute. (Chris Casinghino, review by Nicolás Ojeda Bär and Florian Angeletti)
+
+- [#11194](https://github.com/ocaml/ocaml/issues/11194), [#11609](https://github.com/ocaml/ocaml/issues/11609): Fix inconsistent type variable names in "unbound type var" messages (Ulysse Gérard and Florian Angeletti, review Florian Angeletti and Gabriel Scherer)
+
+- [#11622](https://github.com/ocaml/ocaml/issues/11622): Prevent stack overflow when printing a constructor or record mismatch error involving recursive types. (Florian Angeletti, review by Gabriel Scherer)
+
+- [#11732](https://github.com/ocaml/ocaml/issues/11732): Ensure that types from packed modules are always generalised (Stephen Dolan and Leo White, review by Jacques Garrigue)
+
+- [#11737](https://github.com/ocaml/ocaml/issues/11737): Fix segfault condition in Unix.stat under Windows in the presence of multiple threads. (Marc Lasson, Nicolás Ojeda Bär, review by Gabriel Scherer and David Allsopp)
+
+- [#11776](https://github.com/ocaml/ocaml/issues/11776): Extend environment with functor parameters in ~strengthen_lazy~. (Chris Casinghino and Luke Maurer, review by Gabriel Scherer)
+
+- [#11533](https://github.com/ocaml/ocaml/issues/11533), [#11534](https://github.com/ocaml/ocaml/issues/11534): follow synonyms again in #show_module_type (this had stopped working in 4.14.0) (Gabriel Scherer, review by Jacques Garrigue, report by Yaron Minsky)
+
+- [#11768](https://github.com/ocaml/ocaml/issues/11768), [#11788](https://github.com/ocaml/ocaml/issues/11788): Fix crash at start-up of bytecode programs in no-naked-pointers mode caused by wrong initialization of caml_global_data (Xavier Leroy, report by Etienne Millon, review by Gabriel Scherer)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Stable Diffusion in OCaml</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/stable-diffusion-in-ocaml/10932/1</cwn_url>
+      <cwn_who>Arul announced</cwn_who>
+      <cwn_what>
+I ported over Stable Diffusion in OCaml as I tried to learn the internals of stable diffusion. So far, it has been a smooth process
+to run deep learning models in OCaml.
+
+~ocaml-torch~ library is pretty neat!
+
+https://github.com/ArulselvanMadhavan/diffusers-ocaml
+
+Comments/Feedbacks/Issues - welcome!
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>qcheck-lin and qcheck-stm 0.1.0</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-qcheck-lin-and-qcheck-stm-0-1-0/10933/1</cwn_url>
+      <cwn_who>Jan Midtgaard announced</cwn_who>
+      <cwn_what>
+We are happy to announce the release of two new opam packages:
+~qcheck-lin~ and ~qcheck-stm~ for black-box property-based testing of
+module interfaces under parallel usage. Both these libraries
+build on top of ~QCheck~ - hence their names.
+
+- ~qcheck-lin~ requires little more than an interface
+  description. It allows to test a library for sequential
+  consistency, that is, whether results obtained from using it in
+  parallel agree with some linear, single domain execution.
+
+- ~qcheck-stm~ is a model-based, state-machine framework for both
+  sequential and parallel testing. It allows to test an
+  imperative interface against a pure model description, and
+  thereby allows to express and test intended behaviour beyond a
+  signature description.
+
+We presented preliminary work on both these libraries at the
+OCaml Workshop 2022 earlier this year. The libraries furthermore
+underlie our work to test the new multicore runtime of OCaml 5.0,
+and have helped us identify a number of issues.
+
+More information is available from the GitHub repository:
+
+  https://github.com/ocaml-multicore/multicoretests
+
+Happy multicore testing!
+      </cwn_what>
+      <cwn_who>Edwin Török then said</cwn_who>
+      <cwn_what>
+Interesting, this looks like a nice addition to my testing "toolbox".
+I've been using all of ~crowbar~, ~qcstm~, ~monolith~ and each has its own strenghts (what sparked my interest was in fact the
+presentation about ~qcstm~ from an earlier ICFP):
+- ~monolith~:
+   - :heavy_plus_sign: is like ~qcstm~ but integrates with ~afl~ with speeds up finding bugs a lot on multicore machines
+   - :heavy_minus_sign: it doesn't integrate nicely with testcase shrinking (you *can* use ~afl-tmin~ but there is a bit of additional machinery to integrate all that into an efficient bugfinding cycle)
+
+- ~qcstm~:
+  - :heavy_plus_sign:  comparison with a reference implementation
+  - :heavy_plus_sign:  shrinking helps produce understandable and actionable bugreports
+  - :heavy_minus_sign: doesn't integrate with ~afl~, so once you've run out of the low hanging fruit to fix it takes longer to find more bugs
+
+- ~crowbar~
+  - :heavy_plus_sign:  integrates with ~afl~
+  - :heavy_minus_sign: lacks the state machine exploration/reference implementation comparison that ~monolith~ and ~qcstm~ provide
+
+I haven't tried it yet, but ~qcheck-stm~ looks like a nice evolution of ~qcstm~ that addresses one of its disadvantages compared to
+~crowbar~/~monolith~: the lack of parallelization.
+
+Could you please clarify the connection between ~qcstm~ and ~qcheck-stm~ though? I see the README reference ~qcstm~ and some of the
+authors are shared, however the new ~qcheck-stm~ has a lower version number than the old ~qcstm~.
+Based on " ~STM~ contains a revision of [qcstm](https://github.com/jmid/qcstm)" I'd assume that qcheck-stm is a superset of qcstm,
+and qcstm is deprecated in favour of qcheck-stm?
+
+FWIW both ~qcstm~ and ~monolith~ have helped discover some bugs and security issues in ~oxenstored~ (the ocaml implementation of
+'xenstored' in Xen) a few years ago.
+My initial intent was to compare against a reference implementation, not specifically to look for security bugs, and the first bug
+found was a regular bug:
+- https://xenbits.xen.org/gitweb/?p=xen.git;a=commit;h=c8b96708252a436da44005307f7c195d699bd7c5
+
+However fairly quickly a combination of fuzzing, stress testing and manual code review has spotted a large number of security bugs,
+some very obvious:
+- [XSA-353 permissions not checked on root node](https://xenbits.xen.org/xsa/advisory-353.html)
+- [XSA-352 oxenstored: node ownership can be changed by unprivileged clients](https://xenbits.xen.org/xsa/advisory-352.html)
+- [XSA-330 oxenstored memory leak in reset_watches](https://xenbits.xen.org/xsa/advisory-330.html)
+- [XSA-354  XAPI: guest-triggered excessive memory usage](https://xenbits.xen.org/xsa/advisory-354.html)
+
+~qcstm~/~monolith~ didn't find these bugs directly, at least not initially, but they pointed out enough suspicious behaviour in that
+code area that tweaking the fuzzer would then find the security bug seen via manual review.
+
+If it wasn't for
+https://icfp20.sigplan.org/details/ocaml-2020-papers/2/A-Simple-State-Machine-Framework-for-Property-Based-Testing-in-OCaml then a
+lot of these (security) bugs wouldn't have been found, so thanks for helping me improve the quality of ~oxenstored~!
+      </cwn_what>
+      <cwn_who>Jan Midtgaard replied</cwn_who>
+      <cwn_what>
+Thanks for your kind feedback Edwin. I didn't know of any real ~qcstm~ users so you've made my day! :smiley:
+
+~qcheck-stm~ is indeed intended as a replacement of ~qcstm~, which was missing the ability to run parallel tests. The interfaces
+required are largely the same, except we've had to split ~qcstm~'s
+~run_cmd~ into two separate operations ~run~ and ~postcond~ in ~qcheck-stm~ in order to make parallel testing work. It should
+therefore be relatively easy to port tests from ~qcstm~ to ~qcheck-stm~. We did so ourselves for some of the example ~qcstm~
+~Stdlib~ tests to stress test the standard library under parallel usage with OCaml 5.
+
+~qcheck-stm~ and ~qcstm~ are (as you point out) based on black-box property-based testing - whereas ~crowbar~ and ~monolith~ are
+coverage-driven ("grey-box") driven by AFL-instrumentation. Each of these have their advantages as you also point out. In the
+present case, the black-box approach was relatively easy to get to work with non-deterministic parallel code in the style of
+[Erlang's QuickCheck](
+https://publications.lib.chalmers.se/records/fulltext/125252/local_125252.pdf) and [its
+derivatives](https://github.com/jmid/pbt-frameworks).
+
+In the longer term, I'm hoping that we can (eventually) unite these efforts in a full-featured, common testing library for OCaml
+:smiley::crossed_fingers:
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Accelerating zk-SNARKs on FPGAs with Hardcaml</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/accelerating-zk-snarks-on-fpgas-with-hardcaml/10934/1</cwn_url>
+      <cwn_who>Fu Yong Quah announced</cwn_who>
+      <cwn_what>
+@andyman, Ben Devlin, @rahuly and myself (@fyquah95) recently competed in the [ZPrize
+competition](https://www.zprize.io/blog/announcing-zprize-results) in our free time. We used [Hardcaml](http://hardcaml.com) to
+create our submissions, and we we came first and second in two of the competition tracks!
+
+All source code is [open source at github](https://github.com/fyquah/hardcaml_zprize). A big motivation for joining the contest was
+to increase the amount of publicly available open source Hardcaml examples. Using Hardcaml enabled us to productively create large
+FPGA designs with competitive performance in the short time-frame of the competition.
+
+We have a blog post with an overview of our work:
+
+https://blog.janestreet.com/zero-knowledge-fpgas-hardcaml/
+
+We also have a much more technical write-up with details about methods, results and build instructions:
+
+https://zprize.hardcaml.com
+
+We also developed a small web frontend made with Js_of_ocaml and Brr to showcase our designs in the browser. Our frontend allows
+users to configure their designs, download RTL, view statistics, run simulations, and even view waveforms from the comfort of their
+browser (even on your phone!). Source code is available at https://github.com/hardcamls/hardcaml_web. (Special thanks to @TyOverby
+for helping us put this together.)
+
+https://zprize.hardcaml.com/apps/ntt/ntt-core-with-rams-app
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>ppx_expjs: transparently export OCaml values to JavaScript</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-ppx-expjs-transparently-export-ocaml-values-to-javascript/10938/1</cwn_url>
+      <cwn_who>Zach Baylin announced</cwn_who>
+      <cwn_what>
+I'd like to share a ppx I've been working on to help us build frontends with JSOO at Skolem as well as a blog post to accompany it.
+
+[ppx_expjs](https://github.com/skolemlabs/ppx_expjs) is a ppx that helps generate the boilerplate of exporting OCaml values
+(including functions) to JavaScript when using Js_of_ocaml.
+
+*** Example
+~my_module.ml~:
+#+begin_src ocaml
+let concat (s1 : string) (s2 : string) : string = s1 ^ s2
+[@@expjs]
+#+end_src
+~node~:
+#+begin_example
+Welcome to Node.js v16.13.0.
+Type ".help" for more information.
+> const my_module = require("./_build/default/my_module.bc.js");
+undefined
+> x.concat("Hello ", "World")
+"Hello World"
+#+end_example
+(note there is no need to use either ~Js.string~ nor ~Js.to_string~)
+
+*** Blog post
+I've written a blog post that describes why one might find this ppx useful and how it works, which can be found
+[here](https://blog.skolem.com/ppx_expjs-generate-transparent-javascript-from-your-ocaml/).
+
+*** Installation
+Currently there's no official release of the ppx on OPAM, but if you would like to install it you can run
+#+begin_example
+opam pin add ppx_expjs https://github.com/skolemlabs/ppx_expjs.git
+#+end_example
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>First public release of OCaml-Canvas 1.0</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/first-public-release-of-ocaml-canvas-1-0/10945/1</cwn_url>
+      <cwn_who>OCamlPro announced</cwn_who>
+      <cwn_what>
+We are proud to announce the first public release of OCaml-Canvas 1.0!
+
+https://ocamlpro.github.io/ocaml-canvas/
+
+OCaml-Canvas provides canvases to do interactive vector graphics in OCaml, using native implementations (Windows, Macos, X11) and a
+web-backend (Javascript), with a programming interface similar to HTML5 canvases.
+
+Compared to the Graphics library, it provides a larger API, a web backend, and native Windows and Macos backends (with Cocoa API,
+instead of XQuartz).
+
+To sum up, OCaml-Canvas focuses on:
+
+- maximizing portability : OCaml-Canvas works natively under Linux (X11 and soon Wayland), macOS and Windows, and also provides a Javascript backend;
+- minimizing dependencies: the native backends make use of as few dependencies as possible;
+- improving aesthetics: OCaml-Canvas supports OpenType and TrueType fonts and anti-aliasing;
+
+OCaml-Canvas is already available on Opam: https://opam.ocaml.org/packages/ocaml-canvas/
+
+A quick tutorial is available on https://ocamlpro.github.io/ocaml-canvas/sphinx/quickstart.html
+
+The complete documentation is available on https://ocamlpro.github.io/ocaml-canvas/
+
+Hope this will be useful to the community !
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Release of Seqes version 0.1</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-release-of-seqes-version-0-1/10947/1</cwn_url>
+      <cwn_who>Raphaël Proust announced</cwn_who>
+      <cwn_what>
+*** Release
+
+I am happy to announce the release of ~Seqes~, a library to combine ~Seq~ and monads. The bulk of the initial development happened
+during the mirage-os retreat, with a few rounds of API design, test suite expansion, and documentation writing afterwards.
+
+The package is released under LGPL with linking exception (it is based on code from the OCaml's Stdlib).
+The code is [hosted on Gitlab](https://gitlab.com/nomadic-labs/seqes).
+It is available through opam: ~opam install seqes~.
+
+The library is fully usable and has a comprehensive ~QCheck~-based test coverage, but the interface may change in the future (see
+follow-up thread with its typing puzzle).
+
+*** Uses and examples
+
+The ~Seq~ module does not mix well with monads. This is why in ~Lwt~ the ~Lwt_seq~ module defines its own ~Stdlib.Seq.t~-like type —
+whereas the ~Lwt_list~ module simply defines some functions around the ~Stdlib.List.t~ type.
+
+In addition, the ~Seq~ module has grown a lot between OCaml 4.13 and 4.14. This makes the maintenance of ~Seq~-like modules (in the
+style of ~Lwt_seq~) difficult.
+
+The ~Seqes~ library addresses this by providing a functor to generate ~Lwt_seq~-like modules but for any monad. There are two main
+functors,
+
+*Extending the ~Stdlib.Seq~ module*:
+#+begin_src ocaml
+module Seq
+: sig
+
+  (* The whole of the Seq module from Stdlib *)
+  include module type of struct include Stdlib.Seq end
+
+  (* Additional Lwt traversors *)
+  module S : Seqes.Sigs.SEQMON1TRAVERSORS
+    with type 'a mon := 'a Lwt.t
+    with type 'a callermon := 'a Lwt.t
+    with type 'a t := 'a Stdlib.Seq.t
+
+end
+= struct
+  include Stdlib.Seq
+  module S = Seqes.Standard.Make1(Lwt)
+end
+#+end_src
+
+This extended module let's you traverse the Stdlib sequences with Lwt functions.
+
+#+begin_src ocaml
+Seq.exists Lwt_unix.file_exists filename_sequence
+#+end_src
+
+*Making a new monad-friendly type*
+#+begin_src ocaml
+module SeqS
+: sig
+
+  (* Similar to [Stdlib.Seq] but with [Lwt] baked into the sequence type. *)
+  include Seqes.Sigs.SEQMON1ALL
+    with type 'a mon := 'a Lwt.t
+
+  (* Additional Lwt helpers. E.g., [M.map : ('a -> 'b Lwt.t) -> 'a t -> 'b t]. *)
+  module M :
+    Seqes.Sigs.SEQMON1TRANSFORMERS
+      with type 'a mon := 'a Lwt.t
+      with type 'a callermon := 'a Lwt.t
+      with type 'a t := 'a t
+
+end
+= Seqes.Monadic.Make1(Lwt)
+#+end_src
+
+This module has its own ~Seq~-like type but with the Lwt monad built-in.
+
+#+begin_src ocaml
+type 'a t = unit -> 'a node Lwt.t
+#+end_src
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Batteries v3.6.0</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/batteries-v3-6-0/10953/1</cwn_url>
+      <cwn_who>UnixJunkie announced</cwn_who>
+      <cwn_what>
+The latest release of batteries landed in https://github.com/ocaml/opam-repository.
+It is compatible with ocaml-5.
+
+The change log can be seen below:
+
+*** v3.6.0 (minor release)
+
+- BatBuffer.enum rewritten to work with OCaml-5
+  (Francois Berenger)
+
+- Fix 'make doc'
+  #1097
+  (Simmo Saan)
+
+- Remove dependence to oasis
+  #1095
+  (Simmo Saan)
+
+- Fix compilation and unit tests for OCaml 5.0.0
+  #1094
+  #1087
+  #1086
+  (Simmo Saan, Francois Berenger)
+
+- Bug correction in BatString.split_on_string
+  #1089
+  (Francois Berenger, report by Lucas Franceschino)
+
+- bug correction in BatBitset.inter
+  #1091
+  (report by Yongho Yoon, fix by Gabriel Scherer)
+
+- Support new OCaml 5 unix primitive names
+  #1082
+  (David Allsopp, review by Francois Berenger)
+
+- BatRandom.choice on an empty enum now throws Empty instead of
+  Invalid_argument "Random.int" previously
+  #1080
+  (Nicolas Tollenaere, review by Francois Berenger)
+
+Many thanks to all contributors.
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>
