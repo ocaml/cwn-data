@@ -1,0 +1,373 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[https://alan.petitepomme.net/cwn/2022.12.27.html][Previous Week]] [[https://alan.petitepomme.net/cwn/index.html][Up]] [[https://alan.petitepomme.net/cwn/2023.01.10.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of December 27, 2022 to January 03, 2023.
+
+#+TOC: headlines 1
+
+
+* Diskuv OCaml 1.1.0 - Windows MSVC
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/ann-diskuv-ocaml-1-1-0-windows-msvc/11077/1
+
+** jbeckford announced
+
+
+I'm pleased to announce the release 1.1.0 of DKML (Diskuv OCaml) at
+[[https://github.com/diskuv/dkml-installer-ocaml/releases/tag/v1.1.0_r2][https://github.com/diskuv/dkml-installer-ocaml/releases/tag/v1.1.0_r2]].
+As usual the DKML distribution supports the Visual Studio compiler on Windows. After the 90-minute installer finishes you will have
+a working environment where ~dune build~ and ~utop~ work immediately. The installed OCaml language server works in VS Code using the
+installed ~dkml~ switch with a single VS Code option change (see /Full docs/). Creating a new local opam switch with an
+~ocaml-system~ compiler takes about 90 seconds with ~dkml init~. /Full docs/ are at
+https://diskuv-ocaml.gitlab.io/distributions/dkml/index.html#introduction.
+
+There are many new features and changes, so please browse the following release notes:
+
+Quick Links:
+- Installer :: https://github.com/diskuv/dkml-installer-ocaml/releases/download/v1.1.0_r2/setup-diskuv-ocaml-windows_x86_64-1.1.0.exe
+- Uninstaller :: https://github.com/diskuv/dkml-installer-ocaml/releases/download/v1.1.0_r2/uninstall-diskuv-ocaml-windows_x86_64-1.1.0.exe
+
+*Upgrading from 1.0.1?*
+1. Uninstall the old version first with the uninstaller above!
+2. After uninstalling the old version, run the following in PowerShell:
+   #+begin_example
+   if (Test-Path "$env:LOCALAPPDATA\opam\playground") { Remove-Item -Path "$env:LOCALAPPDATA\opam\playground" -Force -Recurse }
+   #+end_example
+3. Exit Visual Studio Code and any ~utop~ or ~ocaml~ sessions. Then use the installer above.
+4. After installing the new version, run the following in PowerShell *in each directory that has a local opam switch* to upgrade to OCaml 4.14.0 and all the other package versions that come with DKML 1.1.0:
+   #+begin_example
+   # Sometimes ~dkml init~ can fail, but you are OK as long as you see:
+   # ...  upgrade   ocaml-system                       4.12.1 to 4.14.0
+   dkml init
+
+   opam upgrade
+   opam install . --deps-only --with-test
+   #+end_example
+
+Cautions:
+- Do not use this distribution if you have a space in your username (ex. ~C:\Users\Jane Smith~). Sorry, but the broader OCaml ecosystem does not yet consistently support spaces in directories.
+- Your Windows anti-virus may play havoc with the installer. If possible, temporarily disable your anti-virus (the "realtime protection", "exploit protection" and/or "malware protection" options). Some anti-virus products include a button to temporarily disable AV protection for two hours; do that. /If you forget and the installer fails, you will need to disable AV protection, run the uninstaller, and then rerun the installer!/
+
+New features:
+- The system OCaml is 4.14.0 (was 4.12.1)
+- The system includes ocamlnat, the experimental native toplevel. It should be run using ~with-dkml ocamlnat~ so native code is compiled with Visual Studio.
+- Add odoc 2.1.0 to user PATH, to align with the [[https://ocaml.org/docs/platform][OCaml Platform]].
+- Relocatable native binaries are installed rather than compiled into place. Installations should be quicker, which is a pre-requisite for ~winget install~ (pending!) on Windows.
+- Add opam global variable ~sys-pkg-manager-cmd-msys2~ for future compatibility with opam 2.2 depext support of MSYS2
+- The ~opam dkml init~ command is now ~dkml init~. The ~dkml~ executable is precompiled and shaves ~20 minutes of installation time.
+
+New security:
+- (Advanced; experimental) If you are behind a corporate firewall that uses man-in-the-middle (MITM) TLS proxying, you can install your corporate CA chain so DKML, in particular MSYS2, does not reject connections. Only persons with write access to ~$env:ProgramData\DiskuvOCaml\conf\unixutils.sexp~ will be able to define the allowed MITM TLS chain; you may need access from your corporate Administrator. An example ~unixutils.sexp~ is:
+
+  #+begin_src scheme
+  (
+      (trust_anchors ("C:\\conf\\my.pem" "D:\\conf\\my.cer"))
+  )
+  #+end_src
+
+  You specify one or more ~.pem~ or ~.cer~ CA files, making sure to use two backslashes to escape your paths. Your Administrator may have already placed the CA files on your machine; otherwise use the guide at https://www.msys2.org/docs/faq/#how-can-i-make-msys2pacman-trust-my-companys-custom-tls-ca-certificate to copy them from your web browsers.
+
+Not so good problems:
+- [[https://github.com/diskuv/dkml-installer-ocaml/issues/21][Known bug #21]] To install the OCaml language server in a new switch you will need to first do ~opam pin remove fiber omd stdune dyn ordering --no-action~ before doing ~opam install ocaml-lsp-server~.
+- Many opam packages do not work with the MSVC compiler or with Windows. It will take a long time (months, years) to substantially improve Windows coverage. When you do find a package that fails to compile on Windows, please file an issue with whoever owns the package expressing interest in the package working on Windows. Please be patient: some package owners may want to see several people express interest before deciding the extra work is justified.
+
+Breaking changes:
+- Cross-compiling on macOS with dkml-base-compiler now requires you to be explicit which CPU architecture you are targeting. Before using ~dune -x darwin_arm64~ would always cross-compile both Intel and Silicon. Now Silicon developers need to use ~dune -x darwin_x86_64~ and Intel developers need to use ~dune -x darwin_arm64~. The change was necessary to not rely on the presence of optional Rosetta2 translation. /Since this cross-compiling feature is little used, it does not warrant a breaking version bump/.
+
+Documentation changes:
+- The documentation site has moved to [[https://diskuv-ocaml.gitlab.io/distributions/dkml/][https://diskuv-ocaml.gitlab.io/distributions/dkml/]]. Please update your bookmarks!
+
+Bug fixes:
+- The dune.exe shim uses a cache containing the expensive-to-compute MSVC environment settings. A race condition populating the cache has been fixed.
+- Repetitive opam repository updates, a source of slowness, were eliminated during installation.
+- ocaml-crunch upgraded (pinned) from 3.2.0 to 3.3.1 to fix Windows/Unix path inconsistency and handling of CRLF. That and other changed package versions are:
+  | Package             | Old Version | New Version  |
+  |---------------------|-------------|--------------|
+  | dune                | 2.9.3       | 3.6.2        |
+  | ocaml-crunch        | 3.2.0       | 3.3.1        |
+  | cmdliner            | 1.0.4       | 1.1.1        |
+  | uuidm               | 0.9.7       | 0.9.8        |
+  | ptime               | 0.8.6       | 1.1.0        |
+  | sexplib             | v0.14.0     | v0.15.1      |
+  | lsp                 | 1.9.0       | 1.10.3       |
+  | ocaml-lsp-server    | 1.9.0       | 1.10.3       |
+  | jsonrpc             | 1.9.0       | 1.10.3       |
+  | odoc                | 2.1.0       | 2.2.0        |
+  | odoc-parser         | 0.9.0       | 1.0.1        |
+  | stdio               | v0.14.0     | v0.15.0      |
+  | base                | v0.14.2     | v0.15.1      |
+  | mdx                 | 2.0.0       | 2.1.0        |
+  | ocamlformat         | 0.19.0      | 0.23.0       |
+  | ocamlformat-rpc     | 0.19.0      | *not pinned* |
+  | ocamlformat-rpc-lib | 0.19.0      | 0.23.0       |
+- The Visual Studio installation cleans up aborted previous installations.
+- The Visual Studio installation, on failure, writes error logs to a location that isn't immediately erased.
+
+Component changes:
+- +opam.exe is compiled directly from the opam master branch; no patches! There is still a shim but that shim just sets up environment variables and delegates to the authoritative (unpatched) opam.+ There is one patch for opam on top of the opam master branch (opam 2.2) dated 2022-12-21.
+- MSYS2 setup program is bundled inside the installer to lessen download TLS problems when a proxy is present (common with corporate/school Windows PCs). Resolves https://github.com/diskuv/dkml-installer-ocaml/issues/19
+
+Reproducibility features:
+- Packages promoted to central Opam repository:
+  * dkml-runtime-common
+  * dkml-runtime-distribution
+  * dkml-component-opam
+- Introduce simple spec for which package+versions are installed and/or compiled as part of the DKML distribution (in dkml-runtime-distribution). Eventually it will become authoritative.
+- Introduce dkml-component-desktop which does CI for changes to that spec (aka. testing new package versions for Windows using MSVC), and builds all relocatable binaries like dune and ocp-indent used in the Windows installer. It is not yet in the central Opam repository.
+- During installation any ~CAMLLIB~ environment variable (in addition to ~OCAMLLIB~ which was already checked) is renamed to deconflict with a new OCaml installation. Among other things, this provides an upgrade from CamlLight to OCaml. https://github.com/diskuv/dkml-installer-ocaml/issues/13
+
+Usability tweaks:
+- When building DKML packages like dkml-base-compiler, limit dump of Opam logs used for troubleshooting to 4 hours
+
+Feature flags:
+- Enable ~--enable-imprecise-c99-float-ops~ during OCaml compilation by setting
+
+  #+begin_src scheme
+  (
+    (feature_flag_imprecise_c99_float_ops)
+  )
+  #+end_src
+
+  in ~$env:ProgramData\DiskuvOCaml\conf\ocamlcompiler.sexp~. This is sometimes needed inside virtual machines like Vagrant
+
+Licensing:
+- Diskuv OCaml is fully open-source, and is targeted for pure OCaml development. Commercial tools and support are available from Diskuv for mixed OCaml/C development; however, Diskuv OCaml only has limited support for mixed OCaml/C. For example, the ~ctypes~ opam package has been patched to work with Visual Studio but is out-dated. Contact support AT diskuv.com if you need OCaml/C development.
+
+Internal changes:
+- with-dkml.exe is now configured as a opam wrapper relative to the installation directory ($DiskuvOCamlHome) rather than the tools opam switch. That change decouples your new switches (aka. dkml init) from another opam switch.
+      
+
+** jbeckford later added
+
+
+*** winget
+
+This is the first release of DKML in ~winget~, the (new) Windows Package Manager.
+
+#+begin_quote
+Windows Package Manager *winget* command-line tool is bundled with Windows 11 and modern versions of Windows 10 by default as
+the *App Installer*.
+If you are running an earlier version of Windows and the App Installer is not
+installed, you can [[https://www.microsoft.com/store/productId/9NBLGGH4NNS1][get App Installer from the Microsoft Store]].
+If it's already installed, make sure it is updated with the latest version.
+#+end_quote
+
+Once you have ~winget~, uninstall any existing DKML using the uninstall link (see the main announcement) and then type the following
+for the 90-minute install:
+
+#+begin_example
+winget install Diskuv.OCaml
+#+end_example
+You will then be able to start hacking in a new PowerShell window at [[https://diskuv-ocaml.gitlab.io/distributions/dkml/#install-is-done-what-next][Install is done! What
+next?]]
+      
+
+** jbeckford finally said
+
+
+*** setup-dkml 1.2.0
+
+/How to check if you are using setup-dkml?/ You have a ~ci/setup-dkml~ folder.
+
+The new version of [[https://github.com/diskuv/dkml-workflows#readme][setup-dkml CI]] goes along with the DKML 1.1.0 release (yes, it
+would be nice if the version numbers were in sync). You will get CI for Windows MSVC with OCaml 4.14.0 (among other things) when you
+upgrade.
+
+You should check ~ci/setup-dkml/*.md~ to see if there is any upgrade documentation. If not, you can upgrade with:
+
+#+begin_src shell
+opam update
+opam upgrade dkml-workflows
+opam exec -- generate-setup-dkml-scaffold
+opam exec -- dune build '@gen-dkml' --auto-promote
+#+end_src
+      
+
+
+
+* OCaml.org: recapping 2022 and queries on the Fediverse
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/ocaml-org-recapping-2022-and-queries-on-the-fediverse/11099/1
+
+** Anil Madhavapeddy announced
+
+
+Hot on the heels of the [[https://discuss.ocaml.org/t/ann-results-of-the-ocaml-user-survey-2022/11056][2022 User Survey results]], I thought it a good opportunity to look back over the [[https://www.dropbox.com/s/omba1d8vhljnrcn/OCaml-user-survey-2020.pdf?dl=0][2020 results]] (and [[https://discuss.ocaml.org/t/suggestions-from-the-ocaml-survey-result/6791][summary]]) and look at some of the highlights of what the ocaml.org team of contributors did in the past year for our ecosystem, and to gather some inspiration on what to focus on next in 2023. As always, these recaps from me are my personal distillation of our community's work, with me just reporting as best I can. Errors and omissions are mine, and credit to the individual hardworking maintainers!
+
+At the start of 2022, I communicated three priorities to the OCaml.org maintainer teams when asked about what to work on, based on
+the work of the core development team and the feedback from the 2020 user survey:
+
+- help the OCaml 5 release be a success
+- launch a new OCaml.org web presence with documentation
+- prototype new workflows for OCaml development
+
+*** Help the OCaml 5 release be a success
+
+The first thing I found notable (and reassuring) in the 2022 survey results is what _wasn't_ mentioned in the user responses:
+instability with the core system. We began 2022 [[https://discuss.ocaml.org/t/multicore-ocaml-january-2022-and-post-merge-activity/9294][drunk with relief from the multicore PR being
+merged]], and began the year-long 5.0.0
+release process.  In one of the core developer meetings early in the year, I requested that the 5.0.0 release would be restricted to
+_just_ the multicore runtime and effects features, since so much had changed there that we would have our hands full.  This was
+promptly ignored and followed by a [[https://github.com/ocaml/ocaml/pull/10867][surge of PRs]] removing lots of legacy cruft that had
+built up over the course of the 4.x series.  A recipe for release management disaster!
+
+I'm glad to say that I was wrong, and (as you'll see from the infrastructure report below) that the collective 5.0.0 release effort
+has been one of the most impressive I've witnessed.  The core team signalled deprecations clearly, and the various tooling teams
+(such as opam and dune) in the ecosystem performed lots of differential builds and incremental releases to remove vestigial
+deprecated fragments that now broke builds.  This was then followed by an engaged community releasing their various dependencies to
+the mainline opam repository, all in good time for the 5.0 release candidates to be cut and be usable.
+
+We are, of course, still really early in the lifetime of the OCaml 5.x series, and some serious breakages may yet lurk and only be
+discovered as our users migrate. But we are at a point now where experimentation, prototyping and
+[[https://watch.ocaml.org/videos/watch/629b89a8-bbd5-490d-98b0-d0c740912b02][migration]] can be done in a controlled way across both
+OCaml 4.x and 5.x, so let's pat ourselves on the backs for a moment about a job well done before moving on.  I'll ninja-edit this
+post if next year's user survey is full of complaints about OCaml 5 ;-)
+
+*** Launch a new OCaml.org web presence with documentation
+
+The 2020 user surveys made it crystal clear that we needed to improve the state of art with documentation and OCaml. Accordingly, we
+[[https://discuss.ocaml.org/t/v3-ocaml-org-a-roadmap-for-ocamls-online-presence/8368][started work]] in 2021 on a new site, [[https://discuss.ocaml.org/t/v3-ocaml-org-getting-ready-to-launch/9146][previewed
+it]] in early 2022 and [[https://discuss.ocaml.org/t/v3-ocaml-org-we-are-live/9747][launched in April
+2022]].
+
+This new website preserved older links (by redirecting them to an archived v2.ocaml.org) and provided a brand new centralised
+documentation site with package search and incremental rebuilds to ensure new packages get up there in a timely fashion.  This was a
+complex task behind the scenes, since it requires [[https://watch.ocaml.org/videos/watch/9bb452d6-1829-4dac-a6a2-46b31050c931][ongoing bulk package
+builds]] of every version of every package in the opam
+repository, with consistent cross-linking.
+
+It's still by no means perfect, with some work needed on rendering glitches, missing sections, and the overall information
+architecture of how to present so much information to a range of users (beginner to advanced), but it's a really solid foundation to
+work from (unlike the previous website, which was really showing its age).  This year's user survey continues to emphasise the need
+for advancing documentation, so I hope to see more contributions to the new website to ensure the content continues to improve.  And
+of course, look to your own published libraries and ensure that your odoc markup is as good as you can make it.
+
+*** Prototype new workflows for OCaml development
+
+The other hot topic in 2022 was for us to figure out how to integrate better with modern, stateless workflows for code development.
+This is a complex topic for tool maintainers to work on, since we must also [[https://watch.ocaml.org/videos/watch/039f1096-a63c-4a88-af4b-dcc48791d723][preserve backwards
+compatibility]] with existing workflows (witness the very
+high percentage of users in this year's survey that use the opam cli as their primary mechanism of interaction).  We also had a
+decent idea of who the various sorts of users are [[https://speakerdeck.com/avsm/workflows-in-the-ocaml-platform?slide=4][from discussion in
+2019]] with application developers, library authors and OS
+maintainers.
+
+There have been a number of prototypes built this year to experiment with new workflows, but most of the effort from core
+maintainers has gone into the earlier priorities (releasing OCaml 5, especially). The prevalence of dune (>91% in the 2022 survey)
+means that one simple stateless workflow is to have all the source code available in one monorepo, and perform a ~dune build~.  This
+works because dune can scan all the ~dune~ files in the repo and build them [[https://www.dra27.uk/blog/platform/2018/08/15/dune-vendoring.html][in one
+pass]].  In this workflow, opam can be optionally used to assemble
+the source code (see the [[https://github.com/tarides/opam-monorepo][opam-monorepo]]) plugin, but our Nix-loving friends also have
+their own alternative mechanisms ([[https://github.com/nix-ocaml/nix-overlays][1]], [[https://github.com/tweag/opam-nix][2]],
+[[https://ryan.freumh.org/blog/hillingar/][3]]).  While some projects like MirageOS and [[https://github.com/realworldocaml/book][Real World
+OCaml]] are using these workflows, they are still maturing.  Now that OCaml 5.0 is out and
+the new website is live, I hope to see more production quality workflows emerging in 2023.
+
+There is also some concern that dune shouldn't be a hard requirement on any workflow.  This requirement has been successfully
+preserved to date, but is getting increasingly difficult to reconcile with the demand for a more opinionated, beginner-friendly
+workflow.  With opam, our architectural answer to this is to separate the _opam file format_ from the _opam CLI_, and make it easier
+to [[https://github.com/ocaml-opam/opam-0install-solver][interpret opam repositories]] via external tools.  The same discipline should
+work for ~dune~ files with [[https://discuss.ocaml.org/t/status-update-bazel-enabled-ocaml-toolchain/10892][alternative build
+systems]].
+
+*** OCaml.org and our decentralised future in 2023
+
+How do we -- as a community -- figure out what will work for new workflows?  That's my segway into what I want to hear your thoughts
+on for 2023: how to incrementally improve community communication.
+
+- *discuss.ocaml.org (Discussion forum):* I setup this forum [[https://sympa.inria.fr/sympa/arc/caml-list/2017-05/msg00070.html][back in 2018]] in response to a user request, and it has been a successful experiment.  The number of OCaml users who report interacting via this forum has increased percentage-wise from the 2020 to 2022 results.  I am also pleased that a small moderation team has been sufficient to deal with spam.  Traffic-wise, we have had to upgrade the hosting capacity several times in the past 5 years as demand rises, and there has been a mild surge in page-views towards the end of 2022 with the release of OCaml 5.0.0.
+
+  https://global.discourse-cdn.com/business7/uploads/ocaml/optimized/2X/d/d2810e2c8655eb03126c7b92987c6cf27fffc613_2_1380x320.png
+
+  I am still regretful that I had to [[https://discuss.ocaml.org/t/lists-ocaml-org-service-temporarily-sunsetted/8692][sunset the mailing list service]], but it will hopefully [[https://github.com/ocaml/infrastructure/issues/24][be back in 2023]], especially if we find a volunteer to help configure and maintain it.
+
+- *watch.ocaml.org (Video sharing):* The [[https://joinpeertube.org][Peertube]]-based service began in the 2020 lockdowns when we shifted our workshops online.  Since then, it has been a resilient and useful resource to host videos about OCaml related topics. There are some advantages to hosting our own videos: they can be permanently archived and linked to, and we can integrate well with other "Fediverse"-based services (more on this later).
+
+  What I'd like to see in 2023 is more content being backfilled onto this site, so that we can have all the videos from the last few decades of OCaml conferences and workshops in one place!    To that end, we will promote the [[https://github.com/ocaml/infrastructure/issues/23][service to non-beta]] status soon.  It is a little tricky to use Peertube with multiple users (still involves password sharing), so we're figuring it out as we go along and before finishing the promotion to production status. Please do leave comments and thoughts on that issue or here.
+
+- *opam.ocaml.org (Package management)*: The surveys confirm that opam remains the dominant mechanism of installing and accessing the OCaml package ecosystem.  In addition to [[https://github.com/ocaml/opam/releases][regular releases]] of the opam tool itself, the backend infrastructure has been [[https://github.com/ocaml/infrastructure/issues/19][upgraded]] significantly so that the package archive should be more available and secure, and easier to mirror onto global CDNs in 2023 and also integrate with other software security supply chain software.
+
+  Alongside serving the package archives themselves, we maintain a significant multi-architecture cluster of machines that perform the bulk builds to ensure the health and integrity of the opam repository (the [[https://github.com/ocaml/opam-repository][curated package database]]). These machines comprise of x86, ARM, PowerPC and RISC-V machines (yes, we did finally get rackmounted RISC-V boards this year!).  The machines are variously hosted at the Cambridge Computer Laboratory, Inria, Scaleway and Equinix, and we are sunsetting our use of AWS for cost reasons. Individual machines have been generously funded by IBM, Tarides, Jane Street, the [[https://github.com/WorksOnArm][Works on ARM]] program.
+
+  The software driving this cluster [[https://watch.ocaml.org/videos/watch/29055525-2b0f-4f00-a0a0-26c9d4e97f9c][continues to grow]], with support for Windows and macOS builds going live in 2022. These are not yet hooked up to the live opam-repository-ci, but will hopefully be back in 2023. This marks our migration away from hosted CI services such as Travis and AppVeyor, and the backing infrastructure [[https://github.com/ocurrent/overview][is open source]] and possible to deploy for yourself (e.g. in an industrial context).
+
+- *www.ocaml.org (Website and Docs)*: I've talked extensively about the new website earlier, but I would like to emphasise the importance of receiving external contributions to the _content_ of the website.  The [[https://github.com/ocaml/ocaml.org/pulls][repository]] is open for PRs, and it has been a little quiet in the latter half of 2022 outside of a small maintainer team.  If you'd like to get involved, then please feel free to open an issue and discussing your plans, or signal any blockers you encountered.  Gabriel has already noted [[https://discuss.ocaml.org/t/maintenance-bottlenecks-in-the-compiler-distribution/11045][bottlenecks in the core OCaml distribution]], and a similar story is playing out in the wider ocaml.org ecosystem.  We need your contributions.
+
+- *git.ocaml.org (not launched)*: a service that we have considered since 2019 and did _not_ launch is a git mirror, or an alternative way of procuring OCaml ecosystem source code than from GitHub. There have been a small but steady [[https://discuss.ocaml.org/t/publishing-without-github/3232][stream of requests]] for this, with several motivations: availability (GitHub is a central point of failure), security (replicating ecosystem git branches is sound and secure practise), and privacy.  The core OCaml team is firmly committed to GitHub at present, but launching a read-only mirror is in scope for 2023 if a maintainer is willing to step forward and survey available solutions (ideally not as heavy-weight as GitLab) for mirroring scripts.  Once we have a robust read-only git mirror, we can begin to consider how to accept patch contributions (particularly to the opam repository) via email or other mechanisms, but no promises until we reach the first read-only milestone.
+
+  I'd really like to hear from industrial users who have stronger requirements for secure software supply chains here as well. I participated in a [[https://bpb-us-w2.wpmucdn.com/sites.gatech.edu/dist/a/2878/files/2022/10/OSSI-Final-Report.pdf][White House summit on software security]] earlier in the year, and it is clear that this is going to be an important topic for OCaml to keep up with in 2023, especially with our role in the formal verification ecosystem.
+
+**** Should ocaml.org host more Fediverse services?
+
+I've mentioned the [[https://en.wikipedia.org/wiki/Fediverse][Fediverse]] earlier, and could use a wider set of opinions.  One of my concerns from the user survey is how much interaction happens on closed synchronous mediums such as Slack or Discord. I'm not _against_ such platforms (1-1 and small team private chats are not replaceable), but there's currently no way to then promote knowledge gathered from the closed systems into the public commons, where they benefit newcomers.  And more recently, there has been drama around centralised services such as Twitter that throws its permanence into question.  Our user survey indicated positive
+vibes about our current interactions, and I of course want to ensure any of our technical platform choices support this healthy
+growth.
+
+The Fediverse itself is a fairly loosely arranged set of services that interoperate via two main protocols:
+[[https://www.w3.org/TR/activitypub/][ActivityPub]] for web-based services, and the Matrix chat protocol for encrypted 1:1 and group
+encrypted communications.  Some potential services we could host are:
+
+- [[https://joinmastodon.org][Mastodon]] is a micro-blogging platform which can be run on several domains. It exposes feeds via RSS as well as several open source clients. Fediverse clients can interoperate: a "boost" on a watch.ocaml.org video can be expressed in a Mastodon timeline, and a "favourite" of a video in Mastodon will increment the "like" counter on the videopage.
+
+  For ocaml.org, a simple service to run would be an activity feed (e.g. from the opam repository and the website blog) that would publish "Toots" and make them searchable across the wider network, but not allow user registration. This would sidestep the need for moderation and selection of blocklists.  However, the hard work of the [[https://ocaml.org/policies/code-of-conduct][code of conduct]] team means that we have the basis for user registration provision as well (especially by using discuss.ocaml.org as a single-sign on backend).  Opinions welcome --  by default, I will select the conservative option of adding read-only ActivityPub to ocaml.org directly, as we do not currently have the moderation resources for a full Mastodon instance, and it can be upgraded at a later stage.
+
+- [[https://matrix.org][Matrix chat]] is already sitting alongside the venerable IRC as an open alternative. One of the nicest features of Matrix is that multiple servers can publish the same room, and the domain name is simply a namespace which can be replicated. For example, we have a chat room for the Eio library that is published as ~#eio:roscidus.com~ (@talex5's Matrix server) and ~#eio:recoil.org~ (my own).  In the future, this could also be ~#eio:ocaml.org~ simply by publishing it as such.  The value in an ocaml.org Matrix server is thus to act as a conveniently searchable directory, with the room contents being replicated in various other homeservers for availability.
+
+There are still significant downsides to using the Fediverse as opposed to centralised services. Usability is patchy, availability
+can be variable as some servers go down while others remain, and moderation is never a fully solved problem that requires
+distributed maintenance of blocklists. We'll need to be open to some experimentation and failures if we step further in this
+direction, but it is promising.
+
+In this spirit of experimentation, the ocaml.org changes are all now being recorded on a blog (infra.ocaml.org, and at
+https://github.com/ocaml/infrastructure/issues), and I'll begin discussions with ecosystem maintainers about how they feel about
+moving to slightly more open platforms. In the meanwhile, nothing stops independent initiatives.  If you feel the urge to continue
+developing [[https://github.com/kit-ty-kate/ocaml-activitypub/network/members][ActivityPub bindings]] (begun by Kate at a MirageOS
+retreat but in need of a new maintainer) or bringing the [[https://tarides.com/blog/2022-06-09-ocaml-matrix-a-virtual-world][OCaml
+Matrix]] implementation to production quality, now would be an
+excellent time to do so!
+
+None of these Fediverse services are intended to replace the excellent roundups often seen on these forums (such as Gabriel's
+[[https://discuss.ocaml.org/tag/compiler-newsletter][compiler newsletters]]) and via the [[https://discuss.ocaml.org/t/twenty-years-of-ocaml-weekly-news/8869][Caml weekly
+news]].  If in doubt, feel free to step up with your own projects
+and post about them regularly here!
+
+Finally, the absolute highlight of OCaml in 2022 for me has been the continued support for [[https://outreachy.org][Outreachy]] from
+our maintainers (see [[https://discuss.ocaml.org/search?q=outreachy][posts]] and even a [[https://watch.ocaml.org/videos/watch/dc5bbf5b-3dd9-4c8d-b26a-71e730a67788][video
+roundup]]).  This effort, along with the [[https://ocaml.org/policies/code-of-conduct][code of
+conduct]] process concluding, highlights the enthusiasm for bringing newcomers into our
+world.  I encourage the senior members of our community to try to participate (even if just once), and get in touch with myself or
+the OCSF if the bottleneck is something we can help address (like funding).
+
+I've never been more excited about the future of OCaml than I am heading into 2023; a whole new realm of systems programming has
+opened up with the release of multicore and effects, and it's just really fun and a privilege being along for the ride with such
+talented collaborators. *Happy new year everyone!* _(I'm currently snowed in somewhere very remote, and am only 50% sure this will
+make it through to the forum. Please please, don't give me a HTTP error when I click on 'create topic')_ :slight_smile:
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[https://alan.petitepomme.net/cwn/][the archive]] or the [[https://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe [[http://lists.idyll.org/listinfo/caml-news-weekly/][online]].
+
+#+BEGIN_authorname
+[[https://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname
