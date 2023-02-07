@@ -1,0 +1,391 @@
+                          ━━━━━━━━━━━━━━━━━━━
+                           OCAML WEEKLY NEWS
+                          ━━━━━━━━━━━━━━━━━━━
+
+
+[Previous Week] [Up] [Next Week]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of January 31 to
+February 07, 2023.
+
+Table of Contents
+─────────────────
+
+Tezt 3.0.0, now JS-compatible and in its own repository
+Shuttle 0.9.1 released
+Outreachy Summer 2023
+Usability improvements in the OCaml compiler codebase
+Learning to write PPX extenders: some links
+Stramon 0.3.0 - Process behavior monitoring utility based on strace
+Old CWN
+
+
+[Previous Week] <https://alan.petitepomme.net/cwn/2023.01.31.html>
+
+[Up] <https://alan.petitepomme.net/cwn/index.html>
+
+[Next Week] <https://alan.petitepomme.net/cwn/2023.02.14.html>
+
+
+Tezt 3.0.0, now JS-compatible and in its own repository
+═══════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-tezt-3-0-0-now-js-compatible-and-in-its-own-repository/11283/1>
+
+
+rbardou announced
+─────────────────
+
+  It is my pleasure to announce the release of version 3.0.0 of Tezt, a
+  test framework for OCaml which is well suited for unit, integration
+  and regression tests in particular.
+
+  Tezt now lives in [its own repository] (it used to be part of
+  [Octez]). This should make documentation easier to find, bugs easier
+  to report and features easier to suggest. It also makes it faster to
+  download and install.
+
+  The main highlights of this major release are:
+  • JavaScript compatibility: the library has been split into a
+    Unix-only part (`tezt'), a new JavaScript-only part (`tezt.js'), and
+    a common part (`tezt.core');
+  • output files for regression tests are now located next to their test
+    by default, in an `expected' subdirectory, which in particular makes
+    it easier to split tests across a codebase;
+  • one can now resume from a previous run to avoid running tests that
+    had succeeded.
+
+  See the [changelog] for the full list of changes, and the [API
+  Documentation] for more details.
+
+  You can install Tezt with opam:
+  ┌────
+  │ opam install tezt
+  └────
+
+
+[its own repository] <https://gitlab.com/nomadic-labs/tezt>
+
+[Octez] <https://gitlab.com/tezos/tezos/>
+
+[changelog]
+<https://gitlab.com/nomadic-labs/tezt/-/blob/master/CHANGES.md#version-300>
+
+[API Documentation]
+<https://nomadic-labs.gitlab.io/tezt/dev/tezt/Tezt/index.html>
+
+
+Shuttle 0.9.1 released
+══════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-shuttle-0-9-1-released/11292/1>
+
+
+Anurag Soni announced
+─────────────────────
+
+  I’d like to announce a new point release (0.9.1) for `shuttle' and its
+  companion libraries. They are available to install via opam:
+
+  ┌────
+  │ opam install shuttle shuttle_ssl shuttle_http
+  └────
+
+  The code is hosted on [github], and the documentation can be seen
+  online on [ocaml’s package registry].
+
+  *Shuttle* is a small library that is a wrapper around file descriptors
+  that provides an API for buffered channels using [async].
+
+  *Shuttle_ssl* provides ssl support for `shuttle' and is built on top
+   of `async_ssl' (async bindings for OpenSSL).
+
+  *Shuttle_http* is a library that implements to help write HTTP/1.1
+   servers and clients.
+
+  Shuttle_http is the library that has seen the most changes in this
+  release:
+
+  • Improved streaming response body handling. The library will reliably
+    schedule a cleanup action that will run if the underlying socket is
+    closed before the entire response body was consumed.
+  • Support for one-shot HTTP/1.1 clients. These don’t support
+    keep-alives and the underlying socket will be closed after one
+    request -> response cycle.
+  • Support for HTTP/1.1 clients that support keep-alives. Client
+    connection will be kept open if both client and server indicate that
+    the connection supports keep-alive. This allows the same connection
+    to be re-used for multiple request -> response cycles. The
+    connection object ensures that outgoing requests are serialized to
+    respect that HTTP/1.1 doesn’t support multiplexing.
+  • Support for persistent HTTP clients. Not to be confused with `HTTP
+    persistent connection'. Persistent in this case refers to durable
+    clients that will always hand the user an open connection, and
+    attempts to reconnect if the underlying connection is lost. This
+    leverages Async’s persistent module to provide an HTTP flavored
+    persistent connection.
+
+
+[github] <https://github.com/anuragsoni/shuttle>
+
+[ocaml’s package registry]
+<https://ocaml.org/p/shuttle_http/0.9.1/doc/index.html>
+
+[async] <https://opensource.janestreet.com/async/>
+
+Uses and examples
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  *A hello world http server*
+
+  ┌────
+  │ open! Core
+  │ open Async
+  │ open Shuttle_http
+  │ 
+  │ let hello_world (address : Socket.Address.Inet.t) (request : Request.t) =
+  │   Log.Global.info !"%{sexp: Socket.Address.Inet.t} - %s" address (Request.path request);
+  │   return (Response.create ~body:(Body.string "Hello World") `Ok)
+  │ ;;
+  └────
+
+  *An example of a http handler that responds with a streaming body*
+
+  ┌────
+  │ open! Core
+  │ open Async
+  │ open Shuttle_http
+  │ 
+  │ let my_service (address : Socket.Address.Inet.t) (request : Request.t) =
+  │   let%map reader =
+  │     (* This an example to show a stream that works with an external resource. *)
+  │     Reader.open_file "<some file path>"
+  │   in
+  │   (* Create a pipe from the reader that we will use as a streaming response body. *)
+  │   let reader_pipe = Reader.pipe reader in
+  │   (* Create a response from the reader's pipe. If the server is closed before the full
+  │      response was served, the pipe will be closed which in-turn will close the reader and
+  │      the underlying file descriptor. *)
+  │   Response.create ~body:(Body.of_pipe `Chunked reader_pipe) `Ok
+  │ ;;
+  └────
+
+  *A one-shot http client*
+
+  ┌────
+  │ let run () =
+  │   let address =
+  │     Client.Address.of_host_and_port (Host_and_port.create ~host:"httpbin.org" ~port:443)
+  │   in
+  │   Client.Oneshot.call ~ssl:(Client.Ssl.create ()) address (Request.create `GET "/get")
+  │ ;;
+  └────
+
+  *Client supporting keep-alive*
+
+  ┌────
+  │ let run () =
+  │   let stdout = Lazy.force Writer.stdout in
+  │   let%bind httpbin =
+  │     Deferred.Or_error.ok_exn
+  │       (Client.create
+  │          ~ssl:(Client.Ssl.create ())
+  │          (Client.Address.of_host_and_port
+  │             (Host_and_port.create ~host:"httpbin.org" ~port:443)))
+  │   in
+  │   Monitor.protect
+  │     ~finally:(fun () -> Client.close httpbin)
+  │     (fun () ->
+  │       let%bind response = Client.call httpbin (Request.create `GET "/stream/20") in
+  │       Log.Global.info !"Headers: %{sexp: Headers.t}" (Response.headers response);
+  │       let log_body response =
+  │         Body.Stream.iter
+  │           (Body.to_stream (Response.body response))
+  │           ~f:(fun chunk ->
+  │             Writer.write stdout chunk;
+  │             Writer.flushed stdout)
+  │       in
+  │       let%bind () = log_body response in
+  │       let%bind response = Client.call httpbin (Request.create `GET "/get") in
+  │       Log.Global.info !"Headers: %{sexp: Headers.t}" (Response.headers response);
+  │       log_body response)
+  │ ;;
+  └────
+
+
+Outreachy Summer 2023
+═════════════════════
+
+  Archive: <https://discuss.ocaml.org/t/outreachy-summer-2023/11159/4>
+
+
+Reynir Björnsson announced
+──────────────────────────
+
+  Hello! Me, @rand and @pitag intend to co-mentor on two projects
+  related to [Mirage]. We have not set in stone what the projects will
+  be, but we have some ideas. Suggestions and feedback is very welcome.
+
+  One idea is to work on the story of persistent storage in OCaml.
+  Specifically,
+  • write tests and example unikernels for existing libraries (MBR, tar,
+    ..),
+  • work on a gpt implementation (an old non-functional implementation
+    exists),
+  • a scratch space / swap-like library for keeping track in memory of
+    temporary allocations on a block device. This can be used in
+    conjunction with MBR or GPT and the tar filesystem. The tar
+    filesystem is append-only, and for that reason the scratch space can
+    be useful for temporarily storing files downloaded over http before
+    committing them to the filesystem once the final size is known or
+    the checksum matches an expected hash.
+
+  We have as well a few ideas about (better) support for MirageOS on
+  micro controllers and Raspberry Pi. We are investigating the
+  possibility of shipping hardware to interns and what micro controllers
+  could be relevant.
+
+  Other ideas is picking up an old ntp-client project or working on
+  conntest: <https://github.com/rand00/conntest/>
+
+
+[Mirage] <https://mirage.io/>
+
+
+Usability improvements in the OCaml compiler codebase
+═════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/usability-improvements-in-the-ocaml-compiler-codebase/11312/1>
+
+
+gasche said
+───────────
+
+  In the monster thread [What are the biggest reasons newcomers give up
+  on OCaml?], @patricoferris [posted a structured summary] and then said
+  the following:
+
+        Firstly, there’s actually a tremendous amount of excellent
+        work happening (and that has happened) to improve the
+        situation for newcomers coming to OCaml, which is great
+        and should be celebrated! However, it probably hasn’t been
+        communicated effectively with the broader community. […]
+        Working out better ways to communicate that sustainably
+        might be good.
+
+  I can’t speak for the whole tooling ecosystem for OCaml, but with my
+  compiler contributor hat, I decided to play along and communicate on
+  the fact that, yes, people are constantly working to improve the
+  usability of the language implementation.
+
+  Many changes to the language and standard library participate to
+  usability, but if we restrict to the usability of the compiler itself
+  and its documentation, one way to see the action is to look at the
+  [compiler changelog], in particular sections “Manual and
+  documentation” and “Compiler user-interface and warnings”.
+
+  Below are those two sections in the last two years of OCaml releases.
+  (I trimmed some entries which I believe are less immediately related
+  to usability.)
+
+  /Editor’s note: please follow the archive link above to read the huge
+  list that Gabriel collected./
+
+
+[What are the biggest reasons newcomers give up on OCaml?]
+<https://discuss.ocaml.org/t/what-are-the-biggest-reasons-newcomers-give-up-on-ocaml/10958/241>
+
+[posted a structured summary]
+<https://gist.github.com/patricoferris/58ac1247ad17d435e952ccb9a339450b>
+
+[compiler changelog] <https://github.com/ocaml/ocaml/blob/trunk/Changes>
+
+
+Learning to write PPX extenders: some links
+═══════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/learning-to-write-ppx-extenders-some-links/11334/1>
+
+
+Lukasz Stafiniak said
+─────────────────────
+
+  Hi! This is just to signal boost a couple of PPX extension examples,
+  for extenders specifically, that I found useful in my learning. Sorry
+  for not selecting others, I stumbled upon these.
+
+  • [Blog post by Nathan from Tarides] is to go-to tutorial that I only
+    discovered today.
+  • [ppx-monoid] is recursively translating the expression parts of
+    interest while keeping others unchanged.
+  • [tensority] is reinterpreting operators globally.
+  • [pacomb] is an example of “mappers”, applying matching changes
+    anywhere in the expression.
+
+
+[Blog post by Nathan from Tarides]
+<https://tarides.com/blog/2019-05-09-an-introduction-to-ocaml-ppx-ecosystem>
+
+[ppx-monoid]
+<https://github.com/bobatkey/ppx-monoid/blob/master/src/ppx_monoid.ml>
+
+[tensority]
+<https://github.com/Octachron/tensority/blob/master/ppx/ppx_tensority.ml>
+
+[pacomb] <https://github.com/craff/pacomb/blob/master/ppx/ppx_pacomb.ml>
+
+
+Stramon 0.3.0 - Process behavior monitoring utility based on strace
+═══════════════════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-stramon-0-3-0-process-behavior-monitoring-utility-based-on-strace/11335/1>
+
+
+Darren announced
+────────────────
+
+  I am happy to announce [Stramon] 0.3.0, which now has pid and command
+  tracking.
+
+  Stramon invokes strace underneath, analyzes the output and summarize
+  the findings into a JSON file when the command finishes.
+
+  An example JSON created by running Firefox via Stramon can be seen
+  [here].
+
+
+[Stramon] <https://github.com/darrenldl/stramon>
+
+[here]
+<https://github.com/darrenldl/stramon/blob/main/examples/firefox.json>
+
+
+Old CWN
+═══════
+
+  If you happen to miss a CWN, you can [send me a message] and I’ll mail
+  it to you, or go take a look at [the archive] or the [RSS feed of the
+  archives].
+
+  If you also wish to receive it every week by mail, you may subscribe
+  [online].
+
+  [Alan Schmitt]
+
+
+[send me a message] <mailto:alan.schmitt@polytechnique.org>
+
+[the archive] <https://alan.petitepomme.net/cwn/>
+
+[RSS feed of the archives] <https://alan.petitepomme.net/cwn/cwn.rss>
+
+[online] <http://lists.idyll.org/listinfo/caml-news-weekly/>
+
+[Alan Schmitt] <https://alan.petitepomme.net/>
