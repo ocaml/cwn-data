@@ -1,0 +1,428 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[https://alan.petitepomme.net/cwn/2023.03.07.html][Previous Week]] [[https://alan.petitepomme.net/cwn/index.html][Up]] [[https://alan.petitepomme.net/cwn/2023.03.21.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of March 07 to 14, 2023.
+
+#+TOC: headlines 1
+
+
+* My experience contributing to the LLVM bindings
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/my-experience-contributing-to-the-llvm-bindings/11599/1
+
+** alan announced
+
+
+Over the past few months, I've been contributing patches to the LLVM bindings. In particular, I ported the bindings
+to OCaml 5, which involved removing naked pointers. I wrote about what I learned
+[[https://alan-j-hu.github.io/writing/llvm-ocaml.html][here]].
+      
+
+
+
+* Which binding should i use for sqlite , for mariadb and for postgresql
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/which-binding-should-i-use-for-sqlite-for-mariadb-for-postgresql/11605/2
+
+** Alain De Vos asked and Nicolas Ojeda Bar replied
+
+
+#+begin_quote
+Which binding should i use for sqlite , for mariadb & for postgresql ?
+#+end_quote
+
+At LexiFi we have used https://github.com/mmottl/postgresql-ocaml for PostgreSQL and
+https://github.com/mmottl/sqlite3-ocaml for SQLite for a long time and found them solid.
+      
+
+** Kim Nguyễn also replied
+
+
+If you are looking for a unified API, there is [[https://github.com/paurkedal/ocaml-caqti][Caqti]]. It uses the lower
+level bindings mentioned by @nojb (and also supports MariaDB using
+[[https://github.com/andrenth/ocaml-mariadb][mariadb-ocaml]]. It feels like the "jdbc for OCaml" but with much more!
+
+It provides three high-level API, either a standard blocking interface, or asynchronous with Lwt or asynchronous
+with Janestreet's Async).
+      
+
+** Frédéric Loyer then added
+
+
+Caqti is nice and can be completed nicely with ppx_rapper which transforms a commented SQL string into a typed
+wrapper.
+
+See https://github.com/roddyyaga/ppx_rapper
+      
+
+
+
+* Monday, 6th March - Outreachy Intern Presentation (Dec '22 Round)
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/monday-6th-march-outreachy-intern-presentation-dec-22-round/11564/5
+
+** Patrick Ferris announced
+
+
+The presentation is now online: https://watch.ocaml.org/w/pQSAfZ9kDSsSnr8Bxzocn3
+
+Thank you @Prisca for the talk and everybody for joining live. We took this opportunity to reupload everything to
+the OCaml Outreachy channel under the ~bactrian~ user: https://watch.ocaml.org/c/outreachy_ocaml/videos
+      
+
+** Anil Madhavapeddy asked and Prisca replied
+
+
+#+begin_quote
+Your slides look great, with lots of nice OCaml/TopoJSON code fragments; might you consider making them available
+online somewhere? Making yourself a homepage, or using something like Speakerdeck are both good options.
+#+end_quote
+
+@avsm Thank you very much for the kind words. I just did. This is the link
+https://speakerdeck.com/priceless/presentation
+
+#+begin_quote
+I noticed you published a release of the library to opam – you should add yourself to the authors list in
+~dune-project~, so that you are credited in [[https://ocaml.org/p/topojson/latest][the documentation page for TopoJSON
+]].
+#+end_quote
+
+Thank you for pointing that out as well. @patrickferris and I will correct it.
+      
+
+
+
+* First release of ppx_subliner, a ppx deriver and rewriter for Cmldliner sub-command
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/ann-first-release-of-ppx-subliner-a-ppx-deriver-and-rewriter-for-cmldliner-sub-command/11610/1
+
+** Boning announced
+
+
+I am very pleased to announce the first release of [[https://github.com/bn-d/ppx_subliner][~ppx_subliner~]]! The
+package is now available through [[https://opam.ocaml.org/packages/ppx_subliner/][OPAM]].
+
+I am always a big fan of [[https://github.com/hammerlab/ppx_deriving_cmdliner][~ppx_deriving_cmdliner~]]. It helps
+you construct ~Cmdliner.Term.t~ from record types and makes writing cli parsing intuitive and painless. But it
+lacks the ability to generate values for sub-command groups and the final ~Cmdliner~ evaluations. Therefore,
+~ppx_subliner~ comes to life.
+
+~ppx_subliner~ can work with ~ppx_deriving_cmdliner~ to generate sub-command groups. You can do so by simply
+tagging the extension to a variant type.
+
+#+begin_src ocaml
+type foo = { my_arg : string } [@@deriving cmdliner]
+
+type params =
+  | Foo of foo
+  | Bar
+[@@deriving_inline subliner]
+include
+  sig
+    [@@@ocaml.warning "-32"]
+    val params_cmdliner_group_cmds : (params -> 'a) -> 'a Cmdliner.Cmd.t list
+  end[@@ocaml.doc "@inline"]
+[@@@end]
+#+end_src
+
+It will generate a function which takes in a handle function and return the sub-command list. Here is a simple
+handle function.
+
+#+begin_src ocaml
+let handle = function
+  | Foo { my_arg } -> print_endline ("Foo " ^ my_arg)
+  | Bar -> print_endline "Bar"
+#+end_src
+
+From here, you either construct the final evaluation manually:
+
+#+begin_src ocaml
+let cmd =
+  let open Cmdliner in
+  let doc = "Some docs" in
+  let info = Cmd.info ~doc "foobar" in
+  Cmd.group info (params_cmdliner_group_cmds handle)
+
+let () = exit (Cmdliner.eval cmd)
+#+end_src
+
+or use the ~[%%subliner.cmds]~ rewriter, which reuses the setfield syntax:
+
+#+begin_src ocaml
+(* {eval function}.{type name} <- {function expression> *)
+#+end_src
+#+begin_src ocaml
+[%%subliner.cmds eval.params <- handle]
+[@@name "foobar"] [@@version "3.14"]
+(** Some docs *)
+#+end_src
+
+#+begin_example
+$ foobar.exe foo --my-arg 123
+Foo 123
+#+end_example
+
+Both the deriver and rewriter will respect the OCaml docstring. You can also use ~[@name]~, ~[@man]~, ~[@envs]~ etc
+to configure all aspects of the underlying ~Cmdliner.Cmd.info~ value.
+
+You can also use different evaluation function and set optional arguments:
+
+#+begin_src ocaml
+[%%subliner.cmds (eval_result ~catch:false).params <-
+  (function
+    | Foo { my_arg } -> print_endline ("Foo " ^ my_arg) |> Result.ok
+    | Bar -> print_endline "Bar" |> Result.ok)]
+#+end_src
+
+Please see more details in the [[https://boni.ng/ppx_subliner/ppx_subliner/index.html][documentation]].
+
+*** What's next
+I want to support inline record and enum as arg in the future, and maybe replicate some of
+~ppx_deriving_cmdliner~'s functionality, but better support for ~deriving_inline~, lists (ie. ~-I liba -I libb~
+instead of ~-I liba,libb~), positional arguments and more compile time validation. We shall see.
+
+Hope this is helpful. Happy hacking!
+
+https://github.com/bn-d/ppx_subliner
+      
+
+
+
+* Cross-compiling for Embedded arm32 Target (RP2040 / Cortex-M0+)
+:PROPERTIES:
+:CUSTOM_ID: 5
+:END:
+Archive: https://discuss.ocaml.org/t/cross-compiling-for-embedded-arm32-target-rp2040-cortex-m0/11585/8
+
+** Deep in this thread, Calascibetta Romain said
+
+
+Note that you probably should take a look on [[https://github.com/dinosaure/gilbraltar][gilbraltar]] which is a full
+OCaml runtime for Rasperry Pi 4 (arm64).  We already did several works on this _ocaml toolchain_, a [[https://twitter.com/Dinoosaure/status/1471128595154231300]["guirlande
+OS"]] or a [[https://tarides.com/blog/2022-10-28-the-mirageos-retreat-a-journey-of-food-cats-and-unikernels#implementing-a-jack-port-driver-or-how-to-make-a-unikernel-sing-bare-metal][music player OS via Jack]].
+      
+
+
+
+* VOCaml: add and remove type annotations in VS Code
+:PROPERTIES:
+:CUSTOM_ID: 6
+:END:
+Archive: https://discuss.ocaml.org/t/vocaml-add-and-remove-type-annotations-in-vs-code/11618/1
+
+** Lukasz Stafiniak announced
+
+
+I'm happy to announce [[https://marketplace.visualstudio.com/items?itemName=lukstafi.vocaml][a VS Code extension
+VOCaml]] ([[https://github.com/lukstafi/vocaml/releases/tag/1.0.0][GitHub
+release]]) where I'll be putting my OCaml coding helpers.
+Currently, it has three commands:
+
+- /VOCaml: Add Type Annotations/ inserts type annotations around let bindings.
+- /VOCaml: Remove Type Annotations/ removes type annotations from let bindings.
+- /VOCaml: Visit File from Current Line/ triggers a *Quick Open* dialog populated with a file and line number retrieved from the line at cursor position.
+
+VOCaml is a companion to [[https://github.com/lukstafi/ppx_minidebug][~ppx_minidebug~]], but it can be used for its
+own merits. It has some limitations, report issues if you try it!
+      
+
+
+
+* Sunsetting opam-repository-mingw
+:PROPERTIES:
+:CUSTOM_ID: 7
+:END:
+Archive: https://discuss.ocaml.org/t/sunsetting-opam-repository-mingw/11632/1
+
+** David Allsopp announced
+
+
+As [[https://fdopen.github.io/opam-repository-mingw/2021/02/26/repo-discontinued][previously announced]],
+"opam-repository-mingw" is no longer receiving updates.
+
+We're actively working on getting the Windows compiler packages into
+[[https://github.com/ocaml/opam-repository][ocaml/opam-repository]]. There are two issues which are taking (me) a
+little while to finish solving, but more on that further below.
+
+In the gap - of hopefully only a month or so - for this being ready, there's is an issue that new releases are of
+course not available when opam-repository-mingw is being used with
+[[https://github.com/ocaml/setup-ocaml][~ocaml/setup-ocaml@v2~]] GitHub actions workflows. I'm hoping here to set out
+what's happening, and what steps you may need to take to keep your GitHub Actions Windows workflows running
+smoothly over the next few months.
+
+*** What's happening right now?
+
+We've updated setup-ocaml to use
+[[https://github.com/ocaml-opam/opam-repository-mingw][ocaml-opam/opam-repository-mingw]] instead of
+[[https://github.com/fdopen/opam-repository-mingw][fdopen/opam-repository-mingw]] (see
+[[https://github.com/ocaml/setup-ocaml/pull/651][ocaml/setup-ocaml#651]]). This clone has been augmented with:
+- OCaml 4.14.1 packages, in the same style as the 4.14.0 forked packages (the "pre-compiled" package variants exist, but they're not pre-compiled)
+- Changes to the constraints for _existing_ packages only
+
+If you're using setup-ocaml in its default configuration, you should notice no change except that ~4.14.x~ builds
+should now use 4.14.1 and the initial build will be a little slower as it builds from sources (GitHub Actions
+caching will then take over for subsequent runs).
+
+For new releases of packages, it's necessary to _add_ opam-repository to the repositories selections for the
+switches. It's important that opam-repository is at a _lower priority_ than opam-repository-mingw for existing
+packages, so it's better to use these lines in your ~ocaml/setup-ocaml@v2~ step than to issue ~opam repo add
+--rank=1000~ later:
+
+#+begin_example
+uses: ocaml/setup-ocaml@v2
+with:
+  opam-repositories: |
+    opam-repository-mingw: https://github.com/ocaml-opam/opam-repository-mingw.git#sunset
+    default: https://github.com/ocaml/opam-repository.git
+#+end_example
+
+*** What do I do when things are broken?
+
+There's an issue tracker on
+[[https://github.com/ocaml-opam/opam-repository-mingw/issues][ocaml-opam/opam-repository-mingw]], and this is a very
+good place to start.
+
+If a version of a package isn't building, there are three possible remedies:
+
+- Previous versions of the package may have carried non-upstreamed patches in opam-repository-mingw.
+opam-repository's policy is not to carry such patches. In this case, the package actually doesn't work on Windows.
+  - opam-repository should be updated to have ~os != "win32"~ added to the ~available~ field for the package
+  - An issue on the package's upstream repo should be opened highlighting the need to upstream patches (or even a pull request with them!)
+  - The patches in opam-repository-mingw make changes which may not necessarily be accepted/acceptable upstream in their current form, so the issue may be a better starting point than simply taking a patch and opening a pull request for it (for example, the ~utop~ package contains patches which may require further work and review)
+- The package relies on environment changes in "OCaml for Windows". For example, the Zarith package works in "OCaml for Windows" because the compiler packages unconditionally set the ~CC~ environment variable. This change is both not particularly desirable change to upstream (it is _very_ confusing, for example, when working on the compiler itself) and also extremely difficult to upstream, so the fix here is instead to change the package's availability with ~(os != "win32" | os-distribution = "cygwinports")~ and constrain away OCaml 5 on Windows (~"ocaml" {< "5.0" | os != "win32"}~)
+- Package constraints on _existing packages_ need updating in ocaml-opam/opam-repository-mingw. For example, the release of ppxlib 0.29 required some existing packages to have upperbounds added.
+
+*** What about OCaml 5.0.0?
+
+OCaml 5.0.0 was released with support for the mingw-w64 port only, however, there's a quite major bug which wasn't
+caught by OCaml's testsuite, but is relatively easily triggered by opam packages. I've [[https://discuss.ocaml.org/t/pre-ann-installing-windows-ocaml-5-0-0-in-opam/11150][previously
+announced]] how to add OCaml 5 to
+a workflow. For the time being, the packages for OCaml 5 aren't automatically made available.
+
+*** What's next?
+
+The ultimate goal is to be using an upstream build of ~opam.exe~ with ocaml/opam-repository, just as on Unix. Once
+opam 2.2 is generally available (we're aiming for an alpha release at the end of March) and the compiler packages
+in opam-repository support the Windows builds, we will recommend stopping use of opam-repository-mingw completely.
+The default in setup-ocaml won't change straight away, since that risks breaking existing workflows.
+
+With upstream compiler support, we'll be able to extend some of the existing bulk build support already being done
+for Linux to Windows and start to close the gap of patches in opam-repository-mingw.
+
+*** Windows compiler packages
+
+I mentioned earlier the problems with moving the compiler packages into opam-repository, and just for general
+interest this elaborates on them.
+
+The first issue affects the use of the Visual Studio port ("MSVC") and is a consequence of the somewhat strange way
+that the C compiler is added to the environment when using the Visual Studio C compiler. "OCaml for Windows" (as
+well as Diskuv) use a wrapper command (it's ~ocaml-env~ in "OCaml for Windows" and ~with-dkml~ in Diskuv). Those
+commands are Windows-specific, which is an issue for upstream opam. There's an alternate way which sets the
+environment variables in a more opam-like way. Doing it that way, though, requires an improvement to opam's
+environment handling which is in opam 2.2, otherwise there's an easy risk of "blowing" the environment.
+
+The second issue is selecting the C compiler. On Unix, this is easy
+with ~ocaml-base-compiler~ because there is only one "system" C compiler. Windows has two ports of OCaml, and the
+configuration requires it to be explicitly selected. That requires input from the user on switch creation for a
+Windows switch.
+
+"OCaml for Windows" solves this by packaging the Windows compilers with the variant name appended, just as
+opam-repository used to, so ~ocaml-variants.4.14.1+mingw64~ selects the the mingw-w64 port and
+~ocaml-variants.4.14.1+msvc64~ selects the MSVC64 port. The problem, as we already had in opam-repository, is that
+this adds 4 packages for each release of OCaml in ~ocaml-variants~, and leads to a combinatorial explosion when we
+start considering flambda and other relevant compiler options.
+
+opam-repository switched to using the ~ocaml-option-~ packages to solve the combinatorial explosion which was
+already present in opam-repository. The demonstration repo for OCaml 5 on Windows is already using an adapted
+version of this so that ~ocaml-option-mingw~ selects the mingw-w64 port (by default 64-bit, with
+~ocaml-option-32bit~ then selecting the 32-bit port).
+
+This work is all in progress and being tested alongside changes in  opam 2.2 to support the _depext_ experience on
+Windows. The only reason that's not being upstreamed piecemeal is that changes to the compiler packages in
+opam-repository trigger switch rebuilds all over the world, so we don't want to that until we're sure that the
+packages are correct. The intention is to do this around the time of the alpha release of opam 2.2, once the work
+in opam itself has settled down.
+
+Thanks for getting to the end, and happy Windows CI testing!
+      
+
+
+
+* Outreachy Summer 2023
+:PROPERTIES:
+:CUSTOM_ID: 8
+:END:
+Archive: https://discuss.ocaml.org/t/outreachy-summer-2023/11159/10
+
+** Paul-Elliot announced
+
+
+Just wanted to say that I also submitted an OCaml Outreachy project!
+
+The goal of the project is to improve the error reporting in the PPXs ecosystem. This includes both modifying
+ppxlib's behavior when catching an exception raised by a rewriter; and modify existing PPXs to better report error
+(by embedding them inside the AST when relevant, allowing for both multiple error reporting, and creation of a
+partial AST that contains all information that could be created).
+      
+
+
+
+* VS Code extension Alcotest Test Explorer 0.4.0
+:PROPERTIES:
+:CUSTOM_ID: 9
+:END:
+Archive: https://discuss.ocaml.org/t/ann-vs-code-extension-alcotest-test-explorer-0-4-0/11636/1
+
+** Roland Csaszar announced
+
+
+Thanks to @Muqiu-Han a severe bug has been fixed: an exception
+raised by ~failwith~ wasn't recognized as failure and the test result had been set to  'passed'.
+
+Changelog:
+*** Version 0.4.0 (2023-03-10)
+
+- Mark a test case as failed if a ~[FAIL]~ tag is present, even if the actual error message can't be parsed.
+
+*** Bugfixes
+
+- Make the error parser recognize the exception generated by ~failwith~. (Fix [[https://github.com/Release-Candidate/vscode-ocaml-alcotest-test-adapter/issues/1][#1]])
+
+*** Internal Changes
+
+- Add test cases to check that the changes actually work.
+- Fix typo in issue template.
+- Correct the job name in the ~release~ GitHub workflow.
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[https://alan.petitepomme.net/cwn/][the archive]] or the [[https://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe [[http://lists.idyll.org/listinfo/caml-news-weekly/][online]].
+
+#+BEGIN_authorname
+[[https://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname
