@@ -1,0 +1,845 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[https://alan.petitepomme.net/cwn/2023.05.16.html][Previous Week]] [[https://alan.petitepomme.net/cwn/index.html][Up]] [[https://alan.petitepomme.net/cwn/2023.05.30.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of May 16 to 23, 2023.
+
+#+TOC: headlines 1
+
+
+* Looking for example tsdl games
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/looking-for-example-tsdl-games/3880/12
+
+** Benjamin Thomas said
+
+
+This one is for the search engines...
+
+I was looking for a way to setup a "proper" game loop, functional style.
+
+Looking at the ~tsdl~ repo, I noticed the examples in the test folder make heavy use of match expressions.
+Replicating that style quickly led me to a "callback hell" type of problem though.
+
+Anyhow, this is my take on setting up a basic game loop:
+
+#+begin_src ocaml
+(*
+ * dune exec --display=quiet bin/main.exe
+ *)
+
+module Sdl = Tsdl.Sdl
+module Window = Sdl.Window
+module Event = Sdl.Event
+
+let ( let* ) = Result.bind
+
+type error_ctx =
+  | Partial of { window : Sdl.window }
+  | Full of { window : Sdl.window; renderer : Sdl.renderer }
+
+(* Attach extra context to the original error.
+ * Used for resource cleanup on program exit.
+ *)
+let with_err_ctx ctx = Result.map_error (fun err -> (err, ctx))
+
+let init_window () =
+  let* () = Sdl.init Sdl.Init.(audio + video) in
+  let* window =
+    Sdl.create_window "OCaml/TSDL: CHANGE_ME" ~x:Window.pos_centered
+      ~y:Window.pos_centered ~w:640 ~h:480 Window.shown
+  in
+
+  Ok window
+;;
+
+let render_frame renderer (x, y) =
+  let* () = Sdl.set_render_draw_color renderer 255 127 40 255 in
+  let* () = Sdl.render_clear renderer in
+  let* () = Sdl.set_render_draw_color renderer 255 0 0 255 in
+  let* () =
+    Sdl.render_fill_rect renderer (Some (Sdl.Rect.create ~x ~y ~w:70 ~h:70))
+  in
+  ()
+  ; Sdl.render_present renderer
+  ; Ok ()
+;;
+
+type state = { quit : bool; pos : int * int }
+
+let initial_state = { quit = false; pos = (0, 0) }
+
+let poll evt state =
+  let (x, y) = state.pos in
+  let default = { state with pos = (x + 2, y + 1) } in
+
+  if Sdl.poll_event (Some evt) then
+    match Event.(enum (get evt typ)) with
+    | `Quit -> { state with quit = true }
+    | _ -> default
+  else
+    default
+;;
+
+let run_game_loop renderer =
+  let rec loop evt state =
+    if not state.quit then (
+      let state = poll evt state in
+      let* () = render_frame renderer state.pos in
+      ()
+      ; Sdl.delay 17l (* approx 60 FPS *)
+      ; loop evt state
+    ) else
+      Ok ()
+  in
+
+  let evt = Event.create () in
+  loop evt initial_state
+;;
+
+let start_game () =
+  let* window = init_window () |> with_err_ctx None in
+  let* renderer =
+    Sdl.create_renderer window |> with_err_ctx (Some (Partial { window }))
+  in
+  let* () =
+    run_game_loop renderer |> with_err_ctx (Some (Full { window; renderer }))
+  in
+
+  Ok (window, renderer)
+;;
+
+let rec destroy_resources = function
+  | Some (Full { window; renderer }) ->
+      ()
+      ; Sdl.destroy_renderer renderer
+      ; destroy_resources @@ Some (Partial { window })
+  | Some (Partial { window }) ->
+      ()
+      ; Sdl.destroy_window window
+  | None -> ()
+;;
+
+let () =
+  match start_game () with
+  | Ok (window, renderer) ->
+      ()
+      ; Sdl.destroy_renderer renderer
+      ; Sdl.destroy_window window
+      ; Sdl.quit ()
+      ; exit 0
+  | Error (`Msg msg, ctx) ->
+      ()
+      ; Sdl.log "Error: %s" msg
+      ; destroy_resources ctx
+      ; Sdl.quit ()
+      ; exit 1
+;;
+#+end_src
+
+It took a bit of fiddling before finding something I was happy with, I'll gladly take any criticism/feedback :)
+
+If you have made a game or project with ~tsdl~, please do tell us about it!
+
+(personally, I'm going through the "Nature of Code" book and want to implement the exercises in many
+languages/libraries)
+      
+
+** Yotam Barnoy then said
+
+
+Take a look at my [[https://github.com/bluddy/rails][Railroad Tycoon reimplementation]].
+      
+
+
+
+* OCaml.org Newsletter: April 2023
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/ocaml-org-newsletter-april-2023/12173/1
+
+** Thibaut Mattio announced
+
+
+Welcome to the April 2023 edition of the OCaml.org newsletter! As with the [[https://ocaml.org/news/ocamlorg-2023-03][previous
+update]], this has been compiled by @sabine and @tmattio.
+
+The OCaml.org newsletter provides an overview of changes on the OCaml.org website and gives you a glimpse into what
+has been going on behind the scenes. You can find a [[https://discuss.ocaml.org/tag/ocamlorg-newsletter][list of previous issues
+here]].
+
+Our goal is to make OCaml.org the best resource for anyone who wants to get started and be productive in OCaml. We
+couldn't do it without all the amazing OCaml community members who help us review, revise and create better OCaml
+documentation. Your feedback enables us to better prioritise our work and make progress towards our goal. Thank
+you!
+
+We present the work we've been doing this month in three sections:
+- *Learn area:* To make sure that we focus on the changes that truly have an impact on the success of OCaml and its community, we conducted a user survey targeted at OCaml newcomers. The survey allowed us to better understand their outlook on the existing site and their needs and wishes for the upcoming changes.
+- *Package documentation:* Following the recent changes to the package area, we've continued to make improvements to the usability of the package overview and documentation pages.
+- *General Improvements:* We also worked on general maintenance and improvements, and we'll highlight some of them.
+
+*** Learn Area
+
+**** 1. User Survey
+
+This month, we published [[https://discuss.ocaml.org/t/you-started-to-learn-ocaml-less-than-12-months-ago-please-help-us-with-our-user-survey-on-the-ocaml-org-learning-area/11945][the
+survey]]
+that we started preparing in March. The survey was promoted on various platforms, including the official OCaml
+Discuss platform, Discord, LinkedIn, Twitter, and received a lot of engagement: in total, we got 57 responses
+before we had to close the survey in order to analyze the results adequately.
+
+Apart from this, we reviewed recordings of the previous round of user interviews we did on the Learn and Package
+areas, to group and prioritise the user feedback for use in upcoming user interviews. We also provided a [[https://discuss.ocaml.org/t/you-started-to-learn-ocaml-less-than-12-months-ago-please-help-us-with-our-user-survey-on-the-ocaml-org-learning-area/11945/2][public
+summary of the survey results on the OCaml
+Discuss]].
+
+Overall, we're now in a very good position to understand which changes should be made to the Learn area in order to
+improve the learning experience on OCaml.org. Our work will continue in May with the first wireframes for the new
+Learn area.
+
+**** 2. Work-in-progress Improvements on Documentation Pages
+
+In addition to the high-level overhaul of the Learn area we're working on, outlined above, we also made several
+smaller improvements on the documentation to continuously improve the content of the documentation.
+
+Many of the [[https://github.com/ocaml/ocaml.org/issues?q=is%3Apr+is%3Aopen+label%3Adocumentation][outstanding pull requests on
+ocaml/ocaml.org]] contain
+updates to the existing documentation pages of the Learn area. We aim to merge the majority of these in May.
+
+We are incredibly thankful for your feedback, suggestions, and help along the way. We are striving to make learning
+OCaml frictionless by providing high-quality content on OCaml.org. It's quite a big task, and everyone's help is
+essential to allow us to make this happen.
+
+*** Package Documentation
+
+Following the recent changes in the package area, we continued to make improvements to the layout. Notably, we
+added a small footer to the Learn and Package sections, which solves the issue of sticky-positioned sidebars moving
+out of the screen when scrolling into the footer. To better highlight the currently active section when scrolling
+through the document, we reworked the table of contents UI in both the Package and Learn sections.
+
+We now collapse the reverse dependencies section on the package overview page when it has more than 100 entries. To
+make room for upcoming package status badges, we moved the breadcrumbs in the package area above the main content
+area in line with the [[https://www.figma.com/file/Aqk5y03fsaCuhTSywmmY06/OCaml.org-Public-Designs?type=design&node-id=0%3A1&t=XYxilCb5hHk4mrDk-1][Figma
+designs]].
+We also updated the styles of the package search results page to be more compact, collapsing author lists with more
+than five items, styling package tags the same as on the package overview page, and we added a link to go directly
+to the package documentation.
+
+Relevant PRs/Issues:
+
+1. The Learn section and the Package section now have a [[https://github.com/ocaml/ocaml.org/pull/1018][small footer attached to the bottom of the screen (ocaml/ocaml.org#1018)]]. This resolves the UX issue where the sticky-positioned sidebars would move upwards out of the screen when scrolling into the footer. An alternative solution where the sidebars shrink as the footer comes into view has been explored but ultimately discarded due to higher complexity and maintenance needs.
+2. The table of contents UI in the Package section as well as in the Learn section is reworked to [[https://github.com/ocaml/ocaml.org/pull/1094][highlight the currently active section when scrolling through the document (ocaml/ocaml.org#1094)]]. This makes it easier to see progress in reading the content and easier to relate to where we are in a larger document.
+3. The [[https://github.com/ocaml/ocaml.org/pull/1097][layout of the package documentation section is now wide (ocaml/ocaml.org#1097)]], with an increased gap on the ~xl~ screen size.
+4. Since there can be hundreds or even thousands of reverse dependencies for a package, we're now [[https://github.com/ocaml/ocaml.org/pull/1101][collapsing the reverse dependencies section when there are more than 100 items (ocaml/ocaml.org#1101)]].
+5. The [[https://github.com/ocaml/ocaml.org/pull/1133][breadcrumbs in the package area are now above the main content area (ocaml/ocaml.org#1133)]] with the intent to make room next to the package name for upcoming badges that, e.g., provide information on the build status.
+6. We [[https://github.com/ocaml/ocaml.org/pull/1134][updated the styles of the package search results page to be more compact (ocaml/ocaml.org#1134)]]: (a) author lists with more than five items are collapsed by listing the first five authors and "et al.", (b) package tags are now styled the same as on the package overview page, (c) a link to go directly to the package documentation is provided.
+
+**** Work in Progress: Basic In-Package Search
+
+During the last month, we made progress on bringing basic in-package search functionality to the OCaml.org package
+documentation. Work on a prototype is ongoing on [[https://staging.ocaml.org][staging.ocaml.org]] (see [[https://discuss.ocaml.org/t/a-minimal-prototype-of-in-package-search-is-on-staging-ocaml-org/12163][this Discuss
+post]]), and we
+plan to roll out a rudimentary version of in-package search in May.
+
+We'll be rolling out the initial version as experimental, so it may have some issues and will be quite limited. We
+are releasing this early, as we find that having in-package search is vital for the usability of the package
+documentation. The upside of this process is that we're able to adapt to your feedback and ideas as we design the
+final product later on.
+
+*** General Improvements
+
+We made improvements to the [[https://ocaml.org/dashboard][OCaml.org dashboard]] and GitHub actions workflows. The
+dashboard now displays the Git commit hash and memory consumption in bytes. We worked on fixing the RSS feed
+scraping workflow, which resulted in the ability to trigger the scraper to run via the GitHub UI and the ability to
+run workflows on a local machine. The scraping workflow was made more robust against the temporary unavailability
+of sources, and individual feeds for the Blog page are now scraped separately and merged into a global feed.
+
+We are currently working on exposing the build status data for packages on the package overview pages. We also
+started to work on a dedicated "Install" page for OCaml with the help of the OCaml community. The new page will
+provide shorter instructions on how to set up OCaml quickly and the corresponding patch includes an overall
+revision of the "Get Up and Running" documentation.
+
+In addition to all of this, the team has diligently tackled numerous bug fixes and quality-of-life improvements to
+enhance the overall user experience.
+
+Relevant PRs/Issues:
+
+1. We improved the [[https://ocaml.org/dashboard][ocaml.org dashboard]] to [[https://github.com/ocaml/ocaml.org/pull/1136][display the Git commit hash from which the currently running instance has been built (ocaml/ocaml.org#1136)]], and to [[https://github.com/ocaml/ocaml.org/pull/1060][display the memory consumption in bytes (ocaml/ocaml.org#1060)]]. For this, the build needed to happen in a Git-enabled folder which required [[https://github.com/ocurrent/ocurrent-deployer/pull/184][enabling the "include Git" option on the deployment pipeline (ocurrent/ocurrent-deployer#184)]].
+2. RSS feed scraping (which provides the data we display on the "Blog" page) broke in January when Git LFS was introduced to store the OCaml Playground assets. Another issue we observed was that [[https://github.com/kayceesrk/river/issues/8][HTTP requests to some sources would time out (kayceesrk/river#8)]]. We worked on fixing the scraping workflow and ultimately succeeded. As a consequence of this work, we now enjoy improvements to the GitHub actions workflows, such as the ability to trigger the scraper to run via the GitHub UI, and the [[https://github.com/ocaml/ocaml.org/pull/1068][ability to run workflows on a local machine (ocaml/ocaml.org#1068)]]. Subsequently, the scraping workflow was [[https://github.com/ocaml/ocaml.org/pull/1120][made more robust against temporary unavailability of sources (ocaml/ocaml.org#1120)]], and, instead of building a global feed by scraping all sources at the same time, [[https://github.com/ocaml/ocaml.org/pull/1144][individual feeds are now scraped separately and merged into a global feed (ocaml/ocaml.org#1144)]].
+3. We are working on [[https://github.com/ocaml/ocaml.org/pull/977#pullrequestreview-1404343612][exposing the build status data for packages on the package overview pages (ocaml/ocaml.org#977)]]. As part of this effort,   [[https://github.com/ocaml/infrastructure/issues/40][check.ocamllabs.io has already been moved to check.ci.ocaml.org (ocaml/infrastructure#40)]] by the infrastructure team.
+4. To provide better statistics on the programming languages used in the ocaml/ocaml.org repository, we now [[https://github.com/ocaml/ocaml.org/pull/1074][exclude vendored files from stats (ocaml/ocaml.org#1074)]].
+5. Some AlpineJS-related bugfixes and cleanups on the [[https://github.com/ocaml/ocaml.org/pull/1069][search dropdown (ocaml/ocaml.org#1069)]] and [[https://github.com/ocaml/ocaml.org/pull/1061][sidebar (ocaml/ocaml.org#1061)]].
+6. Upgrade AlpineJS to 3.12.0, HTMX to 1.9.0 (resolves [[https://github.com/ocaml/ocaml.org/issues/877][ocaml/ocaml.org#877]]).
+7. We started working on an "Install" page for OCaml with the help of the OCaml community at https://discuss.ocaml.org/t/please-improve-my-draft-of-an-install-page-on-ocaml-org/11837. The intent of this page is to provide short instructions on how to set up OCaml quickly by leveraging OS detection via JavaScript. The upcoming patch includes an overall revision of the "Get Up and Running" documentation to provide better section headings and to clarify instructions while removing noise from the document.
+8. In response to an [[https://github.com/ocaml/ocaml.org/issues/1042][inquiry about package documentation failing to build]], the CI team helped us by investigating why the solver fails for the package in question. It turns out that, currently, the solver appears to only use two OCaml versions: 4.14 and 5.0.0. Until this changes, any package that does not work with either of these OCaml versions will not have its package documentation built successfully.
+9. A [[https://github.com/ocaml/ocaml.org/pull/1009#pullrequestreview-1380824224][new page that highlights all the previous Outreachy internships conducted by the OCaml community (ocaml/ocaml.org#1009)]] has been added to the Community section.
+10. We improved the HACKING.md documentation to [[https://github.com/ocaml/ocaml.org/pull/1102][mention prerequisites on the development environment and to link to the Docker images built by the CI which are stored on Docker Hub (ocaml/ocaml.org#1102)]]. The intent of this is to make it simpler for new contributors to join the project.
+11. [[https://github.com/ocaml/ocaml.org/pull/1082][Rearranged the "featured" section on the Blog page to allow featuring less than three posts (ocaml/ocaml.org#1082)]].
+12. [[https://github.com/ocaml/ocaml.org/pull/1083][Bugfix for a Unicode rendering problem (ocaml/ocaml.org#1083)]] when searching for the empty string on the package search results page.
+13. [[https://github.com/ocaml/ocaml.org/pull/1085][Added 'Roboto Mono' as a dedicated monospace font (ocaml/ocaml.org#1085)]] to achieve a consistent display of code sections for all users.
+14. Errors in the documentation were reported by OCaml users. Thank you! We fixed them immediately: (1) Resolve unused for-loop index i Error [[https://github.com/ocaml/ocaml.org/pull/1084][ocaml/ocaml.org#1084]], (2) remove incorrect mention of utop [[https://github.com/ocaml/ocaml.org/pull/1086][ocaml/ocaml.org#1086]], and (3) Explain how to activate -dtypedtree in ~utop-full~ [[https://github.com/ocaml/ocaml.org/pull/1089][ocaml/ocaml.org#1089]]
+15. We vendored an experimental YAML parsing tool [[https://github.com/tmattio/yoshi][tmattio/yoshi]] into the ocaml.org repository to explore if that is a suitable way to simplify the YAML parsing aspect of the current ~ood-gen~ tool of ocaml.org.
+16. The package autocomplete search input in the top navigation bar now reacts faster since the [[https://github.com/ocaml/ocaml.org/pull/1122][throttling delay has been removed (ocaml/ocaml.org#1122)]].
+17. We made the [[https://github.com/ocaml/ocaml.org/pull/1117][share button of the OCaml Playground more obvious (ocaml/ocaml.org#1117)]] by adding a caption.
+18. We worked on the [[https://ocaml.org/changelog][experimental changelog page]].
+19. Considering that there are some unmet caching needs in our web stack (e.g., in the package documentation section: looking at the many HTTP requests and rendering the module tree menu), we [[https://discuss.ocaml.org/t/is-there-a-drop-in-solution-for-serving-responses-from-cache-in-dream/11985][reached out to the OCaml community]] to understand what the ecosystem is like at the moment and if there is a meaningful opportunity to contribute to the OCaml ecosystem as part of our work on OCaml.org.
+20. There is an open PR for [[https://github.com/ocaml/ocaml.org/pull/1126][adding WIP dev-container]] that can make it easier to get started developing on the ocaml/ocaml.org repository.
+21. The [[https://github.com/ocaml/ocaml.org/pull/1139]["Contribute" link on the documentation pages now links to the commit from which the content was rendered (ocaml/ocaml.org#1139]]
+22. The OCaml.org project [[https://github.com/ocaml/ocaml.org/pull/1135][officially adopted the OCaml Code of Conduct by adding ~CODE_OF_CONDUCT.md~ to its GitHub repository (ocaml/ocaml.org#1135)]] and by [[https://github.com/ocaml/code-of-conduct/pull/6][adding ocaml/ocaml.org to the list of adopters (ocaml/code-of-conduct#6)]]
+23. The [[https://github.com/ocaml/ocaml.org/pull/1141#pullrequestreview-1403923329][problems in the exercises section of the Learn area can now be filtered by difficulty (ocaml/ocaml.org#1141)]].
+24. Bugfix: the problem difficulty symbols in the exercise section would be cut off in the too-small margins. Now the [[https://github.com/ocaml/ocaml.org/pull/1138][problem difficulty symbols in the exercises section only show up in the margin on ~xl~ screen size (ocaml/ocaml.org#1138).]]
+      
+
+
+
+* A bestiary of GADT examples?
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/a-bestiary-of-gadt-examples/12143/11
+
+** Continuing this thread from last week, Reuben Rowe said
+
+
+I have used GADTs in [[https://gitlab.com/trustworthy-refactoring/refactorer][rotor]] to implement a rich identifier
+type for different syntactic elements of the OCaml language, as well as some custom zipper types over the OCaml
+compiler typed AST.
+      
+
+
+
+* 2023 StackOverflow Developer Survey
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/2023-stackoverflow-developer-survey/12174/1
+
+** Thomas Gazagnaire announced
+
+
+This year, OCaml is on the list of languages (while [[https://discuss.ocaml.org/t/stackoverflow-developer-survey/7961][it wasn't in
+2021]]!).
+
+So now we can tell the world that we everyone is using (and hopefully want to continue to use) OCaml:
+https://stackoverflow.blog/2023/05/08/the-2023-developer-survey-is-now-live/ :camel:
+      
+
+
+
+* Release 0.5.4 of ~Fmlib_browser~
+:PROPERTIES:
+:CUSTOM_ID: 5
+:END:
+Archive: https://discuss.ocaml.org/t/ann-release-0-5-4-of-fmlib-browser/12184/1
+
+** Helmut announced
+
+
+It is a pleasure to announce the release 0.5.4 of ~Fmlib_browser~. The library helps to write interactive
+webapplications running in the browser. It is quite easy to write interactive webapplications with the help of this
+library. The user code is purely descriptive (aka functional) which avoids many common errors.
+
+You can find some simple examples [[https://hbr.github.io/fmlib/odoc/fmlib_browser/index.html][here]] and in [[https://hbr.github.io/fmlib/odoc/fmlib_browser/doc_overview.html][the
+overview]].
+
+Install the library with
+
+#+begin_example
+    opam install fmlib_browser
+#+end_example
+
+The new release 0.5.4 fixes some bugs in the initial version 0.5.3 and has some minor added functionality.
+      
+
+
+
+* OCaml Platform Newsletter: April 2023
+:PROPERTIES:
+:CUSTOM_ID: 6
+:END:
+Archive: https://discuss.ocaml.org/t/ocaml-platform-newsletter-april-2023/12187/1
+
+** Thibaut Mattio announced
+
+
+Welcome to the first issue of the OCaml Platform newsletter!
+
+Following in the footsteps of the OCaml.org newsletter and inspired by the Multicore and Compiler newsletters,
+we're excited to bring you monthly updates on the progress we're making in improving the OCaml Developer
+Experience.
+
+The [[https://ocaml.org/docs/platform][OCaml Platform]] is the recommended set of tools to work and be productive
+with OCaml. The Platform tools fill gaps in the OCaml developer experience and allow developers to perform specific
+workflows (e.g. building packages, formatting code, generating documentation, releasing packages, etc.).
+
+At the end of the day, all the work we're doing on the OCaml Platform has one objective: improving the OCaml
+developer experience, so in this newsletter, we'll present the progress we're making on the different projects from
+the lens of these developer workflows. Based on the results of the OCaml surveys
+([[https://www.dropbox.com/s/omba1d8vhljnrcn/OCaml-user-survey-2020.pdf?dl=0][2020]] and
+[[https://ocaml-sf.org/docs/2022/ocaml-user-survey-2022.pdf][2022]]), discussions with industrial users, continuous
+community feedback on Discuss, and other sources of user input, here are the workflows we're currently working on:
+
+- *Building Packages:* Our immediate goal for the build workflow is to remove the friction associated to using two different tools for package management and build system. To this end, we [[https://discuss.ocaml.org/t/explorations-on-package-management-in-dune/12101][plan on integrating opam capabilities directly into Dune]], establishing it as the singular tool needed to build OCaml projects. As a by-product of this integration, we aim to improve other workflows such as working on multiple projects, cross-compilation, and improving the overall experience to get started with OCaml.
+- *Compiling to JavaScript:* We're continuously supporting tools to compile OCaml to JavaScript. Dune integrates well with Js_of_ocaml and we've been working on an integration of Dune and [[https://github.com/melange-re/melange][Melange]], a recent fork of [[https://github.com/rescript-lang/rescript-compiler][ReScript]] that aims to bring to integrate closely with the OCaml ecosystem.
+- *Generating Documentation:* The state of the OCaml Packages documentation is reported as a major pain point in the OCaml surveys ([[https://www.dropbox.com/s/omba1d8vhljnrcn/OCaml-user-survey-2020.pdf?dl=0][2020]] and [[https://ocaml-sf.org/docs/2022/ocaml-user-survey-2022.pdf][2022]]). We're working towards empowering OCaml developers to create high-quality documentation for their packages. Now that the documentation of packages is [[https://ocaml.org/packages][readily available on OCaml.org]], we want to make writing documentation rewarding and straightforward. We're working towards making Odoc suitable to create manuals by adding new features, improving the navigation, and expanding the odoc markup syntax to support rich content such as tables, images and graphs.
+- *Editing and Refactoring Code:* We aim to enrich the OCaml editor support with more workflows to improve code navigation and automate refactoring. Our main focus currently is on adding support for project-wide references to Merlin. Future work will include implementing a project-wide rename query and queries such as renaming arguments. We are also working towards bringing the editor support for OCaml to the web and third-party platforms such as OCaml Playground, ReplIt, and GitHub Codespaces.
+- *Formatting Code:* Our goal for formatting code is focused on improving accuracy, particularly for the to comments. We also want to strike the right balance between providing a default profile that appeals to most users and not requiring configuration to format your OCaml projects, while still maintaining a fully configurable formatter. Additionally, we plan to enhance the backward compatibility of ocamlformat and better integrate Dune and ocamlformat.
+
+I'll also take the opportunity to call for new contributors. Platform projects are always looking for new
+maintainers and contributors, so if you're interested in the future of OCaml's developer experience and would like
+to shape that future with us, please reach out to me or any Platform maintainers. If you're an industrial user
+looking for support on the OCaml Platform and would like to fund the maintainers and the developments on the
+Platform tools, also don't hesitate to [reach out to me](mailto:thibaut@tarides.com).
+
+April has seen a flurry of activity, and we can't wait to share our progress with you. So let's get right to it!
+
+In this inaugural issue, we'll be discussing progress on the following projects:
+
+- Building Packages
+  - *[Dune]* Exploring Package Management in Dune
+  - *[opam]* Native Support for Windows in opam 2.2
+  - *[Dune]* Improving Dune's Documentation
+  - *[Dune]* Composing installed Coq theories
+  - *[Dune]* Dune Terminal User Interface
+  - *[Dune]* Running Actions Concurrently
+  - *[Dune]* Benchmarking Dune on Large Code Bases
+- Compiling to JavaScript
+  - *[Dune]* Compile to JavaScript with Melange in Dune
+- Generating Documentation
+  - *[Odoc]* Add Search Capabilities to ~odoc~
+  - *[Dune]* User-Friendly Command to Generate Documentation
+  - *[Odoc]* Support for Tables in ~odoc~
+- Editing and Refactoring Code
+  - *[Merlin]* Support for Project-Wide References in Merlin
+  - *[Merlin]* Improving Merlin's Performance
+  - *[OCaml LSP]* Using Dune RPC on Windows
+  - *[OCaml LSP]* Upstreaming OCaml LSP's Fork of Merlin
+- Formatting Code
+  - *[OCamlFormat]* Migrate OCamlFormat from an AST to a CST
+  - *[OCamlFormat]* Closing the Gap Between OCamlFormat and ~ocp-indent~
+
+*** Releases
+
+Here are the new versions of Platform tools we released in April. Have a look at the [[https://ocaml.org/changelog][OCaml
+Changelog]] to read announcements and feature highlights!
+
+- [[https://github.com/ocaml-community/utop/releases/tag/2.12.0][UTop 2.12.0]]
+- [[https://github.com/ocaml-community/utop/releases/tag/2.12.1][UTop 2.12.1]]
+- [[https://github.com/realworldocaml/mdx/releases/tag/2.3.0][MDX 2.3]]
+- [[https://github.com/ocaml/dune/releases/tag/3.7.1][Dune 3.7.1]]
+
+*** Building Packages
+
+**** *[Dune]* Exploring Package Management in Dune
+
+Contributors: @rgrinberg (Tarides), @Leonidas-from-XIV (Tarides), @gridbugs (Tarides), @kit-ty-kate (Tarides)
+
+Earlier this month, we [[https://discuss.ocaml.org/t/explorations-on-package-management-in-dune/12101][announced]]
+that we've started exploring package management in Dune. You can read the Request for Comment (RFC) that details
+our work-in-progress plans for the feature [[https://github.com/ocaml/dune/issues/7680][on GitHub]].
+
+We're currently focused on building prototypes for different parts of the Dune workflow: source fetching, building
+non-Dune opam packages, and generating a lock file.
+
+In April, we merged a first version of [[https://github.com/ocaml/dune/pull/7179][Source Fetching]]. We also started
+thinking about how Dune could build opam packages and [[https://github.com/ocaml/dune/pull/7626][merged a PR]] laying
+the foundation for the rules on building them in Dune.
+
+*Activities*:
+- Completed and merged a first version of [[https://github.com/ocaml/dune/pull/7179][Source Fetching]]
+- Upstreamed a patch in opam to [[https://github.com/ocaml/opam/pull/5508][remove preprocessing of backwards-compatibility code]]. This helped to reduce the number of dependencies to vendor in Dune when vendoring opam.
+- We merged [[https://github.com/ocaml/dune/pull/7626][a PR]] that lays the foundation and provides a skeleton for the features related to building opam packages.
+- Following work on [[https://github.com/ocaml-opam/opam-0install-solver][0install-solver]], which we'll use as a solver in Dune 4, we open a PR on ~ocaml/opam-repository~ to [[https://github.com/ocaml/opam-repository/pull/23736][remove constraints on package versions in conflicts]] and a [[https://github.com/ocaml/opam/pull/5535][patch on opam]] for the same conflict.
+
+**** *[opam]* Native Support for Windows in opam 2.2
+
+Contributors: @rjbou (OCamlPro), @kit-ty-kate (Tarides), @dra27 (Tarides), @emillon (Tarides), @Leonidas-from-XIV
+(Tarides)
+
+Bringing Tier-1 support for Windows has been a dream for some time and April has seen us get closer than ever
+before to the first alpha of opam 2.2, which we expect in May. This early alpha is a big step towards the release
+of opam 2.2 with native Windows support, and is the result of a humongous amount of effort bringing together the
+work of many people done over the years.
+
+*Activities:*
+- Configure: Ensure a complementary (32bit on 64bit platforms and 64bit on 32bit platforms) C compiler is installed on Windows [[https://github.com/ocaml/opam/pull/5522][ocaml/opam#5522]]
+- Do not silently disable MCCS if a C++ compiler is not present [[https://github.com/ocaml/opam/pull/5527][ocaml/opam#5527]]
+- Move the ~.ocamlinit~ script out of the root directory [[https://github.com/ocaml/opam/pull/5526][ocaml/opam#5526]]
+- MCCS on Windows does not respect avoid-version [[https://github.com/ocaml/opam/issues/5523][ocaml/opam#5523]]
+- Setup benchmarking using current-bench [[https://github.com/ocaml/opam/pull/5525][ocaml/opam#5525]]
+- Update to latest ~msvs-detect~ [[https://github.com/ocaml/opam/pull/5514][ocaml/opam#5514]]
+- Fix the compilation of ~camlheader~ when BINDIR contains escaping characters [[https://github.com/ocaml/ocaml/pull/12214][ocaml/opam#12214]]
+- doc: ? evaluates to true if defined [[https://github.com/ocaml/opam/pull/5512][ocaml/opam#5512]]
+- Stop the configure script from downloading and vendoring dependencies [[https://github.com/ocaml/opam/pull/5511][ocaml/opam#5511]]
+- Remove preprocessing of backwards-compatibility code [[https://github.com/ocaml/opam/pull/5508][ocaml/opam#5508]]
+- Fix linting on ~opam-crowbar.opam~  [[https://github.com/ocaml/opam/pull/5507][ocaml/opam#5507]]
+- depexts: reword message [[https://github.com/ocaml/opam/pull/5499][ocaml/opam#5499]]
+- Replace usage of CPPO [[https://github.com/ocaml/opam/pull/5498][ocaml/opam#5498]]
+- Check for the presence of swhid_core in the configure script [[https://github.com/ocaml/opam/pull/5497][ocaml/opam#5497]]
+- Add package stanza on all rules that depend on ~opamMain.exe.exe~ [[https://github.com/ocaml/opam/pull/5496][ocaml/opam#5496]]
+
+**** *[Dune]* Improving Dune's Documentation
+
+Contributors: @emillon (Tarides)
+
+In March, we started restructuring the Dune documentation according to the [[https://diataxis.fr/][Diataxis
+framework]]. We opened [[https://github.com/ocaml/dune/pull/7325][a draft PR]] to demonstrate
+the overall target structure. The new structure will improve the usability of the documentation, allowing users to
+find the information that they are looking for, as well as enable us to better identify gaps that need to be
+addressed.
+
+In April we’ve continued this work, filling in some of those gaps as well as rewriting documents to better fit in
+the intended quadrant of the framework.
+
+*Activities:*
+- Turn "Automatic Formatting" into a how-to [[https://github.com/ocaml/dune/pull/7479][ocaml/dune#7479]]
+- Move lexical conventions to reference [[https://github.com/ocaml/dune/pull/7499][ocaml/dune#7499]]
+- Turn ~opam.rst~ into 3 guides [[https://github.com/ocaml/dune/pull/7515][ocaml/dune#7515]]
+- Add some info about writing docs [[https://github.com/ocaml/dune/pull/7537][ocaml/dune#7537]]
+- Merge ~classical-ppx~ into ~preprocessing-spec~ [[https://github.com/ocaml/dune/pull/7538][ocaml/dune#7538]]
+- Merge reference info about findlib [[https://github.com/ocaml/dune/pull/7567][ocaml/dune#7567]]
+- Add a lexer for opam files [[https://github.com/ocaml/dune/pull/7574][ocaml/dune#7574]]
+
+**** *[Dune]* Composing installed Coq theories
+
+Contributors: @Alizter and @ejgallego (IRIF)
+
+We've merged the PR that brings [[https://github.com/ocaml/dune/pull/7047][support for composing Coq theories with
+Dune]]!
+
+This was a huge effort lead by Ali Caglayan and  Emilio Jesús Gallego Arias that started earlier this year.
+Starting in Dune 3.8, Coq users will be able to use Dune even if they depend on Coq projects that use other build
+systems (such as make).
+
+*Activities*:
+- Merged the PR that adds [[https://github.com/ocaml/dune/pull/7047][support for composition with installed theories to the Coq rules]]
+
+**** *[Dune]* Dune Terminal User Interface
+
+Contributors: @Alizter, @rgrinberg (Tarides)
+
+We're working on a new Terminal User Interface (TUI) mode for Dune. Our goal is to give Dune users an interactive
+GUI-like experience right from the terminal, making it easier to interact with build targets, observe processes,
+and more. The work is still very much in progress, but expect gradual improvements of ~dune build --display tui~ in
+the coming months.
+
+https://global.discourse-cdn.com/business7/uploads/ocaml/original/2X/e/ee1d60cc3b4d29b795bdafdd6857b93072975310.png
+
+*Activities*:
+- Introduced the [[https://github.com/ocaml/dune/pull/6996][new ~tui~ mode]] for Dune.
+- Enabled Dune to [[https://github.com/ocaml/dune/pull/7188][redisplay 24-bit color output]].
+
+**** *[Dune]* Running Actions Concurrently
+
+Contributors: @Alizter and @hhugo (Nomadic Labs)
+
+In January, we began working on allowing Dune to execute actions and run inline tests concurrently. This month, we
+merged the two PRs and the feature will be available in the upcoming Dune 3.8. We're especially excited about the
+ability to run inline tests concurrently to speed up test cycles!
+
+*Activities*:
+- We've merged the PR that [[https://github.com/ocaml/dune/pull/6933][implements a new concurrent action]] in Dune, which allows you to execute actions concurrently.
+- We also merged the PR that built on this feature to [[https://github.com/ocaml/dune/pull/7012][enabled Dune to run inline tests concurrently]].
+- We've [[https://github.com/janestreet/ppx_inline_test/pull/40][patched ~ppx_inline_test~]] to leverage the new feature.
+
+**** *[Dune]* Benchmarking Dune on Large Code Bases
+
+Contributors: @gridbugs (Tarides), @Leonidas-from-XIV (Tarides)
+
+In March we added [[https://autumn.ocamllabs.io/ocaml/dune/branch/main?worker=fermat&image=bench%2Fmonorepo%2Fbench.Dockerfile][continous
+benchmarking]]
+of Dune builds on a 48 core baremetal system. This is the result of a lot of work that included [[https://github.com/ocaml-dune/ocaml-monorepo-benchmark][building a big
+monorepo for opam packages]] allowing users to run Dune
+benchmarks on large code bases.
+
+In April we added support for benchmarking builds in watch mode as well. This allows us to monitor for regressions
+as we move forward with major initiatives, such as package management.
+
+*Activities:*
+- Add [[https://github.com/ocaml/dune/pull/7552][watch-mode benchmarks]] of dune monorepo using Dune's streaming RPC interface
+
+*** Compiling to JavaScript
+
+**** *[Dune]* Compile to JavaScript with Melange in Dune
+
+Contributors: @anmonteiro, @jchavarri (Ahrefs), @rgrinberg (Tarides)
+
+You may have read that [[https://medium.com/ahrefs/ahrefs-is-now-built-with-melange-b14f5ec56df4][Ahrefs migrated its codebase from ReScript to
+Melange]], a new OCaml-to-JavaScript
+compiler based on ReScript.
+
+The goal of Melange is to offer an alternative to ReScript that pairs well with the OCaml ecosystem. To that end,
+Antonio Nuno Monteiro and Javier Chávarri have been working on integrating Melange and Dune, allowing it to easily
+compile OCaml projects to JavaScript with Melange.
+
+The feature will be available in the upcoming Dune 3.8. You can already [[https://dune.readthedocs.io/en/latest/melange.html][read the
+documentation]] in Dune's manual to get a glimpse of how the
+feature will work. You can also have a look at the [[https://github.com/melange-re/melange-opam-template][opam Melange
+template]] built by the Melange team.
+
+*Activities*
+- Write a [[https://github.com/ocaml/dune/pull/7477][manual page]] in Dune to compile to JavaScript using Melange.
+- Make Melange [[https://github.com/melange-re/melange/pull/548][work on 4.13-5.1]] rather than just 4.14
+- In addition to what we did in April, here are some noteworthy PRs that were worked on in previous months:
+    - Added a [[https://github.com/ocaml/dune/pull/7234][new field ~melange.runtime_deps~]] to libraries, so that Melange library authors can tell Dune which frontend assets (like CSS or image files, fonts etc) have to be installed with their library
+    - [[https://github.com/ocaml/dune/pull/7187/][Speed up rule generation]] for librariess and executables. This was useful for Melange, but benefits every Dune project.
+    - [[https://github.com/melange-re/melange/pull/517][Make reactjs-jsx-ppx a standalone ppx]]
+    - [[https://github.com/ocaml/dune/pull/7193][Implemented a ~module_system~ field]] for the melange stanza (e.g. ~(module_systems (es6 mjs) (commonjs js) (commonjs cjs))~ which allows to output multiple module systems / js extensions at the same time to the melange output folder
+
+*** Generating Documentation
+
+**** *[Odoc]* Add Search Capabilities to ~odoc~
+
+Contributors: @panglesd (Tarides), @EmileTrotignon (Tarides)
+
+We're working on generating a search index and adding a search bar to ~odoc~-generated documentation. We're still
+exploring the different approaches and we are working with the OCaml.org team to implement a search bar on the
+OCaml packages documentation.
+
+https://global.discourse-cdn.com/business7/uploads/ocaml/optimized/2X/d/d77fe2783830bf0245487ff323adf27794f76b4e_2_1380x942.png
+
+*Activities*:
+- We started [[https://github.com/panglesd/odoc/tree/search-bar][prototyping]] the search index and search bar and we're discussing the design of it. In particular, we've used the compiler Shapes in the prototype and we'll explore using odoc's path resolver instead as a next step.
+
+**** *[Dune]* User-Friendly Command to Generate Documentation
+
+Contributor: @EmileTrotignon (Tarides), @jonludlam (Tarides)
+
+We're working towards making generating documentation in Dune more accessible, especially for newcomers. Currently,
+the ~dune build @doc~ command generates documentation in the ~_build~ directory, and users simply have to know that
+they need to ~open _build/default/_doc/_html/index.html~. To work around this, we're working on a new ~dune ocaml
+doc~ command to generate documentation and open it in the browser directly.
+
+*Activities*:
+- We opened a PR that [[https://github.com/ocaml/dune/pull/7262][implements the ~dune ocaml doc~]] command in March. This month, we tested the feature on macOS. We are now working towards completing the Windows tests.
+
+**** *[Odoc]* Support for Tables in ~odoc~
+
+Contributors: @gpetiot (Tarides), @panglesd (Tarides), @Julow (Tarides), @jonludlam (Tarides)
+
+Currently, the only way to create tables with odoc is to inline HTML code in the documentation. Tis is not ideal as
+the HTML table syntax is not well-suited as documentation markup and the tables can only be rendered by the HTML
+renderer (so tables are not available in LaTex and manpages). We're working towards a new special syntax in odoc
+for creating tables that is easier to use and can be rendered by all renderers.
+
+The syntax support has been [[https://github.com/ocaml-doc/odoc-parser/pull/11][merged in odoc-parser]]. It provides
+a heavy-syntax, and a ligh-syntax inspired by Markdown:
+#+begin_example
+{t
+  a  | b | c | d
+  ---|:--|--:|:-:
+  a  | b | c | d
+}
+#+end_example
+
+The [[https://github.com/ocaml/odoc/pull/893][support for the feature in odoc]] isn't merged yet, but should be
+available in the next odoc version!
+
+*Activities*
+- No new activity in March, but here are Pull Requests we have been working on until now:
+  - Add a new syntax for tables in odoc-parser ([[https://github.com/ocaml-doc/odoc-parser/pull/11][odoc-parser#11]])
+  - Fix light table parsing ([[https://github.com/ocaml-doc/odoc-parser/pull/14][odoc-parser#14]])
+  - Add support for tables to odoc ([[https://github.com/ocaml/odoc/pull/893][odoc#893]])
+
+*** Editing and Refactoring Code
+
+**** *[Merlin]* Support for Project-Wide References in Merlin
+
+Contributors: @voodoos (Tarides)
+
+Our work on Merlin focuses on the
+[[https://discuss.ocaml.org/t/search-for-occurrences-of-a-symbol-in-a-project-file-using-merlin-ocaml-lsp/10756/7?u=tmattio][long-standing]]
+project to add project-wide occurrences support to Merlin. In April, we continued to work on the [[https://github.com/ocaml/ocaml/pull/12142][compiler
+patches]] that allow to generate the index from the compiler, and we
+updated the Merlin patches to work with the compiler patches, simplifying the Merlin logic that can now rely on the
+compiler.
+
+The feature requires patches for the OCaml compiler, Dune, and Merlin that are still unreleased, but if you're
+courageous, you can give it a try by following the documentation on
+[[https://github.com/voodoos/merlin-occurrences-switch][~voodoos/merlin-occurrences-switch~]].
+
+*Activities*
+- We backported the compiler-side-indexation to 4.14. We performed benchmarks to evaluate the impact on build time and the size of the installed ~cmt~s. We posted the results on the PR, for both the [[https://github.com/ocaml/ocaml/pull/12142#issuecomment-1504006093][build time]] and [[https://github.com/ocaml/ocaml/pull/12142#issuecomment-1505536484][cmts size]].
+- We also reworked the iterator performing indexation and added most of the missing cases to the indexer. However, some elements remain unindexed due to constraints with the ~Typedtree~.
+- We updated the "indexing" external tool following partial indexation implementation in the compiler.
+- We also ported new compiler changes to Merlin on the OCaml 5.1 preview, which will allow us to work on project-wide occurrences support.
+- Finally, we started refactoring and simplifying the Merlin patches to query the index now that more work is done by the compiler.
+
+**** *[Merlin]* Improving Merlin's Performance
+
+Contributed by: @pitag-ha (Tarides)
+
+Following reports that Merlin performance scaled poorly in large code bases, we had been working on
+[[https://github.com/pitag-ha/merl-an][Merl-an]], a tool to measure the performance of different Merlin requests.
+
+In March, we were able to use it to identify the major performance bottlenecks, the biggest one being the PPX
+phase. We implemented a [[https://github.com/ocaml/merlin/pull/1584][caching strategy for PPX]] and continued to work
+on it throughout April.
+
+*Activities:*
+- We worked on fixing the PPX cache and explored mechanisms to toggle the PPX phase cache. We ended up implementing a [[https://github.com/ocaml/merlin/pull/1584/commits/c54d10927f28f96372bdb1c5c50b5e839909a51e][flag-based approach]].
+- We [[https://github.com/ocaml/merlin/pull/1584/commits/99bba403a1a946c3afe3d15c02128f4321904129][added six tests]] that cover default behavior, cache hits, cache invalidation of three kinds, and behavior in case of PPX dependencies.
+
+**** *[OCaml LSP]* Using Dune RPC on Windows
+
+Contributors: @nojb (LexiFi)
+
+In February, we released Dune 3.7.0 with [[https://github.com/ocaml/dune/pull/7010][support for watch mode on
+Windows]]. Building on this work, this month we fixed a couple of issues in
+Dune and OCaml LSP to allow OCaml LSP to use Dune RPC. This allows VSCode users to leverage Dune RPC and get build
+statuses and more exhaustive build errors in the editor when Dune is running in watch mode. The fixes are not
+released yet, but they will be available on the upcoming releases of Dune and OCaml LSP.
+
+*Activities*:
+- We [[https://github.com/ocaml/dune/pull/7666][made a patch]] in Dune to use the RPC protocol on Windows.
+- We [[https://github.com/ocaml/ocaml-lsp/pull/1079][fixed a bug]] in OCaml-LSP to enable the communication with Dune RPC on Windows.
+
+**** *[OCaml LSP]* Upstreaming OCaml LSP's Fork of Merlin
+
+Contributors: @voodoos (Tarides), @3Rafal (Tarides)
+
+We're at the finish line of our efforts to close the gap between Merlin and OCaml LSP by upstreaming OCaml LSP's
+fork of Merlin! This month, we continued on the Merlin PR that [[https://github.com/ocaml/merlin/pull/1585][adds a hook to OCaml LSP letting it run system
+commands]]. We also opened [[https://github.com/ocaml/ocaml-lsp/pull/1070][a PR on
+~ocaml-lsp~]] to use the above patch and remove Merlin's fork
+entirely. We're expecting to release a version of OCaml LSP that uses Merlin as a library very soon.
+
+*Activities:*
+- We discussed and reviewed changes that let you configure the process spawn for PPXs when using Merlin as a library. This led us to implement ideas concerning the exposed hook for PPX process spawning. Subsequently, we [[https://github.com/ocaml/merlin/blob/master/src/utils/lib_config.mli#L22][documented the complexities]] of splitting a PPX command between program and arguments.
+- We opened [[https://github.com/ocaml/ocaml-lsp/pull/1070][a PR on ~ocaml-lsp~]] to remove Merlin's fork and use Merlin as a library.
+
+*** Formatting Code
+
+**** *[OCamlFormat]* Migrate OCamlFormat from an AST to a CST
+
+Contributors: @gpetiot (Tarides), @EmileTrotignon (Tarides)
+
+Back in 2022, @trefis built [[https://github.com/tarides/ocamlformat-ng][a prototype of a new OCaml formatter]] that
+uses a Conrete Syntax Tree (CST) instead of an Abstract Syntax Tree (AST). This mode retains more information and
+results in more accurate formatting in a lot of cases, most especially when formatting comments which is a big pain
+point with OCamlFormat.
+
+Since then, we've worked on migrating OCamlFormat's syntax tree to this CST. We chose not to migrate everything at
+once to minimize the impact on users as much as possible, making sure that we make formatting changes only when
+they are bug fixes or clear improvements.
+
+You can track our progress in [[https://github.com/ocaml-ppx/ocamlformat/pull/2213][this PR]], which shows a diff of
+the current syntax tree and the target CST.
+
+*Activities:*
+- We made progress on the work-in-progress PR to [[https://github.com/ocaml-ppx/ocamlformat/pull/2332][preserve comments attached to labelled args]], fixing more regressions.
+- We implemented a change to [[https://github.com/ocaml-ppx/ocamlformat/pull/2343][keep literal char value during parsing]].
+- We worked on [[https://github.com/ocaml-ppx/ocamlformat/pull/2345][preserving the functor concrete syntax in the Parsetree]].
+- We [[https://github.com/ocaml-ppx/ocamlformat/pull/2350][normalized functions in the parser]].
+
+**** *[OCamlFormat]* Closing the Gap Between OCamlFormat and ~ocp-indent~
+
+Contributors: @gpetiot (Tarides), @EmileTrotignon (Tarides), @Julow (Tarides)
+
+The OCamlFormat team has been working with the Jane Street teams to migrate Jane Street's code base from ocp-indent
+to OCamlFormat.
+As a result, we've made tons of changes to the ~janestreet~ profile in recent months. Perhaps most notably, this
+work has allowed us to identify issues that were not specific to the ~janestreet~ profile, and consequently we've
+been fixing bugs and implementing formatting improvements across the board.
+
+We're nearing the end of this project, but April has seen a lot of bug fixes and improvements that we detail below.
+
+*Activities:*
+- We adjusted the indentation for several language features, including [[https://github.com/ocaml-ppx/ocamlformat/pull/2330][extensions]], [[https://github.com/ocaml-ppx/ocamlformat/pull/2328][class-expr function bodies]], and [[https://github.com/ocaml-ppx/ocamlformat/pull/2323][module-expr extensions]].
+- We fixed issues with [[https://github.com/ocaml-ppx/ocamlformat/pull/2321][ocp-indent compatibility]] and [[https://github.com/OCamlPro/ocp-indent/pull/324][Let vs LetIn detection after 'struct']].
+- We improved the [[https://github.com/ocaml-ppx/ocamlformat/pull/2322][formatting of module arguments]] and worked on [[https://github.com/ocaml-ppx/ocamlformat/pull/2332][preserving comments attached to labelled args]].
+- We fixed issues causing changes to the AST due to strings in [[https://github.com/ocaml-ppx/ocamlformat/pull/2338][code blocks]] and [[https://github.com/ocaml-ppx/ocamlformat/pull/2344][comments]].
+- We improved the [[https://github.com/ocaml-ppx/ocamlformat/pull/2349][formatting of cinaps comments with strings]] and worked on parsing and [[https://github.com/ocaml-ppx/ocamlformat/pull/2354][normalizing cinaps comments]].
+- We made adjustments to the handling of certain language constructs, such as [[https://github.com/ocaml-ppx/ocamlformat/pull/2352][protecting match after ~fun _ : _ ->~]] and [[https://github.com/ocaml-ppx/ocamlformat/pull/2347][consistently wrapping (::)]].
+- We extended our test suite with [[https://github.com/ocaml-ppx/ocamlformat/pull/2355][numstat and a single run of ocp-indent]].
+      
+
+
+
+* Eio Developer Meetings
+:PROPERTIES:
+:CUSTOM_ID: 7
+:END:
+Archive: https://discuss.ocaml.org/t/eio-developer-meetings/12207/1
+
+** Sudha Parimala announced
+
+
+Hi all! We've started having [[https://github.com/ocaml-multicore/eio][Eio]] developer meetings online, once every
+two weeks. The meeting is open to everyone. Those interested to follow Eio's developments are welcome to join.
+
+*Agenda*
+
+The meetings are for planning the development of Eio. The current status and plans for Eio 1.0 are being tracked at
+[[https://github.com/ocaml-multicore/eio/issues/388][Eio#388]].
+
+We're also eager to hear feedback on Eio from users, and their experience of migrating applications to Eio. This
+will greatly help us to make the experience more pleasant and close gaps, if any. If you're looking to get started,
+the [[https://github.com/ocaml-multicore/eio#readme][README]] is a good place to start.
+
+*Timings*
+
+The meeting takes place on alternate Mondays, at 10:00 UK.
+
+- Next meeting: June 5, Monday
+- Time: 10:00 AM - 11:00 AM BST (9:00 AM - 10:00 AM UTC)
+- Link to meeting: [[http://meet.google.com/byo-dfiz-dou][meet.google.com/byo-dfiz-dou]]
+- Meeting notes: https://docs.google.com/document/d/1ZBfbjAkvEkv9ldumpZV5VXrEc_HpPeYjHPW_TiwJe4Q/
+- Use this calendar link to add it to your calendar - [[https://calendar.google.com/calendar/u/4?cid=Y19iMDA5ZDA4MDg0YzIwYWMzMDQ4NjJhN2FkZWJiYjdmOTU0NGIxYzEwMmU0MDMyMTAzMDFiY2ZhYjcwMDBmMjNlQGdyb3VwLmNhbGVuZGFyLmdvb2dsZS5jb20][Eio Developer Meetings]]
+      
+
+
+
+* New major release of Parany (v14.0.0)
+:PROPERTIES:
+:CUSTOM_ID: 8
+:END:
+Archive: https://discuss.ocaml.org/t/new-major-release-of-parany-v14-0-0/12208/1
+
+** UnixJunkie announced
+
+
+#+begin_example
+# opam search parany
+[...]
+parany 14.0.0      Parallelize any computation
+#+end_example
+
+I switched back the runtime to fork+marshal.
+As was the case before version 13.0.0.
+Versions 13.* (up to 14.0.0 excluded) use ocaml5-threads to parallelize computations.
+
+https://github.com/UnixJunkie/parany
+
+There is a branch https://github.com/UnixJunkie/parany/tree/ocaml5_threads
+if anybody wants to maintain this backend.
+
+The Parany.Parmap module has new functions for arrays:
+https://github.com/UnixJunkie/parany/blob/master/src/parany.mli
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[https://alan.petitepomme.net/cwn/][the archive]] or the [[https://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe [[http://lists.idyll.org/listinfo/caml-news-weekly/][online]].
+
+#+BEGIN_authorname
+[[https://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname
