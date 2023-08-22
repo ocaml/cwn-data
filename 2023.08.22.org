@@ -1,0 +1,370 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[https://alan.petitepomme.net/cwn/2023.08.15.html][Previous Week]] [[https://alan.petitepomme.net/cwn/index.html][Up]] [[https://alan.petitepomme.net/cwn/2023.08.29.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of August 15 to 22, 2023.
+
+#+TOC: headlines 1
+
+
+* onix 0.0.5
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/ann-onix-0-0-5/12831/1
+
+** Rizo announced
+
+
+Hi all! It is my pleasure to announce a project I have been working on and using for some time.
+
+[[https://github.com/rizo/onix][Onix]] is a tool for building OCaml projects with [[https://nixos.org/][Nix]]. Onix
+provides an alternative to opam and keeps full compatibility with opam repository and opam files.
+
+*** Features
+
+- Fully hermetic and deterministic builds based on a lock file. The lockfile includes precise package versions generated from your opam files, source hashes and the Git revision of the opam repository used to perform the resolution. See an example [[https://github.com/rizo/onix-examples/blob/8ba0648316c1ddb0b0411815bb780d25f5d4fc92/ocaml-base-compiler/onix-lock.json][here]].
+- Robust cross-project cache powered by Nix store.
+- Support for ~pin-depends~ to add packages outside of the opam repository (this can be used to test experimental packages or pull requests, for example).
+- Support for automated ~depexts~ installation from nixpkgs.
+- Conditional compilation of ~with-test~, ~with-doc~ and ~with-dev-setup~ dependencies. In particular to support local development workflows with ~ocamlformat~, ~ocaml-lsp-server~, etc.
+- Support for [[https://discuss.ocaml.org/t/experimental-new-layout-for-the-ocaml-variants-packages-in-opam-repository/6779][compiler variants]] similar to opam (for example, the flambda compiler can be built).
+- Compilation of locally vendored packages. I use this workflow to test patches to project dependencies before submitting PRs.
+- Generation of opam-compatible "locked" files. This way any onix project can also be used directly with opam.
+
+*** Motivation
+
+On a more personal note, I started working on onix out of frustration with the existing tools like opam, esy,
+monorepo, opam2nix and opam-nix. Partially because the UX for working with local projects in a reproducible way is
+not great, and partially because I had a need to precisely manage system dependencies which is only possible with
+Nix. In the end, I decided to build something that is highly flexible and yet requires almost no Nix knowledge and
+(hopefully) is easy to use. Even though there are still some rough edges, I'm currently using onix in almost all of
+my OCaml projects.
+
+*** Dune-compatibility and future work
+
+I know there is work being done to include lock-file generation and package fetching in dune and I hope there will
+be a way to find compatibility between the onix lock format and the dune lock format. I do not think that this new
+direction in dune will eliminate the need for onix because dune will not manage system dependencies in the same
+deterministic way as Nix. For instance, in the Rust community there is an abundance of nix-based tools to work with
+Cargo's lock-files. I'm very excited to see how dune solves this problem and want to keep onix in sync with this
+effort.
+
+There are some other areas that I'd like to explore in the future that haven't been a priority for me, namely:
+- Adding support for cross-compilation (which already works for nix with @anmonteiro's excellent https://github.com/nix-ocaml/nix-overlays).
+- Improving support for flakes and "pure" project builds.
+- Provide a Nix cache with pre-built opam packages.
+- Create a simple CLI with commands like ~onix lock~ and ~onix shell~ that fully abstract nix.
+
+*** Final thoughts
+
+Note that this release is not published on opam as currently the workflow is fully driven by Nix. So follow the
+instructions in the [[https://github.com/rizo/onix/tree/master#usage][README]] if you would like to give onix a try.
+There is also a dedicated repository with examples to showcase more advanced use cases:
+https://github.com/rizo/onix-examples.
+
+Hope someone finds onix useful and happy to answer any questions.
+      
+
+** Bikal Lem asked and Rizo replied
+
+
+#+begin_quote
+Nice.
+
+Quick question, with regards to OCaml compiler and packages, does ~onyx~ get it from opam repo and not the nixpkgs?
+If so, how to do I use the OCaml 5.1 rc1?  Like below perhaps ?
+#+begin_example
+in onix.env {
+  path = ./.;
+  deps = { "ocaml" = "5.1.0~rc1"; };
+}
+#+end_example
+Hmmm ... perhpas this https://github.com/rizo/onix-examples/blob/master/ocaml-variants/default.nix ?
+#+end_quote
+
+Hi @BikalGurung. Onix works with the opam repository, but can also use the ocaml compiler package from nixpkgs when
+an equivalent version is available.
+
+Here are some additional considerations:
+
+- The nixpkgs repository will always lag behind opam repository so recent ocaml compiler versions will not be available;
+- The ~ocaml~ package on opam is a virtual package and requires that a concrete compiler package is installed: ~ocaml-system~, ~ocaml-variants~ or ~ocaml-base-compiler~.
+  - For most users this should be ~ocaml-base-compiler~ since that's what opam uses by default.
+  - If you want to build a custom compiler variant, use ~ocaml-variants~.
+  - If the compiler version you wish to use is on nixpkgs, feel free to use that one to avoid building the compiler from source.
+- The combinations of versions and options for the different compiler variants offer a lot of flexibility but can be a bit hard to understand. Check the versions and dependencies for each compiler package if you have very specific needs.
+
+Note that there is no [[https://ocaml.org/p/ocaml/latest][~ocaml~]] package with version ~5.1.0~rc1~, but there is a
+[[https://ocaml.org/p/ocaml-base-compiler/5.1.0~rc1][~ocaml-base-compiler~]] package with that version. So, in short,
+you should try:
+
+#+begin_example
+onix.env {
+  path = ./.;
+  deps = { "ocaml-base-compiler" = "5.1.0~rc1"; };
+}
+#+end_example
+
+I have updated the instructions in the README to make this a little bit clearer:
+https://github.com/rizo/onix#specifying-an-ocaml-compiler-package
+      
+
+
+
+* OCaml Platform Newsletter: July 2023
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/ocaml-platform-newsletter-july-2023/12872/1
+
+** Thibaut Mattio announced
+
+
+Welcome to the fourth installment of the OCaml Platform newsletter!
+
+This edition brings the latest improvements made in July to improve the OCaml developer experience with the [[https://ocaml.org/docs/platform][OCaml
+Platform]]. As in the [[https://discuss.ocaml.org/tag/platform-newsletter][previous
+updates]], the newsletter features the development workflows
+currently being explored or enhanced.
+
+This issue ended up a bit shorter than the previous ones, as we're entering summertime in Europe. Still, this month
+saw some great progress on support for package management in Dune, with only a few [[https://github.com/ocaml/dune/issues/8096][remaining
+blockers]] to build simple opam packages. We also saw the release of the
+second alpha of the most anticipated opam 2.2, which comes with an automated installation of Cygwin on Windows,
+allowing users to install a complete development environment using opam's installation script alone!
+
+- Building Packages
+  * [Dune] Exploring Package Management in Dune
+  * [opam] Native Support for Windows in opam 2.2
+  * [Dune] dune monitor: Connect to a Running Dune build
+- Generating Documentation
+  * [odoc] Add Search Capabilities to odoc
+  * [odoc] Syntax for Images and Assets in odoc
+- Editing and Refactoring Code
+  * [Merlin] Support for Project-Wide References in Merlin
+  * [Merlin] Improving Merlin’s Performance
+
+*** Releases
+
+Here are all the new versions of Platform tools that were released this month. Have a look at the [[https://ocaml.org/changelog][OCaml
+Changelog]] to read release announcements!
+
+- [[https://ocaml.org/changelog/2023-07-04-utop-2.13.0][UTop 2.13.0]]
+- [[https://ocaml.org/changelog/2023-07-11-utop-2.13.1][UTop 2.13.1]]
+- [[https://ocaml.org/changelog/2023-07-06-dune-3.9.1][Dune 3.9.1]]
+- [[https://ocaml.org/changelog/2023-07-25-dune-3.9.2][Dune 3.9.2]]
+- [[https://ocaml.org/changelog/2023-07-26-opam-2-2-0-alpha2][opam 2.2.0~alpha2]]
+- [[https://ocaml.org/changelog/2023-07-20-ocamlformat-0.26.0][OCamlFormat 0.26.0]]
+
+*** Building Packages
+
+**** *[Dune]* Exploring Package Management in Dune
+
+Contributors: @rgrinberg (Tarides), @Leonidas-from-XIV (Tarides), @gridbugs (Tarides), @kit-ty-kate (Tarides)
+
+In July, the Dune Package Management team worked on automatically downloading the ~opam-repository~ to ensure it is
+readily available for locking when no other source of ~opam-repository~ is specified.
+
+The Dune version of opam ~substs~ support was implemented, and the variable environment was enhanced when expanding
+opam package filters in the solver.
+
+Support for system variables was also added, which can be read from the workspace file or inferred from the current
+system. Notably, unset system variables are now treated as wildcards by the solver, allowing the generation of a
+single ~lockdir~ suitable for a range of systems. This change eliminates the need for different ~lockdirs~ for
+various systems, such as macOS and Linux.
+
+*Activities:*
+- Add field to indicate OCaml package -- [[https://github.com/ocaml/dune/pull/8079][ocaml/dune#8079]]
+- Created issues to track remaining work building opam packages in Dune, along with a [[https://github.com/ocaml/dune/issues/8096][meta issue]]
+  - Patch files in ~lockdir~ -- [[https://github.com/ocaml/dune/issues/8093][ocaml/dune#8093]]
+  - Opam variable interpolation while building packages with Dune -- [[https://github.com/ocaml/dune/issues/8094][ocaml/dune#8094]]
+  - Per-package files from ~opam-repository~ in ~lockdir~ -- [[https://github.com/ocaml/dune/issues/8095][ocaml/dune#8095]]
+  - Opam ~build~ and ~install~ commands in Dune ~lockdir~ -- [[https://github.com/ocaml/dune/issues/8154][ocaml/dune#8154]]
+- Conditional dependencies in ~lockdir~ -- [[https://github.com/ocaml/dune/pull/8050][ocaml/dune#8050]]
+  - Chain of commits ready to go into new PRs once this is merged, which will extend this to allow users to place constraints on system ~env vars~ in build contexts and to solve for a range of systems at once. For example, this can be used to generate a ~lockdir ~that works on both macOS and Linux or generate a ~lockdir~ for macOS while running on a Linux machine.
+- Solver can solve for multiple environments in single ~lockdir~ -- [[https://github.com/ocaml/dune/pull/8188][ocaml/dune#8188]]
+  - This will allow users to use a single ~lockdir~ across multiple different environments (e.g., different operating systems).
+- Implement automatic download of ~opam-repository~ with the option to use an existing folder or customising the default URL (defaulting to the ~opam-repository~ tarball), thus removing the need to piggyback on the ~opam-repository~ of a switch and removing support for it, somewhat simplifying the way the ~0install~ solver is run -- [[https://github.com/ocaml/dune/pull/8105][ocaml/dune#8105]]
+- Work on implementing the substitution support from opam as part of Dune by hooking up the functions from the opam API with the Dune rules -- [[https://github.com/ocaml/dune/pull/8225][ocaml/dune#8225]]
+- Creation of files from ~.in~ templates to match the opam ~substs~ field/feature -- [[https://github.com/ocaml/dune/pull/8225][ocaml/dune#8225]]
+- Progress on creating a variable environment for package solving:
+  - Set the ~opam-version~ variable during solving -- [[https://github.com/ocaml/dune/pull/8267][ocaml/dune#8267]]
+  - Don't warn on undefined opam variables when solving -- [[https://github.com/ocaml/dune/pull/8275][ocaml/dune#8275]]
+
+**** *[opam]* Native Support for Windows in opam 2.2
+
+Contributors: @rjbou (OCamlPro), @kit-ty-kate (Tarides), @dra27 (Tarides), @AltGr (OCamlPro)
+
+The first alpha of the highly-anticipated opam 2.2 was released last month. The second alpha of opam 2.2 was
+released this month.
+
+While the first alpha introduced native Windows compatibility, the second alpha offers simpler initialisation for
+Windows, eliminating the dependency on a preexisting Cygwin UNIX-like environment. Instead, opam now offers an
+embedded, fully-managed Cygwin install during initialisation.
+
+Have a look at the [[https://ocaml.org/changelog/2023-07-26-opam-2-2-0-alpha2][release announcement]] for more
+details, and join the discussion to share your feedback on
+[[https://discuss.ocaml.org/t/ann-opam-2-2-0-alpha2-release/12699][Discuss]].
+
+*Activities:*
+- Make ~opam init~ internally install Cygwin automatically by default instead of asking the user to install it manually -- [[https://github.com/ocaml/opam/pull/5545][opam#5545]]
+
+**** *[Dune]* ~dune monitor~: Connect to a Running Dune build
+
+Contributors: @Alizter
+
+This month, @Alizter started working on a new ~dune monitor~ command that connects to a Dune build that's running
+in watch mode (via Dune RPC) and behaves as if you executed ~dune build -w~.
+
+In the future, the plan is to merge ~dune monitor~ into the ~dune build~ command, so running a build will spawn an
+RPC server by default and any subsequent build will connect to the RPC server to display the build information.
+
+This is especially exciting in the context of Dune package management. Editors will be able to connect to a running
+Dune RPC server (directly or through OCaml LSP) to provide the relevant editors' features. With ~dune monitor~,
+there will not be limitations in the number of editors you can open for the same project!
+
+With recent work on [[https://discuss.ocaml.org/t/ocaml-platform-newsletter-april-2023/12187#dune-dune-terminal-user-interface-7][Dune Terminal
+UI]],
+expect the experience of running multiple build commands to improve quite a lot in the near future!
+
+*** Generating Documentation
+
+**** *[odoc]* Add Search Capabilities to ~odoc~
+
+Contributors: @panglesd (Tarides), @EmileTrotignon (Tarides), @trefis (Tarides)
+
+The ~odoc~ team continued to make progress on generating a search index from odoc and adding search capabilities to
+the HTML backend.
+
+Some issues have been found during testing and have been addressed, and
+[[https://github.com/art-w/sherlodoc/tree/jsoo][Sherlodoc]] was updated to be compatible with the latest version of
+~odoc~, which now provides [[https://github.com/ocaml/odoc/pull/975][basic support for assets]] used to select the
+search JavaScript script file.
+
+*Activities:*
+- Support for search in ~odoc~ -- [[https://github.com/ocaml/odoc/pull/972][ocaml/odoc#972]]
+- Collect occurrences information -- [[https://github.com/ocaml/odoc/pull/976][ocaml/odoc#976]]
+
+**** *[odoc]* Syntax for Images and Assets in ~odoc~
+
+Contributors: @panglesd (Tarides)
+
+As part of the work to make ~odoc~ suitable to create rich manuals, the ~odoc~ team started working on adding
+special support for images and assets! This initiative will bring image support to OCaml.org's central package
+documentation.
+
+In the upcoming weeks, the syntax and design will be discussed in [[https://github.com/ocaml/odoc/issues/985][the
+RFC]] that was open in July, with implementation set to begin as soon as
+there is a consensus on the design.
+
+*Activities:*
+- Implemented asset references (using the ~asset-*~ qualification in references), as well as their resolving (see [[https://github.com/panglesd/odoc/tree/asset-referencing][branch]]).
+- Opened an issue to discuss the syntax for images, with an initial proposal. -- [[https://github.com/ocaml/odoc/issues/985][ocaml/odoc#985]]
+
+*** Editing and Refactoring Code
+
+**** *[Merlin]* Support for Project-Wide References in Merlin
+
+Contributors: @voodoos (Tarides), @let-def (Tarides)
+
+This month, work on project-wide references focused on improving alias handling, fixing issues related to UID, and
+enhancing the behavior with modules and constructors.
+
+Every Merlin test is now passing (:tada:!), so the team intends to focus on getting the compiler patches
+upstreamed, which will in turn unlock the upstreaming of the rest of the stack (i.e., Merlin, Dune, and OCaml LSP).
+
+*Activities:*
+- Compiler support for project-wide occurrences -- [[https://github.com/voodoos/ocaml/pull/1][voodoos/ocaml#1]]
+- Use new compile information in CMT files to build and aggregate indexes -- [[https://github.com/voodoos/ocaml-uideps/pull/5][voodoos/ocaml-uideps#5]]
+- Dune orchestrates index generation -- [[https://github.com/voodoos/dune/pull/1][voodoos/dune#1]]
+- Use new CMT info to provide buffer occurrences and indexes for project-wide occurrences -- [[https://github.com/voodoos/merlin/pull/7][voodoos/merlin#7]]
+- Support project-wide occurrences in ~ocaml-lsp~ -- [[https://github.com/voodoos/ocaml-lsp/pull/1][voodoos/ocaml-lsp#1]]
+
+**** *[Merlin]* Improving Merlin's Performance
+
+Contributed by: @pitag-ha (Tarides), @3Rafal (Tarides), @voodoos (Tarides), @let-def (Tarides)
+
+Last month, we reported that the PR to [[https://github.com/ocaml/merlin/pull/1640][continuously benchmark Merlin]]
+was merged. The next stage involved implementing a fuzzy-testing PR to monitor behavior regression. In July, [[https://github.com/ocaml/merlin/pull/1657][an
+RFC]] of this behaviour regression CI, accompanied by an initial
+implementation, was introduced to discuss the design's trade-offs.
+
+Upon merging, the foundational work on Merlin's CI system will be complete, and the Merlin team intends to shift
+their focus to performance optimisations.
+
+*Activities:*
+- Opened an RFC for the Behavior CIs -- [[https://github.com/ocaml/merlin/pull/1657][ocaml/merlin#1657]]
+- Improved error discovery in ~merl-an~ -- [[https://github.com/pitag-ha/merl-an/pull/33][pitag-ha/merl-an#33]]
+- Improved ~merl-an~ for the Behavior CIs
+  - Add ~-index 0~ to type-enclosing cmd -- [[https://github.com/pitag-ha/merl-an/pull/30][pitag-ha/merl-an#30]]
+  - Remove ~-index 0~ from locate cmd --[[https://github.com/pitag-ha/merl-an/pull/31][pitag-ha/merl-an#31]]
+  - Improve the [behavior] cmd -- [[https://github.com/pitag-ha/merl-an/pull/34][pitag-ha/merl-an#34]]
+  - Behavior cmd cat data -- [[https://github.com/pitag-ha/merl-an/pull/37][pitag-ha/merl-an#37]]
+  - Allow only one Merlin version -- [[https://github.com/pitag-ha/merl-an/pull/40][pitag-ha/merl-an#40]]
+  - Improve perf -- [[https://github.com/pitag-ha/merl-an/pull/41][pitag-ha/merl-an#41]]
+      
+
+
+
+* A Roadmap for the OCaml Platform - Seeking Your Feedback
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/a-roadmap-for-the-ocaml-platform-seeking-your-feedback/12238/30
+
+** Thibaut Mattio announced
+
+
+I have merged the first version of the [[https://ocaml.org/docs/platform-users][User Persona]] and [[https://ocaml.org/docs/platform-principles][Guiding
+Principles]] in OCaml.org, they are available in the [[https://ocaml.org/docs/platform][Platform Tools
+section]] of the Learn area.
+
+Their being merged doesn't mean the feedback phase is over, however! They are living documents that will continue
+to evolve alongside the OCaml Platform. If you have any comments or suggestions, don't hesitate to share them here
+or open a PR.
+
+And now, I'm really excited to share the second part of the roadmap: the goals and development workflows we plan to
+build in the coming three years.
+
+You can see the document [[https://github.com/tarides/ocaml-platform-roadmap/blob/main/roadmap.md][here]] and on the
+accompanying [[https://github.com/ocaml/ocaml.org/pull/1505][OCaml.org's PR]].
+
+The roadmap is the result of many discussions with the Platform projects maintainers, careful reviews of OCaml
+survey results, synthesis of various Discuss threads and blog posts, and user research with both industrial users
+and individual developers alike.
+
+We expect it to represent the community's needs relatively well, however, this is the first public draft. We expect
+to go through a few iterations before it is ready to be adopted.
+
+So now is the time to share your feedback once again! Here are a couple of questions you can try to answer while
+reading the roadmap:
+
+- Would you use these development workflows? If so, which ones? Is there any missing workflow you would expect the OCaml Platform to provide?
+- Would you use (all or parts of) the OCaml Platform as specified in the roadmap yourself, in your organization? If not, what are the blockers? How would you measure success for Platform adoption in the community or in your organization?
+
+Looking forward to taking everyone's insight into account and iterating on the roadmap!
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[https://alan.petitepomme.net/cwn/][the archive]] or the [[https://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe [[http://lists.idyll.org/listinfo/caml-news-weekly/][online]].
+
+#+BEGIN_authorname
+[[https://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname
