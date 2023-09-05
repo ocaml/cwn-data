@@ -1,0 +1,478 @@
+                          ━━━━━━━━━━━━━━━━━━━
+                           OCAML WEEKLY NEWS
+                          ━━━━━━━━━━━━━━━━━━━
+
+
+[Previous Week] [Up] [Next Week]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of August 29 to
+September 05, 2023.
+
+Table of Contents
+─────────────────
+
+iostream 0.1
+Second release candidate for OCaml 5.1.0
+ocamlgraph 2.1.0
+Liquid ML - A templating language used by Shopify, Github Pages and more!
+moonpool 0.4
+Oxidizing OCaml, and a new opam switch
+Outreachy December 2023
+New release of PPrint (2023830)
+Old CWN
+
+
+[Previous Week] <https://alan.petitepomme.net/cwn/2023.08.29.html>
+
+[Up] <https://alan.petitepomme.net/cwn/index.html>
+
+[Next Week] <https://alan.petitepomme.net/cwn/2023.09.12.html>
+
+
+iostream 0.1
+════════════
+
+  Archive: <https://discuss.ocaml.org/t/ann-iostream-0-1/12922/1>
+
+
+Simon Cruanes announced
+───────────────────────
+
+  I’ve just released iostream 0.1. iostream is a [library] that provides
+  composable abstractions for input/output streams of bytes. Here
+  composability means that users can create their own streams, which
+  makes a `Iostream.Out.t' more powerful than the standard `out_channel'
+  because it is an abstraction that might perform compression before
+  writing to a `Buffer.t', or writes to a socket, or write nowhere, or
+  send the bytes to multiple other outputs.
+
+  There already exist some similar abstractions in the ecosystem, such
+  as Batteries’ `BatIO', an object based version of this in ocamlnet,
+  and probably uncountably many other projects. I have ancestor versions
+  of this in many of my own projects. This is my way of dealing with my
+  failure to implement [RFC19] in OCaml itself (a worthy read about
+  tradeoffs and use cases, for anyone interested). In other languages
+  you can find Rust’s [Read], [BufRead], and [Write] traits; and Go’s
+  [Reader] and [Writer] interfaces.
+
+  A design note: in `iostream' there is a separation between
+  `Iostream.In.t' (which is basically like a unix FD or rust’s `Read':
+  it gives you `read: bytes -> int -> int -> int'), and
+  `Iostream.In_buf.t' (the equivalent of rust’s `BufRead': it has its
+  own buffer and gives you access to it. Unlike `in_channel'’s magic
+  methods for `input_line', you can inspect the buffer to look ahead and
+  consume exactly the amount of input you need, no leftovers).
+
+  The library is under the MIT license. The online docs are [here].
+
+
+[library] <https://github.com/c-cube/ocaml-iostream>
+
+[RFC19] <https://github.com/ocaml/RFCs/pull/19>
+
+[Read] <https://doc.rust-lang.org/std/io/trait.Read.html>
+
+[BufRead] <https://doc.rust-lang.org/std/io/trait.BufRead.html>
+
+[Write] <https://doc.rust-lang.org/std/io/trait.Write.html>
+
+[Reader] <https://pkg.go.dev/io#Reader>
+
+[Writer] <https://pkg.go.dev/io#Writer>
+
+[here] <https://c-cube.github.io/ocaml-iostream/dev/iostream/index.html>
+
+
+Rudi Grinberg asked
+───────────────────
+
+  Looks like an interesting library to me. I have a few comments or
+  questions:
+
+  1. Is there going to be support for bigarrays or do you not support
+     them on purpose?
+  2. The documentation states that `close' “must be idempotent” for
+     output streams and is “idempotent” for input streams. Could you
+     clarify the distinction here? Also, did you consider just making
+     sure that your modules never call these functions more than once?
+     Seems like that would be more helpful to users of the library.
+  3. Did you consider splitting the parts that depend on Unix into a sub
+     library?
+
+
+Simon Cruanes replied
+─────────────────────
+
+  These are good questions, thanks. It’s not easy to write interfaces
+  with such a general purpose scope :sweat_smile:
+
+  1. I didn’t see a good way to support both bytes and bigarrays in the
+     same interface ­— asking implementors to have both `read' and
+     `read_bigstring' would be annoying, for example. However a good
+     chunk of the ecosystem does rely on bigarrays so it is an important
+     topic. I can imagine two solutions on the top of my head:
+     ‣ have `read_bigstring', `write_bigstring' with default
+       implementations just going through an intermediate layer of
+       `bytes', and the possibility for the implementor of the stream to
+       write a custom version
+     ‣ parametrize the stream types with the underlying type, i.e have
+       `bytes Iostream.In.t' as well as `bigstring ~Iostream.In.t'. But
+       here the difficulty is that all the convenience combinators in
+       the library become impossible to write, or specialized just for
+       (say) the `bytes' version.
+  2. `close' should be idempotent for both, i.e closing twice shouldn’t
+     fail. The reason is that it’s just too hard to keep track of
+     whether you closed already, especially if you mix explicit closing
+     (closing a connection) with resource handlers such as `with_in : …'
+     or `Fun.protect' that will ensure proper disposal of resources.
+  3. How do you provide an interface with a `as_fd : unit ->
+     Unix.file_descr option' in a sub-library? It has to be part of the
+     core interface, or not be there at all. This part comes from the
+     initial goal, in RFC 19, to replace standard channels (which
+     provide things like `seek' and `pos'), but I agree it’s annoying to
+     depend on `Unix'.
+
+
+Second release candidate for OCaml 5.1.0
+════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/second-release-candidate-for-ocaml-5-1-0/12928/1>
+
+
+octachron announced
+───────────────────
+
+  In the last two weeks, two significant bugs have been discovered in
+  the release candidate for OCaml 5.1.0 (one affecting the type system,
+  another in the runtime).
+
+  Those bugs are now fixed and we are publishing a second release
+  candidate to check that everything is in order before the release in
+  the upcoming week.
+
+  If you find any bugs, please report them on [OCaml’s issue tracker].
+
+  The full change log for OCaml 5.1.0 is available [on GitHub]. A short
+  summary of the two fixed bugs in this release candidate is also
+  available below.
+
+
+[OCaml’s issue tracker] <https://github.com/ocaml/ocaml/issues>
+
+[on GitHub] <https://github.com/ocaml/ocaml/blob/5.1/Changes>
+
+Installation Instructions
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  The base compiler can be installed as an opam switch with the
+  following commands on opam 2.1 and later:
+  ┌────
+  │ opam update
+  │ opam switch create 5.1.0~rc2
+  └────
+
+  The source code for the release candidate is also directly available
+  on:
+
+  • [GitHub]
+  • [OCaml archives at Inria]
+
+
+[GitHub] <https://github.com/ocaml/ocaml/archive/5.1.0-rc2.tar.gz>
+
+[OCaml archives at Inria]
+<https://caml.inria.fr/pub/distrib/ocaml-5.1/ocaml-5.1.0~rc2.tar.gz>
+
+◊ Fine-Tuned Compiler Configuration
+
+  If you want to tweak the configuration of the compiler, you can switch
+  to the option variant with:
+  ┌────
+  │ opam update
+  │ opam switch create <switch_name> ocaml-variants.5.1.0~rc2+options <option_list>
+  └────
+  where `<option_list>' is a comma-separated list of `ocaml-option-*'
+  packages. For instance, for a `flambda' and `no-flat-float-array'
+  switch:
+  ┌────
+  │ opam switch create 5.1.0~rc2+flambda+nffa ocaml-variants.5.1.0~rc2+options ocaml-option-flambda
+  │ ocaml-option-no-flat-float-array
+  └────
+
+  All available options can be listed with `opam search ocaml-option'.
+
+
+Last Minute Bug Fixes
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+◊ Type System:
+
+  • (*breaking change*) [#6941], [#11187], +[#12483]: prohibit using
+    classes through recursive modules inheriting or including a class
+    belonging to a mutually-recursive module would previous behave
+    incorrectly, and now results in a clean error. (Leo White, review by
+    Gabriel Scherer and Florian Angeletti)
+
+
+  [#6941] <https://github.com/ocaml/ocaml/issues/6941>
+
+  [#11187] <https://github.com/ocaml/ocaml/issues/11187>
+
+  [#12483] <https://github.com/ocaml/ocaml/issues/12483>
+
+
+◊ Runtime
+
+  • [#12481], [#12505]: Fix incorrect initialization of array
+    expressions `[|e1;...;eN|]' when `N' is large enough to require
+    major heap allocation. (Xavier Leroy, report by Andrey Popp,
+    analysis by KC Sivaramakrishnan and Vincent Laviron, review by
+    Gabriel Scherer)
+
+
+  [#12481] <https://github.com/ocaml/ocaml/issues/12481>
+
+  [#12505] <https://github.com/ocaml/ocaml/issues/12505>
+
+
+ocamlgraph 2.1.0
+════════════════
+
+  Archive: <https://discuss.ocaml.org/t/ann-ocamlgraph-2-1-0/12937/1>
+
+
+Jean Christophe Filliatre announced
+───────────────────────────────────
+
+  It is my pleasure to announce a new release of [OCamlGraph], a graph
+  library for OCaml. It is already available in opam and it is
+  documented [here].
+
+  Among other things, this release fixes an embarrassing bug in
+  functions `Dfs.fold' and `Dfs.fold_component', which were actually not
+  implementing a depth-first traversal (yet a graph traversal). See the
+  excellent post [Stack-based DFS is tricky to get right] for an
+  explanation.
+
+  Note: We have deprecated the support of package `ocamlgraph_gtk', a
+  tool to display graphs using GTK. If you are using this package,
+  please [make an issue] and we’ll discuss the options.
+
+
+[OCamlGraph] <https://github.com/backtracking/ocamlgraph>
+
+[here] <http://backtracking.github.io/ocamlgraph/>
+
+[Stack-based DFS is tricky to get right]
+<https://11011110.github.io/blog/2013/12/17/stack-based-graph-traversal.html>
+
+[make an issue] <https://github.com/backtracking/ocamlgraph/issues>
+
+
+Liquid ML - A templating language used by Shopify, Github Pages and more!
+═════════════════════════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-liquid-ml-a-templating-language-used-by-shopify-github-pages-and-more/12940/1>
+
+
+Ben Faerber announced
+─────────────────────
+
+  Hello everyone, I am excited to announce the release of my first OPAM
+  package liquid_ml. Shopify’s Liquid Templating language for OCaml.
+  Check it out here: [https://github.com/benfaerber/liquid-ml]
+
+  Learn Liquid syntax here: [https://shopify.github.io/liquid/]
+
+  The Liquid templating language is used all over including Shopify and
+  Github pages. The Rust port of the language is very popular for static
+  site and documentation generation. If anyone has any suggestions or
+  wants to help improve the project I welcome pull requests!
+
+
+[https://github.com/benfaerber/liquid-ml]
+<https://github.com/benfaerber/liquid-ml>
+
+[https://shopify.github.io/liquid/] <https://shopify.github.io/liquid/>
+
+
+moonpool 0.4
+════════════
+
+  Archive: <https://discuss.ocaml.org/t/ann-moonpool-0-4/12941/1>
+
+
+Simon Cruanes announced
+───────────────────────
+
+  Moonpool [0.4] was released on opam a few days ago.
+
+  There are not a lot of new features, but Moonpool is now a better
+  citizen wrt resource usage: if no pool is active, background domains
+  will shut down (to be spun back again later if they’re needed). This
+  was trickier to get right than I expected and a last bug was found
+  [during the release process] and fixed with the help of @avsm, @dra27
+  and [Mark Telvers]).
+
+
+[0.4] <https://github.com/c-cube/moonpool/releases/tag/v0.4>
+
+[during the release process]
+<https://github.com/ocaml/opam-repository/pull/24306>
+
+[Mark Telvers] <https://github.com/mtelvers>
+
+
+Oxidizing OCaml, and a new opam switch
+══════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/oxidizing-ocaml-and-a-new-opam-switch/12942/1>
+
+
+Yaron Minsky announced
+──────────────────────
+
+  We just posted the thrilling conclusion to our blog trilogy on
+  Oxidizing OCaml, which talks about some of the things we’ve been
+  working on (and some of our space-age plans) around extending OCaml to
+  support some of the same kinds of things that Rust lets you do, but in
+  a distinctly OCaml-ish way.
+
+  Here are the posts:
+
+  • [Locality]
+  • [Rust Style Ownership]
+  • [Data Race Freedom]
+
+  Maybe more excitingly, you can play around with the version of our
+  internal compiler that has the bits of this we’ve implemented thus far
+  (mostly, the local/global stuff, but the beginnings of uniqueness as
+  well) as well as our open-source libraries, via an [opam switch].
+
+  This is very much a bleeding-edge, unstable version. We use it
+  internally for real work, but we refactor it mercilessly, and the
+  language features are most definitely not stable. We hope one day to
+  propose a lot of this upstream, but for now, it’s just a preview of
+  some interesting experiments.
+
+  The thing I’m most excited about all of this is the prospect of
+  data-race free OCaml. The ability to leverage the great work done by
+  the Multicore team, but safely, is a prospect I’m very much looking
+  forward to.
+
+  Also, a bunch of Jane Street compiler folk will be at ICFP next week.
+  If you’re interested in learning more, that’s a good time to grab one
+  of us.
+
+
+[Locality] <https://blog.janestreet.com/oxidizing-ocaml-locality/>
+
+[Rust Style Ownership]
+<https://blog.janestreet.com/oxidizing-ocaml-ownership/>
+
+[Data Race Freedom]
+<https://blog.janestreet.com/oxidizing-ocaml-parallelism/>
+
+[opam switch]
+<https://github.com/janestreet/opam-repository/tree/with-extensions>
+
+
+Outreachy December 2023
+═══════════════════════
+
+  Archive: <https://discuss.ocaml.org/t/outreachy-december-2023/12949/1>
+
+
+Patrick Ferris announced
+────────────────────────
+
+  With the conclusion of the previous Outreachy round (see
+  <https://discuss.ocaml.org/t/end-of-internship-demo-session/12927/>),
+  the next round is fast approaching and the OCaml community has signed
+  up again to participate!
+
+  The deadline for mentors to [signup] is *September 29 2023*. The OCaml
+  community has decided to try a slightly different approach that has
+  worked very well in the previous round. We noticed quite a few people
+  would like to be involved in an internship but without worrying too
+  much about the details of Outreachy itself. If people are simply
+  interested in mentoring and they maintain an open-source project, then
+  they can reach out directly to @pitag or myself and we can help scope
+  a project, explain the contribution period and provide as much other
+  help as we can!
+
+  When signing up mentors propose an open-source project where
+  prospective interns submit PRs during the “contribution phases” as
+  part of their application. Mentors will then choose an intern to work
+  with for 3 months. A more detailed explanation is available [on the
+  Outreachy mentor section].
+
+  Finally, [Tarides] and [OCaml Software Foundation] have been very
+  generous so far funding our efforts on the intern side. Since the
+  previous round, Jane Street and Tarides have gone a step further and
+  have also provided funding for the mentor side! Mentoring does take
+  time, but you get a lot back from it on different levels and hopefully
+  this financial help can lower the barriers to being a mentor.
+
+  As always if you have any general questions or mentoring ideas do
+  comment on this thread or reach out to us directly.
+
+
+[signup] <https://www.outreachy.org/communities/cfp/>
+
+[on the Outreachy mentor section]
+<https://www.outreachy.org/mentor/#mentor>
+
+[Tarides] <https://tarides.com>
+
+[OCaml Software Foundation] <https://ocaml-sf.org>
+
+
+New release of PPrint (2023830)
+═══════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-new-release-of-pprint-2023830/12954/1>
+
+
+François Pottier announced
+──────────────────────────
+
+  It is my pleasure to announce a new release of PPrint, the
+  pretty-printing library, with the following additions:
+
+  • The new function `is_empty' allows testing (in constant time)
+    whether a document is empty.
+  • Documentation: add a warning about the time and space complexity of
+    a naive use of `ifflat'.
+
+  The library now requires OCaml 4.03 or newer.
+
+
+Old CWN
+═══════
+
+  If you happen to miss a CWN, you can [send me a message] and I’ll mail
+  it to you, or go take a look at [the archive] or the [RSS feed of the
+  archives].
+
+  If you also wish to receive it every week by mail, you may subscribe
+  [online].
+
+  [Alan Schmitt]
+
+
+[send me a message] <mailto:alan.schmitt@polytechnique.org>
+
+[the archive] <https://alan.petitepomme.net/cwn/>
+
+[RSS feed of the archives] <https://alan.petitepomme.net/cwn/cwn.rss>
+
+[online] <http://lists.idyll.org/listinfo/caml-news-weekly/>
+
+[Alan Schmitt] <https://alan.petitepomme.net/>
