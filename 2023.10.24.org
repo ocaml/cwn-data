@@ -1,0 +1,913 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[https://alan.petitepomme.net/cwn/2023.10.17.html][Previous Week]] [[https://alan.petitepomme.net/cwn/index.html][Up]] [[https://alan.petitepomme.net/cwn/2023.10.31.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of October 17 to 24, 2023.
+
+#+TOC: headlines 1
+
+
+* Using Reason and React meta-frameworks. Also some Melange 2
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/using-reason-and-react-meta-frameworks-also-some-melange-2/13260/1
+
+** psb announced
+
+
+https://dev.to/psb/reason-and-react-meta-frameworks-d7n
+      
+
+
+
+* Ppxlib dev meetings
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/ppxlib-dev-meetings/12441/9
+
+** Sonja Heinze announced
+
+
+@octachron has come to the ppxlib dev meeting today, which has been a very nice
+surprise. It's nice to discuss intersections between ppxlib and the compiler together
+with compiler maintainers. Thanks, @octachron!
+
+So it has been @panglesd, @octachron and me in the meeting. Here are the meeting
+notes: https://github.com/ocaml-ppx/ppxlib/wiki/Dev-meeting-19-09-2023.
+      
+
+
+
+* A hack to implement efficient TLS (thread-local-storage)
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/a-hack-to-implement-efficient-tls-thread-local-storage/13264/1
+
+** Vesa Karvonen announced
+
+
+Currently OCaml 5 provides a [[https://v2.ocaml.org/api/Domain.DLS.html][~Domain.DLS~]]
+module for domain-local-state.
+
+Unfortunately,
+
+1. [[https://github.com/ocaml/ocaml/issues/11770][there is no corresponding ~Thread.TLS~]] for (sys)thread-local-state, and
+2. the current implementation of ~Domain.DLS~ is not thread-safe.
+
+I don't want to spend time to motivate this topic, but for many of the use cases of
+~Domain.DLS~, what you actually want, is to use a ~Thread.TLS~.  IOW, many of the
+uses of ~Domain.DLS~ are probably "wrong" and should actually use a ~Thread.TLS~,
+because, when using ~Domain.DLS~, the assumption must be that you don't have multiple
+threads on the domain, but that is typically decided at a higher level in the
+application and so making such an assumption is typically not safe.
+
+*** ~Domain.DLS~ is not thread-safe
+
+I mentioned that the current implementation ~Domain.DLS~ is not thread-safe. What I
+mean by that is that the current implementation is literally not thread-safe at all
+in the sense that unrelated concurrent ~Domain.DLS~ accesses can actually break the
+DLS.
+
+Consider [[https://github.com/ocaml/ocaml/blob/e397ed28bcef85fdc1f0f007af481ef201fb1fd7/stdlib/domain.ml#L120-L127][the implementation of
+~Domain.DLS.get~]]:
+
+#+begin_src ocaml
+  let get (idx, init) =
+    let st = maybe_grow idx in
+    let v = st.(idx) in
+    if v == unique_value then
+      let v' = Obj.repr (init ()) in
+      st.(idx) <- (Sys.opaque_identity v');
+      Obj.magic v'
+    else Obj.magic v
+#+end_src
+
+If there are two (or more) threads on a single domain that concurrently call ~get~
+before ~init~ has been called initially, then what might happen is that ~init~ gets
+called twice (or more) and the threads get different values which could e.g. be
+pointers to two different mutable objects.
+
+Consider [[https://github.com/ocaml/ocaml/blob/e397ed28bcef85fdc1f0f007af481ef201fb1fd7/stdlib/domain.ml#L98-L111][the implementation of
+~maybe_grow~]]:
+
+#+begin_src ocaml
+  let maybe_grow idx =
+    let st = get_dls_state () in
+    let sz = Array.length st in
+    if idx < sz then st
+    else begin
+      let rec compute_new_size s =
+        if idx < s then s else compute_new_size (2 * s)
+      in
+      let new_sz = compute_new_size sz in
+      let new_st = Array.make new_sz unique_value in
+      Array.blit st 0 new_st 0 sz;
+      set_dls_state new_st;
+      new_st
+    end
+#+end_src
+
+Imagine calling ~get~ (which calls ~maybe_grow~) with two different keys from two
+different threads concurrently.  The end result might be that two different arrays
+are allocated and only one of them "wins".  What this means, for example, is that
+effects of ~set~ calls may effectively be undone by concurrent calls of ~get~.
+
+In other words, the ~Domain.DLS~, as it is currently implemented, is not thread-safe.
+
+*** How to implement an efficient ~Thread.TLS~?
+
+If you dig into the implementation of threads, you will notice that the opaque
+[[https://github.com/ocaml/ocaml/blob/e397ed28bcef85fdc1f0f007af481ef201fb1fd7/otherlibs/systhreads/thread.mli#L18][~Thread.t~ type]]
+is actually a heap block (record) of three fields.  You can see the [[https://github.com/ocaml/ocaml/blob/e397ed28bcef85fdc1f0f007af481ef201fb1fd7/otherlibs/systhreads/st_stubs.c#L66-L68][~Thread.t~
+accessors]]:
+
+#+begin_src c
+#define Ident(v) Field(v, 0)
+#define Start_closure(v) Field(v, 1)
+#define Terminated(v) Field(v, 2)
+#+end_src
+
+and the [[https://github.com/ocaml/ocaml/blob/e397ed28bcef85fdc1f0f007af481ef201fb1fd7/otherlibs/systhreads/st_stubs.c#L335-L346][~Thread.t~ allocation]]:
+
+#+begin_src c
+static value caml_thread_new_descriptor(value clos)
+{
+  CAMLparam1(clos);
+  CAMLlocal1(mu);
+  value descr;
+  /* Create and initialize the termination semaphore */
+  mu = caml_threadstatus_new();
+  /* Create a descriptor for the new thread */
+  descr = caml_alloc_3(0, Val_long(atomic_fetch_add(&thread_next_id, +1)),
+                       clos, mu);
+  CAMLreturn(descr);
+}
+#+end_src
+
+The second field, ~Start_closure~, is used to pass the closure to the thread start:
+
+#+begin_src c
+static void * caml_thread_start(void * v)
+{
+  caml_thread_t th = (caml_thread_t) v;
+  int dom_id = th->domain_id;
+  value clos;
+  void * signal_stack;
+
+  caml_init_domain_self(dom_id);
+
+  st_tls_set(caml_thread_key, th);
+
+  thread_lock_acquire(dom_id);
+  restore_runtime_state(th);
+  signal_stack = caml_init_signal_stack();
+
+  clos = Start_closure(Active_thread->descr);
+  caml_modify(&(Start_closure(Active_thread->descr)), Val_unit);
+  caml_callback_exn(clos, Val_unit);
+  caml_thread_stop();
+  caml_free_signal_stack(signal_stack);
+  return 0;
+}
+#+end_src
+
+and, as seen above, [[https://github.com/ocaml/ocaml/blob/e397ed28bcef85fdc1f0f007af481ef201fb1fd7/otherlibs/systhreads/st_stubs.c#L575][it is overwritten with the unit value]]
+before the closure is called.
+
+What this means is that when you call ~Thread.self ()~ and get a reference to the
+current ~Thread.t~, the ~Start_closure~ field of that heap block will be the unit
+value:
+
+#+begin_src ocaml
+assert (Obj.field (Obj.repr (Thread.self ())) 1 = Obj.repr ())
+#+end_src
+
+Let's hijack that field for the purpose of implementing an efficient TLS!
+
+Here is the full hack:
+
+#+begin_src ocaml
+module TLS : sig
+  type 'a key
+  val new_key : (unit -> 'a) -> 'a key
+  val get : 'a key -> 'a
+  val set : 'a key -> 'a -> unit
+end = struct
+  type 'a key = { index : int; compute : unit -> 'a }
+
+  let counter = Atomic.make 0
+  let unique () = Obj.repr counter
+
+  let new_key compute =
+    let index = Atomic.fetch_and_add counter 1 in
+    { index; compute }
+
+  type t = { _id : int; mutable tls : Obj.t }
+
+  let ceil_pow_2_minus_1 n =
+    let n = n lor (n lsr 1) in
+    let n = n lor (n lsr 2) in
+    let n = n lor (n lsr 4) in
+    let n = n lor (n lsr 8) in
+    let n = n lor (n lsr 16) in
+    if Sys.int_size > 32 then n lor (n lsr 32) else n
+
+  let[@inline never] grow_tls t before index =
+    let new_length = ceil_pow_2_minus_1 (index + 1) in
+    let after = Array.make new_length (unique ()) in
+    Array.blit before 0 after 0 (Array.length before);
+    t.tls <- Obj.repr after;
+    after
+
+  let[@inline] get_tls index =
+    let t = Obj.magic (Thread.self ()) in
+    let tls = t.tls in
+    if Obj.is_int tls then grow_tls t [||] index
+    else
+      let tls = (Obj.magic tls : Obj.t array) in
+      if index < Array.length tls then tls else grow_tls t tls index
+
+  let get key =
+    let tls = get_tls key.index in
+    let value = Array.unsafe_get tls key.index in
+    if value != unique () then Obj.magic value
+    else
+      let value = key.compute () in
+      Array.unsafe_set tls key.index (Obj.repr (Sys.opaque_identity value));
+      value
+
+  let set key value =
+    let tls = get_tls key.index in
+    Array.unsafe_set tls key.index (Obj.repr (Sys.opaque_identity value))
+end
+#+end_src
+
+The above achieves about 80% of the performance of ~Domain.DLS~ allowing roughly 241M
+~TLS.get~﻿s/s (vs 296M ~Domain.DLS.get~﻿s/s) on my laptop.
+      
+
+
+
+* New Get Started Documentation on OCaml.org
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/ann-new-get-started-documentation-on-ocaml-org/13269/1
+
+** Thibaut Mattio announced
+
+
+Dear OCaml Community,
+
+On behalf of the OCaml.org team, I'm thrilled to announce the publication of the new
+[[https://ocaml.org/docs/get-started][Get Started documentation]].
+
+It is organised in three stages:
+- [[https://ocaml.org/docs/installing-ocaml][*Installing OCaml*]], which guides you through the installation of opam, the initialisation of a switch and the installation of Platform tools.
+- [[https://ocaml.org/docs/tour-of-ocaml][*A Tour of OCaml*]], which walks you through the basics of the OCaml language and invites you to use the top-level to start playing with the language.
+- [[https://ocaml.org/docs/your-first-program][*Your First OCaml Program*]], which is a bit more practical and assumes you're using an editor to help you create your first executable using Dune.
+
+In addition to these, you'll also find introductory guides on the tooling to
+complement the introduction to the language:
+
+- [[https://ocaml.org/docs/set-up-editor][Configuring Your Editor]]
+- [[https://ocaml.org/docs/toplevel-introduction][Introduction to the OCaml Toplevel]]
+- [[https://ocaml.org/docs/opam-switch-introduction][Introduction to opam Switches]]
+
+Our goal is to make OCaml.org the best resource to get started with and learn OCaml.
+
+There are still a lot of gaps to fill in the documentation -- and we'll continue to
+work on these in the coming months -- but the Get Started experience is probably the
+most important part of the documentation to alleviate friction points that discourage
+new users from adopting OCaml. As such, don't hesitate to publicise these, but most
+importantly, let us know your feedback!
+
+Happy reading!
+      
+
+
+
+* Web Analytics on OCaml.org
+:PROPERTIES:
+:CUSTOM_ID: 5
+:END:
+Archive: https://discuss.ocaml.org/t/web-analytics-on-ocaml-org/13188/8
+
+** Continuing this thread, Thibaut Mattio said
+
+
+Thanks for the feedback and the participation in the survey!
+
+Seeing that there aren't major concerns, we'll be moving forward with a trial of
+Plausible.
+
+As @avsm said, we plan on self-hosting it on the OCaml.org infrastructure to respect
+our commitment to not use any third-party service. This means that not only we won't
+be collecting any personal data, but even the aggregate data will never leave the
+OCaml.org infrastructure.
+
+There's roughly a third of people who are against adding analytics to OCaml.org in
+the survey above. We strongly believe that Plausible is aligned with our commitment
+to protect OCaml.org visitors' privacy, but I'll echo @avsm in saying that if people
+believe that this is not the case, I'd love to hear about the specific concerns and
+ideas for alternatives.
+
+To answer some questions above:
+
+#+begin_quote
+Are you going to give a public access to the Plausible statistics ? Or will it be
+only for the maintainers i.e. Tarides ?
+#+end_quote
+
+The analytics dashboard will be public.
+
+#+begin_quote
+Have you considered running a server-side analytics service?
+#+end_quote
+
+Yes, @JiaeK actually worked on a server-side analytics service as part of her
+Outreachy internship in 2021 and had made fantastic progress. The WIP dashboard is
+available at https://ocaml.org/dashboard.
+
+It currently doesn't collect _any_ data and only logs unique page accesses.
+
+We had planned on building on top of this, but as you can imagine this is a large
+project, and the OCaml.org team has been prioritising improvements to the site
+itself.
+
+I found the following to be a good read on the pros and cons of server-side vs
+client-side analytics:
+https://plausible.io/blog/server-log-analysis#how-big-of-a-data-gap-is-there-between-server-log-analysis-and-web-analytics
+
+TL;DR for all its benefits, server-side analytics comes with a load of drawbacks and
+isn't fundamentally more privacy-friendly than privacy-oriented client-side analytics
+solution.
+
+That being said, if someone would like to contribute to the Dream analytics dashboard
+to make it usable as an alternative to other analytics solutions, I'd be more than
+happy to move towards this! Don't hesitate to reach out to me or other OCaml.org
+maintainers about that.
+      
+
+
+
+* OCaml.org Newsletter: August and September 2023
+:PROPERTIES:
+:CUSTOM_ID: 6
+:END:
+Archive: https://discuss.ocaml.org/t/ocaml-org-newsletter-august-and-september-2023/13272/1
+
+** Thibaut Mattio announced
+
+
+Welcome to the August and September 2023 edition of the OCaml.org newsletter! This
+update has been compiled by the OCaml.org team. You can find the [[https://discuss.ocaml.org/tag/ocamlorg-newsletter][previous updates on
+Discuss]].
+
+Our goal is to make OCaml.org the best resource for anyone who wants to get started
+and be productive in OCaml. The OCaml.org newsletter provides an update on our
+progress towards that goal and an overview of changes we are working on.
+
+We couldn't do it without all the amazing OCaml community members who help us review,
+revise, and create better OCaml documentation. Your feedback enables us to better
+prioritise our work and make progress towards our goal. Thank you!
+
+These past two months, our priorities were:
+- *Learn Area:* We're working towards making OCaml.org a great resource to learn OCaml and discover its ecosystem. We've focussed on getting the new Get Started documentation ready for publication, and we started work on a second iteration of the designs for the Learn area.
+- *General Improvements:* As usual, we also worked on general maintenance and improvements based on user feedback, so we're highlighting some of our work below.
+
+*** Learn Area
+
+**** 1. Redesign of the Learn Area
+
+After completing the first version of the design in July, we started working on a new
+iteration that is more in line with the current branding of the site. Feedback from
+the team and users has been extremely positive on the UX (the structure of the new
+documentation and the layout of the pages), but we felt that the design direction
+needed to be reconciled with and improve on the existing designs of all pages. Thus,
+we are revisiting the designs' UI aspects in both light and dark modes.
+
+*Relevant PRs and Activities:*
+
+- Continued work on [[https://www.figma.com/file/Aqk5y03fsaCuhTSywmmY06/OCaml.org-Public-Designs?type=design&node-id=130-754&mode=design&t=XvVCMukq5AR3oxRf-0][Figma UX/UI designs]] for the new Learn area:
+  - Continued overall Learn area UI design
+  - Improved dark mode for the home page on mobile and made necessary text amendments
+  - Designed mobile views for the search field with an open navigation feature and breadcrumb navigation
+  - Worked on updating the design systems to ensure consistency between light and dark variants
+- Continued the implementation of new components for the Learn Area:
+  - Skill tag component for the Learn area is completed -- [[https://github.com/ocaml/ocaml.org/pull/1427][ocaml/ocaml.org#1427]]
+  - Learn overview cards (Install + Standard Library API) completed -- [[https://github.com/ocaml/ocaml.org/pull/1441][ocaml/ocaml.org#1441]]
+  - Books block component completed -- [[https://github.com/ocaml/ocaml.org/pull/1481][ocaml/ocaml.org#1481]]
+  - Tutorial block component completed -- [[https://github.com/ocaml/ocaml.org/pull/1387][ocaml/ocaml.org#1387]]
+  - Exercises block component -- [[https://github.com/ocaml/ocaml.org/pull/1479][ocaml/ocaml.org#1479]]
+  - Video block component -- [[https://github.com/ocaml/ocaml.org/pull/1480][ocaml/ocaml.org#1480]]
+  - Language Manual Banner Component - [[https://github.com/ocaml/ocaml.org/pull/1406][ocaml/ocaml.org#1406]]
+  - Change learn area tab navigation color - [[https://github.com/ocaml/ocaml.org/pull/1522][ocaml/ocaml.org#1522]]
+
+**** 2. OCaml Documentation
+
+Since August, we've focused mainly on the "Getting Started" documents, including a
+guide to installing OCaml, a "tour" of the OCaml language, and a tutorial to create
+your first project in OCaml.
+
+Anticipating on our October update, we've just
+[[https://discuss.ocaml.org/t/ann-new-get-started-documentation-on-ocaml-org/13269][published]]
+the new Get Started documentation pages! :tada:
+
+We still encourage community feedback, as we fully expect to iteratively improve
+these docs in the coming weeks, especially as they will now serve as the primary
+resource to everyone who wants to get up and running with OCaml.
+
+Our focus will now shift to filling the gaps in the Language section of the
+documentation, starting with the Basic Data Types and Functions and Values pages,
+which are currently in the Community review stage.
+
+*Relevant PRs and Activities:*
+
+- *First Draft In Progress:*
+  - Sets
+  - Maps
+  - Mutable State / Imperative Programming
+- *In Review (internal):*
+  - Polymorphic Variants
+- *In Review (community):*
+  - [[https://github.com/ocaml/ocaml.org/pull/1514][Basic Data Types]] (see [[https://discuss.ocaml.org/t/ocaml-org-tutorial-revamping-contd-basic-datatypes/12985][Discuss Thread]])
+  - [[https://github.com/ocaml/ocaml.org/pull/1512][Functions and Values]] (see [[https://discuss.ocaml.org/t/ocaml-org-tutorial-revamping-cond-values-and-functions/13005][Discuss Thread]])
+  - [[https://github.com/ocaml/ocaml.org/pull/1400][File Manipulation]] (see [[https://discuss.ocaml.org/t/help-review-the-new-file-manipulation-tutorial-on-ocaml-org/12638][Discuss Thread]])
+- *Published:*
+  - [[https://ocaml.org/docs/installing-ocaml][Installing OCaml]] (see [[https://discuss.ocaml.org/t/help-revamping-the-getting-started-tutorials-in-ocaml-org/12749][Discuss Thread]])
+  - [[https://ocaml.org/docs/tour-of-ocaml][A Tour Of OCaml]] (see [[https://discuss.ocaml.org/t/help-revamping-the-getting-started-tutorials-in-ocaml-org/12749][Discuss Thread]])
+  - [[https://ocaml.org/docs/your-first-program][Your First OCaml Program]] (see [[https://discuss.ocaml.org/t/help-revamping-the-getting-started-tutorials-in-ocaml-org/12749][Discuss Thread]])
+  - [[https://ocaml.org/docs/opam-switch-introduction][Introduction to opam Switches]]
+  - [[https://ocaml.org/docs/arm64-fix][Fix Homebrew Errors on Apple M1]]
+  - [[https://ocaml.org/docs/operators][Operators]]
+  - [[https://ocaml.org/docs/error-handling][Error Handling]] (see [[https://discuss.ocaml.org/t/ann-new-get-started-documentation-on-ocaml-org/13269][Discuss Thread]])
+  - [[https://ocaml.org/docs/arrays][Arrays]] (see [[https://discuss.ocaml.org/t/feedback-needed-new-arrays-tutorial-on-ocaml-org/12683][Discuss Thread]])
+  - [[https://ocaml.org/docs/sequences][Sequences]] (see [[https://discuss.ocaml.org/t/creating-a-tutorial-on-sequences/12091][Discuss Thread]])
+
+*** General Improvements
+
+This month, we're welcoming 2 new contributors:
+- [[https://github.com/ShalokShalom][@ShalokShalom]] improved the "Why OCaml?" page - [[https://github.com/ocaml/ocaml.org/pull/1516][ocaml/ocaml.org#1516]]
+- [[https://github.com/echuber2][@echuber2]] fixed a broken link to the Editor setup instructions - [[https://github.com/ocaml/ocaml.org/pull/1552][ocaml/ocaml.org#1552]]
+
+and welcome contributions from returning contributors:
+
+- [[https://github.com/AshineFoster][@AshineFoster]] fixed date parse error for news section of the blog -- [[https://github.com/ocaml/ocaml.org/pull/1503][ocaml/ocaml.org#1503]]
+- [[https://github.com/edwintorok][@edwintorok]] updated XenServer entry on Job board and Industrial Users -- [[https://github.com/ocaml/ocaml.org/pull/1511][ocaml/ocaml.org#1511]]
+
+Thanks a lot to all the contributors this month! It's lovely to see more and more
+people making contributions to the site!
+
+*Relevant PRs and Activities:*
+
+- Local blogs on OCaml.org (for now only the opam blog) now have a dedicated RSS feed -- [[https://github.com/ocaml/ocaml.org/pull/1459][ocaml/ocaml.org#1459]]
+- Added an [[https://ocaml.org/docs/is-ocaml-web-yet][Is OCaml Web Yet?]] page - [[https://github.com/ocaml/ocaml.org/pull/1226][ocaml/ocaml.org#1226]]
+- Repaired broken links to the extent possible in 17 different files -- [[https://github.com/ocaml/ocaml.org/pull/1461][ocaml/ocaml.org#1461]], [[https://github.com/ocaml/ocaml.org/pull/1515][ocaml/ocaml.org#1515]], and [[https://github.com/ocaml/ocaml.org/pull/1520][ocaml/ocaml.org#1520]]
+- Change Makefile of the Playground to create a local opam switch (in line with the local switch created by OCaml.org's Makefile) in order to resolve problems with copying the ~Stdlib~ build artifacts -- [[https://github.com/ocaml/ocaml.org/pull/1469][ocaml/ocaml.org#1469]]
+- A link to an Outreachy blog post has been contributed to the OCaml Planet -- [[https://github.com/ocaml/ocaml.org/pull/1474][ocaml/ocaml.org#1474]]
+- Fixed an issue with Package search on Safari -- [[https://github.com/ocaml/ocaml.org/pull/1510][ocaml/ocaml.org#1510]]
+- Highlighted active link in primary color and increased clickable area for links in mobile main navigation - [[https://github.com/ocaml/ocaml.org/pull/1521][ocaml/ocaml.org#1521]]
+- Minor improvements on documentation generation. Single new lines in ~.md~ files were translated to linebreaks by voodoo. Now, voodoo emits space characters for these -- [[https://github.com/ocaml-doc/voodoo/pull/119][ocaml-doc/voodoo#119]]
+- Reduced spacing in package documentation between ~.spec~ and ~.spec-doc~ -- [[https://github.com/ocaml/ocaml.org/pull/1509][ocaml/ocaml.org#1509]]
+      
+
+
+
+* Release of odoc 2.3.0
+:PROPERTIES:
+:CUSTOM_ID: 7
+:END:
+Archive: https://discuss.ocaml.org/t/ann-release-of-odoc-2-3-0/13273/1
+
+** Paul-Elliot announced
+
+
+The odoc team is thrilled to announce the release of odoc 2.3.0! 🎉 This release is
+the result of almost a year of diligent work since the last major release of odoc
+2.2.0, it comes packed with significant new features and improvements!
+
+*** 🌟 Spotlight Features of Odoc 2.3.0
+
+Here are a couple of the new features introduced in Odoc 2.3.0 that we'd like to
+highlight.
+
+**** 1. *Table Support*
+
+Table support is the last addition to the odoc language, and comes with two syntax
+flavours: a light one, and a heavy one. The light markup is similar to markdown's
+markup for table, producing tables that are readable in the source file as well.
+
+However, this markup has some limitation, since it only allows inline content in
+cells. It can also be difficult to read and mantain for big tables, without a proper
+editor support. For this reason, Odoc also
+provides a "heavy" markup, closer to the html one, with fewer limitations!
+
+Here is a table in heavy, light, and rendered form:
+
+#+begin_example
+{t
+Table | support
+------|--------
+is    | cool!
+}
+#+end_example
+#+begin_example
+{table
+{tr {th Table} {th support}}
+{tr {td is} {td cool!}}
+}
+#+end_example
+
+| Table | support |
+|------|--------|
+| is    | cool! |
+
+**** 2. *Source Code Rendering*
+
+Source code rendering is an extremely exciting new feature. Not only ~odoc~ is now
+able to generate a rendering of the source files (and source hierarchy) of a project,
+but it is also able to create direct links from the documentation to the
+implementation!
+
+This puts the documentation browsing to a new level, by helping to quickly answer any
+implementation-related question!
+
+The source code rendering is also tailored to OCaml, for instance with links from
+variables to their definition, something missing from traditional html-based source
+viewing such as github!
+
+Using this features in odoc's driver will require some work, but you can already have
+a preview of the feature by going to the odoc API website, which was built with the
+feature enabled. For instance, the
+[[https://ocaml.github.io/odoc/odoc_html/Odoc_html/index.html][Odoc_html]] module is
+now populated with many ~Source~ links, jumping right into the [[https://ocaml.github.io/odoc/source/src/html/generator.ml.html][implementation
+file]]! Directory
+pages to browser the implementation are also
+[[https://ocaml.github.io/odoc/source/src/index.html][included]] :D
+
+*** 🗺️ Background & Roadmap
+
+Before displaying the full changelog, some background on our roadmap and what comes
+next.
+
+The lack of access to comprehensive documentation for OCaml libraries is one of the
+biggest pain points reported by the OCaml community, as highlighted in the [[https://ocaml-sf.org/docs/2022/ocaml-user-survey-2022.pdf][2022
+OCaml survey]] (c.f. Q50).
+
+This motivated the odoc and OCaml.org teams to jointly work on a centralised package
+documentation, that [[https://discuss.ocaml.org/t/v3-ocaml-org-we-are-live/9747][went live in April
+2022]], as part of the new
+version of OCaml.org.
+
+With documentation for OCaml libraries [[https://ocaml.org/packages][readily available on
+OCaml.org]], we now turn our focus on making sure that
+library authors have the tooling they need to create high-quality documentation.
+
+Our [[https://github.com/ocaml/odoc/blob/master/ROADMAP.md][roadmap]] highlights some
+features we believe will make the generated documentation significantly better for
+readers, and documentation-writing much more pleasant and rewarding.
+
+This release is a significant milestone in implementing the features on our roadmap
+and is the precursor to a series of upcoming releases. Odoc 2.4.0 will follow shortly
+and will bring support for search. Stay tuned and follow our progress through the
+[[https://discuss.ocaml.org/tag/platform-newsletter][OCaml Platform newsletter]]!
+
+*** 🤝 Join The Mission
+
+While we are dedicated to developing the best tooling to generate and serve
+documentation on OCaml.org, creating a well-documented library ecosystem can only be
+a collective effort. Package authors: we're working hard to give you great tools, but
+we'll need all your help to create an ecosystem of well-documented libraries for
+OCaml!
+
+If you find that writing documentation for your library isn't as straightforward as
+you would like, please do share your feedback with us.
+
+*** 2.3.0 Changelog
+
+**** Added
+- Source code rendering (@Julow, @panglesd, @jonludlam #909, #996, #993, #982)
+- Handle tables markup (@panglesd, @gpetiot, #893)
+- Initial support for assets (@trefis, #975)
+- odoc-parser remerged (@jonludlam, #973)
+  This includes table support (@gpetiot, @panglesd, ocaml-doc/odoc-parser#11
+  ocaml-doc/odoc-parser#14) and delimited code blocks with optional output
+  (@jonludlam, ocaml-doc/odoc-parser#17)
+- Add a tooltip to references with text (@Julow, #945)
+- Add emoji to alerts in CSS (@yawaramin, #928)
+- Add common language in shipped highlightjs (@Julow, #953)
+- Display 'private' keyword for private type extensions (@gpetiot, #1019)
+
+**** Fixed
+- Fix ~--hidden~ not always taken into account (@panglesd, #940)
+- Syntax highlight labels in function arguments (@panglesd, #990)
+- Ensure generated html ends with a newline (@3Rafal, #954)
+- Warn against tags in pages (@Julow, #948)
+- Remove unhelpful 'Unresolved_apply' errors (@gpetiot, #946)
+- Allow links and references in headings (@EmileTrotignon, @panglesd, #942)
+- Fix rendering of method types (@zoggy, #935)
+- Fix section labelling with submodules (@EmileTrotignon, @panglesd, #931)
+- LaTeX backend fixes (@Octachron, #921 #920)
+- html: Remove extra space in class declarations (@Julow, #936)
+- Fix rendering of unresolved references (@Julow, #957)
+      
+
+
+
+* Announce Seppo.Social v0.3 and invite thoughts
+:PROPERTIES:
+:CUSTOM_ID: 8
+:END:
+Archive: https://discuss.ocaml.org/t/ann-announce-seppo-social-v0-3-and-invite-thoughts/13277/1
+
+** Marcus Rohrmoser 🌍 announced
+
+
+Hi all,
+
+I am happy to announce yesterday's release of v0.3 of #Seppo!, the friendly,
+sustainable, permacomputing inspired alternative to all those heavy microblog
+servers. Generously funded by #NLnet https://nlnet.nl/project/Seppo
+
+It's built to be operated by yourself on commodity shared webspace without requiring
+much further attention.
+
+Read more at https://seppo.social/en/support/#installation
+
+- Download: https://Seppo.Social/Linux-x86_64-0.3
+- Binary:   https://Seppo.Social/Linux-x86_64-0.3/seppo.cgi
+- Source:   https://Seppo.Social/Linux-x86_64-0.3/source.tar.gz
+- Git:      https://Seppo.Social/v/5f078d9
+
+Changes
+
+- post notes
+- being subscribed to (aka 'followed')
+- distribute post to subscribers
+- job queue to do so
+- housekeeping UX (password, profile page, timezone)
+
+Your thoughts are very much appreciated.
+
+Marcus Rohrmoser
+https://digitalcourage.social/@mro/111261271071034377
+
+P.S.: There will be 🐫 stickers again, soon.
+      
+
+
+
+* bwd 2.3.0 for backward lists
+:PROPERTIES:
+:CUSTOM_ID: 9
+:END:
+Archive: https://discuss.ocaml.org/t/ann-bwd-2-3-0-for-backward-lists/13278/1
+
+** Favonia announced
+
+
+I am happy to announce a new version of ~bwd~ for backward lists! The new release
+added ~init~ and a few other ~List~ functions introduced in OCaml 5.1 (~is_empty~,
+~find_index~, and ~find_mapi~). It also added many inlining annotations.
+
+Backward lists are isomorphic to regular lists but place elements backward. Using a
+different type for semantically backward lists can avoid bugs such as missing or
+misusing ~List.rev~ or ~List.rev_append~. **Our strategy is to keep the elements'
+_textual order_ and avoid functions such as ~List.rev~.** Initially, this package was
+created to eliminate bugs in our type checkers, but we have been using it almost
+everywhere since then. I recommend using ~bwd~ if you use ~list~ to store _anything_
+semantically backward. 😉
+
+More information at https://github.com/RedPRL/ocaml-bwd
+      
+
+
+
+* Storing credentials to a private OPAM repository
+:PROPERTIES:
+:CUSTOM_ID: 10
+:END:
+Archive: https://discuss.ocaml.org/t/storing-credentials-to-a-private-opam-repository/3520/10
+
+** Richard Degenne announced
+
+
+Welp, 4 years later, I decided to give that whole private OPAM repository thing
+another shot, and I ended up with something I'm quite proud of, with a private Opam
+repository, and private packages uploaded to GitLab's package registries!
+
+https://blog.richarddegenne.fr/2023/10/20/setting-up-a-private-opam-repository-on-gitlab-step-by-step/
+      
+
+
+
+* OCaml on Windows: the long paths issue
+:PROPERTIES:
+:CUSTOM_ID: 11
+:END:
+Archive: https://discuss.ocaml.org/t/ocaml-on-windows-the-long-paths-issue/13283/1
+
+** Manas announced
+
+
+Not very long ago, I managed to solve the long paths issue for OCaml and I want to share how.
+
+While building a large project, I ran into the path issues - Dune would fail with
+errors saying a certain file present in a long file was not found. Shortening
+libraries names helped. But what was really needed was manifesting OCaml tools so
+that they can perform I/O on long paths as described [[https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation?tabs=registry][here on MSDN
+docs]].
+
+Guidelines there expect binary artifacts (dll or exe) have to be manifested with
+something like this
+
+#+begin_src xml
+<application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings
+xmlns:ws2="http://schemas.microsoft.com/SMI/2016/WindowsSettings">
+        <ws2:longPathAware>true</ws2:longPathAware>
+    </windowsSettings>
+</application>
+#+end_src
+
+Ideally, the application being built is also manifested so.
+
+I use esy as my daily driver for Windows development. I have always found the
+workflow on Windows with esy reasonable and never stopped using it since I
+discovered. Over time, I have taken up maintenance of the project too.
+
+OCaml on Windows is practical only with Cygwin. Not because the tools needs a Unix
+like environment - they have evolved significants over the years since I have been
+using OCaml on Windows. Cygwin is convenient because of the libraries in the
+ecosystem - for instance all the native libraries from GNU project. GNU projects are
+easily built inside Cygwin/MSYS/mingw but not so outside.
+
+I was worried that I'd have to write some gory hack in the compiler to manifest every
+binary artifact - dune had to be manifested too. There are many ways to embed the
+manifest with tools ~windres~ etc. But fortunately, I found that Mingw already embeds
+all executables with a default one. It can be found here [[https://cygwin.com/packages/summary/windows-default-manifest.html#:~:text=description%3A%20The%20Default%20Windows%20application,version%20supported%20by%20this%20manifest.][among the Cygwin
+projects]]
+
+I decided to fork the repository and use the manifest MSDN docs recommended. You can
+find it [[https://github.com/ManasJayanth/windows-default-manifest/tree/master][here]]
+This helped me fix my project, but I wanted this for the rest of the community too.
+
+Esy uses a utility called esy-bash which packages the Cygwin environment for the
+user. We find that users have mostly uniform setups this way. Helps with
+reproducibility. I decided to [[https://github.com/ManasJayanth/esy-bash/blob/dev/download-cygwin-packages.js#L20][tweak esy-bash to package my
+fork]]
+of the windows-default-manifest along with other Cygwin packages. This way OCaml
+users dont have to worry about the long paths issue anymore.
+
+This has been available since esy 0.7.0. If you'd like to try the latest esy, it is
+available on NPM and can be installed with ~npm i -g esy~
+
+I'd love to hear your thoughts on this approach. More than happy to contribute a
+solution like this for opam too.
+      
+
+
+
+* A Roadmap for the OCaml Platform - Seeking Your Feedback
+:PROPERTIES:
+:CUSTOM_ID: 12
+:END:
+Archive: https://discuss.ocaml.org/t/a-roadmap-for-the-ocaml-platform-seeking-your-feedback/12238/68
+
+** Thibaut Mattio announced
+
+
+I updated the
+[[https://github.com/tarides/ocaml-platform-roadmap/blob/main/roadmap.md][roadmap]] to
+incorporate the latest feedback. This update:
+
+- Adds a workflow to support Dune plugins ([[https://github.com/tarides/ocaml-platform-roadmap/blob/main/roadmap.md#w15-plugin-extensibility][W15]])
+- Adds a workflow to integrate with other build systems ([[https://github.com/tarides/ocaml-platform-roadmap/blob/main/roadmap.md#w16-integrate-with-other-build-systems][W16]])
+- Adds a workflow to compile to WebAssembly from Dune ([[https://github.com/tarides/ocaml-platform-roadmap/blob/main/roadmap.md#w14-compile-to-webassembly][W14]])
+- Adds a workflow to compile MirageOS unikernels from Dune ([[https://github.com/tarides/ocaml-platform-roadmap/blob/main/roadmap.md#w12-compile-to-mirageos][W12]])
+- Updates Literate Programming workflow to use odoc and mention interactive code blocks ([[https://github.com/tarides/ocaml-platform-roadmap/blob/main/roadmap.md#w24-literate-programming][W24]])
+- Updates Generate Documentation workflow to list features planned as part of the odoc roadmap ([[https://github.com/tarides/ocaml-platform-roadmap/blob/main/roadmap.md#w25-generate-documentation][W25]])
+- Updates Package Publication to remove mention that users need not to commit an opam file ([[https://github.com/tarides/ocaml-platform-roadmap/blob/main/roadmap.md#w26-package-publication][W26]])
+
+A big thank you to everyone who participated in the discussion! Building a
+community-driven roadmap is no trivial exercise, but witnessing so many people being
+driven to share constructive feedback, there's no doubt that it's absolutely worth
+it.
+
+Much of the feedback, both here and in other Discuss threads (e.g.
+https://discuss.ocaml.org/t/the-ocaml-platform-a-vehement-dissent/13008), points out
+the roadmap's pronounced Dune-focus. I want to be very clear that while the focus of
+the coming years highlighted in the roadmap is indeed to consolidate the integration
+of the Platform tools to create a cohesive experience -- a top request in the OCaml
+surveys -- there's no intention to make Dune the singular solution for OCaml tooling.
+The OCaml Platform is a collection of independent tools that can be used without
+Dune, and this will remain the case.
+
+We've worked on formalising the [[https://ocaml.org/docs/platform-principles][Guiding
+Principles]] before sharing the roadmap.
+One key principle we've asserted is that while Platform tools operate under a single
+frontend (the editor or Dune at the moment), they remain independent. @xavierleroy
+rightly suggested that we commit to this in stronger terms, so we've updated the
+[[https://ocaml.org/docs/platform-principles#p5-tools-are-independent-yet-unified][relevant
+Principle]]
+to make this more explicit.
+
+In addition to clarifying the Guiding Principles, seeing that the majority of the
+feedback we received is asking for better support for non-Dune users, two of the
+added workflows in this last update (W15 and W16) aim at bringing better support for
+third-party (i.e. non-Platform) tools.
+
+Special thanks to @jbeckford for initiating discussions on [[https://github.com/ocaml/dune/discussions/8707][Dune
+plugins]]!
+
+Let us know what you think of these new workflows and the other updates! As usual,
+let's give an additional 2 weeks for feedback on the roadmap. Barring significant
+concerns, we'll undergo a final revision based on all the discussions before adopting
+the first version.
+
+PS: thank you @shonfeder for pointing out that the issues were deactivated on the
+[[https://github.com/tarides/ocaml-platform-roadmap/issues][repository]]. I've
+activated them, so don't hesitate to open issues there now.
+      
+
+
+
+* Adding Dynamic Arrays / Vectors to StdLib
+:PROPERTIES:
+:CUSTOM_ID: 13
+:END:
+Archive: https://discuss.ocaml.org/t/adding-dynamic-arrays-vectors-to-stdlib/4697/48
+
+** Continuing this thread, gasche announced
+
+
+Hi everyone,
+
+A short note: we eventually manage to build consensus on
+https://github.com/ocaml/ocaml/pull/11882 and I merged it yesterday, so there will be
+a ~Dynarray~ module in the standard library in OCaml 5.2. Thanks @BastouP411 and
+@c-cube for their efforts bringing us to this point, and to the many reviewers of the
+latest iteration of the PR (in particular @314eter, @c-cube, @clef-men,
+@damiendoligez, @dbuenzli, @gadmm, @Octachron and @wiktor).
+
+The implementation uses an indirection to get a type-safe "empty" value to use in
+unused elements of the support array. Hopefully we can improve on that with a safe
+magical implementation in the short future -- but I think that the performance is
+good enough already.
+      
+
+
+
+* vdom 0.3: functional UI applications now with custom event handlers
+:PROPERTIES:
+:CUSTOM_ID: 14
+:END:
+Archive: https://discuss.ocaml.org/t/ann-vdom-0-3-functional-ui-applications-now-with-custom-event-handlers/13298/1
+
+** Aurélien Saue announced
+
+
+We are thrilled to announce the release of the new v0.3 release of ~vdom~, previously
+named ~ocaml-vdom~!
+
+The library implements the functional Elm architecture. Combined with the power of
+OCaml, it makes the development of UI applications easy and reliable, and that is why
+we have been using it internally since 2016.
+
+A highlight of this new version is the introduction of fully customizable event
+handlers, using Elm-style decoders. This enhancement simplifies the management of
+intricate browser events, such as retrieving drag-and-dropped files.
+
+Read [[https://www.lexifi.com/blog/ocaml/decoders/][our blog post]] for more details
+about this new feature!
+
+GitHub homepage:
+[[https://github.com/LexiFi/ocaml-vdom][https://github.com/LexiFi/ocaml-vdom]]
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[https://alan.petitepomme.net/cwn/][the archive]] or the [[https://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe to the [[https://sympa.inria.fr/sympa/info/caml-list][caml-list]].
+
+#+BEGIN_authorname
+[[https://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname
