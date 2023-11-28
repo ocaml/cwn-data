@@ -1,0 +1,676 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[https://alan.petitepomme.net/cwn/2023.11.21.html][Previous Week]] [[https://alan.petitepomme.net/cwn/index.html][Up]] [[https://alan.petitepomme.net/cwn/2023.12.05.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of November 21 to 28, 2023.
+
+#+TOC: headlines 1
+
+
+* Riot v0.0.3: an actor-model multi-core scheduler for OCaml 5
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/ann-riot-v0-0-3-an-actor-model-multi-core-scheduler-for-ocaml-5/13463/1
+
+** ostera announced
+
+
+Hi folks! :wave: wanted to share something I've been working on these last few weeks.
+
+[[https://github.com/leostear/riot][Riot]] is an
+[[https://en.wikipedia.org/wiki/Actor_model][actor-model]] multi-core scheduler for
+OCaml 5. It brings [[https://erlang.org/][Erlang]]-style concurrency to the language,
+where lightweight processes communicate via typed message-passing.
+
+*** Why Actors?
+
+It raises the abstraction of multi-core so you don't have to think about threads and
+low-level multithreading primitives, and instead can focus on structuring your
+application in terms of hierarchies of processes that do some work, and how they
+communicate with each other.
+
+Erlang (and by extension Elixir) has been doing this for impure functional
+programming for decades now and in my experience it is an incredibly productive way
+of working. So I'm hoping to establish the foundation for doing this kind of
+application development but _with types_.
+
+#+begin_quote
+*NB:* This is the dual of the [[https://github.com/leostera/caramel][Caramel]]
+project, which is an alternative backend for OCaml that compiles to Core Erlang,
+thus letting you run _some_ OCaml on the Erlang VM.
+#+end_quote
+
+*** Getting Started
+
+You can get started with: ~opam install riot~
+
+**** Hello world
+
+The simplest Riot program you can write is this:
+
+#+begin_src ocaml
+Riot.run @@ fun () -> print_endline "hello world"
+#+end_src
+
+But there's a small caveat here: this program _doesn't terminate_.
+
+Riot, like the Erlang VM, is designed for long-running applications. Despite this, it
+starts up reasonably fast (~4ms on a 10-core M1 Max). To terminate the runtime we
+must call ~Riot.shutdown ()~.
+
+The smallest Riot program is then: ~Riot.(run shutdown)~
+
+*** Hello world, with messages!
+
+The next smallest Riot program you can write is a hello-world that uses Processes and
+Messages:
+
+#+begin_src ocaml
+open Riot
+type Message.t += Hello_world
+
+let () =
+  Riot.run @@ fun () ->
+  Runtime.Log.set_log_level (Some Info);
+  let pid =
+    spawn (fun () ->
+        match receive () with
+        | Hello_world ->
+            Runtime.Log.info (fun f -> f "hello world from %a!" Pid.pp (self ())))
+  in
+  send pid Hello_world
+#+end_src
+
+*** Hello world, with applications
+
+Once you want to start building applications with supervision trees, to nicely
+decouple the subsystems of your app, you can use the ~Application~ interface, and
+~Riot.start ~apps~:
+
+#+begin_src ocaml
+module My_app = struct
+  let start () =
+     let pid = spawn_link (fun () -> (* ... do work! ... *)) in
+     Ok pid
+end
+
+Riot.start ~apps:[
+  (module Riot.Logger); (* we want to start the logger app first *)
+  (module Riot.Telemetry); (* we then start the telemetry app *)
+  (module My_db); (* then start the database server *)
+  (module My_app); (* finally we start our app *)
+] ()
+#+end_src
+
+*** Next Steps
+
+If you're interested in trying Riot, I've started working on a
+[[https://github.com/leostera/riot/tree/main/examples#readme][tutorial]] that starts
+from zero and works its way up. It's not complete yet but it should get you up and
+running and building interesting programs!
+
+I'd love any feedback y'all have about this :) especially interested in what would
+you like to build with it or what libraries you'd like to use in this space.
+
+Also happy to answer any questions :D
+
+/ Leandro
+      
+
+
+
+* Caper 0.9
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/ann-caper-0-9/13467/1
+
+** niksu announced
+
+
+[[http://caper.cs.iit.edu/][Caper]] has reached *v0.9*. It is a tool for
+understanding and processing "pcap expressions" (also known as /tcpdump filters/)
+which are used for network packet analysis. It is entirely written in OCaml and
+includes pcap analysis logic, a from-scratch BPF compiler, and conversion to/from
+English expressions.
+
+You can use Caper online through the [[https://www.tcpdump.org/bpfexam/][BPF Exam]]
+site.
+
+Caper's README contains motivation, building, and usage examples, and its CHANGELOG
+describes recent updates.
+
+A huge thanks goes to Caper's contributers. Further contributions and feedback are
+welcome -- a list of contribution ideas is included on Caper's web page.
+      
+
+
+
+* OCaml User Survey 2023
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/ann-ocaml-user-survey-2023/13469/1
+
+** Kim Nguyễn announced
+
+
+Hi everyone,
+
+we are delighted to announce the [[https://forms.gle/iteoR7QMzFXw2mp89][OCaml User Survey, 2023
+edition]]. With this survey, the OCSF is trying
+to get a better picture of the OCaml community and its needs. It would be very
+helpful if you could take a few minutes (10 to 15) to fill the survey and share it
+with other OCaml programmers.
+
+[[https://forms.gle/iteoR7QMzFXw2mp89][https://forms.gle/iteoR7QMzFXw2mp89]]
+
+The survey is run by the [[https://ocaml-sf.org/][OCaml Software Foundation ]]. It
+builds on previous iterations. The results will be published here on discuss and on
+the [[https://ocaml-sf.org/][website of the OCSF ]]. The OCSF would like to thank all
+the people that have helped in devising this or previous versions of the survey.
+Don’t hesitate to give us your feedback (you can post here or send me a
+message/email).
+
+The survey will remain opened until December 8th 2023 (AOE). Please take the survey
+and don't hesitate to share the link!
+
+Some remarks regarding this year's survey:
+
+- Most of the questions are similar to the ones in the previous survey, some have been fixed, some have been updated (e.g. to list more recent versions of the OCaml compiler)
+- A new section at the end on Demographics, Diversity and Inclusion. The related questions are more personal but again completely optional and would greatly help us get a better picture of our community and areas were the OCSF  can help improve things
+- Again, we resorted to using Google Forms. I spent quite some time trying to find a viable alternative, but none were satisfactory (either from a technical, accessibility or bureaucratic point of view). I understand that this can be a disappointment for some. If you are interested in running the survey next year on behalf of the OCSF, get in touch!
+      
+
+
+
+* Set up OCaml 2.1.2
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/ann-set-up-ocaml-2-1-2/13470/1
+
+** Sora Morimoto announced
+
+
+This release contains a workaround for an upstream issue that is causing post process
+to become incredibly slow.
+If you would like to access related information, check out the PR.
+https://github.com/ocaml/setup-ocaml/pull/724
+
+https://github.com/ocaml/setup-ocaml/releases/tag/v2.1.2
+      
+
+
+
+* OCaml.org Newsletter: October 2023
+:PROPERTIES:
+:CUSTOM_ID: 5
+:END:
+Archive: https://discuss.ocaml.org/t/ocaml-org-newsletter-october-2023/13473/1
+
+** Sabine Schmaltz announced
+
+
+Welcome to the October 2023 edition of the OCaml.org newsletter! This update has been
+compiled by the OCaml.org team. You can find [[https://discuss.ocaml.org/tag/ocamlorg-newsletter][previous
+updates]] on Discuss.
+
+Our goal is to make OCaml.org the best resource for anyone who wants to get started
+and be productive in OCaml. The OCaml.org newsletter provides an update on our
+progress towards that goal and an overview of the changes we are working on.
+
+We couldn't do it without all the amazing OCaml community members who help us review,
+revise, and create better OCaml documentation. Your feedback enables us to better
+prioritize our work and make progress towards our goal. Thank you!
+
+This month, our priorities were:
+- *Learn Area:* We continue our efforts to make OCaml.org a great resource for learning OCaml. This month, we've validated a new version of the designs for the Learn area, and we've published two new documentation pages!
+- *Outreachy Internship Application Period*: OCaml.org is participating in the Outreachy Internship Program with two internship projects. As part of the application period, we've received tons of fantastic contributions from Outreachy applicants!
+- *General Improvements:* As usual, we also worked on general maintenance and improvements based on user feedback, so we're highlighting some of our work below.
+
+*** Learn Area
+
+**** 1. Redesign of the Learn Area
+
+After going back to the drawing board on the new designs for the Learn area, we've
+designed a new version of the landing page, alongside updated variants of the
+Community and Package landing pages, to ensure they are visually consistent. We've
+validated the new design direction and will be updating the designs for the rest of
+the Learn area pages next. Once the designs are available for all the pages, we'll be
+ready to start implementing them. We're very excited to get the new version of the
+pages live; we hope you are too! Stay tuned!
+
+| Learn | Community | Package |
+|----------|----------|----------|
+| https://global.discourse-cdn.com/business7/uploads/ocaml/optimized/2X/b/b76d727a2b9064aa13faafb4a06482ff0639d765_2_262x1000.jpeg | https://global.discourse-cdn.com/business7/uploads/ocaml/optimized/2X/7/7150550545e56b04992a9c0bac3b4953ffa9ef2c_2_324x1000.png | https://global.discourse-cdn.com/business7/uploads/ocaml/optimized/2X/6/6f6f94bf79d5a62eb389d4c513b300844f84b1b9_2_328x1000.jpeg |
+
+*Relevant PRs and Activities:*
+
+- Continued work on [[https://www.figma.com/file/Aqk5y03fsaCuhTSywmmY06/OCaml.org-Public-Designs?type=design&node-id=506%3A2172&mode=design&t=yHZfn6UccCjm5QCn-1][Figma UX/UI designs]] for the new Learn area
+- Books page redesign - [[https://github.com/ocaml/ocaml.org/pull/1536][ocaml/ocaml.org#1536]]
+- Added a short description to all exercises [[https://github.com/ocaml/ocaml.org/pull/1681][ocaml/ocaml.org#1681]]
+- Collapse tab navigation to breadcrumbs for mobile view on learn area - [[https://github.com/ocaml/ocaml.org/pull/1541][ocaml/ocaml.org#1541]]
+
+**** 2. OCaml Documentation
+
+Last month, we announced the publication of the [[https://discuss.ocaml.org/t/ann-new-get-started-documentation-on-ocaml-org/13269][new Get Started
+documentation]].
+After publishing this section, we're turning our focus to the Language section of the
+documentation.
+
+This month, we've published two new documentation pages: [[https://github.com/ocaml/ocaml.org/pull/1514][Basic Data
+Types]] and [[https://github.com/ocaml/ocaml.org/pull/1512][Functions &
+Values]]. Together, they teach the
+basics of OCaml from the very beginning, starting with what a value and a function
+are. Having witnessed newcomers such as Outreachy interns struggle to learn OCaml
+from the OCaml.org documentation because it required a lot of prior programming
+knowledge, we're excited to have this new content available for Outreachy interns and
+all newcomers. This is a first version of the pages, and we've already received
+[[https://discuss.ocaml.org/t/new-tutorials-on-basics-of-ocaml/13396][excellent
+feedback]] to
+improve it. Don't hesitate to share more, whether you're a beginner struggling to get
+up and running, or an OCaml developer with opinions on how we should teach OCaml!
+
+We're currently reviewing two other documentation pages on Mutability and Polymorphic
+Variants. They should be ready for community review soon.
+
+Stay tuned, and please, keep the feedback on the new documentation coming; it's been
+a blast to see so much engagement from the community!
+
+*Relevant PRs and Activities:*
+
+- *In Progress:*
+  - Sets
+  - Maps
+- *In Review (internal):*
+  - [[https://github.com/ocaml/ocaml.org/pull/1529][Mutable State / Imperative Programming]]
+  - [[https://github.com/ocaml/ocaml.org/pull/1531][Polymorphic Variants]]
+- *In Review (community):*
+  - [[https://github.com/ocaml/ocaml.org/pull/1400][File Manipulation]] (see [[https://discuss.ocaml.org/t/help-review-the-new-file-manipulation-tutorial-on-ocaml-org/12638][Discuss Thread]])
+- *Published:*
+  - [[https://github.com/ocaml/ocaml.org/pull/1514][Basic Data Types]] (see [[https://discuss.ocaml.org/t/ocaml-org-tutorial-revamping-contd-basic-datatypes/12985][Discuss Thread]])
+  - [[https://github.com/ocaml/ocaml.org/pull/1512][Functions and Values]] (see [[https://discuss.ocaml.org/t/ocaml-org-tutorial-revamping-cond-values-and-functions/13005][Discuss Thread]])
+  - [[https://ocaml.org/docs/installing-ocaml][Installing OCaml]] (see [[https://discuss.ocaml.org/t/help-revamping-the-getting-started-tutorials-in-ocaml-org/12749][Discuss Thread]])
+  - [[https://ocaml.org/docs/tour-of-ocaml][A Tour Of OCaml]] (see [[https://discuss.ocaml.org/t/help-revamping-the-getting-started-tutorials-in-ocaml-org/12749][Discuss Thread]])
+  - [[https://ocaml.org/docs/your-first-program][Your First OCaml Program]] (see [[https://discuss.ocaml.org/t/help-revamping-the-getting-started-tutorials-in-ocaml-org/12749][Discuss Thread]])
+  - [[https://ocaml.org/docs/opam-switch-introduction][Introduction to opam Switches]]
+  - [[https://ocaml.org/docs/arm64-fix][Fix Homebrew Errors on Apple M1]]
+  - [[https://ocaml.org/docs/operators][Operators]]
+  - [[https://ocaml.org/docs/error-handling][Error Handling]] (see [[https://discuss.ocaml.org/t/ann-new-get-started-documentation-on-ocaml-org/13269][Discuss Thread]])
+  - [[https://ocaml.org/docs/arrays][Arrays]] (see [[https://discuss.ocaml.org/t/feedback-needed-new-arrays-tutorial-on-ocaml-org/12683][Discuss Thread]])
+  - [[https://ocaml.org/docs/sequences][Sequences]] (see [[https://discuss.ocaml.org/t/creating-a-tutorial-on-sequences/12091][Discuss Thread]])
+
+*** Outreachy
+
+OCaml.org is participating in the [[https://www.outreachy.org/][Outreachy Internship
+Program]]. Outreachy provides internships to people
+subject to systemic bias and impacted by underrepresentation in the technical
+industry where they are living.
+
+A substantial part of this month has been spent on creating issues, reviewing pull
+requests, and mentoring Outreachy applicants on the OCaml Discord server.
+
+The contributions include small fixes, implementing Figma designs, and small feature
+additions. Notably, the [[https://ocaml.org/changelog][OCaml Changelog]] now has an RSS
+feed, and some outstanding designs for the package area have been applied.
+
+8 out of the 21 medium difficulty issues have been completed in October, while only 6
+out of 30 simple outreachy issues remain open. For the remaining issues, we will
+support the contributors in finishing their work, and free any abandoned issues so
+that community members can pick them up.
+
+*Relevant PRs and Activities:*
+
+- Opened [[https://github.com/ocaml/ocaml.org/issues?q=is%3Aissue+is%3Aopen+label%3Aoutreachy][30 simple issues tagged "outreachy"]], and [[https://github.com/ocaml/ocaml.org/issues?q=is%3Aissue+is%3Aopen+label%3Aoutreachy-medium][21 issues tagged "outreachy-medium"]]
+- Refactor + simplify learn layout in preparation for new footer - [[https://github.com/ocaml/ocaml.org/pull/1590][ocaml/ocaml.org#1590]]
+- [[https://github.com/ademolaomosanya][@ademolaomosanya]] contributed: Rearranged and changed links in footer - [[https://github.com/ocaml/ocaml.org/pull/1616][ocaml/ocaml.org#1616]]
+- [[https://github.com/IdaraNabuk][@IdaraNabuk]] contributed: Update Tailwind Configuration to Resolve Warnings - [[https://github.com/ocaml/ocaml.org/pull/1620][ocaml/ocaml.org#1620]]
+- [[https://github.com/oyenuga17][@oyenuga17]] contributed: Add a RSS feed for changelog - [[https://github.com/ocaml/ocaml.org/pull/1593][ocaml/ocaml.org#1593]]
+- [[https://github.com/sophiatunji][@sophiatunji]] contributed: Renamed "problems" with "exercises" in filenames and codebase - [[https://github.com/ocaml/ocaml.org/pull/1592][ocaml/ocaml.org#1592]]
+- [[https://github.com/kalio007][@kalio007]] contributed: Add a "Standard Library API" link to the mobile navigation menu - [[https://github.com/ocaml/ocaml.org/pull/1600][ocaml/ocaml.org#1600]]
+- [[https://github.com/RWUBAKWANAYO][@RWUBAKWANAYO]] contributed: Fix search bar on medium-sized screens - [[https://github.com/ocaml/ocaml.org/pull/1665][ocaml/ocaml.org#1665]]
+- [[https://github.com/shyusu4][@shyusu4]] contributed: Fix jump to definition on in-package search for Safari - [[https://github.com/ocaml/ocaml.org/pull/1634][ocaml/ocaml.org#1634]]
+- [[https://github.com/FatumaA][@FatumaA]] contributed: Fix horizontal scrolling on ocaml ecosystem section of homepage - [[https://github.com/ocaml/ocaml.org/pull/1668][ocaml/ocaml.org#1668]]
+- [[https://github.com/AndroGenius-codes][@AndroGenius-codes]] contributed: Applied new design for Package Search Dropdown - [[https://github.com/ocaml/ocaml.org/pull/1608][ocaml/ocaml.org#1608]]
+- [[https://github.com/henilGondalia][@henilGondalia]] contributed: Applied New Styles to Package Documentation Module Navigation - [[https://github.com/ocaml/ocaml.org/pull/1638][ocaml/ocaml.org#1638]]
+- [[https://github.com/Girish-Jangam][@Girish-Jangam]] contributed: Paginate package search results - [[https://github.com/ocaml/ocaml.org/pull/1657][ocaml/ocaml.org#1657]]
+- [[https://github.com/sophiatunji][@sophiatunji]] contributed: Fixed js-of-ocaml link on home - [[https://github.com/ocaml/ocaml.org/pull/1707][ocaml/ocaml.org#1707]]
+- [[https://github.com/Burnleydev1][@Burnleydev1]] contributed: Add Abongwa's summer internship info - [[https://github.com/ocaml/ocaml.org/pull/1647][ocaml/ocaml.org#1647]]
+- [[https://github.com/RWUBAKWANAYO][@RWUBAKWANAYO]] contributed: Add link to English edition of the book "Développement d'applications avec Objective Caml [[https://github.com/ocaml/ocaml.org/pull/1659][ocaml/ocaml.org#1659]]
+- [[https://github.com/AryanGodara][@AryanGodara]] contributed:
+    - Add Blog Post for Outreachy Summer internship, Summer'23 - [[https://github.com/ocaml/ocaml.org/pull/1649][ocaml/ocaml.org#1649]]
+    - Add Blog link in the summer internship post - [[https://github.com/ocaml/ocaml.org/pull/1703#pullrequestreview-1691241483][ocaml/ocaml.org#1703]]
+- [[https://github.com/mohdaquib171][@mohdaquib171]] contributed: Tutorial Bottom Section Styles (#1603) [[https://github.com/ocaml/ocaml.org/pull/1617][ocaml/ocaml.org#1617]] - status: waiting for completion of another issue
+- [[https://github.com/IdaraNabuk][@IdaraNabuk]] contributed: Add Capability for a Book Entry to have Multiple Languages - #1666 [[https://github.com/ocaml/ocaml.org/pull/1679][ocaml/ocaml.org#1679]]
+- [[https://github.com/oyenuga17][@oyenuga17]] contributed: Add a Jump To Top Button [[https://github.com/ocaml/ocaml.org/pull/1702][ocaml/ocaml.org#1702]]
+- [[https://github.com/sophiatunji][@sophiatunji]] contributed: Learn Area Footer Redesign - [[https://github.com/ocaml/ocaml.org/pull/1645][ocaml/ocaml.org#1645]]
+
+*** General Improvements
+
+This month, we’re welcoming 1 new contributor:
+
+- [[https://github.com/davesnx][@davesnx]] changes 'Unknown documentation status' from ~a~ to a ~span~ - [[https://github.com/ocaml/ocaml.org/pull/1628][ocaml/ocaml.org#1628]]
+
+*Relevant PRs and Activities:*
+
+- We now log a message instead of crashing when failing to parse the opam file - [[https://github.com/ocaml/ocaml.org/pull/1575][ocaml/ocaml.org#1575]]
+      
+
+
+
+* dream-html 1.2.0
+:PROPERTIES:
+:CUSTOM_ID: 6
+:END:
+Archive: https://discuss.ocaml.org/t/ann-dream-html-1-0-0/12787/5
+
+** Yawar Amin announced
+
+
+Small addition to allow checking if a node or attr is 'null' (i.e. empty). This can
+be useful when you get a node or attr passed in to your function and you need to
+decide what to render depending on whether it's empty or not.
+
+As a reminder, 'null' or empty nodes and attributes are ones which are simply not
+rendered into the final HTML.
+      
+
+
+
+* New Draft Tutorial on Polymorphic Variants
+:PROPERTIES:
+:CUSTOM_ID: 7
+:END:
+Archive: https://discuss.ocaml.org/t/new-draft-tutorial-on-polymorphic-variants/13485/1
+
+** Cuihtlauac Alvarado announced
+
+
+Dear OCamlers,
+
+The OCaml.org continues working on new tutorials. We have a draft on polymorphic
+variants; we'd like your feedback on it:
+
+- GH PR: https://github.com/ocaml/ocaml.org/pull/1531
+- Online draft: https://staging.ocaml.org/docs/polymorphic-variants
+
+Previously [[https://discuss.ocaml.org/t/new-tutorials-on-basics-of-ocaml][announced]]
+[[https://discuss.ocaml.org/t/ann-new-get-started-documentation-on-ocaml-org][tutorials]]
+form a series.
+1. [[https://ocaml.org/docs/installing-ocaml][Installing OCaml]]
+2. [[https://ocaml.org/docs/tour-of-ocaml][A Tour of OCaml]]
+3. [[https://ocaml.org/docs/your-first-program][Your First OCaml Program]]
+4. [[https://ocaml.org/docs/values-and-functions][Values and Functions]]
+5. [[https://ocaml.org/docs/basic-data-types][Basic Datatypes and Pattern Matching]]
+
+But this one is not intended to follow right after those. It is designed to be taken
+by people familiar with OCaml's basics and willing to master polymorphic variants.
+
+As a draft, it has gaps, most notably:
+- The section on Performance Drawbacks needs to be strengthened
+- An example inspired by @garrigue “Code reuse through polymorphic variants” paper is missing
+
+Share your feedback here or in GitHub, but do not use the “Contribute” link at the
+bottom of the page.
+
+Hope it helps
+      
+
+
+
+* Ppxlib dev meetings
+:PROPERTIES:
+:CUSTOM_ID: 8
+:END:
+Archive: https://discuss.ocaml.org/t/ppxlib-dev-meetings/12441/11
+
+** Continuing this thread, Sonja Heinze said
+
+
+It was a nice and short meeting with @ceastlund and me. Here are the meeting notes:
+https://github.com/ocaml-ppx/ppxlib/wiki/Dev-meeting-21-11-2023
+      
+
+
+
+* varray 0.2
+:PROPERTIES:
+:CUSTOM_ID: 9
+:END:
+Archive: https://discuss.ocaml.org/t/ann-varray-0-2/13492/1
+
+** art-w announced
+
+
+Hello everyone,
+
+I'm not so pleased to announce a bugfix release of the ~varray~ package on opam. This
+library provides an implementation of dynamic arrays, which automatically resize as
+elements are added or removed from the array. It's based on the really fun paper
+[[https://www.researchgate.net/publication/225174363_Tiered_Vectors_Efficient_Dynamic_Arrays_for_Rank-Based_Sequences]["Tiered Vectors: Efficient Dynamic Arrays for Rank-Based Sequences" by Michael T.
+Goodrich and John G. Kloss
+II]].
+When I first heard about it, I could not resist implementing this datastructure
+because its algorithmic complexities are rather fancy:
+
+- ~O(1)~ to get/set elements anywhere in the array
+- ~O(1)~ to add or pop an element at the front/back of the array
+- ~O(ᵏ√N)~ to add or pop an element anywhere in the middle of the array (for any k >= 1)
+
+And because there's a fun way of exposing the API using OCaml's functors:
+
+#+begin_src ocaml
+module One   = Varray.Circular   (* k=1 => O(N) complexity for insert/delete *)
+module Two   = Varray.Root (One) (* k=2 => O(√N) complexity *)
+module Three = Varray.Root (Two) (* k=3 => O(³√N) complexity *)
+#+end_src
+
+More details on the [[https://github.com/art-w/varray][github repo]] and the [[https://art-w.github.io/varray/varray/Varray/][online
+API documentation]] /(which includes a
+teaser for odoc upcoming search feature, thanks to @EmileTrotignon, @panglesd and the
+wonderful odoc team :heart: )/
+
+Yet, I never publicly announced the initial release of this package on opam...
+because I don't think dynamic arrays are actually useful when programming in OCaml!
+Using integer indices to address elements is prone to "index out of bounds" bugs, so
+it's rarely the right choice. If you do have a usecase for them, I would love to hear
+it :)
+
+---
+
+But ok, so, wait, why am I announcing it now? Well because @n-osborne found a bug in
+my code which could trigger a segfault! This terrible bug was only affecting the
+lesser-used ~delete_at~ operation, and so it lay dormant for two years. This was a
+very dumb mistake: This specific function was missing a check for out of bound
+indexes (ha!)
+
+While I would prefer to avoid the public walk of shame, how the bug was discovered is
+too cool not to share: @n-osborne and @shym wrote a
+[[https://github.com/ocaml-gospel/gospel][Gospel]] specification of how the Varray
+library should behave, which enabled them to stress test it and discover a
+counter-example where my code was misbehaving. Here's an extract of the faulty
+function specification, where Gospel specs are written as special comments ~(*@ ...
+*)~ in the mli documentation:
+
+#+begin_src ocaml
+type 'a t
+(*@ mutable model contents : 'a sequence *)
+(* ^^^ Gospel modelization of the abstract varray type
+       as a "mutable sequence called contents" *)
+
+val delete_at : 'a t -> int -> unit
+(** [delete_at t i] removes the element [t.(i)].
+    Every element on the right of [i] is shifted by one to the left. *)
+(*@ delete_at t i
+    checks inside i t.contents
+    modifies t.contents
+    ensures t.contents = old (t.contents[..(i - 1)] ++ t.contents[(i + 1)..]) *)
+#+end_src
+
+Note the use of the keyword ~old~ on the last line, which allows the postcondition
+~ensures~ to refer to the state of the input **before** it was imperatively modified.
+Formal specifications are generally reserved to specialists, but look how readable
+this is! ([[https://github.com/n-osborne/ortac/blob/87fb08ef9e94ea0d780f30348c121acb49214673/examples/varray_sig.ml#L120][see the full varray
+spec]])
+
+Gospel specs can then be interpreted by a variety of tools. To discover this specific
+bug, @n-osborne used [[https://github.com/ocaml-gospel/ortac][Ortac]] to automatically
+translate his specification into an [[https://github.com/ocaml-gospel/ortac/blob/main/plugins/qcheck-stm/README.md][executable QCheck-STM
+test]]
+to search for incoherencies between the model and the actual implementation.
+
+Very very cool stuff. If you are looking for more resources on the subject, I found
+[[https://www.pascutto.fr/media/dissertation.pdf#chapter.2][Chapter 2 of Clément Pascutto's PhD
+thesis]] to be a very nice
+introduction to Gospel specifications :) (and later chapters describe his cutting
+edge research for Ortac!)
+      
+
+** zapashcanon then said
+
+
+For those speaking french and interested in Gospal/Ortac, there's [[https://www.irill.org/videos/OUPS/2022-05/ortac-clement-pascutto.html][a
+video]] of
+Clément's talk given at the oups meetup last year.
+      
+
+
+
+* First release of ~urn~: Urns for fast functional random sampling
+:PROPERTIES:
+:CUSTOM_ID: 10
+:END:
+Archive: https://discuss.ocaml.org/t/ann-first-release-of-urn-urns-for-fast-functional-random-sampling/13499/1
+
+** Justin Frank announced
+
+
+Hi all! I'm pleased to announce the first release of
+[[https://github.com/laelath/ocaml-urn][urn]] a library that implements
+[[https://dl.acm.org/doi/pdf/10.1145/3122955.3122959][urns]], a very nifty pure
+functional data structure for randomly sampling with or without replacement from
+weighted discrete distributions in log time. It provides implementations for using
+~int~s and ~float~s as weights, though it can be extended to any number like thing
+that can be uniformly sampled from.
+
+The package is available through opam with ~opam install urn~, and is distributed
+under the MIT license.
+      
+
+
+
+* Draft Tutorial on Mutability, Loops, and Imperative Programming
+:PROPERTIES:
+:CUSTOM_ID: 11
+:END:
+Archive: https://discuss.ocaml.org/t/draft-tutorial-on-mutability-loops-and-imperative-programming/13504/1
+
+** Cuihtlauac Alvarado announced
+
+
+Dear OCamlers,
+
+The OCaml.org team has yet another draft tutorial. This time, the title is:
+“Mutability, Loops, and Imperative Programming”. We want your feedback on it:
+- GH PR: [[https://github.com/ocaml/ocaml.org/pull/1529][Tutorial on Mutability and Imperative Programming]]
+- Online draft: [[https://staging.ocaml.org/docs/mutability-loops-and-imperative][Mutability, Loops, and Imperative Programming]]
+
+The *target audience* is developers learning OCaml. No functional programming
+knowledge is assumed. However, it comes after the “Get Started” series:
+
+1. [[https://ocaml.org/docs/installing-ocaml][Installing OCaml]]
+2. [[https://ocaml.org/docs/tour-of-ocaml][A Tour of OCaml]]
+3. [[https://ocaml.org/docs/your-first-program][Your First OCaml Program]]
+
+And it comes at the end of the “Introduction” series:
+
+1. [[https://ocaml.org/docs/values-and-functions][Values and Functions]]
+2. [[https://ocaml.org/docs/basic-data-types][Basic Datatypes and Pattern Matching]]
+3. If Statements and Recursions
+4. Lists
+5. Labelled & Optional Arguments
+6. [[https://staging.ocaml.org/docs/mutability-loops-and-imperative][Mutability, Loops, and Imperative Programming]]
+
+As the previously announced draft on [[https://discuss.ocaml.org/t/new-draft-tutorial-on-polymorphic-variants][polymorphic
+variants]]
+this one contains overlooked issues. We want to make it better with your help.
+
+Share your feedback here or in GitHub, but do not use the “Contribute” link at the
+bottom of the staging page.
+
+Hope it helps
+      
+
+
+
+* First release of pretty_expressive: A Pretty Expressive Printer
+:PROPERTIES:
+:CUSTOM_ID: 12
+:END:
+Archive: https://discuss.ocaml.org/t/ann-first-release-of-pretty-expressive-a-pretty-expressive-printer/13516/1
+
+** Sorawee Porncharoenwase announced
+
+
+Hi everyone!
+
+I am happy to announce the release of
+[[https://github.com/sorawee/pretty-expressive-ocaml][~pretty_expressive~]], an
+implementation of [[https://dl.acm.org/doi/abs/10.1145/3622837][A Pretty Expressive
+Printer]] (OOPSLA'23).
+
+- [[https://sorawee.github.io/pretty-expressive-ocaml/pretty_expressive/][Documentation]]
+- [[https://github.com/sorawee/pretty-expressive-ocaml][Project page]]
+- opam: ~opam install pretty_expressive~
+
+Unlike other pretty printers in the OCaml ecosystem which are mostly focused on the
+OCaml style (as far as I can tell), ~pretty_expressive~ is general-purpose, making it
+suitable for formatting various styles (the pretty printer was originally created to
+format programs in the Racket language). ~pretty_expressive~ is further distinguished
+from other general-purpose pretty printers (e.g., Hughes', Wadler's, Bernardy's) by
+its expressiveness and optimality.
+
+This is also my first OCaml project (not counting Reason). Any feedback is welcome!
+
+Thanks,
+Sorawee
+      
+
+
+
+* Other OCaml News
+:PROPERTIES:
+:CUSTOM_ID: 13
+:END:
+** From the ocaml.org blog
+
+
+Here are links from many OCaml blogs aggregated at [[https://ocaml.org/blog/][the ocaml.org blog]].
+
+- [[https://tarides.com/blog/2023-11-21-how-to-install-ocaml-5-a-video-tutorial][How to Install OCaml 5: A Video Tutorial]]
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[https://alan.petitepomme.net/cwn/][the archive]] or the [[https://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe to the [[https://sympa.inria.fr/sympa/info/caml-list][caml-list]].
+
+#+BEGIN_authorname
+[[https://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname
