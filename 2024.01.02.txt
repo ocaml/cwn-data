@@ -1,0 +1,364 @@
+                          ━━━━━━━━━━━━━━━━━━━
+                           OCAML WEEKLY NEWS
+                          ━━━━━━━━━━━━━━━━━━━
+
+
+[Previous Week] [Up] [Next Week]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of December 26, 2023
+to January 02, 2024.
+
+Table of Contents
+─────────────────
+
+castore 0.0.1 – a portable CA Store with no dependencies
+fixgen 0.1.0 - a CLI tool for generating fixtures
+8 months of OCaml after 8 years of Haskell in production
+riot 0.0.7 – an actor-model multi-core scheduler for OCaml 5
+Spatial Shell · A windows switcher for i3 and sway implemented in OCaml
+Other OCaml News
+Old CWN
+
+
+[Previous Week] <https://alan.petitepomme.net/cwn/2023.12.26.html>
+
+[Up] <https://alan.petitepomme.net/cwn/index.html>
+
+[Next Week] <https://alan.petitepomme.net/cwn/2024.01.09.html>
+
+
+castore 0.0.1 – a portable CA Store with no dependencies
+════════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-castore-0-0-1-a-portable-ca-store-with-no-dependencies/13719/1>
+
+
+ostera announced
+────────────────
+
+  Hi folks! :wave: happy to announce [castore 0.0.1].
+
+  *tl;dr* I’m taking a page from the Elixir community’s playbook here,
+  the `Ca_store' module includes an up-to-date public certificate chain
+  from a generally trustworthy source (eg. Mozilla) that we’ll update
+  via CI and publish automatically to `opam' periodically.
+
+  *How to use it* Easy, just `opam install castore' and in your
+  `dune-project' make sure to use `(castore (>= "0.0.0"))' so you
+  automatically upgrade to the latest certificate.
+
+  Now you can use it with `ocaml-tls' and when you need that .pem file
+  you can feed it the contents of `Ca_store.pem'.
+
+  *Why we did this* I was building an [HTTP client] for [Riot] and
+  realized that to support TLS I’d need to either have custom
+  certificates or bring in `ca-store' and let it resolve them from the
+  system.
+
+  The Elixir community’s approach to this is a lot simpler.
+
+  *What’s missing/next* The latest .pem file was updated on Dec 12th and
+  I need to build the scheduled CI workflow that’ll update it / publish
+  the lib, so if you’re into crypto (maybe i can nerdsnipe @hannes?) or
+  ci (@ulrikstrid?) then ping me :)
+
+  Happy hacking! :camel:
+
+  / Leandro
+
+
+[castore 0.0.1] <https://github.com/leostera/castore>
+
+[HTTP client] <https://github.com/leostera/blink>
+
+[Riot] <https://github.com/leostera/riot>
+
+
+ostera later added
+──────────────────
+
+  I spent a little time consolidating that preprocessing code into
+  `castore', and [0.0.2] is on its way on opam.
+
+  It’ll let you write this:
+
+  ┌────
+  │ let decode_pem ca =
+  │   let ca = Cstruct.of_string ca in
+  │   let cert = X509.Certificate.decode_pem ca in
+  │   Result.get_ok cert
+  │ in
+  │ let cas = List.map decode_pem Ca_store.certificates in
+  │ let authenticator = X509.Authenticator.chain_of_trust ~time cas in
+  │ let tls_config = Tls.Config.client ~authenticator () in
+  │ (* ... *)
+  └────
+
+
+[0.0.2] <https://github.com/ocaml/opam-repository/pull/24994>
+
+
+fixgen 0.1.0 - a CLI tool for generating fixtures
+═════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-fixgen-0-1-0-a-cli-tool-for-generating-fixtures/13720/1>
+
+
+Marc Coquand announced
+──────────────────────
+
+  Heya everyone!
+
+  This weekend I had some fun and built a [fixture generator] in OCaml!
+  It is my very first DSL.
+
+  I found it very time consuming to set up test data, especially when
+  dealing with relational data, where some data generated needs to
+  reference some other data. Therefore, I wanted a slim DSL that can be
+  used to quickly generate test data which I can import it into SQL or
+  NoSQL.
+
+  So to give an example:
+
+  ┌────
+  │ ~: fixgen 'user (2): id uuidv4, name name; order (5): id uuidv4, buyer user.id, amount int(1,40), currency
+  │ ("USD","MXN")'
+  │ 
+  │ FILE NAME: user
+  │ name,id
+  │ Ivan,1aa2f650-95b2-477a-9ccf-88c46d927e4e
+  │ Judy,0bb7258f-8843-4997-97a8-08351623a9d1
+  │ 
+  │ FILE NAME: order
+  │ currency,amount,buyer,id
+  │ USD,14,1aa2f650-95b2-477a-9ccf-88c46d927e4e,42362e8d-2c22-443a-8851-62e9b2cd18cf
+  │ MXN,19,0bb7258f-8843-4997-97a8-08351623a9d1,ebccf8db-de5b-4744-bd99-7e299fb3107a
+  │ MXN,17,1aa2f650-95b2-477a-9ccf-88c46d927e4e,b23ee86d-d69e-4270-9156-944277a46ea1
+  │ MXN,32,1aa2f650-95b2-477a-purchase9ccf-88c46d927e4e,cc9d05c2-4921-415d-820e-4713aefd5593
+  │ USD,29,1aa2f650-95b2-477a-9ccf-88c46d927e4e,921738da-b0e3-4d50-ac7e-d243805ecfe8
+  └────
+
+  It can also export to JSON!
+
+  ┌────
+  │ ~: fixgen 'user (2): id uuidv4, name name; purchase (5): id uuidv4, buyer user.id, amount int(1,40), currency
+  │ ("USD","MXN")' -f json
+  │ 
+  │ FILE NAME: user
+  │ [{"name": "Ivan", "id": "f6c90f96-faad-4741-a52b-6d53b94d48f3"}, {"name": "Judy", "id":
+  │ "57eccc5c-ad09-4229-b0c7-a828280dba1b"}]
+  │ 
+  │ FILE NAME: purchase
+  │ [{"currency": "USD", "amount": 14, "buyer": "f6c90f96-faad-4741-a52b-6d53b94d48f3", "id":
+  │ "8e59075c-1a6a-4093-86ca-e1135afd34f3"}, {"currency": "MXN", "amount": 19, "buyer":
+  │ "57eccc5c-ad09-4229-b0c7-a828280dba1b", "id": "fd89ad30-af07-4c9d-9ec4-ade7583e9cf0"}, {"currency": "MXN",
+  │ "amount": 17, "buyer": "f6c90f96-faad-4741-a52b-6d53b94d48f3", "id": "b15cd3d7-ede1-4612-b0f2-a36cc1a73f1c"},
+  │ {"currency": "MXN", "amount": 32, "buyer": "f6c90f96-faad-4741-a52b-6d53b94d48f3", "id":
+  │ "295a85b8-42d9-49a4-8ce6-e4d7b1a94ea9"}, {"currency": "USD", "amount": 29, "buyer":
+  │ "f6c90f96-faad-4741-a52b-6d53b94d48f3", "id": "925eff95-b7a2-4cbe-93b9-b519372a16cf"}]
+  └────
+
+  For now it doesn’t have many generators (I plan to add more), the docs
+  are a bit sparse and I don’t know if I shared the compiled binary
+  correctly. However, I wanted to share it early to gather feedback!
+
+
+[fixture generator] <https://codeberg.org/marcc/fixgen>
+
+
+8 months of OCaml after 8 years of Haskell in production
+════════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/8-months-of-ocaml-after-8-years-of-haskell-in-production/13729/1>
+
+
+Dmitrii Kovanikov announced
+───────────────────────────
+
+  Hi everyone :wave:
+
+  I’ve been using Haskell in production for the previous 8 years. But
+  for the last 8 months, I used OCaml at Bloomberg.
+
+  I wrote a blog post comparing two languages from my POV:
+
+  • [Dev.to: 8 months of OCaml after 8 years of Haskell in production
+    (by @chshersh)]
+
+  I tried to provide a reasonable and balanced overview of these two
+  languages, although my experience in both is significantly different.
+  I hope this blog post can give a rough idea of both languages
+  :relieved:
+
+  Enjoy! And let me know any feedback you have!
+
+
+[Dev.to: 8 months of OCaml after 8 years of Haskell in production (by
+@chshersh)]
+<https://dev.to/chshersh/8-months-of-ocaml-after-8-years-of-haskell-in-production-h96>
+
+
+riot 0.0.7 – an actor-model multi-core scheduler for OCaml 5
+════════════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-riot-0-0-7-an-actor-model-multi-core-scheduler-for-ocaml-5/13732/1>
+
+
+ostera announced
+────────────────
+
+  Hi folks :wave: we skipped over 0.0.6 because of a CI bug, and ended
+  up releasing Riot [0.0.7] instead :slight_smile:
+
+  Here’s a summary of the changes.
+
+
+[0.0.7] <https://ocaml.org/p/riot/0.0.7>
+
+Single public package
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  The public surface of the Riot package should be limited now to the
+  top-level `Riot` module.
+
+
+Introduce dedicated I/O Scheduler
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  To improve long-tail latency when doing I/O, we’re splitting out the
+  poll loop out of the main schedulers and using a dedicated thread for
+  polling I/O.
+
+
+Improved I/O primitives
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  The runtime now ships with an IO and a Buffer module that includes
+  more low-level functions:
+  • to do vectorized reads/writes,
+  • await for file descriptor availability (for reading, writing, or
+    both),
+  • copy data between buffers
+  • write buffers directly to writers
+
+
+I/O Readers & Writers
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  We’re introducing *Reader/Writer* to build Read/Write streaming
+  pipelines like you’d do in Rust with the Read/Write traits.
+
+  This one is particularly exciting because we can now write super clean
+  transformations of data that can be made super efficient, and are
+  tracked at the type-level, like this:
+
+  ┌────
+  │ let file = File.open_read "test" in (* [ `r ] File.t *)
+  │ let read = File.to_reader file in (*  [ `r ] File.t Reader.t  *)
+  │ let decrypt = Decrypt.of_reader read in (* [ `r ] File.t Decrypt.t Reader.t *)
+  │ let unzip = Unzip.of_reader read in (* [ `r ] File.t Decrypt.t Unzip.t Reader.t *)
+  │ let data (* IO.Buffer.t *) =
+  │   let buf = IO.Buffer.with_capacity 1024 in
+  │   let* len = IO.Reader.read unzip ~buf in
+  │   IO.Buffer.sub buf ~len
+  │ in
+  │ (* ... *)
+  └────
+     This will pull 1024 bytes out of this stream, lazily reading
+  backwards through the chain. And if you want it buffered, you just
+  gotta call. `IO.Reader.buffered reader' and you’re good to go.
+
+  These new interfaces are available for the new File module as well as
+  for the Net.Socket module.
+
+
+Spatial Shell · A windows switcher for i3 and sway implemented in OCaml
+═══════════════════════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-spatial-shell-a-windows-switcher-for-i3-and-sway-implemented-in-ocaml/13747/1>
+
+
+Thomas Letan announced
+──────────────────────
+
+  Hi folks :wave: I have been willing to share Spatial Shell here for a
+  while now, mostly because it is implemented in OCaml so it’s a good
+  way for me to find potential contributors ahah (unfortunately, the
+  codebase could be more commented tbh). [Spatial Shell] implements a
+  spatial model inspired by [Material Shell] for i3 and sway. I have
+  very recently tagged its 6th release, and I believe now is a good time
+  to try and put it in the hands of other human beings. What might go
+  wrong? :sweat_smile:
+
+  The [`README'] should be comprehensive enough to get you started, and
+  [I’ve also published a short blogpost] giving a bit more background on
+  my Spatial Shell journey, and has a nice [video] you can witch if you
+  are curious.
+
+  If you run into problems while trying to test, do not hesitate to
+  reach out ([GitHub issues] are probably the best way to do so). I do
+  hope Spatial Shell becomes a usable programs for anyone interested in
+  the workflow it enables on i3/sway deskop.
+
+
+[Spatial Shell] <https://github.com/lthms/spatial-shell>
+
+[Material Shell] <https://material-shell.com>
+
+[`README'] <https://github.com/lthms/spatial-shell#spatial-shell>
+
+[I’ve also published a short blogpost]
+<https://soap.coffee/~lthms/posts/SpatialShell6.html>
+
+[video] <https://spatial-shell.app/demo.mp4>
+
+[GitHub issues] <https://github.com/lthms/spatial-shell/issues>
+
+
+Other OCaml News
+════════════════
+
+From the ocaml.org blog
+───────────────────────
+
+  Here are links from many OCaml blogs aggregated at [the ocaml.org
+  blog].
+
+  • [Announcing the ORCHIDE Project: Powering Satellite Innovation]
+
+
+[the ocaml.org blog] <https://ocaml.org/blog/>
+
+[Announcing the ORCHIDE Project: Powering Satellite Innovation]
+<https://tarides.com/blog/2023-12-29-announcing-the-orchide-project-powering-satellite-innovation>
+
+
+Old CWN
+═══════
+
+  If you happen to miss a CWN, you can [send me a message] and I’ll mail
+  it to you, or go take a look at [the archive] or the [RSS feed of the
+  archives].
+
+  If you also wish to receive it every week by mail, you may subscribe
+  to the [caml-list].
+
+  [Alan Schmitt]
+
+
+[send me a message] <mailto:alan.schmitt@polytechnique.org>
+
+[the archive] <https://alan.petitepomme.net/cwn/>
+
+[RSS feed of the archives] <https://alan.petitepomme.net/cwn/cwn.rss>
+
+[caml-list] <https://sympa.inria.fr/sympa/info/caml-list>
+
+[Alan Schmitt] <https://alan.petitepomme.net/>
