@@ -1,0 +1,347 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[https://alan.petitepomme.net/cwn/2024.04.09.html][Previous Week]] [[https://alan.petitepomme.net/cwn/index.html][Up]] [[https://alan.petitepomme.net/cwn/2024.04.23.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of April 09 to 16, 2024.
+
+#+TOC: headlines 1
+
+
+* Melange 2024 Progress Update
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/blog-melange-2024-progress-update/14457/1
+
+** Antonio Nuno Monteiro announced
+
+
+we recently shared what we've been up to around Melange & ecosystem in a blog post which you can find here:
+
+https://melange.re/blog/posts/whats-2024-brought-to-melange-so-far
+
+I hope you find the above informative. Looking forward to your thoughts.
+      
+
+
+
+* Ppxlib maintenance summary
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/ppxlib-maintenance-summary/14458/1
+
+** Nathan Rebours announced
+
+
+I recently started working on ppxlib again thanks to the OCaml Software Foundation and wanted to report back to the community all the
+work their funding made possible so far along with the plan for the next steps.
+
+Know that OCSF is only funding me part time on this and that I'm open to more OCaml freelance work!
+
+*** Summary of the work
+
+**** Improved error reporting
+
+Ppxlib has an ~-embed-error~ flag that is most useful to merlin as it allows it to always get an AST out of the driver and allows it
+to keep operating normally when a ppx raises a located exception (as in raised with ~Location.raise_errorf~) as it would always get
+an AST out of the driver run.
+
+The problem with this mode was that it didn't try to recover from such exceptions and would stop applying transformations. The error
+was properly reported by merlin and it still had a valid AST to work with but none of the potential errors from subsequent rewriting
+or code gen would be reported.
+This lead to a tedious workflow where the user would fix one error, save the file, see a new error reported by merlin, fix it, save,
+and so on.
+
+There was a series of PRs by @Burnleydev1 long pending review that were fixing this by collecting all such exceptions while keeping
+on the rewriting phases using the last valid AST or node.
+
+I reviewed and fixed those PRs ([[https://github.com/ocaml-ppx/ppxlib/pull/447][#447]],
+[[https://github.com/ocaml-ppx/ppxlib/pull/463][#453]] and [[https://github.com/ocaml-ppx/ppxlib/pull/457][#457]]) and worked on a couple
+fixes and improvements to error reporting related to this work.
+
+**** Driver mode for dune
+
+Dune has ongoing internal work to be able to use ppx in development. Since it cannot depend on ppxlib or any ppx at build time, their
+solution relies on using ppxlib and ppx normally in development but using already preprocessed copies of source files that require
+rewriting for bootstrapping, making their opam build ppx-free.
+
+They require a special driver mode that writes to the output file only if any actual rewriting happened.
+
+I worked on a first prototype of this using a pre-existing hook called for each generated AST node.
+
+**** 5.2 compat on trunk-support
+
+The main task since I started working on ppxlib was the 5.2 support. As OCaml 5.2 is coming out soon and ppxlib is a central piece in
+the OCaml ecosystem, it's important that ppxlib has a compatible version available for testing out the new compiler. Without it, a
+lot of opam packages can't be built with the alpha and beta releases of the compiler because of their ppx dependencies.
+
+ppxlib has a ~trunk-support~ branch that is meant to be kept up to date for such occasions. While it already contained the AST
+migration from/to the 5.2 version, it was out of sync with the main branch of ppxlib.
+
+I rebased the 5.2 relevant parts of the branch on top of our main branch to be able to cut a first preview version with 5.2 compat
+and fixed a couple of bugs and quirks in the code base that prevented the test suite from running properly with the 5.2 support.
+
+After the first release of the preview version we discovered a series of bugs with the help of @kit-ty-kate, @octachron and
+@anmonteiro. The most important among those being:
+- A bug in the round trip migration of the new ~Pexp_function~  node from 5.2 that was causing compilation errors when the function's
+return type was coerced.
+- The new syntax for ~ocaml.ppx.context~ was causing driver crashes when reading some binary ASTs. I wrote a migration for those
+attributes that fixed the issue.
+- The driver was silently relying on the compiler to re-open files to display source quotation when reporting located exceptions.
+Since this was removed from the compiler in 5.2, I fixed the driver to properly set ~Location.input_lexbuf~ and re-enable
+source-quotation.
+
+**** ppx_deriving maintenance
+
+~ppx_deriving~ is quite a central piece of the ppx ecosystem, especially for the set of standard derivers it provides
+(pretty-printers, equality and comparison functions, etc.).
+
+The project was lacking maintainers with enough time to review an important PR migrating those standard derivers to ppxlib. This is
+important because it makes those quite broadly used derivers better integrated with ppxlib features and improves both performances
+and error reporting for their users as they are now applied as part of the main ppxlib driver AST traversal.
+
+I reviewed the PR and cleaned up the repo a bit to attempt a release, something that has not happened for 3 years for this package.
+
+The initial release failed for two reasons:
+- ~ppx_deriving.show~'s deriver accepts an argument that specifies how the implementation should behave without impacting the
+function signature. In the ppxlib port we did not register this argument for the signature deriver since it had no impact on the
+generated code there. It turns out at least one opam package used the argument in an ~.mli~ file so we added it for compatibility as
+~ppx_deriving~ duplicated the set of arguments for implementation and interfaces
+- ~ppx_deriving~ used to automatically register extensions for each derivers that can be used to inline the derived function for a
+given type in an expression. We preserved this in the ppxlib port but it caused a conflict with ~ppx_let~. This conflict should be
+resolved on ~ppx_let~'s side as they were declaring an extension named ~map~ without any possible prefix such as ~ppx_let.map~ which
+is the recommended way. Using a prefix allows the user to disambiguate if several ppx declare an extension with the same base name.
+
+We had to cancel the release to fix those issues before attempting again.
+
+**** General maintenance
+
+There was also some regular maintenance such as improving our homemade expect test runner to be able to better run our tests across
+all supported compiler versions, reviewing all pending PRs, upgrading ocamlformat and cutting a release of ppxlib with the latest
+features.
+
+*** Next steps
+
+Along with the general maintenance of the project there are two things that would greatly reduce the maintenance burden on ppxlib and
+would improve the state of the ecosystem for the community that we would like to work on.
+
+**** Upstreaming Astlib to the compiler
+
+This has been in the works for quite a long time but the previous maintainers haven't had the chance to see it through.
+
+The plan is to upstream a small part of ppxlib into the compiler to ease the release process for new compilers.
+
+This small library should contain the minimal subset of stable API ppxlib needs to properly function and, most importantly, the AST
+migrations from the current version of the compiler to the previous version and back. The idea is that trunk would then provide the
+migration to the latest released version at all time and ppxlib would be able to use those if it does not natively supports them yet.
+That would make testing the compiler on opam work without requiring a special release of ppxlib and would also ease the migration
+writing process as they would be written at the time of the AST change by the person who modified it and therefore that is most
+qualified to do so.
+
+Indeed the migration writing process is time consuming at the moment because it is done by ppxlib maintainers when the next ocaml
+releasing is closing in and requires us to dive into changes we are not necessarily familiar with.
+
+During the compiler release process, ppxlib would incorporate those new migration to the entire set of migrations it supports,
+allowing it to be compatible with the "new" trunk until the next release.
+
+The core of this work is to formally write down this process and start the discussion with the compiler team. Once we agree on a
+plan, I don't expect there is a lot of code to write for this as all of it already lives inside ppxlib.
+
+**** Refining the release process for ppxlib with an AST bump
+
+Part of the ppxlib contract is that all ppx-es written with ppxlib must use the same version of the AST chosen by ppxlib. This allows
+for better performances and semantics of rewriting. This version is usually the latest supported version as it is required for ppx-es
+to support all the new language features. It sometimes happen that the internal AST version lags behind if no new features
+would be "unlocked" by upgrading the AST, as it has been the case since 4.14.
+
+Every now and then ppxlib has to bump its internal AST though, potentially breaking its API and therefore a few of its reverse
+dependencies.
+
+In the past few years, we decided to build the entire set of reverse dependencies every time were releasing such a change and to send
+PRs to fix revdeps to help keep the ppx ecosystem sane and avoid putting to much pressure on individual ppx-es maintainers.
+
+We know that we will have to do this for the 5.3 release as it will be adding effects syntax.
+
+The current workflow relies on building a "duniverse" i.e. some sort of large dune-project containing ppxlib and a clone of all its
+reverse dependencies. This proves quite a challenge as it is often hard to get everything to build together.
+An ideal solution would be to rely more on ~opam-ci~ for this but in its current state it is not very reliable.
+
+I'd like to spend some time on improving the process of building revdeps of ppxlib and submitting PRs and experiment to prepare for
+the next bump which will include the 5.2 changes to ~Pexp_function~ that we expect to potentially break quite a lot of reverse
+dependencies.
+      
+
+
+
+* The OCaml community is signed up for Outreachy!
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/the-ocaml-community-is-signed-up-for-outreachy/13892/18
+
+** Nathan Rebours announced
+
+
+I'm a bit late to the party but still wanted to let you know about the project we submitted with @shonfeder and @dinakajoy.
+
+[[https://github.com/NathanReb/ocaml-api-watch][ocaml-api-watch]] is a fresh project that aims at providing a suite of tools to help
+OCaml library maintainers and users deal with changes in the public API of their libraries or the ones they use. This includes
+libraries and CLI tools to detect potentially unwanted breaking changes before releasing a new version or to determine the version of
+a library that introduced a new function.
+
+The goal of the internship is to develop a library and tool pair that detects changes in the public API of a library, build an
+internal representation of them and displays them in a human readable, git diff-like format.
+
+The application period went really well and we have several strong candidates. We've been extremely happy to work with all of them
+and are looking forward to the internship.
+      
+
+
+
+* opam 2.2.0~beta2
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/ann-opam-2-2-0-beta2/14461/1
+
+** Kate announced
+
+
+We're very excited to announce this second beta for opam 2.2.0.
+
+*** What’s new in this beta?
+
+- *Windows support*: this beta introduces a bunch of changes necessary to be able to make the default opam-repository support Windows out of the box. We will write a dedicated blog post very soon on this, once we have finalised the PR/branch that you can test.
+- *opam-repository scalability*: The current draft resolution resulting from the discussion in [[https://github.com/ocaml/opam-repository/issues/23789][ocaml/opam-repository#23789]] includes the removal of packages from opam-repository. Currently opam can misbehave (in particular on macOS) when exposed to file deletions in repositories due to the use of the system `patch` command. To fix this, as a stop gap, after many trials and errors, opam now warns when GNU patch is not detected on your system. These changes will make their way to the upcoming opam 2.1.6, in a few weeks.
+- Many *regression fixes*, *performance* and general *improvements*
+
+:open_book: You can read our [[https://opam.ocaml.org/blog/opam-2-2-0-beta2/][blog post]] for more information about these changes and
+more, and for even more details you can take a look at the [[https://github.com/ocaml/opam/releases/tag/2.2.0-beta2][release note]] or
+the [[https://github.com/ocaml/opam/blob/2.2.0-beta2/CHANGES][changelog]].
+
+*** How to upgrade
+
+- For Windows we will write a dedicated blog post to show how to install and use opam on Windows very soon. Stay tuned!
+- On Unix-like systems, to upgrade, simply run:
+  #+begin_example
+bash -c "sh <(curl -fsSL https://raw.githubusercontent.com/ocaml/opam/master/shell/install.sh) --version 2.2.0~beta2"
+  #+end_example
+
+We're on the home stretch for the final release of opam 2.2.0, so feel free to report any issue you encounter on our
+[[https://github.com/ocaml/opam/issues][bug-tracker]].
+
+Happy hacking,
+*<> <> The opam team <> <>* :camel:
+      
+
+
+
+* Gospel 0.3.0
+:PROPERTIES:
+:CUSTOM_ID: 5
+:END:
+Archive: https://discuss.ocaml.org/t/ann-gospel-0-3-0/14480/1
+
+** Nicolas Osborne announced
+
+
+Hi! We are very happy to announce the release of ~gospel.0.3.0~
+
+Gospel is a tool-agnostic behavioural specification language for OCaml. It allows you to write strongly typed contract-based
+specifications for your OCaml libraries (for a reasonable subset of OCaml). Gospel’s syntax has been designed to be easy to learn for
+an OCaml programmer. You can access the documentation [[https://ocaml-gospel.github.io/gospel/][here]]
+
+Apart from some bug fixes, this release brings two main improvements:
+
+- Make the type-checker save type information in a ~.gospel~ file
+- Make the ~with~ keyword necessary when declaring type invariants
+
+Beware that ~ortac.0.1.0~ is not compatible with this version, please use Ortac development version from the git repository until the
+next Ortac release.
+      
+
+
+
+* Fred 0.1.0 - Federal Reserve Economic Data API
+:PROPERTIES:
+:CUSTOM_ID: 6
+:END:
+Archive: https://discuss.ocaml.org/t/ann-fred-0-1-0-federal-reserve-economic-data-api/14489/1
+
+** Geoffrey Borough announced
+
+
+Hi folks howdy! I just release the first version of Fred, a library for the Federal Reserve Economic Data API binding. I made this to
+facilitate one of my personal project but I hope others would find this library useful in some way.
+
+Source code: https://github.com/gborough/fred
+
+Documentation: https://gborough.github.io/fred/fred/fred/index.html
+
+Opam repo publish on the way
+      
+
+
+
+* OCANNL 0.3.1: a from-scratch deep learning (i.e. dense tensor optimization) framework
+:PROPERTIES:
+:CUSTOM_ID: 7
+:END:
+Archive: https://discuss.ocaml.org/t/ann-ocannl-0-3-1-a-from-scratch-deep-learning-i-e-dense-tensor-optimization-framework/14492/1
+
+** Lukasz Stafiniak announced
+
+
+Hi! I'm happy to announce release 0.3.1 of OCANNL, a tensor optimization framework with:
+
+- concise notation via PPXs,
+- powerful shape inference,
+- backpropagation (first-order automatic differentiation),
+- low-level backends -- currently only one, CPU via `gccjit`, but Cuda is on the horizon.
+
+OCANNL is sponsored by [[https://ocaml.org/success-stories/peta-byte-scale-web-crawler][Ahrefs]]. ([[https://ahrefs.com/][Ahrefs
+website]].)
+
+[[https://github.com/ahrefs/ocannl][ahrefs/ocannl: OCANNL: OCaml Compiles Algorithms for Neural Networks Learning (github.com)]]
+
+I am not submitting it to Opam yet as OCANNL is insufficiently documented at the moment. I welcome your feedback if you decide to
+take a look!
+      
+
+
+
+* Other OCaml News
+:PROPERTIES:
+:CUSTOM_ID: 8
+:END:
+** From the ocaml.org blog
+
+
+Here are links from many OCaml blogs aggregated at [[https://ocaml.org/blog/][the ocaml.org blog]].
+
+- [[https://tarides.com/blog/2024-04-10-multicore-testing-tools-dscheck-pt-2][Multicore Testing Tools: DSCheck Pt 2]]
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[https://alan.petitepomme.net/cwn/][the archive]] or the [[https://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe to the [[https://sympa.inria.fr/sympa/info/caml-list][caml-list]].
+
+#+BEGIN_authorname
+[[https://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname
