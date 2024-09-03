@@ -1,0 +1,187 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[https://alan.petitepomme.net/cwn/2024.08.27.html][Previous Week]] [[https://alan.petitepomme.net/cwn/index.html][Up]] [[https://alan.petitepomme.net/cwn/2024.09.10.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of August 27 to September 03, 2024.
+
+#+TOC: headlines 1
+
+
+* ppx_minidebug 2.0: verbosity levels
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/ann-ppx-minidebug-2-0-verbosity-levels/15212/1
+
+** Lukasz Stafiniak announced
+
+
+I'm pleased to mention that [[https://github.com/lukstafi/ppx_minidebug][ppx_minidebug 2.0]] is available now. The README at [[https://github.com/lukstafi/ppx_minidebug][ppx_minidebug - GitHub]] is the user manual, and the runtime API is documented here: [[https://lukstafi.github.io/ppx_minidebug/ppx_minidebug/Minidebug_runtime/index.html][ppx_minidebug.Minidebug_runtime]].
+
+Version 2.0 brings linear verbosity log levels. Both logging scopes and individual log statements can be either: at a default (omitted) log level, at a compile-time log level (e.g. ~[%log2 "test"]~ logs ~test~ at level 2), or at a runtime-provided log level (e.g. ~[%logN for_level; "test"]~ logs ~test~ at level ~for_level~). When the level to log at is omitted, it is inherited from its direct syntactic logging scope (i.e. the log entry that the log or log entry is syntactically in -- not the log entry that the log is dynamically attached to, if it's different). Providing a compile-time log level will prune the generated code accordingly. See more here: [[https://github.com/lukstafi/ppx_minidebug?tab=readme-ov-file#using-as-a-logging-framework][ppx_minidebug: Using as a logging framework]].
+
+Version 1.6 brought support for local runtimes, where the runtime for logging in a logging scope is fetched by a user-provided function. The function can for example use domain-local storage. See more here: [[https://github.com/lukstafi/ppx_minidebug?tab=readme-ov-file#dealing-with-concurrent-execution][ppx_minidebug: Dealing with concurrent execution]].
+
+Happy debugging!
+      
+
+
+
+* Ppx by example - repo to help on ppx learning
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/ppx-by-example-repo-to-help-on-ppx-learning/15213/1
+
+** Pedro Braga announced
+
+
+Over the past few weeks, I've started my journey to learn PPX, and during this process, I found it challenging to find examples. So, I began creating my own examples and adding explanations for myself.
+
+I realized that I could make my examples and explanations public because this would push me to learn more deeply (as I’d need to provide better and clearer explanations) and could also help anyone else on this learning path. @davesnx also encouraged me to share my process (maybe through a blog post in the future). So, I created this repository: [[https://github.com/pedrobslisboa/ppx-by-example][github.com/pedrobslisboa/ppx-by-example]].
+
+The idea is to have examples and an explanation for each detail on those. It has also a brief explanation about the subject on every README.
+
+I have a few notes:
+- It is a wip project, which means that there are parts in development. But sharing it is also a way to push me to improve this project.
+- As I said, I'm on the process of learning PPX, so probably I missed or added something wrongly, so please If you notice it, share it on the repo so I can fix. 
+- I am also in the process of learning OCaml. I started coding in OCaml this year (professionally just last month), so this repository might not have the best code. If you think it can be improved, please let me know. :heart:
+- I'm not a native English speaker or the best writer. I asked ChatGPT to help fix some mistakes and improve cohesion, but if you notice anything that needs to be improved, please let me know. :heart:
+
+Besides that, any comments, help, or additions are welcome. I hope this can be helpful :3
+Thank you all!
+      
+
+
+
+* Blog Post: Simple Example where Ocaml calls a C function
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/blog-post-simple-example-where-ocaml-calls-a-c-function/15211/3
+
+** Deep in this thread, Tim McGilchrist said
+
+
+My favourite example at the moment is this one from [[https://doi.org/10.1145/3453483.3454039][Retrofitting Effect Handlers onto OCaml]]. It shows OCaml calling C, C calling an OCaml callback and exceptions crossing those boundaries.
+
+#+begin_example
+$ cat meander.ml
+#+end_example
+
+#+begin_src ocaml
+external ocaml_to_c
+         : unit -> int = "ocaml_to_c"
+exception E1
+exception E2
+let c_to_ocaml () = raise E1
+let _ = Callback.register
+          "c_to_ocaml" c_to_ocaml
+let omain () =
+  try (* h1 *)
+    try (* h2 *) ocaml_to_c ()
+    with E2 -> 0
+  with E1 -> 42
+let _ = assert (omain () = 42)
+#+end_src
+
+#+begin_example
+$ cat meander_c.c
+#+end_example
+
+#+begin_src c
+#include <caml/mlvalues.h>
+#include <caml/callback.h>
+
+value ocaml_to_c (value unit) {
+    caml_callback(*caml_named_value
+                  ("c_to_ocaml"), Val_unit);
+    return Val_int(0);
+}
+#+end_src
+
+Compile it with OCaml 5.2:
+
+#+begin_example
+$ ocamlopt --version
+5.2.0
+$ ocamlopt meander_c.c meander.ml -o meander.exe
+$ ./meander.exe
+$ echo $?
+0
+#+end_example
+
+Bonus you can use GDB/LLDB on this to set breakpoints in both OCaml and C.
+      
+
+
+
+* Outreachy December 2024 Round
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/outreachy-december-2024-round/15223/1
+
+** Patrick Ferris announced
+
+
+With the conclusion of the previous Outreachy round (see [[https://discuss.ocaml.org/t/outreachy-demo-presentation/15189][Outreachy Demo Presentation]]), the next round is fast approaching and the OCaml community has signed up again to participate!
+
+*** The Next Round
+
+The *deadline for mentors to [[https://www.outreachy.org/communities/cfp/ocaml/][submit a project]] is [date=2024-09-11 timezone="Europe/London"]*. If people are interested in mentoring and they maintain an open-source project, then they can reach out directly to me and I can help scope a project, explain the contribution period and provide as much other help as we can! Co-mentoring is also an option for people who are interested in mentoring but do not have a specific project -- do reply to this thread if that's you! 
+
+When signing up mentors propose an open-source project where prospective interns submit PRs during the “contribution phases” as part of their application. Mentors will then choose an intern to work with for 3 months. A more detailed explanation is available [[https://www.outreachy.org/mentor/#mentor][on the Outreachy mentor section ]].
+
+I'm particularly interested in *projects from some of the larger OCaml projects* (e.g. dune, opam, ppxlib, miou, eio, cohttp, melange etc.). I'm very happy to help with co-mentoring on any of these projects. If you are interested and are a maintainer of a larger project, please do reach out. Of course, smaller projects are still very much possible. 
+
+*** Funding
+
+_Funding for this upcoming Outreachy round is not yet finalised_. We hope to have funding for three interns, I will reply to this thread once things are confirmed which should be soon. If any company is interested in supporting the OCaml community Outreachy initative please do reach out to me.
+
+I'd also like to take this moment to raise some awareness for the current [[https://www.outreachy.org/blog/2024-08-14/outreachy-needs-your-help/][struggles Outreachy is facing]]. The OCaml community has benefited massively from Outreachy. Both by participating directly as a community (see https://ocaml.org/outreachy for some past projects) and via the participation of other communities. I'm very grateful for everyone who has taken part in some way, including non-mentors engaging with the interns. 
+
+As always if you have any general questions or mentoring ideas do comment on this thread or reach out directly.
+
+Thanks!
+      
+
+
+
+* Other OCaml News
+:PROPERTIES:
+:CUSTOM_ID: 5
+:END:
+** From the ocaml.org blog
+
+
+Here are links from many OCaml blogs aggregated at [[https://ocaml.org/blog/][the ocaml.org blog]].
+
+- [[https://tarides.com/blog/2024-08-30-the-biggest-functional-programming-conference-of-the-year-what-are-we-bringing-to-icfp][The Biggest Functional Programming Conference of the Year: What are we Bringing to ICFP?]]
+- [[https://blog.janestreet.com/icfp-2024-index/][ICFP 2024]]
+- [[https://tarides.com/blog/2024-08-28-project-wide-occurrences-a-new-navigation-feature-for-ocaml-5-2-users][Project-Wide Occurrences: A New Navigation Feature for OCaml 5.2 Users]]
+- [[https://blog.janestreet.com/what-the-interns-have-wrought-2024-edition-index/][What the interns have wrought, 2024 edition]]
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[https://alan.petitepomme.net/cwn/][the archive]] or the [[https://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe to the [[https://sympa.inria.fr/sympa/info/caml-list][caml-list]].
+
+#+BEGIN_authorname
+[[https://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname
