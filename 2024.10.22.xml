@@ -1,0 +1,254 @@
+<cwn>
+  <cwn_head>
+    <cwn_date>2024.10.22</cwn_date>
+    <cwn_prev>2024.10.15</cwn_prev>
+    <cwn_next>2024.10.29</cwn_next>
+    <cwn_date_text>October 15 to 22, 2024</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>opam 2.3.0~beta1</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-opam-2-3-0-beta1/15450/1</cwn_url>
+      <cwn_who>Kate announced</cwn_who>
+      <cwn_what>
+We're happy to announce the first beta release of opam 2.3.0.
+
+As we're closing on the final release of opam 2.3.0, we'd be happy for people to test this beta and report any regression.
+
+*** What's new?
+
+This release consists mostly in regression fixes compared to 2.3.0~alpha1:
+
+- Fix a regression where pinning a local source repository containing initialized git submodules would cause a failure when fetching the package. ([#5809](https://github.com/ocaml/opam/issues/5809))
+- Fix a regression which would make opam crash on platforms such as OpenBSD. ([#6215](https://github.com/ocaml/opam/issues/6215))
+- Fix the internal cache of installed packages, which was storing the wrong version of the opam file after a build failure. ([#6213](https://github.com/ocaml/opam/pull/6213))
+- Fix a regression in lint W59 with local urls that are not archives. ([#6218](https://github.com/ocaml/opam/issues/6218))
+
+A couple of other improvements were made and bugs were fixed.
+:open_book: You can read our [blog post](https://opam.ocaml.org/blog/opam-2-3-0-beta1/) for more information about these changes and more, and for even more details you can take a look at the [release note](https://github.com/ocaml/opam/releases/tag/2.3.0-beta1) or the [changelog](https://github.com/ocaml/opam/blob/2.3.0-beta1/CHANGES).
+
+*** Try it!
+
+The upgrade instructions are pretty much the same:
+
+For Unix systems
+#+begin_example
+bash -c "sh &lt;(curl -fsSL https://opam.ocaml.org/install.sh) --version 2.3.0~beta1"
+#+end_example
+or from PowerShell for Windows systems
+#+begin_example
+Invoke-Expression "&amp; { $(Invoke-RestMethod https://opam.ocaml.org/install.ps1) } -Version 2.3.0~beta1"
+#+end_example
+
+Please report any issues to [the bug-tracker](https://github.com/ocaml/opam/issues).
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Dune dev meeting</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-dune-dev-meeting/14994/14</cwn_url>
+      <cwn_who>Steve Sherratt announced</cwn_who>
+      <cwn_what>
+Notes from today's dune-dev meeting are [here](https://github.com/ocaml/dune/wiki/dev-meeting-2024-10-16)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Wildcard expansion on Windows</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/wildcard-expansion-on-windows/15461/1</cwn_url>
+      <cwn_who>Benjamin Sigonneau announced</cwn_who>
+      <cwn_what>
+While implementing a small CLI tool, I ran into a somehow undocumented feature of the Ocaml compiler: it automatically expands wildcards before doing anything else. Which proved to be a problem.
+
+This post serves three different goals:
+
+- give some visibility, in case someone else run into this issue in the future
+- expose a possible workaround
+- ask the community if there is a better way™ to solve this
+
+*** Context
+
+My tool uses ~Cmdliner~ for CLI args processing, and needs to handle basic wildcard processing for one of its options, eg. it should handle ~mytool.exe -x *.ml~.
+
+This would get expanded to ~mytool.exe -x a.ml b.ml c.ml~ which Cmdliner cannot handle. Under any common Unix shell, this is not a problem: we just have to escape the star character with eg. ~mytool.exe -x \*.ml~, have mytool handle the expansion itself and we're all set. So far, so good.
+
+Then came Windows. Whatever I would do, it seemed like there was no way of preventing that wildcard to be expanded. I learned that on Windows, the calling program was responsible for dealing with wildcards, not the shell. After some digging, the root cause of this behaviour was found in the ocaml runtime itself, in [~runtime/main.c~](https://github.com/ocaml/ocaml/blob/a07799fceac25e2b2b81f3d2bab64d87ad5cec8d/runtime/main.c#L32):
+
+#+begin_src c
+int main_os(int argc, char_os **argv)
+{
+#ifdef _WIN32
+  /* Expand wildcards and diversions in command line */
+  caml_expand_command_line(&amp;argc, &amp;argv);
+#endif
+
+/* [...] */
+}
+#+end_src
+
+After a bit of history digging, it turns out this behaviour dates back from the very early stages of the Ocaml compiler, see [this commit](https://github.com/ocaml/ocaml/commit/4426de9a130b4abef0f417b3a396a3aed70528c2) by Xavier Leroy from... 1996!
+
+*** Workaround
+
+The ~runtime/main.c~ file gives a hint on how to work around this:
+
+#+begin_src c
+/* Main entry point (can be overridden by a user-provided main()
+   function that calls caml_main() later). */
+#+end_src
+
+So the most elegant workaround I could find was to create a copy of the ~main.c~ file inside the source tree of mytool and comment out the call to ~caml_expand_command_line~. Then it was a matter of compiling and linking everything altogether. I use ~dune~ to compile ~mytool.exe~, and after a lot of trial-and-error, I found out it could handle this very easily with the ~foreign_stubs~ stanza:
+
+#+begin_example
+(executable
+ (name mytool)
+ (foreign_stubs (language c) (names main))
+ ; ...
+)
+#+end_example
+
+*** Minimal working example
+
+I opened a Github repository containing a minimal project featuring a custom entry point so that command-line arguments expansion does not happen on Windows.
+
+See: https://github.com/benji-sb/ocaml-windows-argv
+
+*** Open Questions
+
+- The root cause of this issue was introduced almost 30 years ago. How come no one on the Internets seem to have run into a similar issue?
+- Why was this behaviour introduced in the first place? I suspect it may have make it easier to setup a Windows toolchain back then, but that's just wild speculation. 
+- Is this behaviour still needed, or could we get rid of it?
+- Should this be more wildly documented, and if so, where? The ocaml compiler docs and the dune docs could probably benefit from a small paragraph on how to override the default entry point.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OCamlformat and GitHub actions</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ocamlformat-and-github-actions/15464/1</cwn_url>
+      <cwn_who>Hannes Mehnert announced</cwn_who>
+      <cwn_what>
+a small announcement for those using OCamlformat in their projects: if you find the burden on external contributors very high, and always express "please run ocamlformat on your PR" -- we've been in the same boat.
+
+We developed a GitHub action which automatically runs OCamlformat and pushes that on the PR. No need for contributors to remember running OCamlformat, no need for "OCaml-CI" to fail since ocamlformat run diverges.
+
+If you're interested, take a look at https://github.com/robur-coop/mollymawk/blob/main/.github/workflows/format.yml -- please note that we use ~find . -name \*ml -maxdepth 1~ -- depending on your project you may be able to run ~dune bu @fmt --auto~ (or need a slightly different ~find~ to look deeper or also for mli files).
+
+Happy to share this action which turned out to be tremendously useful for some of our projects.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>New vs. Old OCaml Academic Users Page Survey</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/new-vs-old-ocaml-academic-users-page-survey/15484/1</cwn_url>
+      <cwn_who>Claire Vandenberghe announced</cwn_who>
+      <cwn_what>
+We've recently *redesigned the OCaml Academic Users page* and would love to *get your feedback* to ensure it’s as helpful as possible. You can view both versions here:
+
+- New page:[ ocaml.org/academic-users](https://ocaml.org/academic-users)
+- Old page:[ staging.ocaml.org/academic-users](https://staging.ocaml.org/academic-users)
+
+As a teacher, student expert or beginner developer using OCaml, we’d greatly appreciate your insights! Participate in the survey here: [https://docs.google.com/forms/d/e/1FAIpQLSfc9qPR16deJ6VeVmXGXPVO4e3wZ9ZVIYiWrS4f1RZsqcXxwQ/viewform?usp=sf_link](https://Survey)  or we can discuss this topic below :)
+
+Do you find the new page more useful and relevant for your academic needs compared to the old one? If so, why?
+
+Is there any information missing or anything you’d suggest improving on the new page?
+
+Your feedback is incredibly valuable to us as we work to improve the experience for the OCaml community.
+
+Thank you in advance!
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>New vs. Old OCaml Industrial Users Page</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/new-vs-old-ocaml-industrial-users-page/15485/1</cwn_url>
+      <cwn_who>Claire Vandenberghe announced</cwn_who>
+      <cwn_what>
+We've recently redesigned the *OCaml Industrial Users pages* and would love to get *your feedback* to ensure it’s as helpful as possible. You can view both versions here:
+
+- New: https://ocaml.org/industrial-users
+- Old: https://staging.ocaml.org/industrial-users
+
+As an expert or beginner developer using OCaml, we’d greatly appreciate your insights! You can also participate to the survey here: https://forms.gle/C7czFt36m7bx4fLt8 or we can discuss this topic below :)
+
+Do you find the new page more useful and relevant for industrial needs compared to the old one? If so, why?
+
+Is there any information missing or anything you’d suggest improving on the new page?
+
+Your feedback is incredibly valuable to us as we work to improve the experience for the OCaml community.
+
+Thank you in advance!
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Eliom 11 and Ocsigen Start 7</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-eliom-11-and-ocsigen-start-7/15487/1</cwn_url>
+      <cwn_who>Vincent Balat announced</cwn_who>
+      <cwn_what>
+Eliom 11 and Ocsigen Start 7 have been released a few weeks ago.
+These versions follow the recent release of Ocsigen Server 6 and leverage its new configuration API to make it easier to use it as a library, without a configuration file.
+
+Here is an example of a simple OCaml app generating a Web page from server side (and serving static pages from directory ~"local/var/www/mysite"~):
+#+begin_src ocaml
+let f _ () =
+  Lwt.return
+    Eliom_content.Html.F.(html (head (title (txt "")) [])
+                               (body [h1 [txt "Hello"]]))
+
+let myservice =
+  Eliom_service.create
+    ~path:(Eliom_service.Path [])
+    ~meth:(Eliom_service.Get Eliom_parameter.any)
+    ()
+
+let () = Eliom_registration.Html.register ~service:myservice f
+
+let () = Ocsigen_server.start 
+    [ Ocsigen_server.host
+       [ Staticmod.run ~dir:"local/var/www/mysite" ()
+       ; Eliom.run () ] ]
+#+end_src
+
+To use it, just install Eliom and your favorite version of Ocipersist, then create a new Dune project:
+#+begin_example
+opam install ocsipersist-sqlite-config eliom
+dune init project mysite
+#+end_example
+
+Put the code above in file ~bin/mysite.ml~
+
+Update file ~bin/dune~:
+#+begin_example
+(executable
+ (public_name mysite)
+ (name main)
+ (libraries
+  ocsigenserver
+  ocsigenserver.ext.staticmod
+  ocsipersist-sqlite
+  eliom.server))
+#+end_example
+
+Build and execute:
+#+begin_example
+dune exec mysite
+#+end_example
+
+Open URL ~http://localhost:8080/~.
+
+
+Ocsigen Start's application template has been updated to support both the use as an executable or as a library (lynked dynamically from the server's config file).
+
+Links:
+- [Ocsigen](https://ocsigen.org/)
+- [Github](https://github.com/ocsigen)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocaml.org blog</cwn_who>
+      <cwn_what>
+Here are links from many OCaml blogs aggregated at [[https://ocaml.org/blog/][the ocaml.org blog]].
+
+- [[https://blog.janestreet.com/developer-education-at-jane-street-index/][Developer education at Jane Street]]
+- [[https://tarides.com/blog/2024-10-16-dune-developer-preview-installing-the-ocaml-compiler-with-dune-package-management][Dune Developer Preview: Installing The OCaml Compiler With Dune Package Management]]
+- [[https://ocaml.org/events][Upcoming OCaml Events]]
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>
