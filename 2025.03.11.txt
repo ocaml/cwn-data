@@ -1,0 +1,542 @@
+                          ━━━━━━━━━━━━━━━━━━━
+                           OCAML WEEKLY NEWS
+                          ━━━━━━━━━━━━━━━━━━━
+
+
+[Previous Week] [Up] [Next Week]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of March 04 to 11,
+2025.
+
+Table of Contents
+─────────────────
+
+OCaml projects utilizing Category theory
+Docker base images and OCaml-CI support for OCaml < 4.08
+ocamlmig, a tool to rewrite ocaml code, and complement `[@@deprecated]'
+Ortac 0.6.0 improve bug reporting
+Dune Developer Preview Updates
+ppxlib.0.36.0
+I created an OCaml grammar for ANTLR4 (Earley parser compatible)
+Melange 5.0
+Other OCaml News
+Old CWN
+
+
+[Previous Week] <https://alan.petitepomme.net/cwn/2025.03.04.html>
+
+[Up] <https://alan.petitepomme.net/cwn/index.html>
+
+[Next Week] <https://alan.petitepomme.net/cwn/2025.03.18.html>
+
+
+OCaml projects utilizing Category theory
+════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ocaml-projects-utilizing-category-theory/16206/5>
+
+
+Deep in this thread, Dmitrii Kovanikov announced
+────────────────────────────────────────────────
+
+  I started writing [a series of articles about Pragmatic Category
+  Theory] in OCaml, and there's a repository with examples:
+
+  • <https://github.com/chshersh/pragmatic-category-theory>
+
+  If you're interested in a complete project, I made *CCL: Categorical
+  Configuration Language* which leverages multiple Category Theory
+  concepts:
+
+  • [The Most Elegant Configuration Language by @chshersh]
+
+  I'm currently working on a [GitHub TUI] project in OCaml but the usage
+  of CT concepts is not that crazy there. For now, I only use Semigroup
+  and Monoids (which some people don't even consider part of CT but just
+  Abstract Algebra).
+
+
+[a series of articles about Pragmatic Category Theory]
+<https://chshersh.com/blog/2024-07-30-pragmatic-category-theory-part-01.html>
+
+[The Most Elegant Configuration Language by @chshersh]
+<https://chshersh.com/blog/2025-01-06-the-most-elegant-configuration-language.html>
+
+[GitHub TUI] <https://github.com/chshersh/github-tui>
+
+
+Docker base images and OCaml-CI support for OCaml < 4.08
+════════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/docker-base-images-and-ocaml-ci-support-for-ocaml-4-08/16229/1>
+
+
+Mark Elvers announced
+─────────────────────
+
+  The [opam repository archival] process has set the minimum supported
+  OCaml version to 4.08 _for opam repository_.  It logically follows
+  that opam-repo-ci should only test against OCaml >= 4.08.
+
+  The purpose of this post is to get a sense of whether the rest of the
+  OCaml infrastructure should also adopt the same lower bound.  The
+  current lower bound is 4.02.
+
+  Specific examples include OCaml-CI.  Individual projects can already
+  opt out of testing on older platforms by adding a lower bound in the
+  opam file.
+
+  Docker base images are built for all versions of OCaml used in the CI
+  systems. These images are published weekly on Docker Hub.  We know
+  that these images are also used by the community, but the pull counter
+  is not broken down by individual tag.  Potentially only the latest
+  OCaml versions are being used.
+
+  Users impacted by packages which have been archived from opam
+  repository can easily restore the packages by adding the archive
+  repository to the opam switch.  This only needs to be done once.
+  Users can build their own Docker base images, but they would need to
+  be rebuilt periodically to keep them up to date.
+
+  Would removing testing on < 4.08 in OCaml CI or removing the Docker
+  base images < 4.08 impact you?
+
+
+[opam repository archival]
+<https://discuss.ocaml.org/t/opam-repository-archival-phase-2-ocaml-4-08-is-the-lower-bound/15965>
+
+
+ocamlmig, a tool to rewrite ocaml code, and complement `[@@deprecated]'
+═══════════════════════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-ocamlmig-a-tool-to-rewrite-ocaml-code-and-complement-deprecated/16090/10>
+
+
+v-gb announced
+──────────────
+
+  Hi,
+
+  I released a new version of ocamlmig in opam, whose main change is to
+  avoid reformatting everything in codebases that don't use
+  ocamlformat. Instead, only subexpressions touched by a rewrite are
+  reformatted.  It also requalifies identifier in more places to
+  preserve their meaning (e.g. when replacing `string_of_int' by
+  `Int.to_string', there might be an `Int' module in scope that's not
+  `Stdlib.Int'. In such case, ocamlmig would more often replace
+  `string_of_int' by `Stdlib.Int.to_string').
+
+  Separately, I've thought about the recent addition of let+ operators
+  in Cmdliner, and how one might migrate from the use of `$' to
+  them. Concretetely, given:
+
+  ┌────
+  │ let bistro () (`Dry_run dry_run) (`Package_names pkg_names) ... = the code
+  │ open Cmdliner
+  │ let term = Term.(const bistro $ Cli.setup $ Cli.dry_run $ ...)
+  └────
+
+  you'd want to have instead:
+
+  ┌────
+  │ open Cmdliner
+  │ let term =
+  │   Term.(Syntax.(
+  │     let+ () = Cli.setup
+  │     and+ (`Dry_run dry_run) = Cli.dry_run
+  │     and+ (`Package_names pkg_names) = ...
+  │     ...
+  │     in
+  │     the code))
+  └────
+
+  ocamlmig can now transform code this way, at the tip of the ocamlmig
+  repo (not the last release). You can see it [in the second commit in
+  this branch] (and further mechanical cleanups in the commits with "…"
+  bubbles), but to explain a bit:
+
+  ┌────
+  │ let bistro () (`Dry_run dry_run) (`Package_names pkg_names) ... = the code
+  │ open Cmdliner
+  │ let term = Term.(const bistro $ Cli.setup $ Cli.dry_run $ ...)
+  └────
+
+  is first turned into:
+
+  ┌────
+  │ open Cmdliner
+  │ let term = Term.(const (fun () (`Dry_run dry_run) (`Package_names pkg_names) ... -> the code)
+  │                  $ Cli.setup $ Cli.dry_run $ ...)
+  └────
+
+  which is then turned into the final code:
+
+  ┌────
+  │ open Cmdliner
+  │ let term =
+  │   Term.(Syntax.(
+  │     let+ () = Cli.setup
+  │     and+ (`Dry_run dry_run) = Cli.dry_run
+  │     and+ (`Package_names pkg_names) = ...
+  │     ...
+  │     in
+  │     the code))
+  └────
+
+  The first step is done using `ocamlmig replace -w -e 'const [%move_def
+  __f] /// const __f''. In short, what this does is anytime it sees
+  `const some-identifier', it tries to inline the definition of the
+  identifier. In details, the left side of the `///' specifies the code
+  to search for, and the right side what to replace it with. `const ...'
+  searches for literally `const' applied to one argument. `[%move_def
+  __f]' is trickier: it matches identifiers that are let-bound somewhere
+  in the current file, removes said let binding, and recursively matches
+  the right hand side of the binding against `__f'. Variables that start
+  with two underscores name a term for use in the replacement
+  expression.
+
+  The second step is done with:
+
+  ┌────
+  │ ocamlmig replace -w \
+  │   -e 'const (fun __p1 __p2 __p3 -> __body) $ __e1 $ __e2 $ __e3
+  │       /// let open Syntax in let+ __p1 = __e1 and+ __p2 = __e2 and+ __p3 = __e3 in __body'
+  └────
+
+  This is longer, but given the previous explanation, it's hopefully
+  fairly clear what this does. The only twist is that ocamlmig
+  generalizes this search/replace for three elements into an n-ary
+  version (implicitly, although perhaps it should be explicit).
+
+  And that's it. So this is the full command that I used:
+
+  ┌────
+  │ ocamlmig replace -w \
+  │   -e 'const [%move_def __f] /// const __f' \
+  │   -e 'const (fun __p1 __p2 __p3 -> __body) $ __e1 $ __e2 $ __e3
+  │       /// let open Syntax in let+ __p1 = __e1 and+ __p2 = __e2 and+ __p3 = __e3 in __body'
+  └────
+
+  which seems pretty reasonable considering the rewrite is somewhat
+  sophisticated.
+
+  In general, mechanizing a change can reduce the chance of accidentally
+  modifying something, but in this specific case, ocamlmig also detects
+  shadowing when moving code with `[%move_def]'. Shadowing would likely
+  cause type errors or tests errors, but if it didn't, it'd be quite
+  hard to catch during code review.
+
+  Finally, if you want to try this out on your code, I'll note that
+  `ocamlmig replace' is in flux, and that while the commands above work,
+  obvious variations of them may not.
+
+
+[in the second commit in this branch]
+<https://github.com/tarides/dune-release/pull/503/commits>
+
+
+Ortac 0.6.0 improve bug reporting
+═════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-ortac-0-6-0-improve-bug-reporting/16232/1>
+
+
+Nicolas Osborne announced
+─────────────────────────
+
+  Hi everyone!
+
+  We - at Tarides - are very pleased to announce the release of the
+  Ortac-0.6.0 packages for specification-driven testing!
+
+  Ortac/QCheck-STM is a test generator based on the [QCheck-STM]
+  model-based testing framework and the [Gospel] specification language
+  for OCaml.
+
+  In addition to generating QCheck-STM tests based on the Gospel
+  specifications, `Ortac/QCheck-STM' computes and display a bug report
+  in case of test failure.
+
+  This report contains the piece of Gospel specification that has been
+  violated, a runnable scenario to reproduce the bug and the expected
+  returned value (if there is enough information in the specification to
+  compute it).
+
+  This release improves the reporting in two ways.
+
+  First, the way we need to formulate the description of the expected
+  returned value has been made more flexible (and fixed). The main
+  limitation was about functions returning a boolean. Because of the
+  coercion mechanism, Gospel often transforms equalities involving a
+  boolean into a double implication. For example: `b = Sequence.mem
+  t.contents a' is transformed into `b = true <-> Sequence.mem
+  t.contents a'. (For the curious, this is because `Sequence.mem'
+  returns a `prop', not a `bool', and we don't have equality on
+  `prop'). `Ortac/QCheck-STM' now explores more patterns, including the
+  double implication one, to try to find a suitable description of the
+  returned value to use in the bug report.
+
+  Secondly, and more importantly, the Gospel specification language
+  supports partial functions (`Sequence.hd' is *not* defined on the
+  empty sequence for example). When we translate calls to such function
+  to OCaml, we raise an exception when the call is out of the function's
+  domain. Now, that exception was captured by QCheck at runtime, making
+  the test a failure as expected. But the Ortac runtime was then stopped
+  before being able to build and send the bug report to QCheck for
+  display to the user. That was sad, so I've fixed it. We can now make
+  use of Gospel partial functions when writing specifications and enjoy
+  the bug report computed by `Ortac/QCheck-STM'!
+
+  You can install Ortac/QCheck-STM via opam (we also advise installing
+  and using Ortac/Dune):
+
+  ┌────
+  │ $ opam install ortac-qcheck-stm ortac-dune
+  └────
+
+  You'll find more information in [Ortac/QCheck-STM documentation] and
+  in The [Ortac/Dune readme].
+
+  If you have any questions, please don't hesitate to ping me :-)
+
+  Next release should be about making Ortac/QCheck-STM generate tests of
+  a library in a parallel context (this is, after all, one of the
+  *raison d'être* of the fantastic QCheck-STM test framework!).
+
+  Happy testing!
+
+
+[QCheck-STM] <https://github.com/ocaml-multicore/multicoretests>
+
+[Gospel] <https://github.com/ocaml-gospel/gospel>
+
+[Ortac/QCheck-STM documentation]
+<https://ocaml-gospel.github.io/ortac/ortac-qcheck-stm/index.html>
+
+[Ortac/Dune readme]
+<https://github.com/ocaml-gospel/ortac/tree/main/plugins/dune-rules#dune-rules-plugin-for-ortac>
+
+
+Dune Developer Preview Updates
+══════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-dune-developer-preview-updates/15160/57>
+
+
+Leandro Ostera announced
+────────────────────────
+
+  Hello everyone! :waving_hand: Hope you had a great end of 2024 and
+  your 2025 is starting well too :D
+
+  We've been hard at work at Tarides to improve the Dune Developer
+  Preview, and we'd love to learn more about what your adoption hurdles
+  have been, so here's a very short form you can fill to let us know
+  what's up.
+
+  Happy hacking! :two_hump_camel:
+
+  <https://forms.gle/piaw12XBYUeaCmg56>
+
+
+ppxlib.0.36.0
+═════════════
+
+  Archive: <https://discuss.ocaml.org/t/ann-ppxlib-0-36-0/16241/1>
+
+
+Patrick Ferris announced
+────────────────────────
+
+  The ppxlib team is happy to announce the release of `ppxlib.0.36.0'!
+
+  A full account of the changes can be found [on the 0.36.0 release].
+
+
+[on the 0.36.0 release]
+<https://github.com/ocaml-ppx/ppxlib/releases/tag/0.36.0>
+
+OCaml 5.2 Internal AST
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  The main change in this release is that the internal AST used in
+  ppxlib is now the same as OCaml 5.2's AST. Previously it was
+  4.14.0. The internal AST dictates what features your ppx can and
+  cannot generate. To avoid confusion, this does _not_ mean ppxlib only
+  supports OCaml 5.2 and greater. Ppxlib still supports compilers
+  starting at 4.08.0.
+
+  *The bump to 5.2 has caused a lot of reverse dependencies to break* as
+   the 5.2 AST represents functions differently ([see the Syntactic
+   Function Arity RFC]). Many patches have already been sent to users of
+   ppxlib in the past few months, but quite a few still remain.
+
+  :warning: Ppx authors are advised to read [the wiki entry for
+  upgrading to ppxlib.0.36.0]. :warning:
+
+  Please do not hesitate to reach out if you need any help upgrading to
+  `ppxlib.0.36.0'.
+
+
+[see the Syntactic Function Arity RFC]
+<https://github.com/ocaml/RFCs/pull/32>
+
+[the wiki entry for upgrading to ppxlib.0.36.0]
+<https://github.com/ocaml-ppx/ppxlib/wiki/Upgrading-to-ppxlib-0.36.0>
+
+
+Other Changes
+╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  • Change `Location.none' to match the compiler's `Location.none' as of
+    OCaml 4.08.
+  • New ways to create context free rules using floating expansions –
+    see [#560] for the details.
+  • Add a `-raise-embedded-errors' flag to the driver. Setting this flag
+    raises the first `ocaml.error' embedded in the final AST.
+  • Export `Ast_pattern.fail' making it easier to write new
+    pattern-matchers.
+  • Improvements to `Ast_traverse.sexp_of' to be more concise.
+
+  Do read the changes entry/release for all of the acknowledgments –
+  thank you to everyone who contributed to this release of ppxlib! A
+  special thanks from me to @NathanReb who has been a massive help
+  getting this work over the line.
+
+  Thank you to Tarides and Jane Street for funding my time on this
+  release of ppxlib.
+
+
+[#560] <https://github.com/ocaml-ppx/ppxlib/pull/560>
+
+
+I created an OCaml grammar for ANTLR4 (Earley parser compatible)
+════════════════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/i-created-an-ocaml-grammar-for-antlr4-earley-parser-compatible/16246/1>
+
+
+ao wang announced
+─────────────────
+
+  Hi everyone,
+
+  I’ve created an ANTLR4 grammar for OCaml that supports Earley parsing.
+  Feel free to use it, and any feedback or contributions are welcome!
+
+  GitHub Repository:
+  <https://github.com/WangAo0311/Antlr4-ocaml-earley-parser-grammar>
+
+
+Melange 5.0
+═══════════
+
+  Archive: <https://discuss.ocaml.org/t/ann-melange-5-0/16247/1>
+
+
+Antonio Nuno Monteiro announced
+───────────────────────────────
+
+  Dear OCaml users,
+
+  I'm proud to announce the release of Melange 5.0
+
+  Melange is a backend for the OCaml compiler that emits
+  JavaScript. This release features improvements across a few areas,
+  mostly targeting OCaml 5.3 support and JavaScript expressivity:
+
+  • OCaml version support: we’re releasing Melange 5 with full support
+    across a few OCaml versions: 4.14, 5.1, 5.2 and the recently
+    released 5.3
+    ‣ Melange uses a versioning scheme similar to Merlin’s: releases are
+      suffixed with the OCaml version they support, e.g. 5.0.1-414,
+      5.0.1-53, etc.
+  • We're introducing build system-aware, type-safe support for
+    JavaScript's [dynamic import], allowing to code split
+    Melange-generated JavaScript bundles without sacrificing
+    type-safety.
+  • Melange can now express [discriminated unions], a JavaScript pattern
+    that
+
+  The [release announcement] blog post covers the changes in a lot more
+  detail. Please give it a read.
+
+  I'm excited to count on the support of our financial sponsors [Ahrefs]
+  and the [OCaml Software Foundation], without which this release would
+  not have been possible.
+
+
+[dynamic import]
+<https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/import>
+
+[discriminated unions]
+<https://www.typescriptlang.org/docs/handbook/typescript-in-5-minutes-func.html#discriminated-unions>
+
+[release announcement]
+<https://melange.re/blog/posts/announcing-melange-5>
+
+[Ahrefs] <https://ahrefs.com/jobs>
+
+[OCaml Software Foundation] <https://ocaml-sf.org/>
+
+
+Other OCaml News
+════════════════
+
+From the ocaml.org blog
+───────────────────────
+
+  Here are links from many OCaml blogs aggregated at [the ocaml.org
+  blog].
+
+  • [OpenAI and structured outputs from OCaml]
+  • [Feature Parity Series: Statmemprof Returns!]
+  • [Announcing Melange 5]
+  • [Learning OCaml: Functions without Parameters]
+
+
+[the ocaml.org blog] <https://ocaml.org/blog/>
+
+[OpenAI and structured outputs from OCaml]
+<https://tech.ahrefs.com/openai-and-structured-outputs-from-ocaml-b198fcf701ca?source=rss----303662d88bae--ocaml>
+
+[Feature Parity Series: Statmemprof Returns!]
+<https://tarides.com/blog/2025-03-06-feature-parity-series-statmemprof-returns>
+
+[Announcing Melange 5]
+<https://melange.re/blog/posts/announcing-melange-5>
+
+[Learning OCaml: Functions without Parameters]
+<https://batsov.com/articles/2025/03/02/learning-ocaml-functions-without-parameters/>
+
+
+Old CWN
+═══════
+
+  If you happen to miss a CWN, you can [send me a message] and I'll mail
+  it to you, or go take a look at [the archive] or the [RSS feed of the
+  archives].
+
+  If you also wish to receive it every week by mail, you may subscribe
+  to the [caml-list].
+
+  [Alan Schmitt]
+
+
+[send me a message] <mailto:alan.schmitt@polytechnique.org>
+
+[the archive] <https://alan.petitepomme.net/cwn/>
+
+[RSS feed of the archives] <https://alan.petitepomme.net/cwn/cwn.rss>
+
+[caml-list] <https://sympa.inria.fr/sympa/info/caml-list>
+
+[Alan Schmitt] <https://alan.petitepomme.net/>
