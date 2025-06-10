@@ -1,0 +1,217 @@
+<cwn>
+  <cwn_head>
+    <cwn_date>2025.06.10</cwn_date>
+    <cwn_prev>2025.06.03</cwn_prev>
+    <cwn_next>2025.06.17</cwn_next>
+    <cwn_date_text>June 03 to 10, 2025</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>Portable External Dependencies for Dune Package Management</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/portable-external-dependencies-for-dune-package-management/16767/1</cwn_url>
+      <cwn_who>Steve Sherratt announced</cwn_who>
+      <cwn_what>
+Dune lock directories record the names of any system packages needed to build projects or their dependencies. We've recently changed how this works in the
+interest of portability.
+
+*** Background on ~depexts~ in Opam
+
+A system package, or external dependency, or ~depext~ as I'll refer to them from now on, is a non-Opam package which must be installed in order for some Opam package to be built or for code in a package to be executed at runtime. These packages must be installed by the system package manager, or by some other non-Opam means such as manually building and installing the package from source. Common types of ~depext~ are build tools such as the ~pkg-config~ command, often run to determine linker flags while building a package, or shared libraries such as ~libgtk~, which an OCaml project might link against to create GUIs.
+
+Opam usually installs ~depexts~ automatically. Opam knows how to invoke many different system package managers (such as ~apt~ or ~pacman~), so when installing a package with ~depexts~ Opam can run the commands appropriate to the current system to install the required packages using the system's package manager. For this to work, Opam needs to know the name of the package within the package repository appropriate to the current system, and these names can vary from system to system. For example the ~pkg-config~ command is in a package named simply ~pkg-config~ in the ~apt~ package manager on Ubuntu/Debian systems, whereas in the third-party ~homebrew~ package manager on MacOS it's in a package named ~pkgconf~. In order to determine the right package name for the current system, the package metadata for Opam packages with ~depexts~ contains a list of all the different known package names along with the conditions under which that name is correct. Here is that list for the ~conf-pkg-config~ Opam package:
+#+begin_example
+depexts: [
+  ["pkg-config"] {os-family = "debian" | os-family = "ubuntu"}
+  ["pkgconf"] {os-distribution = "arch"}
+  ["pkgconf-pkg-config"] {os-family = "fedora"}
+  ["pkgconfig"] {os-distribution = "centos" &amp; os-version &lt;= "7"}
+  ["pkgconf-pkg-config"] {os-distribution = "mageia"}
+  ["pkgconfig"] {os-distribution = "rhel" &amp; os-version &lt;= "7"}
+  ["pkgconfig"] {os-distribution = "ol" &amp; os-version &lt;= "7"}
+  ["pkgconf"] {os-distribution = "alpine"}
+  ["pkg-config"] {os-distribution = "nixos"}
+  ["pkgconf"] {os = "macos" &amp; os-distribution = "homebrew"}
+  ["pkgconfig"] {os = "macos" &amp; os-distribution = "macports"}
+  ["pkgconf"] {os = "freebsd"}
+  ["pkgconf-pkg-config"] {os-distribution = "rhel" &amp; os-version &gt;= "8"}
+  ["pkgconf-pkg-config"] {os-distribution = "centos" &amp; os-version &gt;= "8"}
+  ["pkgconf-pkg-config"] {os-distribution = "ol" &amp; os-version &gt;= "8"}
+  ["system:pkgconf"] {os = "win32" &amp; os-distribution = "cygwinports"}
+  ["pkgconf"] {os-distribution = "cygwin"}
+]
+#+end_example
+
+*** ~depexts~ in Dune
+
+Dune doesn't install ~depexts~ automatically as the Dune developers are a little nervous about running commands that would modify the global system state. This may change at some point, but for now Dune only provides support for listing the names of ~depexts~, leaving it up to the user to install them as they see fit.
+
+The ~dune show depexts~ command can be used to list the ~depexts~ of a project. For that command to work the project must have a lock directory. Here's an example of listing the ~depexts~ of a project:
+#+begin_example
+$ dune pkg lock
+...
+$ dune show depexts
+libao
+libffi
+pkgconf
+sdl2
+#+end_example
+
+I ran these commands on a Mac with homebrew installed, so the package names are from the homebrew package repo. Each package listed there is one of the ~depexts~ of a package whose lockfile appears in the project's lock directory. Let's look at how this information is stored. Using ~pkg-config~ as an example:
+#+begin_example
+$ cat dune.lock/conf-pkg-config.pkg
+(version 4)
+
+(build
+ (run pkgconf --version))
+
+(depexts pkgconf)
+#+end_example
+
+The relevant part for us is the ~depexts~ field. The current released version of Dune only stores the package's ~depexts~ for the system where ~dune pkg lock~ was run. The command ~dune show depexts~ simply concatenates the ~depexts~ fields from each lockfile in the lock directory.
+
+When thinking about portable lock directories I always like to imagine what the experience would be using Dune for a project where the lock directory is checked into version control. I frequently switch between using two different machines for development - one running Linux and the other running MacOS. If I was to check in the lock directory I just generated on my Mac, and then check it out on Linux and continue development, ~dune show depexts~ would show me a list of packages for the wrong system!
+
+*** Portable ~depexts~ in Dune
+
+To make ~depexts~ portable, one's first instinct might be to use the same approach as taken with the ~depends~ field outlined [here](https://ocaml.org/changelog/2025-05-19-portable-lock-directories-for-dune-package-management), listing the ~depexts~ for each platform for which the solver was run. Indeed such a change was added to the Dune Developer Preview when we first introduced portable lock directories, however we quickly realized a problem.
+
+The ~depends~, ~build~, and ~install~ fields of a package rarely vary between OS distribution. It's reasonably common for those fields to be different on different OSes, but very rare for them to also be different on different OS _distributions_. As such, it's expected that users will elect to solve their projects for each common OS, but there would be little value in solving projects for each OS distro. In fact solving for multiple distros would slow down solving and bloat the lock directory, and users would somehow need to come up with a definitive list of distros to solve for.
+
+_But_ the ~depexts~ field is highly-dependent on the OS distro since package names are specific to the package repository for a particular distro. Recall that the ~depexts~ field in Opam package metadata lists package names along with the conditions under which that package name should be used, e.g.:
+#+begin_example
+["pkg-config"] {os-family = "debian" | os-family = "ubuntu"}
+["pkgconf"] {os-distribution = "arch"}
+["pkgconf-pkg-config"] {os-family = "fedora"}
+["pkgconfig"] {os-distribution = "centos" &amp; os-version &lt;= "7"}
+#+end_example
+These conditions almost always involve the name of the OS distro, and to make matters worse they also sometimes involve the OS _version_, as packages can change their names between different versions of the same OS. Evaluating these conditions at solve time for platforms with no distro or version specified tends to result in lockfiles with _no_ ~depexts~ at all, since all the conditions evaluate to ~false~.
+
+The use case we have in mind for ~depexts~ in Dune is that a user will solve their project coarsely, usually just for each common OS with no consideration for distribution or version. Then when they run ~dune show depexts~, the ~depexts~ will be listed using names appropriate to the current machine. This means Dune needs to store enough metadata about ~depexts~ to compute system-specific ~depext~ names at a later time. This means storing the same names and conditions as are currently stored in Opam files, and deferring evaluation of the conditions until as late as possible, such as right when ~dune show depexts~ is run.
+
+The latest version of the Dune Developer Preview does just this; translating the ~depexts~ field from each package's Opam file into a Dune-friendly S-expression. After this change, the ~depexts~ field of ~conf-pkg-config~'s lockfile is:
+#+begin_example
+$ cat dune.lock/conf-pkg-config.4.pkg
+...
+(depexts
+ ((pkg-config)
+  (or_absorb_undefined_var
+   (= %{os_family} debian)
+   (= %{os_family} ubuntu)))
+ ((pkgconf)
+  (= %{os_distribution} arch))
+ ((pkgconf-pkg-config)
+  (= %{os_family} fedora))
+ ((pkgconfig)
+  (and_absorb_undefined_var
+   (= %{os_distribution} centos)
+   (&lt;= %{os_version} 7)))
+ ((pkgconf-pkg-config)
+  (= %{os_distribution} mageia))
+ ((pkgconfig)
+  (and_absorb_undefined_var
+   (= %{os_distribution} rhel)
+   (&lt;= %{os_version} 7)))
+ ((pkgconfig)
+  (and_absorb_undefined_var
+   (= %{os_distribution} ol)
+   (&lt;= %{os_version} 7)))
+ ((pkgconf)
+  (= %{os_distribution} alpine))
+ ((pkg-config)
+  (= %{os_distribution} nixos))
+ ((pkgconf)
+  (and_absorb_undefined_var
+   (= %{os} macos)
+   (= %{os_distribution} homebrew)))
+ ((pkgconfig)
+  (and_absorb_undefined_var
+   (= %{os} macos)
+   (= %{os_distribution} macports)))
+ ((pkgconf)
+  (= %{os} freebsd))
+ ((pkgconf-pkg-config)
+  (and_absorb_undefined_var
+   (= %{os_distribution} rhel)
+   (&gt;= %{os_version} 8)))
+ ((pkgconf-pkg-config)
+  (and_absorb_undefined_var
+   (= %{os_distribution} centos)
+   (&gt;= %{os_version} 8)))
+ ((pkgconf-pkg-config)
+  (and_absorb_undefined_var
+   (= %{os_distribution} ol)
+   (&gt;= %{os_version} 8)))
+ ((system:pkgconf)
+  (and_absorb_undefined_var
+   (= %{os} win32)
+   (= %{os_distribution} cygwinports)))
+ ((pkgconf)
+  (= %{os_distribution} cygwin)))
+#+end_example
+
+That's a 1:1 translation of the ~depexts~ field from ~conf-pkg-config~'s Opam file. There's enough information there so that the appropriate package name can be computed on demand rather than just at solve time.
+
+This bring us a step closer to a world where Dune users can check their lock directories into version control with confidence that their builds are reproducible across different platforms. To try out the latest version of the Dune Developer Preview, go to [preview.dune.build](https://preview.dune.build/).
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Semgrep is hiring OCaml developers to work on the static analysis engine</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/job-remote-semgrep-is-hiring-ocaml-developers-to-work-on-the-static-analysis-engine/16771/1</cwn_url>
+      <cwn_who>iago announced</cwn_who>
+      <cwn_what>
+Semgrep is an application security company focused on detecting and remediating vulnerabilities. The static analysis engine is primarily written in OCaml. We are looking for a senior software engineer to join the Code team, where we focus on first-party code vulnerability and secrets scanning.
+
+The ideal candidate has experience building program analysis tooling or code scanners (perhaps in a research context).
+
+Both on-site and remote work are OK.
+
+If this sounds interesting to you, see our job posting at [Senior Program Analysis Engineer, Code](https://job-boards.greenhouse.io/semgrep/jobs/4752361007).
+
+Let me know if you have any questions!
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Elpe, a config-as-code build system written in OCaml+Rust</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/elpe-a-config-as-code-build-system-written-in-ocaml-rust/16783/1</cwn_url>
+      <cwn_who>pmeunier announced</cwn_who>
+      <cwn_what>
+I just released the first version of Elpe, a build system designed as a blend of Nix and Ubuntu.
+
+It uses OCaml for the frontend, and communicates with a Rust backend via gRPC.
+
+[Blog post about it](https://pijul.org/posts/2025-06-08-elpe)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Dune dev meeting</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-dune-dev-meeting/14994/31</cwn_url>
+      <cwn_who>Etienne Marais announced</cwn_who>
+      <cwn_what>
+Hello :vulcan_salute: 
+The next Dune Dev Meeting will be tomorrow on *Wednesday, June, 11th at 16:00 CEST*. This is going to be a one-hour-long meeting.
+
+Whether you are a maintainer, a regular contributor, a new joiner or just curious, you are welcome to join: these discussions are opened! The goal of these meetings is to provide a place to discuss the ongoing work together and synchronize with the Dune developers :+1:
+
+The agenda is available on the [meeting dedicated page](https://github.com/ocaml/dune/wiki/dev-meeting-2025-06-11). Feel free to add more items in it.
+
+- Meeting link: [zoom](https://us06web.zoom.us/j/85096877776?pwd=cWNhU1dHQ1ZNSjZuOUZCQ0h2by9Udz09)
+- Calendar event: [google calendar](https://calendar.google.com/calendar/u/0/embed?src=c_5cd698df6784e385b1cdcdc1dbca18c061faa96959a04781566d304dc9ec7319@group.calendar.google.com)
+- Wiki with information and previous notes: [dune wiki on GitHub](https://github.com/ocaml/dune/wiki)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocaml.org blog</cwn_who>
+      <cwn_what>
+Here are links from many OCaml blogs aggregated at [[https://ocaml.org/blog/][the ocaml.org blog]].
+
+- [[https://tarides.com/blog/2025-06-05-opam-health-check-or-how-we-got-to-90-of-packages-building-with-dune-package-management][Opam Health Check: or How we Got to 90+% of Packages Building with Dune Package Management]]
+- [[https://soap.coffee/~lthms/posts/PeerProgrammingWithLLMs.html][Peer-Programming in Modern OCaml with ChatGPT and Gemini]]
+- [[https://tarides.com/blog/2025-05-30-ceos-project-kick-off-using-satellites-to-survey-the-earth][CEOS Project Kick-Off: Using Satellites to Survey the Earth]]
+- [[https://jon.recoil.org/blog/2025/05/docs-progress.html][Progress in OCaml docs]]
+- [[https://www.dra27.uk/blog/week-that-was/2025/05/24/wtw-21.html][The week that was - 2025 w21]]
+- [[https://www.dra27.uk/blog/misc/2025/05/23/build-event.html][Build Meetup - Jane Street London]]
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>
