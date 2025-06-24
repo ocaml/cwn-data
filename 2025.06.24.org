@@ -1,0 +1,233 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[https://alan.petitepomme.net/cwn/2025.06.17.html][Previous Week]] [[https://alan.petitepomme.net/cwn/index.html][Up]] [[https://alan.petitepomme.net/cwn/2025.07.01.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of June 17 to 24, 2025.
+
+#+TOC: headlines 1
+
+
+* Multi-domain, multi-scheduler Lwt
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/multi-domain-multi-scheduler-lwt/16834/1
+
+** Raphaël Proust announced
+
+
+I have started working on changing [[https://github.com/ocsigen/lwt][Lwt]] to allow multiple schedulers to run in parallel in separate domains. The current status is early work-in-progress with some actual tests that actually use the multi-scheduler feature ([[https://github.com/ocsigen/lwt/pull/1058][Draft PR]]).
+
+This is still far from release. There are some major changes still needed (e.g., signal management, improve callback sending, restoring some broken single-domain tests, etc.). Still, I'd like to gather feedback from users of Lwt, especially those with hefty code bases and those who need to bring their legacy code bases into the ocaml-5 era (but don't hesitate to contribute even if that's not the case).
+
+*** What kind of uses would you make of a multi-scheduler multi-domain scheduler?
+
+"None" is a valid response. Maybe you don't want to use parallelism in your Lwt-based codebase.
+
+I can see several reasonable uses:
+- a worker pool so you dispatch your server's requests to different cores (but you don't really need to rewrite much of your code, you can keep your lwt handlers, just set up a few domains and a few streams to send work around)
+- having mutliple schedulers into which you can run lwt bits of code (e.g., via ~run_in_domain: Domain.id -> (unit -> 'a Lwt.t) -> 'a~, the multi-domain equivalent to ~run_in_main~) from a "proper" multi-domain code
+
+and also some maybe less reasonable uses:
+- writing some mixed lwt and regular old-fashion just-Unix blocking code, and passing it off to a separate domain so it doesn't block your main scheduler
+
+*** What parts of Lwt would you expect to be safe to share freely amongst domains? What parts would you expect to have safety checks?
+
+Currently, the WIP version, allows you to attach callbacks to promises regardless of which domain they were created in (safe to "read" any promise). It means that promises are not attached to a particular domain, but callbacks are.
+
+OTOH there are no efforts made to prevent data-races for wakeners (unsafe to "write" the same promise from two different domains). In most cases, ~Lwt.wakeup~ (and friends) should only be used to create new Lwt-friendly abstractions (e.g., [[https://ocaml.org/p/aches-lwt/latest/doc/Lache/module-type-MAP/index.html][lache]]) so there is little reason for them to move across domains. Still, is that something that should be taken into account?
+
+More generally, should the domain-safe abstractions replace the existing ones (e.g., should ~Lwt_stream~ make it safe to push/read from the same stream in parallel) or should there be new domain-safe abstractions (e.g., an additional ~Lwt_stream_par~)? And what performance cost for single-domain programs is acceptable in order to make multi-domain programs safe?
+
+*** Is one scheduler per-domain the right granularity/abstraction?
+
+Would it be better to offer one scheduler per thread? Is there little point in offering unlimited schedulers to begin with?
+      
+
+
+
+* 15th MirageOS retreat May 13th - 20th
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/ann-15th-mirageos-retreat-may-13th-20th/16085/3
+
+** Continuing this thread, Calascibetta Romain announced
+
+
+As @gasche, I also wrote an article about this retreat which synthesis (not exhaustively) what I did with some other people. But, despite @gasche, I published it into my blog here (which is an unikernel): https://blog.osau.re/articles/last_mirageos_retreat.html. Enjoy reading!
+      
+
+
+
+* opam 2.4.0~beta1
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/ann-opam-2-4-0-beta1/16856/1
+
+** Kate announced
+
+
+Hi everyone,
+
+We are happy and relieved to announce the first beta release of opam 2.4.0.
+
+This version is an beta, we invite users to test it to spot previously unnoticed bugs as we head towards the stable release, which hopefully shouldn't take too long.
+
+*** Changes
+
+- :dragon_face: Fixed a handful of bugs in ~opam install --deps-only <local dir>~ more visible in 2.4, where some actions would use the local packages' definition or write to the internal opam state as if they were actually pinned ([[https://github.com/ocaml/opam/issues/6529][#6529]], [[https://github.com/ocaml/opam/issues/6532][#6532]], [[https://github.com/ocaml/opam/issues/6501][#6501]], [[https://github.com/ocaml/opam/issues/6535][#6535]])
+
+- :yarn: Change the behaviour of ~--deps-only~, where it no longer requires unicity of package version between the request and the installed packages. In other words, if you have ~pkg.1~ installed, installing dependencies of ~pkg.2~ no longer removes ~pkg.1~. This also allows to install dependencies of conflicting packages when their dependencies are compliant ([[https://github.com/ocaml/opam/issues/6520][#6520]])
+  
+- :firecracker: Fixed a couple of regressions which would make ~opam update~ crash in some cases ([[https://github.com/ocaml/opam/issues/6513][#6513]], [[https://github.com/ocaml/opam/issues/6527][#6527]])
+ 
+- :window: Improve the prebuilt Windows binaries by including Cygwin's ~setup-x86_64.exe~ in the binary itself as fallback, in case ~cygwin.com~ is inaccessible ([[https://github.com/ocaml/opam/issues/6498][#6498]], [[https://github.com/ocaml/opam/issues/6538][#6538]])
+ 
+:open_book: You can read our [[https://opam.ocaml.org/blog/opam-2-4-0-beta1/][blog post]] for more information, and for even more details you can take a look at the [[https://github.com/ocaml/opam/releases/tag/2.4.0-beta1][release note]] or the [[https://github.com/ocaml/opam/blob/2.4.0-beta1/CHANGES][changelog]].
+
+*** Try it!
+
+The upgrade instructions are unchanged:
+
+For Unix systems
+#+begin_example
+bash -c "sh <(curl -fsSL https://opam.ocaml.org/install.sh) --version 2.4.0~beta1"
+#+end_example
+or from PowerShell for Windows systems
+#+begin_example
+Invoke-Expression "& { $(Invoke-RestMethod https://opam.ocaml.org/install.ps1) } -Version 2.4.0~beta1"
+#+end_example
+Please report any issues to the [[https://github.com/ocaml/opam/issues][bug-tracker]].
+
+Happy hacking,
+<> <> The opam team <> <> :camel:
+      
+
+
+
+* ML Family Workshop 2025: Call for Presentations
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/ml-family-workshop-2025-call-for-presentations/16521/2
+
+** Continuing this thread, Sam announced
+
+
+Update: we've extended the deadline to July 3!
+
+If you (or someone you know) is planning to attend ICFP/SPLASH, we encourage you to consider submitting. The submission requirements are small (only a couple pages), and the scope of the workshop is broad: language design, implementation, memory management, type systems, semantics, applications, tooling, debugging, program analysis -- it's all fair game.
+
+This is a great opportunity to discuss works-in-progress, or demo something you've been building. Perhaps you even have a spicy take about language design? We have a submission category for that, and we'd love to hear it!
+      
+
+
+
+* Migrating OCaml.org to Use Dune (Developer Preview)
+:PROPERTIES:
+:CUSTOM_ID: 5
+:END:
+Archive: https://discuss.ocaml.org/t/migrating-ocaml-org-to-use-dune-developer-preview/16859/1
+
+** Sabine Schmaltz announced
+
+
+Hi everyone,
+
+we're in the process of migrating OCaml.org to use Dune package management (see https://github.com/ocaml/ocaml.org/pull/3132). The intent behind this is to
+1. simplify the Developer Experience when building OCaml.org (to enable newcomers to more easily get started contributing)
+2. demonstrate and ensure that Dune package management is suitable for the production use case of running OCaml.org
+
+I would like everyone who has contributed, or would like to contribute to OCaml.org, to have the opportunity to try the patch and give feedback first.
+
+So if you're interested in helping test Dune package management on OCaml.org, please do check out https://github.com/ocaml/ocaml.org/pull/3132, and follow the instructions in the updated docs there.
+
+Very interested in feedback or any other related matters.
+
+Cheers
+Sabine
+      
+
+
+
+* Send us Talk and Workshop Proposals for Fun OCaml 2025 in Warsaw, September 15+16
+:PROPERTIES:
+:CUSTOM_ID: 6
+:END:
+Archive: https://discuss.ocaml.org/t/send-us-talk-and-workshop-proposals-for-fun-ocaml-2025-in-warsaw-september-15-16/16646/2
+
+** Continuing this thread, Sabine Schmaltz announced
+
+
+We're still looking for talks and workshops, please hurry up and send us some, so that we can announce some great topics and speakers soon!
+      
+
+
+
+* A Brief Introduction to Normalization-By-Evaluation
+:PROPERTIES:
+:CUSTOM_ID: 7
+:END:
+Archive: https://discuss.ocaml.org/t/a-brief-introduction-to-normalization-by-evaluation/16869/1
+
+** Louis Ashfield announced
+
+
+I wrote a brief introduction to the normalization-by-evaluation algorithm in OCaml, which is the standard way to efficiently normalize lambda calculus terms to their beta normal forms. I hope you find this introduction helpful!
+
+https://gist.github.com/etiams/7fbb66a46b2a43be908ccd4015d00fb9
+      
+
+
+
+* My Second Outreachy Internship's Blog Post
+:PROPERTIES:
+:CUSTOM_ID: 8
+:END:
+Archive: https://discuss.ocaml.org/t/my-second-outreachy-internships-blog-post/16872/1
+
+** Matthew Idungafa announced
+
+
+Hello everyone, here's my second internship blog post. In this article, I share the struggles and blockers I faced trying to complete my first tasks:  https://medium.com/@mattidungafa/outreachy-week-3-everyone-struggles-99071035aecb
+      
+
+
+
+* Other OCaml News
+:PROPERTIES:
+:CUSTOM_ID: 9
+:END:
+** From the ocaml.org blog
+
+
+Here are links from many OCaml blogs aggregated at [[https://ocaml.org/blog/][the ocaml.org blog]].
+
+- [[https://www.dra27.uk/blog/platform/2025/06/22/they-do-it-with-mirrors.html][They do it with mirrors, you know - that sort of thing]]
+- [[https://tarides.com/blog/2025-06-18-feature-parity-series-improving-developer-tooling-on-macos][Feature Parity Series: Improving Developer Tooling on macOS]]
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[https://alan.petitepomme.net/cwn/][the archive]] or the [[https://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe to the [[https://sympa.inria.fr/sympa/info/caml-list][caml-list]].
+
+#+BEGIN_authorname
+[[https://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname
