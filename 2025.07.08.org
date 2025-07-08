@@ -1,0 +1,507 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[https://alan.petitepomme.net/cwn/2025.07.01.html][Previous Week]] [[https://alan.petitepomme.net/cwn/index.html][Up]] [[https://alan.petitepomme.net/cwn/2025.07.15.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of July 01 to 08, 2025.
+
+#+TOC: headlines 1
+
+
+* OCaml security team
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/ann-ocaml-security-team/16902/1
+
+** Hannes Mehnert announced
+
+
+Dear everyone,
+
+We are starting an effort to push security into OCaml. This is based on discussions in the OCaml Software Foundation with industry partners. The main goal is to have best practises similar to those of other programming language ecosystems.
+
+*** Reporting security issues
+
+This entails a point of contact for the security team - which deals with communication between the person who found a security-relevant problem in OCaml software (named "reporter"), who can then contact us - the security team - instead of using a public bug tracker, and the upstream OCaml developer(s).
+
+We, the security team, will establish the three-way communication, and since we have a documented security disclosure process (which will be published soon), we will guide everyone through the process and ensure that timelines are met, CVE numbers are assigned, ...
+
+*** Team composition
+
+The OCaml security team currently consists of individual security experts and individuals representing company sponsors of the OCaml Software Foundation. Individual members participating on a personal capacity may be compensated for their time from the OCaml Software Foundation.
+
+The team currently consists of 7 members
+- Hannes Mehnert https://github.com/hannesm - individual, chair
+- Mindy https://github.com/yomimono - individual
+- Joe https://github.com/cfcs - individual
+- Edwin Török https://github.com/edwintorok - individual
+- Nicolás Ojeda Bär https://github.com/nojb - LexiFi
+- Louis Roché https://github.com/khady - ahrefs
+- Maxim Grankin https://github.com/maxim092001 - Bloomberg
+
+We're in the process to formalise the responsibilities of the team, our proposed disclosure process, and how to join & leave the team.
+
+*** Funding for security actions
+
+In complement to the security disclosure process, we will accept funding requests for projects that make OCaml more secure (including guidelines how to develop OCaml in a secure way/what are common pitfalls; static analysis; dissemination tools; ...). The OCaml Software Foundation will provide funding for these security actions. After this summer we will discuss this in more depth with the community.
+
+*** Next steps
+
+We will setup a website (similar to https://www.haskell.org/security/ has) soon, and provide an email address for contacting us - security At ocamlDoT org is forwarding to our team. We plan to setup a mailing list for security announcements.
+
+But more on that at a later point, this brief post is mainly about the fact that this team starts to exist now, and is working on improving the security story of OCaml.
+
+If you have any questions for now, please feel free to discuss them in this announcement. Please be aware that it is vacation time soon, so we may not be very responsive.
+      
+
+
+
+* Dockerfile for building an OPAM application, with dune/apt/opam caching
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/dockerfile-for-building-an-opam-application-with-dune-apt-opam-caching/16906/1
+
+** Edwin Török announced
+
+
+I was writing some dockerfiles for building some OCaml applications recently, and realized that it is possible to write a Dockerfile that can build almost arbitrary Opam applications without even having to hardcode the package name.
+
+I used ~ocaml-dockerfile~ to generate it (only the OS and OCaml version is hardcoded), so I thought I'd share it, it should work with both Podman and Docker:
+
+#+begin_example
+# syntax=docker/dockerfile:1
+
+FROM ocaml/opam:debian-12-ocaml-4.14
+
+# Update the opam repository (otherwise lockfile may contain a version we don't know about)
+RUN git -C /home/opam/opam-repository pull origin master && opam-2.3 update
+
+# Enable the dune cache in copy mode
+# (hardlink mode would fail with EXDEV if cache is on separate disk/partition)
+# This caches the build of opam dependencies using dune and the main application
+ENV DUNE_CACHE="enabled" DUNE_CACHE_STORAGE_MODE="copy"
+
+# `apt` in containers is usually configured to always clean up after operations
+# When we have a cache mount for the APT package cache we don't want to clean up, since the cache would be ineffective.
+# Also change OPAM to use the 0install solver, this is faster, especially when a lockfile is present.
+RUN sudo rm -f /etc/apt/apt.conf.d/docker-clean && \
+  opam-2.3 option solver=builtin-0install
+
+# Use a workdir outside of $HOME, to avoid having .opam as a subdir of the build
+WORKDIR /app
+# Copy dependency definitions first. See https://docs.docker.com/build/cache/optimize/#order-your-layers
+COPY [ "*.opam", "*.opam.locked", "." ]
+
+# Install and cache system packages required by the build
+# The cache is locked, so multiple container builds will wait here
+# (apt would have a lock but it is stored outside of the cache dir, so we cannot rely on it to prevent concurrent accesses)
+# A cache id is used, so that different distros would have different cache folders
+RUN --mount=type=cache,id=/var/cache/apt#debian-12;amd64,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=/var/lib/apt#debian-12;amd64,target=/var/lib/apt,sharing=locked \
+    sudo apt-get update -y && \
+    opam-2.3 install --locked --with-test . --depext-only
+
+# Download and cache opam package dependencies
+# The cache is locked, so multiple container builds will wait here
+# To minimize the time the lock is held the actual package installations are done as a separate step
+RUN --mount=type=cache,target=/home/opam/.opam/download-cache,sharing=locked,uid=1000,gid=1000 \
+    opam-2.3 install --locked --with-test . --download-only
+
+# Install (cached) downloaded opam dependencies
+# The download cache is mounted readonly and shared, multiple container builds can proceed in parallel.
+# The dune cache is mounted RW.
+# Multiple concurrent builds will use the same cache, but dune must already be able to cope with this
+# A cache id is used, so that different distros would have different cache folders (it is unlikely that dune caches would be sharable across distros)
+RUN --mount=type=cache,target=/home/opam/.opam/download-cache,readonly,sharing=shared,uid=1000,gid=1000 \
+    --mount=type=cache,target=/home/opam/.cache/dune,sharing=shared,uid=1000,gid=1000 \
+    opam-2.3 install --locked --with-test . --deps-only
+
+# Copy actual application source code
+COPY [ ".", "." ]
+
+# Build and install application code, using dune cache.
+RUN --mount=type=cache,target=/home/opam/.cache/dune,sharing=shared,uid=1000,gid=1000 \
+    opam-2.3 install --locked --with-test .
+#+end_example
+
+It avoids some common pitfalls:
+- disable cleanup of APT downloaded packages (otherwise caching is ineffective)
+- enables the opam download cache too which is stored in a non-standard location (~~/.opam/download-cache~ instead of ~~/.cache/opam~)
+- avoids EXDEV from dune cached builds during opam dependency installations by enabling dune cache copy mode
+- uses opam-2.3 explicitly, since the default opam in the Dockerhub images is quite old (luckily opam-2.3 is already there, just needs to be invoked explicitly)
+- sets the default solver to 0install. This seems to be needed to speed up ~opam install~ even when ~--locked~ is used and no dependency resolution is needed. Otherwise it was spending 4s checking the solver request.
+- sets appropriate uid in cache mounts to avoid permission issues
+
+Caveats:
+- if you use git submodules then you have to add ~.git~ to your ~.dockerignore~. Otherwise opam pinning will fail, since ~.git~ is a file referencing a git dir in a parent dir that is not mounted inside the docker build environment
+- maybe --dev should be used if you intend to use the container for developing the opam application. Although in that case you might also want to preinstall some useful tools like ~lsp~, and ~ocamlformat~.
+
+Eventually I hope this can be simplified using Dune's new package management feature.
+      
+
+
+
+* opam 2.4.0~rc1
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/ann-opam-2-4-0-rc1/16910/1
+
+** Kate announced
+
+
+Hi everyone,
+
+We are happy to announce the first release candidate of opam 2.4.0.
+
+This is hopefully the first and last release candidate for opam 2.4, so we invite users to test it to spot previously unnoticed bugs as we soon head to the stable release.
+
+*** Changes
+
+- :woman_scientist: Fix a regression in ~opam switch create <version>~ not working when all compilers of that version are flagged with ~avoid-version~. This would have prevented users to use commands such as ~opam switch create 5.4.0~alpha1~ ([[https://github.com/ocaml/opam/issues/6563][#6563]]).
+
+- :high_speed_train: Improve performance of ~opam update~ for users of local repositories that happen to be git repositories (for example if you've ever used ~opam repository add --kind local~ or similar). In particular the new OCaml implementation of patch, does not scan those VCS directories anymore, which made opam use a lot of RAM unnecessarily ([[https://github.com/ocaml/opam/issues/6560][#6560]]).
+
+:open_book: You can read our [[https://opam.ocaml.org/blog/opam-2-4-0-rc1/][blog post]] to read about the other more minor changes, and for even more details you can take a look at the [[https://github.com/ocaml/opam/releases/tag/2.4.0-rc1][release note]] or the [[https://github.com/ocaml/opam/blob/2.4.0-rc1/CHANGES][changelog]].
+
+*** Try it!
+
+The upgrade instructions are unchanged:
+
+For Unix systems
+#+begin_example
+bash -c "sh <(curl -fsSL https://opam.ocaml.org/install.sh) --version 2.4.0~rc1"
+#+end_example
+or from PowerShell for Windows systems
+#+begin_example
+Invoke-Expression "& { $(Invoke-RestMethod https://opam.ocaml.org/install.ps1) } -Version 2.4.0~rc1"
+#+end_example
+
+Please report any issues to the [[https://github.com/ocaml/opam/issues][bug-tracker]].
+
+Happy hacking,
+<> <> The opam team <> <> :camel:
+      
+
+
+
+* Js_of_ocaml 6.1.0 / Wasm_of_ocaml
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/ann-js-of-ocaml-6-1-0-wasm-of-ocaml/16912/1
+
+** Hhugo announced
+
+
+I’m pleased to announce the joint release of js_of_ocaml 6.1.0 and wasm_of_ocaml.
+
+Js_of_ocaml is a compiler from OCaml bytecode to JavaScript. It makes it possible to run pure OCaml programs in JavaScript environment like browsers and Node.js.
+
+[[https://opam.ocaml.org/packages/wasm_of_ocaml-compiler/][Wasm_of_ocaml]] is a compiler from OCaml bytecode to WebAssembly. It is highly compatible with Js_of_ocaml, so you can compile your programs with wasm_of_ocaml instead of js_of_ocaml and experience overall better performance.
+
+Most significant changes:
+
+- A lot of effort was spent on optimizing compilation speed and compile-time memory usage. we're seeing up to 4x compilation speed improvement in some cases.
+
+See the [[https://github.com/ocsigen/js_of_ocaml/blob/master/CHANGES.md][Changelog]] for other changes.
+      
+
+
+
+* Announcing Raven: Scientific Computing for OCaml (Alpha Release)
+:PROPERTIES:
+:CUSTOM_ID: 5
+:END:
+Archive: https://discuss.ocaml.org/t/announcing-raven-scientific-computing-for-ocaml-alpha-release/16913/1
+
+** Thibaut Mattio announced
+
+
+I'm excited to announce the alpha release of [[https://github.com/raven-ml/raven][Raven]], a modern scientific computing ecosystem for OCaml.
+
+*** What is Raven?
+
+Raven is a collection of libraries and tools for numerical computing and machine learning, including:
+
+- *Nx:* Multi-dimensional arrays with NumPy-like operations and pluggable backends (now pure OCaml, C FFI, Metal, next CUDA, WebGPU, etc.) - our equivalent of NumPy
+- *Rune:* Automatic differentiation and device placement, building toward JIT compilation - our equivalent of Jax
+- *Kaun:* Deep learning framework inspired by [[https://github.com/google/flax][Flax]]/[[https://pytorch.org/][PyTorch]], built on Rune
+- *Sowilo:* Computer vision library with differentiable operations, build on Rune
+- *Hugin:* Plotting library for data visualization - our equivalent of matplotlib
+- *Quill:* Markdown-first interactive notebooks - very different from Jupyter, but our answer to interactive notebooks
+
+The ecosystem is designed to work together seamlessly, with Nx as the foundation, Rune providing differentiable computation, and domain-specific libraries building on top.
+
+*** Getting Started
+
+Install Raven via opam:
+
+#+begin_example
+opam install raven
+#+end_example
+
+Here's a quick example showcasing automatic differentiation with Rune:
+
+#+begin_src ocaml
+open Rune
+
+(* Define a simple neural network layer *)
+let layer ~w ~b x = add (matmul x w) b
+
+(* Compute mean squared error loss *)
+let mse_loss ~w ~b x y =
+  let pred = layer ~w ~b x in
+  let diff = sub pred y in
+  mean (mul diff diff)
+
+let result =
+  (* Choose device - Rune.ocaml, Rune.c, Rune.metal *)
+  let dev = Rune.c in
+  
+  (* Initialize parameters on the device *)
+  let w = randn dev float32 [| 3; 2 |] in
+  let b = zeros dev float32 [| 2 |] in
+  let x = randn dev float32 [| 10; 3 |] in
+  let y = randn dev float32 [| 10; 2 |] in
+  
+  (* Compute loss and gradients *)
+  let loss, grad_w = value_and_grad (fun w -> mse_loss ~w ~b x y) w in
+  Printf.printf "Loss: %g\n" (unsafe_get [] loss);
+  grad_w
+#+end_src
+
+#+begin_example
+val result : (float, Rune.float32_elt, [ `c ]) Rune.t =
+  [[-1.74967, 0.863766],
+   [-0.140407, -0.269364],
+   [0.593187, 0.0197736]]
+Loss: 2.13033
+#+end_example
+
+For more examples and detailed documentation, visit [[https://raven-ml.dev/][raven-ml.dev]].
+
+*** Why Raven?
+
+Today's machine learning ecosystem is converging on frameworks built atop ML compilers: high-level Python APIs that build computation graphs, then JIT compile them for performance.
+
+In parallel, [[https://github.com/google/jax][JAX]] and [[https://github.com/google/flax][Flax]] have gained popularity with their functional APIs. For instance, JAX uses
+function transformations (grad, jit, vmap) to implements its core features.
+
+This is a landscape where OCaml has natural advantages. OCaml excels at building compilers, which includes ML compilers, and as a functional language, it's a more natural fit for functional ML APIs than Python with JAX.
+
+Given these technical advantages, Python's dominance comes down to developer experience: the massive ecosystem and excellent prototyping ergonomics. We believe that with the right tooling, OCaml can match Python's productivity for prototyping and exploratory work. And the ecosystem gap doesn't have any fundamental challenge: we "just" need to write a lot of code.
+
+If Raven succeeds, we believe it will offer a much more compelling alternative to Python: a language that enables rapid prototyping while eliminating the gap between exploration and production. You'll move from local development to production without switching languages, without separate teams, without maintaining two stacks.
+
+*** Technical Highlights: Rune's autodiff engine
+
+One interesting aspect of Raven is Rune's implementation of automatic differentiation using OCaml's effects system. As far as we know, this is the first production-scale autodiff engine built on effects, drawing on research by [[https://effect-handlers.org/talks/ml-2024-talk.pdf][Jesse Sigal]] and earlier work by [[https://github.com/ocaml-multicore/effects-examples/blob/master/algorithmic_differentiation.ml][KC Sivaramakrishnan]].
+
+The architecture follows a modular design:
+- Pluggable backends in Nx allow implementation for different hardware
+- Rune implements an Nx backend that raises effects for all operations.
+- These effects are either caught by an effect handler (e.g. grad, jit), or, if unhandled, executed eagerly
+- This allows for composable effects handlers (e.g. grad (grad f), jit (grad f), etc.)
+
+*** Technical Highlights: Quill Notebooks
+
+Quill reimagines interactive notebooks with a [[https://typora.io/][Typora]]\-like experience. Markdown renders live as you write, switching to raw markdown when you focus on a section for editing. This creates a natural writing experience where code blocks integrate naturally into your document.
+
+The result is a distraction-free notebook environmnet, that prioritizes focused writing, while still providing full editor features within code blocks (coming soon ™!).
+
+While still early, we're excited to see how the community reacts to Quill when it is stable enough for daily use - we really think it has the potential to offer a much better notebook experience for teaching, reading, and other workflows.
+
+*** Current Status
+
+This is an alpha release. APIs are stabilizing but may still change. Things will break - this is expected at this stage! If you encounter bugs, please open an issue on GitHub; community feedback is invaluable to get to a stable release.
+
+We're currently focused on:
+- Stabilizing core APIs for the 1.0 release
+- Writing documentation and user guides
+- Supporting early users adoption (FFT, linear algebra, CUDA backend)
+
+Post-Alpha priorities include JIT compilation and stable Quill environment.
+
+*** Building a Community
+
+One bet we're taking with Raven is that it will allow a scientific and ML community in OCaml to flourish. As of now, it's still largely a one-person project. While I'm committed to its development, we really need to see the development of a larger community for a project of this size
+to survive.
+
+If you're interested in the project, the best thing you can do is to engage—whether by opening issues, reaching out, or contributing. Alongside reaching a first stable release, building a community is Raven's main priority from now on, so any kind of contribution or engagement will be deeply appreciated. If there's anything I can do to make Raven more welcoming and approachable, let
+me know.
+
+I've always believed that the best way to grow OCaml adoption is to provide killer apps for specific use cases (just like Rails did for Ruby). Raven's not quite there yet in terms of advantages over Python, but it can get there, and if that's something you'd like to contribute to, please reach out\!
+
+*** Getting Involved
+
+Here are immediate ways to contribute as we work toward a stable release:
+
+*For users:*
+- Try the libraries with your workflows and report issues
+- Share feedback on API design and usability
+- Help test on different platforms and configurations
+
+*For contributors:*
+- Optimize eager execution backends while we build JIT compilation
+- Add missing NumPy/Jax/Flax operations to Nx/Rune/Kaun
+- Contribute examples and documentation
+
+Don't hesitate to reach out if you'd like to be involved closely with the core development:
+- JIT compilation
+- Stabilize Quill (many bugs to fix!)
+- New libraries
+
+*Resources:*
+- GitHub: https://github.com/raven-ml/raven
+- Documentation: https://raven-ml.dev/docs/
+- Contact: thibaut.mattio@gmail.com
+
+*** Acknowledgments
+
+I'd like to thank our early contributors and testers who have helped shape Raven:
+- @axrwl
+- @gabyfle
+- @hesterjeng
+- @ghennequin
+- @kayceesrk
+- @blueavee
+
+Special thanks to our GitHub sponsors for their support:
+- @daemonfire300
+- @gabyfle
+- @sabine
+
+Your feedback, contributions and support have been invaluable in getting Raven to this alpha release - thank you\!
+
+*** Supporting Raven's Development
+
+As Raven grows, I'm looking for sustainable ways to continue dedicating time to the project. If you're an industrial user interested in using Raven for your machine learning or scientific computing needs, I'd love to talk about how we can work together.
+
+For individuals who want to support the project, I have a [[https://github.com/sponsors/tmattio][GitHub Sponsors page]]. Any contribution, no matter the size, is deeply appreciated and helps ensure Raven's continued development.
+      
+
+
+
+* Slipshow!
+:PROPERTIES:
+:CUSTOM_ID: 6
+:END:
+Archive: https://discuss.ocaml.org/t/ann-slipshow/16337/8
+
+** Continuing this thread, Paul-Elliot announced
+
+
+Let's continue with a new release in this Slipshow thread. It's my _ginormous pleasure_ to announce the [[https://github.com/ocaml/opam-repository/pull/28128][opam release]] of:
+
+*** Slipshow v0.3.0: The return of the subslips
+
+As you can see, a crucial improvement is that releases are now named. Semver is boring, let's add a bit of fun in a serious world.
+
+The release name subtly suggests that subslips are back. Yes, subslips are back! Slipshow allows your presentation to be visually organized. Subslips are slips that are inside a slip. You can then "enter" it, go through it, and exit it to go back to the original slip.
+
+But a gif is worth a ginormous word, so here it is:
+
+[[https://github.com/user-attachments/assets/540b7e3b-a930-4444-ab12-e2cdd2fdc55e][A demo of slipshow entering subslips]]
+
+To obtain a similar effect, using the new release, you can simply do:
+
+#+begin_src md
+We will discuss three topics:
+
+{style="display:flex" children:slip}
+----
+# Topic 1
+
+Content of the first topic
+
+---
+# Topic 2
+
+Content of the second topic
+
+---
+# Topic 3
+
+Content of the third topic
+#+end_src
+
+If you want to separate the source in multiple file, it's easy: ~{include src="file/to/include.md"}~. And did you notice that ~---~ now act as group separators? At this point, let me just output the changelog (highligting some of them):
+
+**** Compiler
+
+- *Fix file watching issues* by vendoring a (modified) irmin-watcher, and watching
+  all files the presentation depends on (images, themes, ...) (#113)
+- Adds a favicon to the presentation file (*Slipshow now has a logo!*) (#115)
+- Fix missing attributes on images (#117)
+- Fix missing mime type on images that made svg undisplayable (#120)
+- Fix detection of math inside inline attributes (#124)
+- *Add ~--dimension~ to specify the dimension of the presentation (#131)*
+- Add less boring name for versions (#132)
+
+**** Language
+
+- *Add ~{include src="path/to/file.md"}~ to include a file in another (#114)*
+- Allow ~pause~ to have a target (#118)
+- Remove the need for ~step~ to execute actions (#118)
+- *Added support for subslips and slides (#118)*
+- Added pause blocks (#127)
+- *Use horizontal lines (~---~) to group blocks (#129)*
+- Pass attributes to children with ~children:~ (#130)
+- Consistently remove the need for ~-at-unpause~ (#133)
+
+**** Engine
+
+- Simplify table of content by removing preview (#118)
+- *Fix wrong computation of location (#118, #119)*
+- *Improve zooming behaviour (everywhere) and performance (on chrome-based browsers...) (#121)*
+  - If someone has some expertise on how to improve performance on firefox, I'm interested!
+- Add PageUp and PageDown as navigation keys, adding support for pointers (#126)
+- Do not act when control is pressed (#126)
+- Fix wrong positioning on scaled slips (#128)
+
+**** Credits
+
+Thanks to the NLNet foundation for supporting this project!
+      
+
+
+
+* Other OCaml News
+:PROPERTIES:
+:CUSTOM_ID: 7
+:END:
+** From the ocaml.org blog
+
+
+Here are links from many OCaml blogs aggregated at [[https://ocaml.org/blog/][the ocaml.org blog]].
+
+- [[https://jon.recoil.org/blog/2025/07/week27.html][Weeks 24-27]]
+- [[https://www.dra27.uk/blog/week-that-was/2025/07/06/wtw-27.html][The week that was - 2025 w27]]
+- [[https://tarides.com/blog/2025-07-04-improving-memory-profiler-visualisations-for-ocaml][Improving Memory Profiler Visualisations for OCaml]]
+- [[https://xvw.lol/en/articles/tetra-master.html][The Hell of Tetra Master]]
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[https://alan.petitepomme.net/cwn/][the archive]] or the [[https://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe to the [[https://sympa.inria.fr/sympa/info/caml-list][caml-list]].
+
+#+BEGIN_authorname
+[[https://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname
