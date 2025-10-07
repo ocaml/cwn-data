@@ -1,0 +1,589 @@
+<cwn>
+  <cwn_head>
+    <cwn_date>2025.10.07</cwn_date>
+    <cwn_prev>2025.09.30</cwn_prev>
+    <cwn_next>2025.10.14</cwn_next>
+    <cwn_date_text>September 30 to October 07, 2025</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>moonpool 0.9, moonpool-lwt 0.9</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-moonpool-0-9-moonpool-lwt-0-9/17337/1</cwn_url>
+      <cwn_who>Simon Cruanes announced</cwn_who>
+      <cwn_what>
+Hello camels,
+
+I’m happy to announce the release of [moonpool 0.9](https://github.com/c-cube/moonpool/releases/tag/v0.9) and moonpool-lwt 0.9. Moonpool is a concurrency and parallelism library that provides lightweight fibers and a concept of ~Runner.t~ that they can be dispatched on. Multiple runners can co-exist inside a program.
+
+This release is a fairly large one. First, Moonpool now requires OCaml >= 5.0 (no more 4.xx compat), which removes the need for a preprocessor and makes ~await~ generally available on every ~Runner.t~. Some sub-libraries are now deprecated (~moonpool-io~, ~moonpool.sync~ in favor of picos, etc.).
+
+The biggest improvement is ~moonpool-lwt~. It now wraps ~Lwt_main.run~ and turns it into a ~Moonpool.Runner.t~, meaning that ~Lwt~, ~Lwt_io~, ~Lwt_unix~, and all the libraries built on top can now directly be used from Moonpool. ~Lwt~ promises can be turned into moonpool futures and conversely; fibers can be spawned in the ~Lwt_engine~ loop from any thread (to perform IO and call lwt libraries) and be awaited from other threads, too.
+
+Documentation: https://c-cube.github.io/moonpool/moonpool/index.html , https://c-cube.github.io/moonpool/moonpool-lwt/Moonpool_lwt/index.html
+
+*** Example echo server
+
+#+begin_src ocaml
+module M_lwt = Moonpool_lwt
+
+let ( let@ ) = ( @@ )
+let str_of_sockaddr = function
+  | Unix.ADDR_UNIX s -> s
+  | Unix.ADDR_INET (addr, port) ->
+    Printf.sprintf "%s:%d" (Unix.string_of_inet_addr addr) port
+
+
+let main ~port () : unit =
+  (* never resolved *)
+  let lwt_fut, _lwt_prom = Lwt.wait () in
+
+  let handle_client client_addr (ic, oc) : _ Lwt.t =
+    (* spawn a new fiber in the lwt thread *)
+    let@ () = M_lwt.spawn_lwt in
+    Printf.printf "got new client on %s\n%!" (str_of_sockaddr client_addr);
+
+    let buf = Bytes.create 1024 in
+    let continue = ref true in
+    while !continue do
+      let n = Lwt_io.read_into ic buf 0 (Bytes.length buf) |> M_lwt.await_lwt in
+      if n = 0 then
+        continue := false
+      else (
+        Lwt_io.write_from_exactly oc buf 0 n |> M_lwt.await_lwt;
+        Lwt_io.flush oc |> M_lwt.await_lwt;
+      )
+    done;
+    Printf.printf "done with client on %s\n%!" (str_of_sockaddr client_addr);
+  in
+
+  Printf.printf "listening on port=%d\n%!" port;
+  let addr = Unix.ADDR_INET (Unix.inet_addr_any, port) in
+  let _server =
+    Lwt_io.establish_server_with_client_address addr handle_client
+    |> M_lwt.await_lwt
+  in
+
+  M_lwt.await_lwt lwt_fut (* never returns *)
+
+let () =
+  let port = ref 1234 in
+  let opts =
+    [
+      "-p", Arg.Set_int port, " port";
+    ]
+    |> Arg.align
+  in
+  Arg.parse opts ignore "echo server";
+
+  M_lwt.lwt_main @@ fun _ -> main ~port:!port ()
+#+end_src
+
+Run it as ~echo_server -p 1234~ and use ~nc localhost 1234~ to connect. It will echo lines sent to it.
+
+We can reuse ~Lwt_io.establish_server_with_client_address~ just fine, and use direct style to implement the client handler inside a single ~Moonpool~ fiber (via ~Moonpool_lwt.spawn_lwt~ that runs its argument in the lwt event loop). 
+
+*** Small server with a thread pool for compute
+
+a variation on the previous one, with a thread pool on which CPU bound tasks can be run:
+
+#+begin_src ocaml
+module M_lwt = Moonpool_lwt
+
+let ( let@ ) = ( @@ )
+let str_of_sockaddr = function
+  | Unix.ADDR_UNIX s -> s
+  | Unix.ADDR_INET (addr, port) ->
+    Printf.sprintf "%s:%d" (Unix.string_of_inet_addr addr) port
+
+(* don't do this at home *)
+let rec fib n =
+  if n &lt;= 2 then 1 else fib (n-1) + fib (n-2)
+
+let main ~port ~tpool () : unit =
+  (* never resolved *)
+  let lwt_fut, _lwt_prom = Lwt.wait () in
+
+  let handle_client client_addr (ic, oc) : _ Lwt.t =
+    (* spawn a new fiber in the lwt thread *)
+    let@ () = M_lwt.spawn_lwt in
+    Printf.printf "got new client on %s\n%!" (str_of_sockaddr client_addr);
+
+    let continue = ref true in
+    while !continue do
+      match Lwt_io.read_line ic |> M_lwt.await_lwt with
+      | exception End_of_file -> continue := false
+      | line ->
+        let input = int_of_string @@ String.trim line in
+        (* run fib(input) in the thread pool and suspend until
+           it's done *)
+        let fib_input =
+          Moonpool.Fut.spawn ~on:tpool (fun () -> fib input)
+          |> Moonpool.Fut.await
+        in
+  
+        Lwt_io.write oc (Printf.sprintf "%d\n" fib_input)
+          |> M_lwt.await_lwt;
+        Lwt_io.flush oc |> M_lwt.await_lwt;
+    done;
+
+    Printf.printf "done with client on %s\n%!" (str_of_sockaddr client_addr);
+  in
+
+  Printf.printf "listening on port=%d\n%!" port;
+  let addr = Unix.ADDR_INET (Unix.inet_addr_any, port) in
+  let _server =
+    Lwt_io.establish_server_with_client_address addr handle_client
+    |> M_lwt.await_lwt
+  in
+
+  M_lwt.await_lwt lwt_fut (* never returns *)
+
+let () =
+  let port = ref 1234 in
+  let j = ref 8 in
+  let opts =
+    [
+      "-j", Arg.Set_int j, " thread pool size";
+      "-p", Arg.Set_int port, " port";
+    ]
+    |> Arg.align
+  in
+  Arg.parse opts ignore "echo server";
+
+  let@ tpool = Moonpool.Ws_pool.with_ ~num_threads:!j () in
+  M_lwt.lwt_main @@ fun _ -> main ~port:!port ~tpool ()
+#+end_src
+
+Note how the computation is done by starting a task in the ~tpool~ argument (a moonpool ~Runner.t~ provided to the main, by default a work stealing pool of 8 threads that can be set via ~-j &lt;number of threads&gt;~) and then ~await~-ed from the lwt handler. While the computation is running, the lwt client handler is suspended and doesn’t prevent other clients from making progress.
+
+To test this one, use ~nc localhost 1234~ and write (small) integers to get ~fib(n)~ computed. To see it work in parallel, open ~top~ or ~htop~ and run:
+
+#+begin_example
+for i in `seq 1 200`; do nc localhost 1234 &lt;&lt;&lt; '35' &amp;  done
+#+end_example
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>First release candidate for OCaml 5.4.0</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/first-release-candidate-for-ocaml-5-4-0/17338/1</cwn_url>
+      <cwn_who>octachron announced</cwn_who>
+      <cwn_what>
+The release of OCaml 5.4.0 is imminent.
+
+As a final step, we are publishing a release candidate to check that everything is in order before the release in the upcoming week.
+
+If you find any bugs, please report them on the [OCaml's issue tracker](https://github.com/ocaml/ocaml/issues).
+
+Compared to the second beta, this release candidate only contains a fix in the TSAN mode, and one metadata fix in the changelog itself. The full change log for OCaml 5.4.0 is available on [GitHub](https://github.com/ocaml/ocaml/blob/5.4/Changes).
+
+Happy hacking,
+Florian Angeletti for the OCaml team.
+
+*** Installation instructions
+
+The base compiler can be installed as an opam switch with the following commands on opam 2.1 and later:
+
+    opam update
+    opam switch create 5.4.0~rc1
+
+The source code for the release candidate is also directly available on:
+
+- GitHub: https://github.com/ocaml/ocaml/archive/5.4.0-rc1.tar.gz
+- OCaml archives at Inria: https://caml.inria.fr/pub/distrib/ocaml-5.4/ocaml-5.4.0~rc1.tar.gz
+
+*** Fine-tuned compiler configuration
+
+If you want to tweak the configuration of the compiler, you can switch to the option variant with:
+
+#+begin_example
+    opam update
+    opam switch create &lt;switch_name&gt; ocaml-variants.5.4.0~rc1+options &lt;option_list&gt;
+#+end_example
+
+where ~&lt;option_list&gt;~ is a space-separated list of ~ocaml-option-*~ packages. For instance, for a ~flambda~ and ~no-flat-float-array~ switch:
+
+#+begin_example
+     opam switch create 5.4.0~rc1+flambda+nffa ocaml-variants.5.4.0~rc1+options ocaml-option-flambda ocaml-option-no-flat-float-array
+#+end_example
+
+
+All available options can be listed with ~opam search ocaml-option~.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Announcing the OCaml Zulip at ocaml.zulipchat.com</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/announcing-the-ocaml-zulip-at-ocaml-zulipchat-com/17339/1</cwn_url>
+      <cwn_who>ancolie announced</cwn_who>
+      <cwn_what>
+Dear OCaml community,
+
+There has been a recent renewed interest in maintaining an open, organized and synchronous communication channel, and the OCaml Zulip has been revived. It is freely readable without an account at [ocaml.zulipchat.org](https://ocaml.zulipchat.org), and can be accessed through various means of authentication, including Github accounts.
+
+On Zulip, we have full access to our data at all time, and should the company change its policy, the data can be retrieved and the current version of Zulip server is self-hostable. In the meantime, we have been graciously offered sponsorship as an open community and can enjoy all features of the platform for free, and we thank Zulip for that.
+
+The platform can be accessed either on the web (one tab per server), or on the desktop and mobile client, which allow for managing multiple organizations.
+
+Talking about multiple organizations, there are already many OCaml, programming languages and verification related Zulip servers, such as [Rocq](https://rocq-prover.zulipchat.com), [Types](https://typ.zulipchat.com), [Why3](https://why3.zulipchat.com), [Catala](https://zulip.catala-lang.org/), [Bytecode alliance](https://bytecodealliance.zulipchat.com), [Owi](https://owi.zulipchat.com) or [Aeneas](https://aeneas-verif.zulipchat.com/). Check-out the full list of [open to the public communities](https://zulip.com/communities/) for more.
+
+Finally, we would like to emphasize that any governance team or project is welcome to host their discussions on the Zulip, where a channel can be created and admin rights granted.
+
+Cheers!
+
+PS: For anyone already on the Zulip, as part of this effort, the URL was migrated from ~caml.zulipchat.org~ to ~ocaml.zulipchat.org~ and you may have to remove the server and login again.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>An impressive macrobenchmark for eio</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/an-impressive-macrobenchmark-for-eio/17344/1</cwn_url>
+      <cwn_who>conroj said</cwn_who>
+      <cwn_what>
+While wandering around the web I came across a link to a [slide deck](https://kcsrk.info/slides/Evolution_Ashoka_2025.pdf) by our own @kayceesrk. On slide #35 is a macrobenchmark showing an EIO-based network server, and its throughput is pretty favorable compared to the Rust implementation’s.
+
+Taking this at face value, it seems like quite an achievement - not only because GC is (supposedly) a handicap for OCaml, but also because this seems like a major improvement over a [similar benchmark](https://tarides.com/blog/2022-12-27-love-rust-then-ocaml-s-new-eio-library-is-for-you/) from 2022. I couldn’t find links to deeper discussion of these results, so I thought I would ask some of the obvious follow-up questions:
+
+- Is OCaml’s tail latency on par with Rust’s in these scenarios?
+- Are both the “OCaml eio” and “Rust Hyper” results using similar kernel capabilities, e.g. ~io_uring~? (The slide seems to suggest so, but just confirming.)
+- Do these results generalize to different levels of concurrency, request/response sizes, etc?
+
+Either way, kudos for raising OCaml’s profile as a platform for scalable computing!
+      </cwn_what>
+      <cwn_who>Anil Madhavapeddy replied</cwn_who>
+      <cwn_what>
+They both used io_uring, yes. The OCaml bindings are at https://github.com/ocaml-multicore/ocaml-uring ; but note that there are several levels of io_uring usage possible depending on your tolerance for ranges of Linux kernel support (I’m just adding zero-copy transmit support at the moment for a project involving a petabyte of data).
+
+OCaml’s tail latency will be worse than Rust’s due to having a GC, but not terribly so. As for generalization, those tests were run on a pre-5.0 version of OCaml, so the whole test suite would have to be rebased against the released versions. A good and useful exercise if someone would like to have a go at it!
+      </cwn_what>
+      <cwn_who>Thomas Leonard also replied</cwn_who>
+      <cwn_what>
+I think the benchmarks are from https://github.com/ocaml-multicore/retro-httpaf-bench
+
+I don’t think the Rust ones are using uring, but I’m not sure. I suspect that all the non-OCaml ones could do with a fan of that language optimising them a bit.
+
+In my experience, whether the Rust or Eio version gets better throughput depends on e.g. the number of connections, and tail latency was always better with Rust.
+
+But the basic result is that OCaml is competitive with Rust here.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>nim-ocaml</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-nim-ocaml/17346/1</cwn_url>
+      <cwn_who>Florent Monnier announced</cwn_who>
+      <cwn_what>
+I read a paper maybe not this one, but it seems it talks about the same thing
+[https://arxiv.org/html/2506.04657v1](https://arxiv.org/html/2506.04657v1).
+At the beginning I thought it's about the new programming language, but then chatgpt explained me that in fact it's a small game with stones. We put a given number of stones in the middle, and each player can take 1, 2 or 3 stones from the stack. There are two variants of the game, the one that only has one stone in front of him at the end wins or not.
+
+So I tryed to make a ~nim-ocaml~ to play against its ~Random.state~, here below:
+#+begin_src ocaml
+let () =
+  Random.self_init () ;
+  let n = 13 + (Random.int 23) in
+  let _n = ref n in
+  let run = ref true in
+  while !run do
+    Printf.printf "%d\n" !_n;
+    if !_n &lt;= 1 then run := false ;
+    let line = read_line () in
+    begin
+      try
+        let d = int_of_string line in
+        _n := !_n - d ;
+      with _ ->
+        Printf.printf "please input an integer number\n%!";
+    end;
+    let b = Random.int 2 + Random.int 3 in
+    Printf.printf "b played: %d\n" b;
+    _n := !_n - b ;
+  done;
+  Printf.printf "done!\n" ;
+#+end_src
+#+begin_example
+$ \ocaml nim.ml 
+#+end_example
+Or later:
+#+begin_example
+$ wget http://decapode314.free.fr/ocaml2/nim/nim.ml
+#+end_example
+#+begin_example
+$ \ocaml nim.ml
+23
+3
+b played: 3
+17
+7
+b played: 0
+10
+3
+b played: 2
+5
+2
+b played: 2
+1
+0
+b played: 0
+done!
+#+end_example
+Another version to play against your collegue at the pause:
+#+begin_example
+$ wget http://decapode314.free.fr/ocaml2/nim/.gil/nim.ml.0
+#+end_example
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Call for Contributions: BOB 2026 (Berlin, March 13 - Deadline Nov 17)</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/call-for-contributions-bob-2026-berlin-march-13-deadline-nov-17/17348/1</cwn_url>
+      <cwn_who>Michael Sperber announced</cwn_who>
+      <cwn_what>
+OCaml contributions are spot-on for BOB - send us some!
+
+*BOB Conference 2026 - Call for Contributions*
+
+*** “What happens when we use what’s best for a change?”
+
+- https://bobkonf.de/2026/cfc.html
+- Berlin, Mar 13
+- Deadline: November 17, 2025
+
+*** Looking for Speakers
+
+You are actively engaged in advanced software engineering methods,
+solve ambitious problem with software and are open to cutting-edge
+innovation? Attend this conference, meet people that share your goals,
+and get to know the best software tools and technologies available
+today. We strive to offer a day full of new experiences and
+impressions that you can use to immediately improve your daily life as
+a software developer.
+
+If you share our vision and want to contribute, submit a proposal for
+a talk or tutorial!
+
+*NOTE*: The conference fee will be waived for presenters. Travel
+expenses will not be covered (for exceptions see “Speaker Grants”).
+
+*** Topics
+
+We are looking for talks about best-of-breed software technology, e.g.:
+
+- functional programming
+- persistent data structures and databases
+- event-based modelling and architecture
+- “fancy types” (dependent types, gradual typing, linear types, …)
+- formal methods for correctness and robustness
+- abstractions for concurrency and parallelism
+- metaprogramming
+- probabilistic programming
+- math and programming
+- controlled side effects
+- program synthesis
+- AI beyond vibecoding and chatbots
+- linked data
+- symbolic AI
+- next-generation IDEs
+- effective abstractions for data analytics
+- … everything really that isn’t mainstream, but you think should be
+- … including rough ideas that are worth discussing.
+
+Presenters should provide the audience with information that is practically useful for software developers.
+
+*** Challenges
+
+Furthermore, we seek contributions on successful approaches for solving hard problems, for example:
+
+- bias in machine-learning systems
+- digital transformation in difficult settings
+- accessibility
+- systems with critical reliability requirements
+- ecologically sustainable software development
+
+*We’re especially interested in experience reports.*
+
+Other topics are also relevant, e.g.:
+
+- introductory talks on technical background
+- overviews of a given field
+- demos and how-tos
+
+*** Requirements
+
+We accept proposals for presentations of 45 minutes (40 minutes talk +
+5 minutes questions), as well as 90 minute tutorials for
+beginners. The language of presentation should be either English or
+German.
+
+Your proposal should include (in your presentation language of choice):
+
+- An abstract of max. 1500 characters.
+- A short bio/cv
+- Contact information (including at least email address)
+- A list of 3-5 concrete ideas of how your work can be applied in a developer’s daily life
+- additional material (websites, blogs, slides, videos of past presentations, …)
+
+[Submit here](https://pretalx.com/bob-2026/submit/)
+
+*** Organisation
+
+- Direct questions to ~konferenz at bobkonf dot de~
+- Proposal deadline: *November 17, 2025*
+- Notification: December 5, 2025
+- Program: December 12, 2025
+
+*** Shepherding
+
+The program committee offers shepherding to all speakers. Shepherding
+provides speakers assistance with preparing their
+sessions. Specifically:
+
+- advice on structure and presentation
+- review of talk slides
+
+*** Speaker Grants
+
+BOB has Speaker Grants available to support speakers from groups
+under-represented in technology. We specifically seek women speakers,
+speakers of color, and speakers who are not able to attend the
+conference for financial reasons.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>ocp-indent 1.9.0</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-ocp-indent-1-9-0/17349/1</cwn_url>
+      <cwn_who>Nathan Rebours announced</cwn_who>
+      <cwn_what>
+Here at OCamlPro we’re happy to announce the (long awaited) release of ocp-indent.1.9.0.
+
+The full release notes are available [here](https://github.com/OCamlPro/ocp-indent/releases/tag/1.9.0) if you want the detailed version.
+
+1.9.0 contains mostly bug fixes, better and more consistent indentation of ~fun _ ->~ and ~|>~, compatibility with cmdliner.1.3.0 and above (it works with 2.0.0) and a new utility tool: ~ocp-indent-gen-rules~ for those of you who would like to try ~ocp-indent~ in a ~dune fmt~ like workflow.
+
+This last bit is documented [here](https://github.com/OCamlPro/ocp-indent?tab=readme-ov-file#autoformat-files-with-ocp-indent-in-dune). This is a feature that some of us wanted internally at OCamlPro so we decided to ship it with the tool as an experiment. We’d really like to hear if this fits your ocp-indent usage so please don’t hesitate to try it out and give us some feedback.
+
+We’re also interested in hearing how you use ocp-indent in general and what you expect from it. Reach out if you have any request!
+
+We’ve also updated the repo to fit the more recent development standards. We migrated the test suite to dune cram tests and re-enabled them in opam.
+Hopefully this should make contributing to ocp-indent a smoother experience!
+
+Also be aware that we’ll do our best to maintain ocp-indent more actively from now on.
+
+We’d like to thank our external contributors for this release: @dbuenzli, @nojb, @bcc32 and @Julow.
+
+Happy indenting!
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Sketch.sh now supports OCaml 5.3.0</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-sketch-sh-now-supports-ocaml-5-3-0/17352/1</cwn_url>
+      <cwn_who>Javier Chávarri announced</cwn_who>
+      <cwn_what>
+The interactive OCaml sketchbook [sketch.sh](https://sketch.sh/) has added support for OCaml 5.3.0.
+
+*** *Support for 5.3.0*
+
+Storing and running sketches using the compiler version 5.3.0 is now possible, this functionality has been added to the already existing support for versions 4.06.1 and 4.13.1. This new version brings support for OCaml 5’s effect handlers and multicore capabilities. Since sketch.sh runs in the browser using JavaScript via js_of_ocaml, the multicore capabilities are simulated using [continuation-passing style](https://ocsigen.org/js_of_ocaml/latest/manual/effects).
+
+Here you can see a sketch showcasing effects: [Effects Example - Sketch.sh](https://sketch.sh/s/gyQVWEOw4gRaSk1RzH2BBQ/).
+
+While support for intermediate versions is technically possible, it will require adding a mechanism to support choosing the version of the compiler for the current sketch (see [issue #375](https://github.com/Sketch-sh/sketch-sh/issues/375)).
+
+*** *Existing sketches and forks*
+
+Previously existing sketches remain in their original compiler version, while newly created sketches will be on 5.3.0 by default. For now, the only way to "migrate" a sketch to a newer version of the compiler is by copying its content and pasting it in a new sketch.
+
+Forked sketches inherit the compiler version of the upstream sketch.
+
+*** *Reporting features and issues*
+
+Please [let us know](https://github.com/Sketch-sh/sketch-sh/issues/new) in case you have a feature request, or if you encounter any issues or bugs. Also, don't hesitate to reach out via [Reason Discord](https://discord.gg/reasonml) or Discuss DMs if you would like to contribute or participate in the project in some way. There are a lot of opportunities to do so, both on the frontend and backend sides.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OUPS meetup october 2025</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/oups-meetup-october-2025/17353/1</cwn_url>
+      <cwn_who>ancolie announced</cwn_who>
+      <cwn_what>
+The next OUPS meetup will take place on *Monday, 13th of October* 2025. It will start at *6:30pm* at the *4 place Jussieu* in Paris. It will be in the in the *Esclangon building* (amphi Astier).
+
+Please, *[register on meetup ](https://www.meetup.com/fr-FR/ocaml-paris/events/311402632)* as soon as possible to let us know how many pizza we should order.
+
+For more details, you may check the [OUPS’ website ](https://oups.frama.io).
+
+Moreover, we'd like to announce that the organizing team moved to the [OCaml Zulip](https://ocaml.zulipchat.com). Feel free to contact us there if you'd like to suggest talks.
+
+This time we’ll have the following talks:
+
+*What's the deal with modular implicits ? -- Samuel Vivien*
+
+#+begin_quote
+Modular implicits est une extension d'OCaml présentée en 2014 comme une solution à l'absence de type classe en OCaml. Cependant malgré l'ancienneté de cette proposition cette fonctionnalité n'est toujours pas disponible dans OCaml. Nous ferons un tour d'horizon de modular implicits pour rappeler comment cette fonctionnalité marche, ce qui as déjà été implémenté dans le compilateur mais aussi ce qu'il reste à faire ainsi que les problématiques liés au typage des implicites.
+#+end_quote
+
+*Flambda2: Abstractions without Cost -- Guillaume Bury*
+
+#+begin_quote
+Surprise.
+#+end_quote
+
+After the talks there will be some pizzas offered by the [OCaml Software Foundation](https://ocaml-sf.org) and later on we’ll move to a pub nearby as usual.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>New releases of Merlin (5.6) and OCaml-LSP (1.24.0)</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-new-releases-of-merlin-5-6-and-ocaml-lsp-1-24-0/17354/1</cwn_url>
+      <cwn_who>Xavier Van de Woestyne announced</cwn_who>
+      <cwn_what>
+We are pleased to announce new releases of *Merlin* (~5.6-504~ and ~5.6-503~) and *OCaml-LSP* (~1.24.0~, for ~5.4~, and ~1.23.1~)! 
+
+This release of *Merlin* offers, firstly, support for OCaml ~5.4~. It improves support for OpenBSD (for ~merlin-reader~), improves typing recovery in the handling of mutual recursion, and adds a new feature to the protocol: ~locate-types~. It works similarly to ~locate-type~, except that it allows you to distinguish between several _locatable_ types in an expression like this: ~(int, Foo.t) result~ enabling the location of: ~int~, ~Foo.t~ and ~('a, 'b) result~. In addition, the Vim client has been fixed for the use of ~project-wide-occurrences~.
+
+The release of *OCaml LSP* also mainly concerns support for ~5.4~ and several bug fixes.
+
+As with every version upgrade, *we are eager to hear user feedback*. Try out these new releases on your ~5.4~ switches and don't hesitate to report any issues you encounter ([Merlin](https://github.com/ocaml/merlin/issues), [OCaml LSP](https://github.com/ocaml/ocaml-lsp/issues))!
+
+*** Merlin Changelog
+
+**** Merlin ~5.6-504~ (&amp; ~5.6-503~)
+
+  + merlin binary
+    - Add ~locate-types~ command (#1951)
+  + merlin library
+    - Fix ~merlin_reader~ for OpenBSD (#1956)
+    - Improve recovery of mutually recursive definitions (#1962, #1963, fixes #1953)
+    - Support for OCaml ~5.4~ (#1974) (*only for ~5.6-504~*)
+  + vim plugin
+    - Fix error when ~:MerlinOccurrencesProjectWide~ fails to gather code previews (#1970)
+  + test suite
+    - Add more short-paths tests cases (#1904)
+
+*** OCaml LSP Changelog
+
+**** ~1.24.0~ &amp; ~1.23.1~
+
+  + features
+    - Support for OCaml ~5.4~ (#1559)
+  + fixes
+    - Fix hover on method calls not showing the type. (#1553, fixes #1552)
+    - Fix error on opening ~.mll~ files (#1557)
+    - Ensure compatibility with both yojson 2.0 and 3.0. (#1534)
+    
+
+*Happy Hacking*!
+The Merlin Team :man_mage: :two_hump_camel:
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocaml.org blog</cwn_who>
+      <cwn_what>
+Here are links from many OCaml blogs aggregated at [[https://ocaml.org/blog/][the ocaml.org blog]].
+
+- [[https://ocaml.org/events][Upcoming OCaml Events]]
+- [[https://tech.ahrefs.com/one-year-at-ahrefs-065167c61542?source=rss----303662d88bae--ocaml][One year at Ahrefs]]
+- [[https://www.tunbury.org/2025/10/06/overlayfs-macFuse/][Attempting overlayfs with macFuse]]
+- [[https://fearful-odds.rocks/journal/oct-5-entry][Mental Check: Reflecting on the OCaml Journey So Far]]
+- [[https://tarides.com/blog/2025-10-02-ocsigen-a-full-ocaml-framework-for-websites-and-apps][Ocsigen: A Full OCaml Framework for Websites and Apps]]
+- [[https://www.dra27.uk/blog/platform/2025/10/01/int-file-descriptors-considered-harmful.html][File descriptors as integers considered harmful]]
+- [[https://www.youtube.com/watch/SV9Vna-Qgo8?version=3][Hacking OCaml]]
+- [[https://www.dra27.uk/blog/platform/2025/09/30/file-descriptors-are-not-integers.html][File descriptors are not integers]]
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>
