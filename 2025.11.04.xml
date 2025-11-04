@@ -1,0 +1,397 @@
+<cwn>
+  <cwn_head>
+    <cwn_date>2025.11.04</cwn_date>
+    <cwn_prev>2025.10.28</cwn_prev>
+    <cwn_next>2025.11.11</cwn_next>
+    <cwn_date_text>October 28 to November 04, 2025</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>Caml in the Capital</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-caml-in-the-capital/17428/1</cwn_url>
+      <cwn_who>Alistair O'Brien announced</cwn_who>
+      <cwn_what>
+Hi everyone 👋
+
+We (@giltho and myself) are happy to announce the first OCaml meetup in London (Caml in the Capital)! Think of it as the British cousin of OCaml Users Meetup in Paris (OUPS).
+
+*** What?
+
+Caml in the Capital is an informal evening of talks, demos, and hacking from anyone working with or interested in OCaml. The goal is to create a friendly local space for sharing ideas, showing off projects, and connecting with other OCaml developers in the UK.
+
+*** When?
+
+We’re aiming for February 2026. Please fill out this short poll to help us pick a date:
+
+👉 [Doodle poll link](https://doodle.com/group-poll/participate/b6VAjjRb)
+
+Options: Thu 5th Feb, Thu 12th Feb, Thu 19th Feb, Thu 26th Feb
+
+The meetup will take place in central London (venue TBA — likely Imperial College), starting around 6:30pm and running until 8:30pm, with informal drinks and discussions afterwards.
+
+*** What’s the ~Fmt~?
+
+A mix of:
+
+- Workshop-style talks – anything from an accessible introduction of your work or research, a deep dive into your library, a live demo, or a tutorial.
+- Hacking / discussions
+
+*** Call for presentations?
+
+If you’d like to give a talk, please message me or @giltho directly with:
+
+- A title and short abstract
+- Expected time slot
+
+Once we confirm the first date, we’ll:
+
+- Confirm the programme and publish a new forum post
+- Setup website, a Zulip channel, and a Meetup page for registration
+
+Looking forward to meeting more OCaml users in person!
+
+– Alistair &amp; Sacha
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Ppxlib: Support for future compilers</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-ppxlib-support-for-future-compilers/17430/1</cwn_url>
+      <cwn_who>Nathan Rebours announced</cwn_who>
+      <cwn_what>
+*Handling future AST changes in ppxlib*
+
+The OCaml 5.2 compiler release has introduced changes in core parts of the AST types. Reflecting those changes when we bumped the internal AST used by ppxlib in [0.36.0](https://github.com/ocaml-ppx/ppxlib/releases/tag/0.36.0) caused breakage in a lot of reverse dependencies. Despite [our efforts to keep the ecosystem up to date](https://discuss.ocaml.org/t/ann-ppxlib-0-36-0/16241#p-69148-ocaml-52-internal-ast-1), it has lead to a split in the opam universe between packages that are compatible with 0.36.0 and above and those that aren't.
+
+Looking at the 5.3 and 5.4 AST changes, we cannot reasonably keep the same ["update the universe" approach](https://discuss.ocaml.org/t/ppx-omp-2-0-0-and-next-steps/6231) going forward I would like to propose a slightly different but much more stable and sustainable approach.
+
+I think it's important to have a bit of context on why ppxlib is designed the way it is and how we've been handling new compiler releases over the past few years to understand this new approach and how it's going to improve the situation.
+
+The next section of this post will summarize this. If you're already familiar with ppxlib's history and design choices, please skip ahead to the [Proposed Approach section](#proposed-approach-for-53-onward).
+
+*** Ppxlib and compiler releases: How it works today
+
+**** Ppxlib internal AST
+
+Before ppxlib there was [ocaml-migrate-parsetree](https://github.com/ocaml-ppx/ocaml-migrate-parsetree). OMP had the advantage of providing a stable API for ppx authors. Each ppx would select a fixed version of the AST and be implemented as a full AST rewrite, i.e. a ~structure -> structure~ or ~signature -> signature~ function.
+
+This had the advantage of making ppx-es forward compatible as omp maintainers would add support for new compiler releases in the form of a new module containing the AST types for this version and migration functions to convert to/from the types matching the previous compiler version.
+
+OMP also came with a ppx driver, i.e. a program in charge of applying a set of ppx-es on a given AST or source file and spit out the final preprocessed AST for the compiler. The driver was responsible for migrating the AST from the compiler's version to the one used by a ppx. Because each ppx could require a different AST version, it also potentially had to migrate the AST transformed by a ppx before it passing it on to the next one.
+
+This had a few disadvantages though:
+1. poor performance as the AST was traversed and migrated (i.e. copied) several times through the course of a single driver run.
+2. transformations semantic issues: the order in which ppx-es were applied was uncertain or rather tied to the set of ppx-es version used. That meant that updating one ppx could change its "turn" and result in a different AST returned by the driver. This also did not allow ppx-es to interact together reliably.
+
+ppxlib aimed at fixing those issues by forcing ppx-es to agree on the AST version to use. ppxlib provides its own, fixed AST version that ppx-es have to use. Its driver handles the migration to/from the current compiler and provides a smooth API to write transformations as rewriting rules. The driver then handles the AST rewrite by recursively applying those rules in the right places in a single AST traversal.
+
+**** Support for new compilers
+
+Support for new compilers comes in two stages.
+
+***** Build and preprocess old code with new compiler
+
+This is the most basic support, that is making sure that one can still build and preprocess its code using the newest compiler, provided they don't use any of the new language features.
+
+To do this, we add the new AST types and migration functions, just as OMP used to do. This does not allow new features in the code because those cannot be represented with the old AST types and the migration would fail (*This was also an existing limitation of OMP*).
+
+This is usually released early on, when the compiler is still in beta and is a non breaking change, all reverse dependencies still build with this new version.
+
+***** Support new language features
+
+To support new language features, we bump the AST used by ppxlib. This means new features don't have to be migrated anymore and are therefore supported.
+
+This does change types that are exposed as part of ppxlib's API and can cause breakage in reverse dependencies, depending on which part of the AST were modified and which part each individual ppx uses explicitly.
+
+We provide tools that can help make ppx code more robust as they allow matching over and producing AST nodes without explicitly referencing the types themselves: ~metaquot~, ~Ast_builder~ or ~Ast_pattern~ for instance. That's not always enough though and eventually, those ppx-es have to be updated to be compatible with the latest version of ppxlib.
+
+As was the case for the 5.2 AST bump, when we release such a ppxlib version, we send PRs to help maintainers of our opam reverse dependencies update and carefully add upper bounds to the versions that aren't compatible anymore.
+
+This worked pretty well for a few years as the AST was relatively stable and the parts that were modified were not directly used by a lot of ppx-es.
+
+A problem with this approach is that even though we can help maintainers go through the update, we cannot release packages in their stead which means that unmaintained ppx-es aren't  compatible anymore no matter how much effort we put into easing the upgrade. It is also often the case that not all ppx-es have a compatible release straight away and this results in a transition period with the opam universe split mentioned in the introduction.
+
+*** Proposed approach for 5.3 onward
+
+The first part of this plan is to freeze ppxlib's internal AST for each major versions. That means that until we release ppxlib.1.0.0 our internal AST will always be the 5.2 AST.
+
+The second and most important part is to provide complete forward compatibility despite the AST freeze. We will allow migrating new features down to our AST by encoding them inside specific language extensions and migrating them back to their original form before returning the preprocessed AST to the compiler.
+
+This will allow existing ppx-es to be used with new compilers AND to be used in the same files as new language features as long as they don't have to directly interact with them without being updated in any way.
+
+We will also provide a stable API to allow ppx-es that would like to add special support for these new features to build and match over such nodes.
+
+You can take a look at the examples below to get an idea of what that would look like for recent language features such as the [effect syntax](#effect-syntax-example) from OCaml 5.3 or the [bivariance annotation](#bivariant-type-parameter-example) from OCaml 5.4.
+
+As part of these changes, we will deprecate ppxlib's copy of ~Ast_helper~ in favor of ~Ast_builder~, aiming to remove ~Ast_helper~ entirely in 1.0.0. We have been maintaining two distinct modules for quite a while now. ~Ast_helper~ also has a tendency to encourage its users to generate all their code with ~Location.none~ as their location which makes the life of their users a bit hard when they have to interpret compiler errors.
+
+This can be seen as a middle ground between the approach proposed [here](https://discuss.ocaml.org/t/the-future-of-ppx/3766) 6 years ago (/that we gave up on due to its complexity/) and the current situation.
+
+**** Limitations
+
+Encoding new features into extension points is not always easy, only specific parts of the AST can be replaced by an extension point. To keep things under control and prevent ppx-es from generating inconsistent nodes, all new features will always be migrated into an extension point. That means that if the impacted node cannot directly be encoded that way, we will encode the first suitable parent node. In some scenarios, that can climb up the AST types quite significantly, potentially all the way to the ~structure_item~/~signature_item~. This means that new features won't be equal when it comes to how easy it is to use them in conjunction with some ppx-es. It's important to keep in mind that this is still a net improvement as it was previously not possible to use them together at all.
+
+Similarly, providing a nice API to allow building and destructing encoded new features will vastly depend on the features themselves and how entangled they are with new AST types. We will likely not always expose such builder/destructor pairs and might only add some of them if the demand is high enough.
+
+It is also part of the reason why we will probably still bump our AST at some points in time even if much less frequently than we have in the past. When that eventually happens, we will be able to maintain the previous major versions for quite a while as this will just be a matter of adding our newest migrations there as well.
+
+**** Effect syntax example
+
+OCaml 5.3 introduced the following syntax:
+#+begin_src ocaml
+match f () with
+| v -> Complete v
+| effect (Xchg msg), k ->
+  ...
+#+end_src
+
+This special effect pattern is represented in the 5.3 AST with the ~Ppat_effect~ variant:
+#+begin_src ocaml
+  | Ppat_effect of pattern * pattern
+#+end_src
+
+We cannot represent this in the 5.2 AST and previously, any attempt at migrating such a node down would have failed. With this new approach we instead migrate it to something along those lines:
+#+begin_src ocaml
+[%ppxlib.migration.ppat_effect? (Xchg msg, k)]
+#+end_src
+and the upward migration knows to translate this to the right ~Ppat_effect~ node. This migration needs to work without context outside the extension so that any ppx that would unknowingly copy such a node elsewhere in the AST would not cause an uninterpreted extension error later on during the compilation.
+
+If this is passed down to an existing ppx as part of its payload and it tries to interpret it, it should fail as it won't know what to do with such an extension.
+
+*Note that ppx authors should never rely on the actual extension point encoding, we reserve ourselves the right to change that encoding as part of minor or patch releases of ppxlib. Such nodes should be left untouched or dealt with using the stable API described below.*
+
+Now if a ppx author needs to add explicit support for effects they will be able to use something like:
+#+begin_src ocaml
+val ppat_effect : loc: location -> pattern -> pattern -> pattern
+#+end_src
+from ~Ast_builder~ to generate such a node. Of course if your ppx generates an ~effect~ pattern with an older compiler, this will lead to a compile error as the extension won't be translated unless migrated back up. Authors will have to be mindful of this and properly document when/how they'll generate newer nodes and eventually restrict their ppx to the right range of compilers.
+
+These will likely come with a "destruct" version in ~Ast_pattern~. For the ~effect~ pattern it should look like:
+#+begin_src ocaml
+val ppat_effect : (pattern * pattern, 'a, 'b) t -> (pattern, 'a, 'b) t
+#+end_src
+
+**** Bivariant type parameter example
+
+This example is probably a bit of a stretch as it is a very niche syntax change and is highly unlikely to actually be used in the wild, but it makes a good example of a feature that is hard to encode.
+
+In OCaml 5.4, a new variant was added to the ~Asttypes.variance~ type: ~Bivariant~. The ~variance~ type is used in the AST to describe how a type parameter behaves relative to the type itself. This can be manually annotated for each parameter when writing a type declaration or a class.
+
+The ~Bivariant~ case is a bit of a special one as a parameter can only be ~Bivariant~ (i.e. covariant AND contravariant) with the type if it does not actually appear in the concrete type definition, that is in cases such as:
+#+begin_src ocaml
+type 'a t = A
+#+end_src
+
+For reasons that we won't expand upon here, 5.4 introduced the following syntax to allow one to explicit annotate a parameter as bivariant:
+#+begin_src ocaml
+type +-'a t
+#+end_src
+
+The problem is that the variance cannot be replaced directly by an extension point, see the type ~type_declaration~ for instance:
+#+begin_src ocaml
+  and type_declaration =
+      {
+       ptype_name: string loc;
+       ptype_params: (core_type * (variance * injectivity)) list;
+                                   ^^^^^^^^
+        (** [('a1,...'an) t] *)
+       ptype_cstrs: (core_type * core_type * Location.t) list;
+        (** [... constraint T1=T1'  ... constraint Tn=Tn'] *)
+       ptype_kind: type_kind;
+       ptype_private: private_flag;  (** for [= private ...] *)
+       ptype_manifest: core_type option;  (** represents [= T] *)
+       ptype_attributes: attributes;  (** [... [\@\@id1] [\@\@id2]] *)
+       ptype_loc: Location.t;
+      }
+#+end_src
+
+In this example we have to encode the entire parent node of the type declaration as an extension point.
+
+This means that it spreads in quite a few places, ~type_declaration~ can be found in ~structure_items~, ~signature_items~ and inside some ~module_type~ nodes as well.
+
+Given there's very little to no use for this syntax, we won't be providing any function to build or destruct such nodes initially.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Miou, a simple scheduler for OCaml 5</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-miou-a-simple-scheduler-for-ocaml-5/12963/17</cwn_url>
+      <cwn_who>Calascibetta Romain announced</cwn_who>
+      <cwn_what>
+I am delighted to announce the release of Miou version 0.5.0. This release now uses ~poll(2)~/~ppoll(2)~ instead of ~select(3P)~ in order to improve I/O management performance.
+
+Since I/O management is decoupled from the scheduler, this does not change the Miou API or the ~miou.unix~ library.
+
+I would particularly like to thank @backtracking for allowing us to integrate part of his [bitv](https://github.com/backtracking/bitv) library under a different licence, as well as @haesbaert, the original author of [ocaml-iomux](https://github.com/ocaml-multicore/ocaml-iomux), for allowing us to use ~poll(2)~/~ppoll(2)~.
+
+This has allowed us to go further, particularly with [vif](https://github.com/robur-coop/vif), our web framework for OCaml 5, and our website [builder-web](https://git.robur.coop/robur/builder-web) has been completely rewritten to move to OCaml 5 (thanks to @reynir and @yomimono who participated in this rewrite and provided important feedbacks).
+
+This release comes with a new package, [flux](https://github.com/robur-coop/flux) (still experimental), offering streaming abstractions that can be used with Miou. I would like to thank @rizo for his sketch [streaming](https://github.com/rizo/streaming) in this regard (pre-OCaml 5). This library takes advantage of the parallelism offered by Miou (with ~Miou.call~) as well as resource management and finalisers (with ~Miou.Ownership~). A tutorial is available [here](https://robur-coop.github.io/flux/local/flux/flux.html) to create a tiny ~curl~ with a loading bar.
+
+https://raw.githubusercontent.com/robur-coop/flux/refs/heads/main/assets/fetch.gif
+
+Finally, we are continuing to lay the groundwork for the development of unikernels with [mkernel](https://github.com/robur-coop/mkernel). We are currently experimenting with three unikernels:
+- [immuable](https://github.com/dinosaure/immuable), which reuses Vif to create websites in OCaml 5 in the form of unikernels
+- [chaos](https://git.robur.coop/robur/chaos) (still at a very experimental stage), which aims to be an NTP server
+- [dns-resolver](https://github.com/mirage/dns-resolver/pull/6), which is a DNS query resolver in the form of a unikernel
+
+Finally, we would also like to thank everyone who has been involved in the development of Miou and its related ecosystem, whether directly or indirectly.
+
+Happy hacking!
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Cmarkit 0.4.0 - CommonMark parser and renderer for OCaml</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-cmarkit-0-4-0-commonmark-parser-and-renderer-for-ocaml/17435/1</cwn_url>
+      <cwn_who>Daniel Bünzli announced</cwn_who>
+      <cwn_what>
+Hello, 
+
+It's my pleasure to announce a new release of [cmarkit](https://erratique.ch/software/cmarkit), an ISC-licensed CommonMark parser and renderer for OCaml.
+
+This release provides support for the latest version of the CommonMark specification, updated data for Unicode 17.0.0, a notable semantic change in the task item extension (thanks to @samoht) and a couple of bug fixes and improvements mostly in the CommonMark renderer.
+
+All the details are in the [release notes](https://github.com/dbuenzli/cmarkit/blob/main/CHANGES.md#v040-2025-11-01-zagreb). Thanks to everyone who reported issues. 
+
+This release is brought to you by essential funding from the [OCaml software foundation](https://ocaml-sf.org/) and my [donors](https://github.com/sponsors/dbuenzli).
+
+- Homepage: https://erratique.ch/software/cmarkit
+- Docs: https://erratique.ch/software/cmarkit/doc (or `odig doc cmarkit`)
+- Install: `opam install cmarkit` ([opam PR](https://github.com/ocaml/opam-repository/pull/28811))
+
+---
+
+P.S. I'm surprised by the number of users (or rather, dissatisfied users :–) of the CommonMark renderer. If you are using it don't hesitate to tell how/why you are using it in this thread, just curious :–)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OCaml library for Timeplus Proton timeseries streaming database</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-ocaml-library-for-timeplus-proton-timeseries-streaming-database/17440/1</cwn_url>
+      <cwn_who>Michael Freeman announced</cwn_who>
+      <cwn_what>
+A high-performance, feature-rich OCaml driver for [Timeplus Proton](https://timeplus.com/) - the streaming database built on ClickHouse.
+
+*** *Features*
+
+- *Streaming Queries* - Process large datasets with constant memory usage
+- *Async Inserts* - High-throughput data ingestion with automatic batching
+- *Compression* - LZ4 and ZSTD support for reduced network overhead
+- *TLS Security* - Secure connections with certificate validation
+- *Connection Pooling* - Efficient resource management for high-concurrency applications
+- *Rich Data Types* - Full support for ClickHouse types including Arrays, Maps, Enums, DateTime64
+- *Idiomatic OCaml* - Functional API leveraging OCaml's strengths
+
+https://github.com/mfreeman451/proton-ocaml-driver
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Book draft: "Control structures in programming languages"</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/book-draft-control-structures-in-programming-languages/17443/1</cwn_url>
+      <cwn_who>Xavier Leroy announced</cwn_who>
+      <cwn_what>
+I am happy to announce that a draft of my upcoming book "Control structures in programming languages: from goto to algebraic effects" is now available at [https://xavierleroy.org/control-structures](https://xavierleroy.org/control-structures) .
+
+The book compares several programming languages from the standpoint of control structures.  OCaml is used intensively to discuss control in functional programming, including continuation-passing style, control operators, exceptions, user-defined effects and effect handlers, with many examples that I hope you'll like.
+
+The book also discusses in depth a number of questions that are often raised in this forum, such as the theory and practice of algebraic effects and handlers, and the static checking of exceptions and effects.
+
+Enjoy!
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>oplot 0.85 - mathematical plotter</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-oplot-0-85-mathematical-plotter/17444/1</cwn_url>
+      <cwn_who>sanette announced</cwn_who>
+      <cwn_what>
+Hello 
+
+I’m happy to announce a new version of [oplot](https://github.com/sanette/oplot), a library for plotting mathematical functions, using openGL by default for fast rendering and animations, but also providing high quality vector graphics exports.
+
+This version has a new feature that math lovers will appreciate: ~implicit_curve~ plotting!
+
+For instance do you want to know what the solutions to the equation (x²+y²-1)³ - x² y³ = 0 look like?
+
+Here is the result:
+
+#+attr_html: :width 80%
+https://us1.discourse-cdn.com/flex020/uploads/ocaml/optimized/2X/0/00fbc53496cd6a8e5b9fb37807e9f5243b79e75e_2_1222x1000.png
+
+If you already dug into the problem of plotting implicit curves you know that it’s sometimes very difficult to localize in advance the various singularities of the curve. ~oplot~ gives you 3 ways of tuning the computation: grid size, recursive grid size for subsampling where the curvature of the curve seems high, and control over the iterations of the Newton method. There is also a pole detection, where the function changes sign but probably still doesn’t have a zero there. You can obtain debug information for any curve, for instance here you see the default parameters automatically detected for the above curve: initial grid (green) and subsampling (cyan):
+
+#+attr_html: :width 80%
+https://us1.discourse-cdn.com/flex020/uploads/ocaml/optimized/2X/1/1edb6f547feb24bd42aad4f21d0bb20c2455d684_2_1222x1000.png
+
+~oplot~ is available in opam, doc is [here](https://sanette.github.io/oplot/oplot/Oplot/index.html).
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>QCheck 0.27</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-qcheck-0-24/16198/4</cwn_url>
+      <cwn_who>Jan Midtgaard announced</cwn_who>
+      <cwn_what>
+QCheck 0.27 is now available from the opam repository :partying_face:
+ 
+https://github.com/c-cube/qcheck/releases/tag/v0.27
+
+The 0.27 release is focused on improving the ~float~ shrinking support and also contains a small patch to make the package compile with OxCaml:
+- Add ~QCheck.Shrink.float~ and enable shrinking for ~QCheck.float~
+- Add ~QCheck.Shrink.float_bound~ and enable shrinking for ~QCheck.float_bound_inclusive~ and ~QCheck.float_bound_exclusive~
+- Add ~QCheck.Shrink.float_range~ and enable shrinking for ~QCheck.float_range~
+- Enable shrinking for ~QCheck.{pos_float,neg_float,exponential}~
+- Patch ~QCheck.Print.float~ and ~QCheck2.Print.float~ to print negative nans consistently as "-nan" also on Windows and macOS, and correct documentation for ~QCheck.{float,pos_float,neg_float}~ in that they may produce ~nan~s since #350 from 0.26
+- Eta-expand a couple of partial application to compile under OxCaml
+
+Happy testing! :smiley:
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Bytesrw 0.3.0 – The cryptographic edition</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-bytesrw-0-3-0-the-cryptographic-edition/17450/1</cwn_url>
+      <cwn_who>Daniel Bünzli announced</cwn_who>
+      <cwn_what>
+Hello, 
+
+It's my pleasure to announce a new release of the [bytesrw](https://erratique.ch/software/bytesrw) set of ISC licensed libraries.
+
+#+begin_quote
+Bytesrw extends the OCaml Bytes module with composable, memory efficient,  byte stream readers and writers compatible with effect-based concurrency.
+
+Optional support for compressed, hashed and encrypted bytes depend, at your wish, on the C ~zlib~, ~libzstd~, ~blake3~, ~libmd~, ~xxhash~ and  ~mbedtls~ libraries.
+#+end_quote
+
+This release adds optional libraries to support for ~SHA-3~ hashes, cryptographically secure pseudo-random bytes streams, TLS encrypted byte stream and low-level support for cryptographic operations on slices:
+
+- [~Bytesrw_sysrandom~](https://erratique.ch/software/bytesrw/doc/Bytesrw_sysrandom/index.html) provides pseudorandom byte streams and entropy directly sourced from your operating system primitives.
+
+- [~Bytesrw_crypto.Psa~](https://erratique.ch/software/bytesrw/doc/Bytesrw_crypto/Psa/index.html) provides low-level cryptographic operations on byte slices via thin and safe bindings to the [TF-PSA-Crypto](https://github.com/Mbed-TLS/TF-PSA-Crypto) C library distributed with Mbed TLS. This library is an implementation of the [PSA Crypto API Specification](https://arm-software.github.io/psa-api/crypto/1.2/). Its design is particularly suited if you care about key materiel not being seen by the OCaml GC (implementations also allow further degrees of isolation as can be read in the API's [design goals](https://arm-software.github.io/psa-api/crypto/1.2/overview/goals.html)). Besides the API is nicely and thoroughly documented. It is quite bureaucratic to use but that's what you likely want from a cryptographic library (e.g. key usages have to be declared upfront and are checked at runtime by cryptographic operations).
+  
+- [~Bytesrw_crypto~](https://erratique.ch/software/bytesrw/doc/Bytesrw_crypto/index.html) (will) provides a few higher-level operations implemented over PSA. The module is rather shallow at the moment, more will be added in the future as we abstract over our usage of PSA Crypto. For now it mostly contains an API to access the hashes provided by PSA Crypto in the way other ~bytesrw~ hashing modules expose their hashing service. This notably provides the ~SHA-3~ family of hashes which were not previously available in the set of optional ~bytesrw~ libraries.
+
+- [~Bytesrw_tls~](https://erratique.ch/software/bytesrw/doc/Bytesrw_tls/index.html) provides support for TLS encrypted streams and the needed X.509 certificate management (including system lookups for trusted CAs). The backend is provided by the [Mbed TLS](https://www.trustedfirmware.org/projects/mbed-tls/) C library. For now these streams are instantied over blocking fds, but this restriction will be lifted in the future. I also added a little tool called ~certown~ which you may find handy for dealing with certificates for localhost when you develop servers.
+
+Note that the binding to PSA cryptography has been used to implement a few things (e.g. the horrific passkeys specification) but has not run in production yet. However the binding is pleasantly unsophisticated, the underlying C API is straightforward to bind to.
+
+See the [release notes](https://github.com/dbuenzli/bytesrw/blob/main/CHANGES.md#v030-2025-11-04-zagreb) for details about other changes.
+
+This release was made possible thanks to a grant from the [OCaml software foundation](https://ocaml-sf.org/) and to my [donors](https://github.com/sponsors/dbuenzli).
+
+- Homepage: https://erratique.ch/software/bytesrw
+- Docs: https://erratique.ch/software/bytesrw/doc (or ~odig doc bytesrw~)
+- Install: ~opam install bytesrw conf-…~ ([opam pr](https://github.com/ocaml/opam-repository/pull/28836))
+
+---
+
+P.S. Libraries that depend on Mbed TLS need the recent 4.0.0 version which is quite fresh and may take a bit of time to trickle in system package managers. If you trust me you can use my
+[distribution crutch](https://github.com/dbuenzli/distrib-crutch.opam) opam repository to install it.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Other OCaml News</cwn_title>
+      <cwn_who>From the ocaml.org blog</cwn_who>
+      <cwn_what>
+Here are links from many OCaml blogs aggregated at [[https://ocaml.org/blog/][the ocaml.org blog]].
+
+- [[https://tarides.com/blog/2025-10-30-supporting-ocurrent-floss-fund-backs-maintenance-for-ocaml-s-native-ci-framework][Supporting OCurrent: FLOSS/Fund Backs Maintenance for OCaml's Native CI Framework]]
+- [[https://fearful-odds.rocks/blog/webauthn-passkey-implementation-ocaml][WebAuthn &amp; Passkeys in OCaml: Implementing Passwordless Authentication]]
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>
