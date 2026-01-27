@@ -1,0 +1,337 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[https://alan.petitepomme.net/cwn/2026.01.20.html][Previous Week]] [[https://alan.petitepomme.net/cwn/index.html][Up]] [[https://alan.petitepomme.net/cwn/2026.02.03.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of January 20 to 27, 2026.
+
+#+TOC: headlines 1
+
+
+* lwt-to-eio: Automating the mechanical parts of Lwt -> Eio migration
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/ann-lwt-to-eio-automating-the-mechanical-parts-of-lwt-eio-migration/17696/1
+
+** oug-t announced
+
+
+Hi everyone,
+
+Like many of you, I’ve been looking into migrating my libraries from Lwt to Eio to take advantage of OCaml 5’s direct-style concurrency. While the manual migration guides are excellent, I found myself making the same mechanical changes over and over—flattening binds, unwrapping promises, and rewriting maps.
+
+So, I built *~lwt-to-eio~*, a tool that automates the boring parts of this transition.
+
+*Repo:* [[https://github.com/oug-t/lwt-to-eio][https://github.com/oug-t/lwt-to-eio]]
+
+*** What it does (The Magic)
+
+It parses your OCaml source code and performs AST-level rewrites to transform monadic Lwt patterns into direct-style Eio code.
+
+*Input (Lwt):*
+
+#+begin_src ocaml
+let fetch_data id =
+  Lwt.bind (Db.get_user id) (fun user ->
+    Db.get_posts user.id >>= (fun posts ->
+      Lwt_list.map_p process posts
+    )
+  )
+#+end_src
+
+*Output (Eio)*
+
+#+begin_src ocaml
+let fetch_data id =
+  let user = Lwt_eio.Promise.await_lwt (Db.get_user id) in
+  let posts = Lwt_eio.Promise.await_lwt (Db.get_posts user.id) in
+  Eio.Fiber.List.map process posts
+#+end_src
+
+*** Current Status & Help Wanted
+
+This is currently an *MVP*. It handles the most common patterns I encountered (binds, ~map_p~, ~sleep~, ~return~), but there is plenty of surface area left to cover.
+
+I'm looking for contributors to help add rules for other common patterns. I've tagged a few issues as *"Good First Issues"* if anyone wants to dip their toes into ~ppxlib~ and AST rewriting:
+
+- *~Lwt.catch~ -> ~try/with~*: Transforming monadic error handling to direct style exceptions.
+- *~Lwt_io~ support*: Mapping legacy IO functions to Eio buffers.
+
+Feedback, PRs, and "It broke on my file!" reports are all very welcome.
+
+Happy hacking!
+      
+
+
+
+* The new owners-maintainers of Dream
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/the-new-owners-maintainers-of-dream/17712/1
+
+** Anton Bachin announced
+
+
+I am very pleased to announce that [[https://github.com/camlworks/dream][Dream]], the Web framework, is now owned and maintained by a new team, of:
+
+- Sabine Schmaltz (@sabine), maintainer of OCaml.org
+- Sebastian Willenbrink ( https://github.com/Willenbrink ), author of the effort to port Dream to Eio
+- Yawar Amin (@yawaramin), author of dream-html, and the Web framework ReWeb
+
+…among their other projects and contributions to the OCaml community. All are major and long-term contributors to, and users of, Dream.
+
+I’ve stepped back from ownership and overall maintenance, but will still work on parts of Dream every now and then as a contributor, along with all of Dream’s contributors :slight_smile:
+
+Dream is discussed in this forum, in its [[https://github.com/camlworks/dream/issues][issue tracker]], [[https://discord.com/channels/436568060288172042/439062744105484288][#webdev]] in the OCaml Discord, and [[https://ocaml.zulipchat.com/#narrow/channel/556063-dream][#dream]] on Zulip. Dream has a (roughly) weekly open video call on Discord for contributors to discuss technical issues with each other and with maintainers.
+
+Welcome to Sabine, Sebastian, Yawar, the new team!
+      
+
+
+
+* Slipshow!
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/ann-slipshow/16337/17
+
+** Paul-Elliot announced
+
+
+Hello!
+
+It is in a state of sliplessness that I announce the new release of Slipshow!
+
+*Slipshow 0.8.0: Les gnomes voleurs de Slipshow*
+
+This release comes with a handful of bugfixes, in particular on the new and experimental record-and-replay for drawings.
+
+But the star of the release is *the new [[https://slipshow.readthedocs.io/en/stable/][documentation]]*! For instance, the tutorial on [[https://slipshow.readthedocs.io/en/stable/visual-structure.html][structuring your presentation visually]] will allow you to create presentations such as this one, presenting Slipshow's business model:
+
+#+attr_html: :width 80%
+https://github.com/user-attachments/assets/41539c78-f998-4597-9392-4d555435d5a3
+
+The tutorials also includes live code blocks, and Slipshow has now a [[https://slipshow.org][dedicated website]].
+
+Here is the full changelog!
+
+*** Features
+
+- Add a "mirror mode" to the speaker view, which mirrors the entire screen you
+  are sharing with the audience (#188)
+- Add support for external files through CLI and frontmatter (#191)
+- Add shortcut to delete or unselect selection in drawing editing (#192)
+- Add a "Close editing panel" button when there are no strokes (#192)
+- Default file names for drawing recording depend on their names (#192)
+- Improve ~-o~ argument wrt directories (#190)
+- Inline SVGs instead of adding them as images, allowing the use of classes and
+  ids in SVGs (#190)
+- Rework the docs! (#190)
+
+*** Fix
+
+- Fix pauses time not updated after a rerecording (#192)
+- Fix drawing editing shortcuts triggering even when focusing on a textarea
+  (#192)
+- Fix interaction between fields and drawing editing shortcuts (#192)
+- Fix order of ~clear~ and ~draw~ action: the first comes first (#192)
+- Use .woff2 for embedded fonts (#190)
+
+
+Thanks again to NLNet for [[https://nlnet.nl/project/Slipshow/][supporting]] the development of Slipshow!
+      
+
+
+
+* Bancos: A persistent Key-Value store based on ROWEX/P-ART
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/ann-bancos-a-persistent-key-value-store-based-on-rowex-p-art/17719/1
+
+** Calascibetta Romain announced
+
+
+I am pleased to announce the first release of [[https://github.com/robur-coop/bancos][bancos]], our new persistent Key-Value store.
+
+Bancos is an implementation of an Adaptive Radix Tree ([[https://github.com/dinosaure/art][ART]]) modified to support parallel reads and writes ([[https://db.in.tum.de/~leis/papers/artsync.pdf][ROWEX]]) directly on a file (based on the [[https://arxiv.org/pdf/1909.13670][RECIPE/P-ART]] approach).
+
+- Our project is designed for indexing with file-backed storage.
+- We provide an implementation compatible with unikernels. It is currently being used by [[https://github.com/robur-coop/kevin][kevin]], an HTTP/1.1 server unikernel that exposes routes for key insertion and lookup.
+- This work is part of our broader goal to index emails by their ~Message-ID~. An extension of our tool [[https://github.com/dinosaure/blaze][blaze]] now allows searching through archives now (if you are interesting about our archive system, you can take a look [[https://blog.robur.coop/articles/2025-01-07-carton-and-cachet.html][here]]). This indexing also enables efficient email thread extraction using ~In-Reply-To~ headers.
+
+While still experimental, the results — especially when paired with our [[https://github.com/robur-coop/miou][Miou]] scheduler — are very promising. This release of [[https://github.com/robur-coop/bancos][bancos]] comes alongside several updates across our stack:
+- [[https://github.com/robur-coop/flux][flux]]: Our OCaml stream library for Miou
+- [[https://github.com/robur-coop/carton][carton]]: For manipulating PACKv2 archives (as used by Git)
+- [[https://github.com/robur-coop/bstr][bstr]]: A library for handling bigbytes and memory buffers
+- [[https://github.com/robur-coop/cachet][cachet]]: A library to cache ~mmap~ syscall results. Notably, this include significant work on an _asynchronous write pipeline_ for unikernels on block devices
+
+You can find the project here: https://github.com/robur-coop/bancos
+
+For a deeper dive into the implementation of bancos and its application to email indexing, we have prepared a detailed blog post [[https://blog.robur.coop/articles/2025-18-12-bancos.html][here]].
+
+Happy hacking!
+      
+
+
+
+* restricted 1.2.0 limit which system operations and which parts of the filesystem your program can access
+:PROPERTIES:
+:CUSTOM_ID: 5
+:END:
+Archive: https://discuss.ocaml.org/t/ann-restricted-1-2-0-limit-which-system-operations-and-which-parts-of-the-filesystem-your-program-can-access/17732/1
+
+** removewingman announced
+
+
+Hello,
+
+I am happy to announce a new version of [[https://opam.ocaml.org/packages/restricted/restricted.1.2.0/][restricted]].
+
+This library lets you limit which system operations and which parts of the filesystem your program can access. Call it as early as possible in your program so that the rest of the code runs with reduced privileges. Currently, actual enforced restrictions are implemented for these operating systems:
+
+- OpenBSD
+- Linux (only filesystem view)
+
+Even on other operating systems, you can still use [[https://removewingman.codeberg.page/restricted/][restricted]] to document which privileges your program needs. Users can then test if your program respects these promises with tools such as [[https://justine.lol/pledge/][pledge on Linux]]. Enjoy :slight_smile:
+
+- [[https://opam.ocaml.org/packages/restricted/restricted.1.2.0/][opam]]
+- [[https://removewingman.codeberg.page/restricted/][api]]
+- [[https://codeberg.org/removewingman/restricted/src/branch/main#usage-and-examples][examples]]
+- [[https://codeberg.org/removewingman/restricted][git repo]]
+- [[https://en.wikipedia.org/wiki/GNU_Affero_General_Public_License][License AGPL]]
+
+CHANGELOG:
+
+- add Linux (only filesystem view) via landlock(7)
+ - except unlink/removing, whole other thing with LANDLOCK_ACCESS_FS_READ_FILE in landlock
+- add [[https://semver.org/][Semantic Versioning]]
+- change description to make it more clear
+- tested with flambda switch on:
+  - x86_64-openbsd
+  - x86_64-arch-linux, x86_64-alpine-linux (Landlock ABI version: 7)
+      
+
+
+
+* dead_code_analyzer 1.1.0
+:PROPERTIES:
+:CUSTOM_ID: 6
+:END:
+Archive: https://discuss.ocaml.org/t/ann-dead-code-analyzer-1-1-0/17734/1
+
+** fantazio announced
+
+
+Hello everyone,
+
+I am happy to announce [[https://github.com/LexiFi/dead_code_analyzer/releases/tag/1.1.0][the release of the dead_code_analyzer 1.1.0]] (available via ~opam~) !
+
+Thanks to @edwinans, @nojb, and @Tibo for their contributions, reviews, and feedback.
+
+This release greatly improves the support of projects built with ~dune~ and introduces some [[https://github.com/LexiFi/dead_code_analyzer/blob/1.1.0/docs/USER_DOC.md][user documentation]].
+The tool still requires **OCaml 5.2**. There is a [[https://github.com/LexiFi/dead_code_analyzer/pull/38][work in progress to support OCaml 5.3]].
+
+If you encounter a problem with this release, please [[https://github.com/LexiFi/dead_code_analyzer/issues][report it on the github repository]].
+Feedback and contributions are welcome.
+      
+
+
+
+* OCaml security team
+:PROPERTIES:
+:CUSTOM_ID: 7
+:END:
+Archive: https://discuss.ocaml.org/t/ann-ocaml-security-team/16902/11
+
+** Continuing this thread, Hannes Mehnert announced
+
+
+Dear everyone, as we discussed in the earlier public meeting, we plan to have every 3 months another one.
+
+The next public security meeting is scheduled for Thursday, March 19th 14:00 CET - 16:00 CET. Please put that into your calendar if you plan to attend.
+      
+
+
+
+* Proposal: make the minimum tested opam 2.1 and higher
+:PROPERTIES:
+:CUSTOM_ID: 8
+:END:
+Archive: https://discuss.ocaml.org/t/proposal-make-the-minimum-tested-opam-2-1-and-higher/17736/1
+
+** Anil Madhavapeddy announced
+
+
+Much as we did a while back with [[https://discuss.ocaml.org/t/raising-the-minimum-tested-version-of-ocaml-to-4-05-or-4-08-from-4-02/12464][raising the minimum version of OCaml tested to 4.08]], it's now time to raise the minimum version of opam that we test in the CI matrix.
+
+[[https://discuss.ocaml.org/t/ann-opam-2-0-0-final-release-and-repository-upgrade/2585][opam 2.0.0 was released]] in 2018, and ever since then the Docker images have [[https://github.com/ocurrent/ocaml-dockerfile/blob/master/src-opam/opam.mli#L44-L52][built every version]], with the default being the minimum version (2.0.x) all the way through to 2.5.x.
+
+I now propose that we raise the minimum tested version of opam to 2.1.x. Looking in [[https://repology.org/project/opam/versions][repology/opam]], the only notable distro still shipping opam 2.0 is Ubuntu 20.04, which went EOL in May 2025.   Ubuntu 24.04 still has have 2.1.x, so I expect this will be the testing floor for some years until that rotates out.
+
+The most observable improvement from this will be the opam-repository CI 'The actions to process have cyclic dependencies' failure will no longer bug us for every package submitted that has ~{with-test}~ clauses!
+      
+
+
+
+* csexp-query initial release
+:PROPERTIES:
+:CUSTOM_ID: 9
+:END:
+Archive: https://discuss.ocaml.org/t/ann-csexp-query-initial-release/17737/1
+
+** Josh Berdine announced
+
+
+The csexp-query 0.1.0 [[https://opam.ocaml.org/packages/csexp-query/][opam package]] is now available.
+
+If you have ever wanted to query e.g. the output of ~dune describe~ (but didn't want the dependency cone of [[https://github.com/janestreet/sexp][sexp]]), then [[https://github.com/jberdine/csexp-query][csexp-query]] might be interesting.
+
+~csexp-query~ is a minimal command-line tool to query [[https://en.wikipedia.org/wiki/Canonical_S-expressions][canonical s-expressions]] (csexp) from stdin. For example,
+#+begin_example
+dune describe workspace --format=csexp | csexp-query '(field root)'
+#+end_example
+will extract the dune project root.
+
+Happy hacking!
+      
+
+
+
+* Other OCaml News
+:PROPERTIES:
+:CUSTOM_ID: 10
+:END:
+** From the ocaml.org blog
+
+
+Here are links from many OCaml blogs aggregated at [[https://ocaml.org/blog/][the ocaml.org blog]].
+
+- [[https://www.tunbury.org/2026/01/26/ocurrent-rpc/][Extending RPC capabilities in OCurrent]]
+- [[https://blog.robur.coop/articles/mollymawk-email-notifs.html][Email notifications come to Mollymawk]]
+- [[https://www.dra27.uk/blog/platform/2026/01/19/plotting-a-new-course.html][open Core]]
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[https://alan.petitepomme.net/cwn/][the archive]] or the [[https://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe to the [[https://sympa.inria.fr/sympa/info/caml-list][caml-list]].
+
+#+BEGIN_authorname
+[[https://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname
