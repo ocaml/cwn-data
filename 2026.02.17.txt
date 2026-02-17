@@ -1,0 +1,736 @@
+                          ━━━━━━━━━━━━━━━━━━━
+                           OCAML WEEKLY NEWS
+                          ━━━━━━━━━━━━━━━━━━━
+
+
+[Previous Week] [Up] [Next Week]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of February 10 to 17,
+2026.
+
+Table of Contents
+─────────────────
+
+trace 0.11
+Bogue, the OCaml GUI
+OCaml examples of computing with encrypted or private data
+CMake, Ninja and Google or-tools packages
+Neocaml-mode (A modern Emacs major mode for OCaml) is looking for testers
+YOCaml, a framework for static site generator
+Other OCaml News
+Old CWN
+
+
+[Previous Week] <https://alan.petitepomme.net/cwn/2026.02.10.html>
+
+[Up] <https://alan.petitepomme.net/cwn/index.html>
+
+[Next Week] <https://alan.petitepomme.net/cwn/2026.02.24.html>
+
+
+trace 0.11
+══════════
+
+  Archive: <https://discuss.ocaml.org/t/ann-trace-0-11/17796/1>
+
+
+Simon Cruanes announced
+───────────────────────
+
+  Dear all, I'm delighted to announce the release of [trace 0.11]. This
+  is a major release and hopefully the last one before 1.0.
+
+  [trace] is a lightweight foundation for instrumentation, a bit like
+  [rust's tracing]. It provides a _protocol_ between, one the one hand,
+  libraries and applications that are instrumented; and a _collector_
+  that decides what to do with that. My hope is that projects
+  (especially libraries) can adopt `trace' without fear because of the
+  tiny footprint and high flexibility, the same way `logs' is used in
+  many places. Existing collectors can produce [chrome format traces],
+  fuchsia traces, plug into [tracy], or into [opentelemetry]; a bridge
+  to `Runtime_events' is planned[^1].
+
+  [^1]: trace is more flexible than `Runtime_events' and works on OCaml
+  4, but of course it should be possible to have both interoperate!
+
+  [API docs for the main library]
+
+
+[trace 0.11]
+<https://github.com/ocaml-tracing/ocaml-trace/releases/tag/v0.11>
+
+[trace] <https://github.com/ocaml-tracing/ocaml-trace/>
+
+[rust's tracing] <https://github.com/tokio-rs/tracing>
+
+[chrome format traces]
+<https://docs.google.com/document/d/1CvAClvFfyA5R-PhYUmn5OOQtYMH4h6I0nSsKchNAySU/edit>
+
+[tracy] <https://github.com/ocaml-tracing/ocaml-tracy>
+
+[opentelemetry] <https://github.com/ocaml-tracing/ocaml-opentelemetry>
+
+[API docs for the main library]
+<https://ocaml-tracing.github.io/ocaml-trace/trace/Trace_core/index.html>
+
+brief example
+╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  A simple example program from the readme:
+  ┌────
+  │ let (let@) = (@@)
+  │ 
+  │ let run () =
+  │   Trace.set_process_name "main";
+  │   Trace.set_thread_name "t1";
+  │ 
+  │   let n = ref 0 in
+  │ 
+  │   for _i = 1 to 50 do
+  │     let@ _sp = Trace.with_span ~__FILE__ ~__LINE__ "outer.loop" in
+  │     for _j = 2 to 5 do
+  │       incr n;
+  │       let _sp = Trace.with_span ~__FILE__ ~__LINE__ "inner.loop" in
+  │       Trace.messagef (fun k -> k "hello %d %d" _i _j);
+  │       Trace.message "world";
+  │       Trace.counter_int "n" !n;
+  │     done
+  │   done
+  │ 
+  │ let () =
+  │   (* here we setup the collector *)
+  │   let@ () = Trace_tef.with_setup ~out:(`File "trace.json") () in
+  │   run ()
+  └────
+
+  If we run the program with `TRACE=1' to enable this particular
+  collector, we get a trace file in `trace.json' (but with actual
+  timestamps):
+
+  ┌────
+  │ [{"pid":2,"name":"process_name","ph":"M","args": {"name":"main"}},
+  │ {"pid":2,"tid": 3,"name":"thread_name","ph":"M","args": {"name":"t1"}},
+  │ {"pid":2,"cat":"","tid": 3,"ts": 2.00,"name":"hello 1 2","ph":"I"},
+  │ {"pid":2,"cat":"","tid": 3,"ts": 3.00,"name":"world","ph":"I"},
+  │ {"pid":2,"tid":3,"ts":4.00,"name":"c","ph":"C","args": {"n":1}},
+  │ …
+  └────
+
+  Opening it in <https://ui.perfetto.dev> we get something like this:
+
+  [screenshot of perfetto UI]
+
+
+[screenshot of perfetto UI]
+<https://github.com/ocaml-tracing/ocaml-trace/blob/main/media/ui.png?raw=true>
+
+
+what's new in 0.11
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  0.11 contains major changes, almost all of which are breaking _on the
+  collector side_. Instrumented programs should be **mostly**
+  unaffected, aside from many deprecation warnings.
+
+  The core change is that `Trace.span' is [now] an **open sum type**,
+  and not `int64'. This means less global state and fewer tables needed:
+  collectors can pick exactly what data gets carried from the
+  `enter_span' site into the `exit_span' site, if any. In turns,
+  collectors get simpler and faster. The notion of "manual" span is now
+  dead (a simple alias to normal spans) and all related functions are
+  deprecated. 1.0 will not have this notion at all.
+
+  In addition, collectors are now [a bag of callbacks+a state], rather
+  than a first class module. `trace.subscriber' has been removed because
+  the notion of subscriber is subsumed by the notion of collector (now
+  more easily composable). The TEF and fuchsia collectors are now
+  simpler and free of global state.
+
+  `user_data' is now a polymorphic variant to, for better ease of
+  use. Metrics are an open sum type, and the previous `int' and `float'
+  cases are just provided as constructors of this type. Dependencies on
+  `thread-local-storage' and `hmap' are now entirely gone.
+
+
+[now]
+<https://ocaml-tracing.github.io/ocaml-trace/trace/Trace_core/index.html#type-span>
+
+[a bag of callbacks+a state]
+<https://ocaml-tracing.github.io/ocaml-trace/trace/Trace_core/Collector/index.html>
+
+
+organization note
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  Note: the project has moved from my gh account (c-cube) to a dedicated
+  organization [ocaml-tracing] for telemetry and tracing projects. Other
+  projects such as [opentelemetry] have also migrated there.
+
+
+[ocaml-tracing] <https://github.com/ocaml-tracing/>
+
+[opentelemetry] <https://github.com/ocaml-tracing/ocaml-opentelemetry>
+
+
+Bogue, the OCaml GUI
+════════════════════
+
+  Archive: <https://discuss.ocaml.org/t/ann-bogue-the-ocaml-gui/9099/65>
+
+
+Continuing this thread, sanette announced
+─────────────────────────────────────────
+
+  Hi
+
+  I'm happy to announce [Bogue] version 20260208, now available on opam.
+
+  The main novelties are
+  ⁃ Color management has been improved (_warning: breaking change_)
+  ⁃ New: *Text input validator* : you can write rules (or simply a
+    regexp) to warn the user whether the text they are typing is
+    correct.
+  ⁃ New: *Mailbox* module: setup a mailbox server and send arbitrary
+    messages between widgets.
+  ⁃ Installation on Windows has been simplified.
+  ⁃ Compatibility with old versions of SDL.
+
+  Have fun!
+
+  Here are the details:
+
+  ⁃ /Colors/: All colors and some of the API have been split into the
+    `RGB' and `RGBA' modules. Named colors are now true identifiers:
+    ⁃ instead of writing `let c = Draw.find_color "aliceblue' you should
+      now use `let c = RGB.aliceblue'; and instead of `let c =
+      Draw.(opaque (find_color "aliceblue"))' you write now `let c =
+      RGBA.aliceblue'.
+    ⁃ if you're lazy to correct these, you may simply do `open Bogue.RGB
+      open Bogue.RGBA'; it should be enough in most cases.
+
+  ⁃ /Text input validator/: Example using the included *email
+    validator*:
+    <https://us1.discourse-cdn.com/flex020/uploads/ocaml/original/2X/c/c57cd7fef6d0c6726b3fde63bab8052a1a91012f.webp>
+
+  ⁃ /Mailbox API/: for complicated GUIs with circular connnections
+    between widgets, the usual Bogue solution was to use an `update'
+    event, see [here]. Now this method has been leveraged to a full
+    Mailbox system where any type of message can be sent.
+
+  ⁃ /Windows/ users should follow the instructions [here]. Continuous
+    testing (CI) is now guaranteed to work on Windows mingw64 (and of
+    course Linux and MacOS)
+
+  ⁃ /SDL/: if you have an old version of SDL (>= 2.0.6) and are too lazy
+    to upgrade, rejoice: simply follow the instructions [here]
+
+
+[Bogue] <https://github.com/sanette/bogue>
+
+[here]
+<https://sanette.github.io/bogue-tutorials/bogue-tutorials/modif_parent.html#method-2:-use-update-events-to-get-rid-of-recursivity!>
+
+[here] <https://github.com/sanette/bogue#installing-on-windows>
+
+[here] <https://github.com/sanette/bogue#sdl2-troubleshooting>
+
+
+OCaml examples of computing with encrypted or private data
+══════════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-ocaml-examples-of-computing-with-encrypted-or-private-data/17799/1>
+
+
+Xavier Leroy announced
+──────────────────────
+
+  Last Fall, I gave a [series of lectures] on secure computing
+  (computing with encrypted or private data).
+
+  Here is some companion OCaml code that demonstrates these techniques:
+  <https://github.com/xavierleroy/secure-computing> .
+
+  If you're curious about homomorphic encryption, zero-knowledge proofs,
+  secure multi-party computation, oblivious transfers, private set
+  intersection and so on, you might enjoy these code examples and the
+  explanations given in the lectures.
+
+  This code is probably insecure and not intended to be used in actual
+  high-security applications.  If you're into this kind of things, see
+  [Belenios], an excellent e-voting system written in OCaml that uses
+  many of these secure computing techniques.
+
+
+[series of lectures]
+<https://xavierleroy.org/CdF/2025-2026/en/index.html>
+
+[Belenios] <https://www.belenios.org/>
+
+
+CMake, Ninja and Google or-tools packages
+═════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-dk0-cmake-ninja-and-google-or-tools-packages/17805/1>
+
+
+jbeckford announced
+───────────────────
+
+  It is my pleasure to announce the following packages for
+  (<https://discuss.ocaml.org/t/ann-the-dk0-build-system/17709>):
+
+  • [`CommonsBase_Build.CMake0@3.25.3'] and
+    [`CommonsBase_Build.Ninja0@1.12.1']: CMake and Ninja. The C
+    compiler, Ninja and CMake are the basic tools used to build the
+    majority of modern C projects.
+  • [`NotGoogleDev_OR.Tools.F_Lib@9.15.0'] and
+    [`NotInriaParkas_Caml.ORTools@9.15.0']: Google's `or-tools'
+    libraries discussed by @tbrk in a couple threads last week
+    (<https://discuss.ocaml.org/t/dune-cmake-and-j/17768/6?u=jbeckford>
+    and
+    <https://discuss.ocaml.org/t/foreign-archives-no-static-libraries-dylib-on-mac/17669/10?u=jbeckford>)
+
+  These packages are my /start/ to a clean replacement for opam
+  `depexts'. `depexts' does not work well for me: basic engineering
+  (reproducibility) is gone, system packages often are too far behind
+  their upstream versions, the complete unavailability for Windows
+  users, the occasional symlink break with homebrew, etc.
+
+  Here's the basic idea (macOS only for now):
+
+  ┌────
+  │ # There are other ways to install dk0 but for now use this
+  │ $ git clone --branch V2_5 https://github.com/diskuv/dk.git dksrc
+  │ 
+  │ # Then invoke a fully-qualified target to build `or-tools`
+  │ # which will quickly download precompiled artifacts
+  │ $ dksrc/dk0 --trial get-object NotInriaParkas_Caml.ORTools@9.15.0 \
+  │   -s Release.Darwin_arm64 -d target/ocaml-ortools-arm64/
+  │ 
+  │ # See what is there
+  │ $ tree target/ocaml-ortools-arm64 --filelimit 5
+  │ target/ocaml-ortools-arm64
+  │ ├── include  [33 entries exceeds filelimit, not opening dir]
+  │ ├── shared
+  │ │   └── lib  [262 entries exceeds filelimit, not opening dir]
+  │ └── static
+  │     └── lib  [131 entries exceeds filelimit, not opening dir]
+  │ # ...
+  │ $ du -sh target/ocaml-ortools-arm64
+  │ 464M    target/ocaml-ortools-arm64
+  │ # ...
+  │ $ find target/ocaml-ortools-arm64 -name 'libortools*'
+  │ target/ocaml-ortools-arm64/shared/lib/libortools.9.15.so
+  │ target/ocaml-ortools-arm64/shared/lib/libortools_flatzinc.so
+  │ target/ocaml-ortools-arm64/shared/lib/libortools_flatzinc.9.15.so
+  │ target/ocaml-ortools-arm64/shared/lib/libortools.9.so
+  │ target/ocaml-ortools-arm64/shared/lib/libortools.so
+  │ target/ocaml-ortools-arm64/shared/lib/libortools_flatzinc.9.so
+  │ target/ocaml-ortools-arm64/static/lib/libortools.a
+  │ target/ocaml-ortools-arm64/static/lib/libortools_flatzinc.a
+  └────
+
+        /`or-tools' is just a proof of concept to test my CMake
+        package. I know little about `or-tools'! I just picked it
+        because it was the C library being discussed last week./
+
+  Calling a build target looks at first like installing a package:
+
+  • you get a 125MB compressed download of precompiled `or-tools'
+    libraries. In this case those libraries have been packaged to follow
+    OCaml conventions (both static and shared libraries are present, and
+    `.so' extensions instead of `.dylib' on macOS) … the same thing you
+    expect when you use depexts.
+
+  But `dk0' is a build tool. So if you change to a set of parameters
+  that has not been precompiled like so:
+
+  ┌────
+  │ rm t/d/val.1/j* # hack for bug https://github.com/diskuv/dk/issues/98
+  │ 
+  │ dksrc/dk0 --verbose -I dksrc/etc/dk/v --trial \
+  │   get-object NotInriaParkas_Caml.ORTools@9.15.0 \ 
+  │   -s Release.Darwin_x86_64 -d target/ocaml-ortools-intel/
+  └────
+
+  the build will happen locally (~1 hour on an M1).
+
+  This style of build system may be unfamiliar. So my analogies would
+  be:
+
+  • a `nix' binary cache with overlays (I haven't personally used
+    `nix'); JSON and Lua serve the same purpose as the Nix language, or
+  • an Internet-accessible dune cache that everybody can use; JSON and
+    Lua serve the same purpose as dune files and dune `(rule ...)'
+    expressions.
+
+  The CMake package limitations as of 2026-02-12 … but scroll down in
+  this thread to see if I have posted an update:
+
+  • I haven't had the time to complete dk0 packages for C compilers, so
+    the CMake package is incomplete. CMake + Ninja discovers C compilers
+    on macOS trivially, and last week's threads were discussing macOS,
+    so I prioritized macOS with xcode.
+  • I tested the CMake package on Apple Silicon. Windows is partially
+    tested but don't use Windows yet.
+  • There is no integration with opam or dune yet.
+
+  Thanks!
+
+  —
+
+
+[`CommonsBase_Build.CMake0@3.25.3']
+<https://github.com/diskuv/dk/blob/V2_5/etc/dk/v/CommonsBase_Build/CMake0.values.lua>
+
+[`CommonsBase_Build.Ninja0@1.12.1']
+<https://github.com/diskuv/dk/blob/V2_5/etc/dk/v/CommonsBase_Build/Ninja0.values.jsonc>
+
+[`NotGoogleDev_OR.Tools.F_Lib@9.15.0']
+<https://github.com/diskuv/dk/blob/V2_5/etc/dk/v/NotGoogleDev_OR/Tools.values.lua>
+
+[`NotInriaParkas_Caml.ORTools@9.15.0']
+<https://github.com/diskuv/dk/blob/V2_5/etc/dk/v/NotInriaParkas_Caml/ORTools.values.jsonc>
+
+Building your own packages
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+        /This is bonus material for those thinking about building
+        dk0 packages/
+
+  The JSON build file for `NotInriaParkas_Caml.ORTools@9.15.0' is
+  <https://github.com/diskuv/dk/blob/V2_5/etc/dk/v/NotInriaParkas_Caml/ORTools.values.jsonc>
+
+  `NotInriaParkas_Caml.ORTools@9.15.0' uses the C library package
+  `NotGoogleDev_OR.Tools.F_Lib@9.15.0'. Its Lua build file is
+  <https://github.com/diskuv/dk/blob/V2_5/etc/dk/v/NotGoogleDev_OR/Tools.values.lua>.
+
+  And `NotGoogleDev_OR.Tools.F_Lib@9.15.0' uses the tool package
+  `CommonsBase_Build.CMake0.F_Build@3.25.3'. You can use a command line
+  variation of it (`CommonsBase_Build.CMake0.Build@3.25.3') without any
+  JSON or Lua build files … here is an example:
+
+  ┌────
+  │ dksrc/dk0 --trial run CommonsBase_Build.CMake0.Build@3.25.3 installdir=i/llama-cpp \
+  │   >   'mirrors[]=https://github.com/ggml-org/llama.cpp/archive/refs/tags' \
+  │   >   'urlpath=b7974.zip#be9d624603e39cd4edee5fa85e8812eb8e1393537c8e4e4629bc4bd016388053,29881192' \
+  │   >   'nstrip=1' 'gargs[]=-DBUILD_SHARED_LIBS:BOOL=OFF' \
+  │   >   'exe[]=bin/*' \
+  │   >   'out[]=bin/llama-quantize' \
+  │   >   'outrmglob[]=test-*' 'outrmglob[]=*.py' \
+  │   >   'outrmglob[]=llama-[a-p]*' 'outrmglob[]=llama-[r-z]*' \
+  │   >   'outrmexact[]=include' 'outrmexact[]=lib'
+  └────
+
+  With that single command, `CommonsBase_Build.CMake0.Build@3.25.3' will
+  download the popular C package `llama.cpp', build a static library,
+  remove several of its artifacts, and install what remains (especially
+  bin/llama-quantize) into the `i/llama-cpp' directory. Then type
+  `i/llama-cpp/bin/llama-quantize --help' to run what you just built.
+
+  If you want to make your own CMake-based package for OCaml, work
+  backwards from that explanation:
+
+  1. use the command line first to build a CMake project. It will do the
+     download, and run the `cmake -G', `cmake --build', `cmake
+     --install' on your behalf. The `dk0' error messages usually print
+     with helpful recommendations, and look at the top of
+     [`CommonsBase_Build.CMake0@3.25.3'] for documentation.
+  2. then make a Lua build file to package it for C. You'll make a Lua
+     function ("rule") to set the command line arguments (what you
+     tested in the last step). At minimum, you need your Lua rule to say
+     how to get static vs shared libraries (you need both), and what
+     CMake flags to use for what platforms.
+  3. then make a JSON build file to package it for OCaml. Again, rely on
+     the `dk0' error messages.
+  4. then make a GitHub Actions job to distribute it. Here is the GitHub
+     Actions job for one of today's announced packages:
+     <https://github.com/diskuv/dk/blob/7b19425969be61bed0f1d6bf3015dac26d7966e1/.github/workflows/distribute-2.5.yml#L282-L364>. On
+     success, GitHub Actions will print the import commands you can run
+     so all the precompiled artifacts are available on your desktop.
+
+
+[`CommonsBase_Build.CMake0@3.25.3']
+<https://github.com/diskuv/dk/blob/V2_5/etc/dk/v/CommonsBase_Build/CMake0.values.lua>
+
+
+Neocaml-mode (A modern Emacs major mode for OCaml) is looking for testers
+═════════════════════════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/neocaml-mode-a-modern-emacs-major-mode-for-ocaml-is-looking-for-testers/17807/1>
+
+
+Bozhidar Batsov announced
+─────────────────────────
+
+  Hey everyone,
+
+  Just wanted to let you know I’ve spent a bit of time polishing
+  [neocaml] and I think now it’s ready to be used (or at least tested)
+  by more people. The font-locking and indentation are more or less
+  done, and there’s also a basic integration with OCaml
+  toplevels. Coupled with something like `ocaml-eglot' the existing
+  functionality should get you pretty far.
+
+  You’ll still have to install it from the GitHub repo (you’ll find
+  detailed instructions there), but I’ve also opened a MELPA recipe PR,
+  so I hope the installation process will become simpler soon.
+
+  Feel free to share feedback and feature requests here and over at
+  GitHub!
+
+  P.S. I know the name is a bit controversial (some people said it
+  evokes nvim vibes), and the down the road I may just rename it to
+  ocaml-mode or try to merge it with Tuareg. Naming remains hard…
+
+
+[neocaml] <https://github.com/bbatsov/neocaml>
+
+
+Bozhidar Batsov later added
+───────────────────────────
+
+  A couple of small updates:
+
+  • Neocaml is now on MELPA <https://melpa.org/#/neocaml>
+  • I wrote a short blog post about the first “official” release
+    <https://batsov.com/articles/2026/02/14/neocaml-0-1-ready-for-action/>
+
+
+YOCaml, a framework for static site generator
+═════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-yocaml-a-framework-for-static-site-generator/15393/12>
+
+
+Continuing this thread, Xavier Van de Woestyne announced
+────────────────────────────────────────────────────────
+
+  *[ANN] YOCaml 3.0.0*
+
+        It had been a while since we announced a release of YOCaml
+        (since `2.5.0'), but this weekend we released version
+        `3.0.0' (already available on OPAM)!
+
+  Since version `2.5.0', many changes have been made to YOCaml, which
+  you can read about in the release notes for the various versions
+  released over the months: ([`2.6.0'], [`2.7.0'], [`2.8.0']).
+
+  Some major innovations that can be noted are:
+
+  • YOCaml finally deletes files that it did not create, which allows
+    for intermediate build steps that construct finer caches (making it
+    possible, for example, to create [backlinks] or [transclusions])
+    ([yocaml#108])
+
+  • As mentioned by @benfaerber, adding `yocaml_liquid' as an
+    alternative template engine. ([yocaml#101])
+
+  • Major improvements to the validation/projection language (and
+    greater rigour in the concept of validation/normalisation)
+    ([yocaml#98], [yocaml#109], [yocaml#115])
+
+  • Greater control over the iteration logic of actions, allowing
+    recursive traversal of file system fragments, among other things
+    ([yocaml#111]).
+
+  • _Last but not least_, in this poorly named PR, [yocaml#120], we
+    added the possibility for a task to create multiple files and
+    replaced the internal representation of time. Previously, we used
+    integers, but now we have switched to floats, which offer greater
+    precision (and allow CI to correctly execute CRAM tests that
+    generate sites).
+
+  In addition, there are bug fixes, usability improvements, and… **a
+  drastic improvement in error reporting**, which I will explain in the
+  next section!
+
+
+[`2.6.0'] <https://github.com/xhtmlboi/yocaml/releases/tag/v2.6.0>
+
+[`2.7.0'] <https://github.com/xhtmlboi/yocaml/releases/tag/v2.7.0>
+
+[`2.8.0'] <https://github.com/xhtmlboi/yocaml/releases/tag/v2.8.0>
+
+[backlinks] <https://en.wikipedia.org/wiki/Backlink>
+
+[transclusions] <https://en.wikipedia.org/wiki/Transclusion>
+
+[yocaml#108] <https://github.com/xhtmlboi/yocaml/pull/108>
+
+[yocaml#101] <https://github.com/xhtmlboi/yocaml/pull/101>
+
+[yocaml#98] <https://github.com/xhtmlboi/yocaml/pull/98>
+
+[yocaml#109] <https://github.com/xhtmlboi/yocaml/pull/109>
+
+[yocaml#115] <https://github.com/xhtmlboi/yocaml/pull/115>
+
+[yocaml#111] <https://github.com/xhtmlboi/yocaml/pull/111>
+
+[yocaml#120] <https://github.com/xhtmlboi/yocaml/pull/120>
+
+About the Outreachy
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  Many of the improvements to YOCaml were made possible thanks to
+  various participants in the [Outreachy programme], which led to
+  @Linda_Njau being selected as an intern! His work is divided into two
+  specific areas:
+
+  • Drastically improve YOCaml error reporting : [yocaml#113],
+    [yocaml#114], [yocaml#116]. Before these patches, YOCaml errors were
+    extremely difficult to diagnose. Since @Linda_Njau took care of
+    them, they are now easier to read, provide context (which file
+    failed to create, and which file was being read), and are displayed
+    in the preview server, so you don't have to go and read the
+    terminal!
+
+  • The second part of his internship involves working on
+    [yocaml-codex], a project currently under development that aims to
+    provide a standard library of templates for building websites faster
+    with YOCaml and sharing the various templates that have been written
+    over the course of the websites developed with YOCaml. _Stay tuned_!
+
+  We are very satisfied (and impressed) with her work, and she has
+  documented her contributions in a blog… freshly designed, with YOCaml,
+  of course:
+  <https://engineering-yocaml-with-linda.netlify.app/articles/second_article>
+
+
+[Outreachy programme] <https://www.outreachy.org/>
+
+[yocaml#113] <https://github.com/xhtmlboi/yocaml/pull/113>
+
+[yocaml#114] <https://github.com/xhtmlboi/yocaml/pull/114>
+
+[yocaml#116] <https://github.com/xhtmlboi/yocaml/pull/116>
+
+[yocaml-codex] <https://github.com/yocaml/yocaml-codex>
+
+
+About the tutorial
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  The tutorial is progressing slowly but surely, and we have notably
+  added a section that describes how to validate/project data to work
+  with most description languages (such as Yaml, ToML, etc.) and most
+  template engines (Jingoo, Mustache, Liquid) : [Your Own Data Model]
+
+  We also took the opportunity to clarify the [use of file paths] and
+  document [the resolver technique]!
+
+  We will continue to write sections and document the use of YOCaml, so
+  if you have any suggestions, comments, or requests, please send them
+  to us!
+
+
+[Your Own Data Model]
+<https://yocaml.github.io/tutorial/metadata-intro.html>
+
+[use of file paths] <https://yocaml.github.io/tutorial/path.html>
+
+[the resolver technique]
+<https://yocaml.github.io/tutorial/path-resolver.html>
+
+
+Closing words
+╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  In September last year, I gave a very clumsy (_so French_)
+  [presentation of YOCaml at Fun OCaml] which presents YOCaml's design
+  choices!
+
+  YOCaml is becoming increasingly usable thanks to the [contributions of
+  many people]! Thank you. If you want to create a static blog/website
+  in OCaml, YOCaml is one of many fun options!
+
+  • [Repository]
+  • [Release note]
+  • [Packages]
+
+  🐫 _Happy hacking and blogging_ 🐫
+
+
+[presentation of YOCaml at Fun OCaml]
+<https://watch.ocaml.org/w/uSaQB8ejXBUdJGgUBfHCW8>
+
+[contributions of many people]
+<https://github.com/xhtmlboi/yocaml/graphs/contributors>
+
+[Repository] <https://github.com/xhtmlboi/yocaml>
+
+[Release note] <https://github.com/xhtmlboi/yocaml/releases/tag/v3.0.0>
+
+[Packages] <https://ocaml.org/packages/search?q=yocaml>
+
+
+Other OCaml News
+════════════════
+
+From the ocaml.org blog
+───────────────────────
+
+  Here are links from many OCaml blogs aggregated at [the ocaml.org
+  blog].
+
+  • [Day10: opam package testing tool]
+  • [Tessera pipeline in OCaml]
+  • [.plan-26-07: Storage, Lego, Echo, and the IUCN]
+  • [Neocaml 0.1: Ready for Action]
+  • [The 15-Game]
+  • [Optimizing an MP3 Codec with OCaml/OxCaml]
+  • [Announcing New Wasm_of_ocaml Optimisations]
+
+
+[the ocaml.org blog] <https://ocaml.org/blog/>
+
+[Day10: opam package testing tool]
+<https://www.tunbury.org/2026/02/16/day10/>
+
+[Tessera pipeline in OCaml]
+<https://www.tunbury.org/2026/02/15/ocaml-tessera/>
+
+[.plan-26-07: Storage, Lego, Echo, and the IUCN]
+<https://anil.recoil.org/notes/2026w7>
+
+[Neocaml 0.1: Ready for Action]
+<https://batsov.com/articles/2026/02/14/neocaml-0-1-ready-for-action/>
+
+[The 15-Game] <https://www.tunbury.org/2026/02/11/fifteen/>
+
+[Optimizing an MP3 Codec with OCaml/OxCaml]
+<https://www.tunbury.org/2026/02/11/fifteen/>
+
+[Announcing New Wasm_of_ocaml Optimisations]
+<https://tarides.com/blog/2026-02-11-announcing-new-wasm-of-ocaml-optimisations>
+
+
+Old CWN
+═══════
+
+  If you happen to miss a CWN, you can [send me a message] and I'll mail
+  it to you, or go take a look at [the archive] or the [RSS feed of the
+  archives].
+
+  If you also wish to receive it every week by mail, you may subscribe
+  to the [caml-list].
+
+  [Alan Schmitt]
+
+
+[send me a message] <mailto:alan.schmitt@polytechnique.org>
+
+[the archive] <https://alan.petitepomme.net/cwn/>
+
+[RSS feed of the archives] <https://alan.petitepomme.net/cwn/cwn.rss>
+
+[caml-list] <https://sympa.inria.fr/sympa/info/caml-list>
+
+[Alan Schmitt] <https://alan.petitepomme.net/>
