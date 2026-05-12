@@ -1,0 +1,195 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[https://alan.petitepomme.net/cwn/2026.05.05.html][Previous Week]] [[https://alan.petitepomme.net/cwn/index.html][Up]] [[https://alan.petitepomme.net/cwn/2026.05.19.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of May 05 to 12, 2026.
+
+#+TOC: headlines 1
+
+
+* Dune 3.23.0
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/ann-dune-3-23-0/18055/1
+
+** Shon announced
+
+
+The Dune team is pleased to announce [[https://github.com/ocaml/dune/releases/tag/3.23.0][the release of dune 3.23.0]].
+
+Along with many other fixes and improvements, some highlights include:
+
+- Add support for ~c_library_flags~ in foreign_stubs ([[https://github.com/ocaml/dune/pull/13484][#13484]], [[https://github.com/madroach][@madroach]])
+- Many improvements to the promotion and diffing functionality, by [[https://github.com/rgrinberg][@rgrinberg]].
+- As part of the previous, a breaking change to the promotion logic has been
+  introduced: Dune does automatically promote generated opam files, which must
+  now be manually promoted with ~dune promote~. You can trigger building ~.opam~
+  files with the ~@install~, ~@runtest~, and ~@opam~ aliases. In release mode,
+  ~.opam~ files aren't generated at all and whatever is in the source is used
+  ([[https://github.com/ocaml/dune/pull/14108][ocaml/dune#14108]], [[https://github.com/rgrinberg][@rgrinberg]]).
+- User rules and inline test runners are now sandboxed by default
+  ([[https://github.com/ocaml/dune/pull/13805][ocaml/dune#13805]] and [[https://github.com/ocaml/dune/pull/14257][ocaml/dune#14257]], [[https://github.com/rgrinberg][@rgrinberg]]).
+- The minimum OCaml version required to build dune is now 4.14.
+
+See [[https://github.com/ocaml/dune/releases/tag/3.23.0][the full changelog]] for all new features and fixes, and for attribution to the contributors
+who made it all possible. Thank you, contributors!
+
+If you encounter a problem with this release, please report it in [[https://github.com/ocaml/dune/issues][our issue
+tracker]].
+      
+
+
+
+* Orcaset: Financial models in code
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/orcaset-financial-models-in-code/18056/1
+
+** Jordan announced
+
+
+Hi all, sharing ~orcaset~, a library for building financial statement models in code.
+
+Orcaset aims to give agents a robust tool for financial analysis. Based on tests against Claude and Codex Excel tools I've seen lower model error rates while using ~​40% fewer tokens. I expect the gap to widen as a function of model scale (e.g. easier to reuse components in ~orcaset~) but haven't benchmarked in depth beyond models of a few hundred line items.
+
+It's mainly built from a private equity and credit perspective, but there's nothing inherently specific to those industries.
+
+A trivially simple example below for a taste of what it looks like.
+
+#+begin_src ocaml
+open Orcaset
+open Series
+
+let offset = Offset.make ~quarters:1 ~month_end:true ()
+let periods = Period.make_seq ~start:(Date.make 2026 1 1) ~offset |> Seq.take 4 |> List.of_seq
+
+let revenue_proj =
+  List.mapi (fun i period -> (period, 100.0 *. (1.03 ** float_of_int (i - 1)))) periods
+
+(* Define model *)
+let revenue = Spans.of_list ~label:"Revenue" ~split:Split.daily ~agg:Agg.sum revenue_proj
+let costs = Spans.scale ~label:"Costs" (-0.45) revenue
+let income = Spans.sum ~label:"Income" ~agg:Agg.sum [ revenue; costs ]
+
+(* Build and print statement *)
+let () =
+  let stmt = Stmt.span_total income (Stmt.span_lines [ revenue; costs ]) in
+  let resolved = Stmt.eval_periods periods stmt in
+  Printf.printf "\n%s\n\n" (Stmt.fixed_width resolved)
+
+(* Output:
+           2026-04-30  2026-07-31  2026-10-31  2027-01-31
+  Revenue       97.09      100.00      103.00      106.09
+  Costs        -43.69      -45.00      -46.35      -47.74
+           ----------  ----------  ----------  ----------
+Income          53.40       55.00       56.65       58.35 *)
+#+end_src
+
+Calculations are fully auditable. Line item relationships can be statically inspected, and dependencies across materialized values can also be traced. Dependencies can be cyclic, meaning you can easily model revolver plugs (or solve revenue growth to a 20% return, as is tradition). 
+
+Experimental, but would appreciate feedback or suggestions!
+
+https://github.com/Orcaset/orcaset-oc
+      
+
+
+
+* Miou, a simple scheduler for OCaml 5
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/ann-miou-a-simple-scheduler-for-ocaml-5/12963/18
+
+** Calascibetta Romain announced
+
+
+I am delighted to announce the release of [[https://github.com/robur-coop/miou][miou.0.6.0]]. This release mainly adds two new features:
+- a Miou event logging system
+- a new ~Miou.take~ function allowing you to retrieve tasks available in a ~Miou.orphans~
+
+The addition of a logging system allows us to record events related to Miou (such as the creation of a new task) and to analyse these events to diagnose a Miou application that does not comply with [[https://docs.osau.re/local/miou/Miou/index.html#user-task-management][our fundamental rules]] (such as never forgetting its children). This is why we offer several tools:
+- ~mtbox.recd~, which allows you to record Miou events in JSON format so that you can analyse a Miou application using software such as [[https://perfetto.dev/][perfetto.dev]].
+- ~mtbox.diag~, which explains why a Miou application terminates with an exception such as ~Still_has_children~ (which results from a violation of one of our [[https://docs.osau.re/local/miou/Miou/index.html#user-task-management][rules]])
+- ~mtbox.mtop~, which provides an _~htop~-style_ TUI for monitoring a Miou application. You can see an example here:
+
+#+attr_html: :width 80%
+https://github.com/robur-coop/mtbox/blob/main/assets/demo.gif?raw=true
+
+~mtbox~ is experimental (very first release) but it demonstrates what can be done with Miou and now offers a [[https://github.com/robur-coop/notty-miou][~nott{y,ui}-miou~]] library allowing you to build your own TUI applications with Miou and [[https://github.com/let-def/lwd][~lwd~]].
+
+The addition of ~Miou.take~ relates more to our HTTP stack provided by our [[https://github.com/robur-coop/httpcats][~httpcats~]] library and the [[https://github.com/robur-coop/vif][νιϝ]] Web Framework. Alongside a few additions and bug fixes, we have notably undertaken to provide [[https://github.com/robur-coop/httpcats/blob/main/bench/PROTOCOL.md][a reproducible]] benchmark of our HTTP servers, the results of which are available [[https://robur-coop.github.io/httpcats][here]].
+
+#+attr_html: :width 80%
+https://us1.discourse-cdn.com/flex020/uploads/ocaml/original/2X/9/92b03ba0b15881dbcff661dccec08dd00644b163.png
+
+So, in addition to this Miou release, we continue to maintain and improve ~httpcats~, ~vif~ and [[https://github.com/robur-coop/hurl][~hurl~]] to provide an HTTP stack for the Miou ecosystem.
+
+Finally, as you are no doubt aware, we are continuing to experiment with the development of unikernels in OCaml using Miou, and this release is accompanied by a release of [[https://github.com/robur-coop/mkernel][~mkernel~]] (our scheduler for unikernels), [[https://github.com/robur-coop/mnet][~mnet~]] (our TCP/IP stack), and [[https://github.com/robur-coop/mhttp][~mhttp~]] and ~vifu~ (our HTTP stack for unikernels). Added to this are [[https://github.com/robur-coop/msendmail][~msendmail~]] (recently released to deploy our mailing list ptt@mailingl.st), [[https://github.com/robur-coop/mfat][~mfat~]] (our FAT32 file system in OCaml) and ~mnet-dns~. We are now able to offer you (in addition to [[https://builds.robur.coop/#Unikernels][our existing unikernels]]) new unikernels with OCaml 5:
+- [[https://github.com/robur-coop/ptt][~ptt~]] to manage your mailing list (announced [[https://discuss.ocaml.org/t/ann-ptt-a-mailing-list-system-as-unikernel/17987][here]])
+- [[https://github.com/dinosaure/pagejaune][~annuaire~]] acting as a recursive DNS resolver and stub DNS resolver (with a ban list)
+- [[https://git.robur.coop/robur/contruno][~contruno~]] as a TLS termination proxy managing your Let’s Encrypt certificates and their renewal
+- and of course [[https://github.com/dinosaure/immuable][~immuable~]], our unikernel that enables the delivery of a static website (notably that of https://mailingl.st and https://docs.osau.re)
+
+We invite you to read [[https://robur-coop.github.io/mnet/][our tutorial]] to learn how to develop unikernels and we recommend our [[https://github.com/robur-coop/albatross][Albatross]] project for deploying them.
+
+In short, we are beginning to consolidate the ecosystem around Miou and offer more and more libraries enabling you to develop your applications with our scheduler. We would like to thank everyone who has contributed, directly or indirectly, to the development of Miou, as well as those who have helped improve the libraries that make up our ecosystem. Please feel free to get involved, ask questions and, above all, start hacking!
+
+Happy hacking!
+      
+
+
+
+* Run-time types: uses and wants
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/run-time-types-uses-and-wants/18085/1
+
+** Raphaël Proust asked
+
+
+This is an informal survey to assess the interest in run-time types from various users. If you are not sure what this is about check [[https://www.lexifi.com/blog/ocaml/fun-ocaml-2025/][lexifi's talk at funocaml]] and specifically the type reflection section (timecode on the video: 33:00, slide number: 32).
+
+*** the questions
+
+Answer in any format you like :)
+
+Do you use type reflection / run-time types / whatchacallit? If not, would you use it if it was in the Stdlib or in an established lib in the ecosystem?
+
+Do you use some in-house solution or some off the shelf library? (Are you able to show the code?)
+
+What do you use it for? What would you use it for?
+
+Do you think it'd be useful even without any compiler support? What kind of tooling would make this viable?
+
+*** the why
+
+I've seen these things re-implemented multiple times. (I've even had to implement a couple of them myself.) I'm not sure there can be a stdlib module that covers all uses cases completely, but this survey and the ensuing conversation could maybe reveal that a large portion of use cases could be covered.
+
+I'm keen for this to exist in the Stdlib but I'm not keen to make a proposal that fails before it even leaves prototyping phase.
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[https://alan.petitepomme.net/cwn/][the archive]] or the [[https://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe to the [[https://sympa.inria.fr/sympa/info/caml-list][caml-list]].
+
+#+BEGIN_authorname
+[[https://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname
