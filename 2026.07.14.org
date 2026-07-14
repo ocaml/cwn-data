@@ -1,0 +1,174 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[https://alan.petitepomme.net/cwn/2026.07.07.html][Previous Week]] [[https://alan.petitepomme.net/cwn/index.html][Up]] [[https://alan.petitepomme.net/cwn/2026.07.21.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of July 07 to 14, 2026.
+
+#+TOC: headlines 1
+
+
+* opam 2.5.2
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/ann-opam-2-5-2/18338/1
+
+** Kate announced
+
+
+Hi everyone,
+
+opam 2.5.2 is now available. This release is fixing:
+- a security issue ([[https://github.com/ocaml/security-advisories/blob/main/advisories/2026/OSEC-2026-10.md][OSEC-2026-10]])
+- a regression from 2.5.1 preventing cross-compiled packages that use dune from installing properly ([[https://github.com/ocaml/dune/issues/14393][ocaml/dune#14393]])
+
+We invite everyone to upgrade to 2.5.2 as soon as possible.
+
+If you depend on the older opam package of your preferred distribution, maintainers of distributions such as Debian Stable have been notified and we expect backporting of the relevant fixes to be available there very soon.
+
+You can read our [[https://opam.ocaml.org/blog/opam-2-5-2/][blog post]] for relevant links and details.
+
+*** Try it!
+
+The upgrade instructions are unchanged:
+
+For Unix systems
+#+begin_example
+bash -c "sh <(curl -fsSL https://opam.ocaml.org/install.sh) --version 2.5.2"
+#+end_example
+or from PowerShell for Windows systems
+#+begin_example
+Invoke-Expression "& { $(Invoke-RestMethod https://opam.ocaml.org/install.ps1) } -Version 2.5.2"
+#+end_example
+Please report any issues to the [[https://github.com/ocaml/opam/issues][bug-tracker]].
+
+Happy hacking,
+<> <> The opam team <> <> :camel:
+      
+
+
+
+* ocaml-wire: a Binary wire format DSL with EverParse 3D output
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/ann-ocaml-wire-a-binary-wire-format-dsl-with-everparse-3d-output/18009/4
+
+** Continuing this thread, Thomas Gazagnaire announced
+
+
+I'm happy to announce that ~ocaml-wire~ 1.0.0 is now on opam, installable with ~opam install wire~.
+
+This release brings a round of robustness fixes and API cleanups to the previous version (hence the 1.0.0 tag). It also adds a lot of differential testing between the OCaml parsers/serialisers and the generated verified C parsers. Both are run on randomly generated schemas and random input bytes, and the test checks that they agree on what they accept or reject, and on the values they decode. Wherever they disagreed there was a bug, and those all seem to be fixed now.
+
+#+begin_quote
+But how can these be interpreted as signed integers or floats? Is this left to the layers above?
+#+end_quote
+
+EverParse 3D has no signed or floating-point types, only unsigned integers, so to the C validator an int8 is a UINT8 and a float64 is a UINT64. The OCaml decoder does the reinterpretation, two's complement for the signed types and IEEE 754 for the floats, and for a plain field both sides accept every bit pattern. A constraint on the field (that the user would have added via the DSL) has to survive that projection. A signed ordering constraint has to be rewritten through the two's-complement identity before it reaches the C validator, because a naive unsigned comparison disagrees on bytes with the sign bit set (byte 200 is the signed value -56, accepted by OCaml and rejected by the naive C bound). Float finiteness (~is_finite~, ~is_nan~) compiles to a test on the exponent bits, and a float ordering constraint, which has no faithful unsigned form, is rejected up front. The differential fuzzing is what surfaced those sign-bit disagreements and all of this has been hardened between 0.9 and 1.0.
+
+Zero-copy reads got safer too. ~Codec.validate~ now enforces every check ~Codec.decode~ does (enum membership, bounds, padding, ~where~ clauses), so validating untrusted input before a batch of zero-copy ~Codec.get~ calls no longer trusts bytes the decoder would have rejected (again, caught thanks to differential testing).
+
+The generated ~.3d~ files also turned out to be quite readable as protocol descriptions, and a whole codec family now projects to a single .3d that doubles as a spec and compiles to a standalone verified C parser with no FFI. The TCP/IP stack is a good one to compare: the [[https://github.com/parsimoni-labs/ocaml-wire/blob/main/examples/net/net.ml][OCaml definitions]] and the [[https://github.com/parsimoni-labs/ocaml-wire/blob/main/examples/net/Net.3d][generated 3d file]].
+      
+
+
+
+* Caqti 3.0.0
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/ann-caqti-3-0-0/18335/1
+
+** Petter A. Urkedal announced
+
+
+I am happy to announce the release of [[https://github.com/paurkedal/ocaml-caqti/][Caqti]] 3.0.0.  This release bundles some breaking changes including switching to hierarchical modules.  The Caqti 3 API is mainly a reorganization of the ~caqti.template~ preview library and some remaining modules from the Caqti 2 API.
+
+Release notes:
+
+  - The ~caqti~ library now holds the Caqti 3 API and ~caqti.classic~
+    contains a Caqti 2 compatibility wrapper.  Users of the Caqti 2 API must
+    now add ~caqti.classic~ to their link lines.  Early adopters of the
+    Caqti 3 API must replace ~caqti.template~ with ~caqti~ and adjust some
+    module paths.  Switching to the new API is recommended, but may be done
+    incrementally for existing applications.
+
+  - Fixed initial comma when formatting rows, affecting
+    ~Caqti_type.pp_value~ (Caqti 2) and ~Caqti.Template.Row.pp~ (Caqti 3).
+
+  - Put on hold deprecation of the ~caqti-dynload~ package due to
+    [[https://github.com/paurkedal/ocaml-caqti/issues/140][issue #140]].
+
+  - Foreign key constraints are now enabled for SQLite by default.
+
+It's good if opam-released projects add ~caqti.classic~ to their link lines before their next release (or switch API) and raise the lower bound on caqti to 2.3.0 (cf [[https://discuss.ocaml.org/t/ann-caqti-2-3-0/17985][the previous announcement]]) if necessary.
+      
+
+
+
+* ocgtk 0.1: OCaml bindings for GTK 4 (preview release)
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/ann-ocgtk-0-1-ocaml-bindings-for-gtk-4-preview-release/17944/6
+
+** Continuing this thread, Chris Armstrong announced
+
+
+*ocgtk 0.1-preview2 is now available on opam*
+
+This release significantly increases the amount of generated functionality, covering the vast majority of classes snd methods available in it’s generated libraries (GTK, Gio, Pango, Cairo, GDK, GDKpixbuf, Graphene)
+
+*** Notable changes
+
+**** Extended Signals support
+
+Signsls with multiple parameters and non boolean return parameters are now supported, giving coverage to about 2/3 of supported signal types
+
+**** GValue support
+
+GValue is now properly supported as a prerequisite for proper signals support
+
+**** Extended primitives support
+
+Full coverage of integer types, list types, better array handling, GError mapping to result types and better GObject equality and hashing. All extend the coverage of supported methods that can be generated.
+
+**** Memory management
+
+A significant effort has gone into hunting down memory management bugs, especially with boxed record types, which now use a consistent GLib mechanism for handling references to them.
+
+**** Extended operating system and compiler versions support
+
+Most dependencies of ocgtk have been removed as they were only necessary for code generation, allowing us to extend support to Windows (MSYS2 only) and Ocaml versions going back to 4.14.
+
+**** Other improvements
+
+- Better handling of mutually dependent classes and interfaces by shortening their internal module name
+- constructor generation for classes: with this, we can do away with aliasing classes at the top level, presenting only their class types and constructors, also making unused code elimination better and reducing compilation bottlenecks 
+
+The next release will focus on improved API documentation generation and gaps in record support and other primitives (constants, functions, callbacks, etc).
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[https://alan.petitepomme.net/cwn/][the archive]] or the [[https://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe to the [[https://sympa.inria.fr/sympa/info/caml-list][caml-list]].
+
+#+BEGIN_authorname
+[[https://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname
