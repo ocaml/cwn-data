@@ -1,0 +1,343 @@
+<cwn>
+  <cwn_head>
+    <cwn_date>2026.07.21</cwn_date>
+    <cwn_prev>2026.07.14</cwn_prev>
+    <cwn_next>2026.07.28</cwn_next>
+    <cwn_date_text>July 14 to 21, 2026</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>ocamlgrep 0.1.1</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-ocamlgrep-0-1-1/18350/1</cwn_url>
+      <cwn_who>Nicolas Ojeda Bar announced</cwn_who>
+      <cwn_what>
+We are happy to announce the first public release of ~ocamlgrep~, a tool for structural grepping of OCaml code.
+
+This tool has existed within the walls of LexiFi for a long time and we were keen on open-sourcing it, but it was not in a form that could be used by the wider public. Now, thanks to the work of @mjambon, we are able to to finally do so.
+
+https://github.com/LexiFi/ocamlgrep/releases/tag/0.1.1
+
+To install:
+#+begin_example
+$ opam install ocamlgrep
+#+end_example
+The idea behind the tool is simple: you call it from within your Dune project[^1] with a query (after having built all ~.cmt~/~.cmti~ artifacts, eg by doing ~dune build @check~), and the tool returns the list of matches it can find in the source tree. A _query_ is syntactically an OCaml expression, possibly with _holes_ ~__~ in it. Some examples follow to give an idea of how the tool is used in practice.
+
+The following query searches for the anti-pattern ~List.rev e1 @ e2~ (where ~e1~ and ~e2~ are arbitrary expressions.
+#+begin_example
+$ ocamlgrep 'List.rev __ @ __`
+#+end_example
+NoteNote that as the tool works at the level of the OCaml AST, it will also match expressions of the form ~(@) (e1 |> List.rev) e2~, since they produce the same AST.
+
+The syntax of type constraints ~(e : ty)~ is overloaded to impose a type condition on the search term. For example, the following search query looks for function calls where the first argument is an ~int~ and the second one a ~string~.
+#+begin_example
+$ ocamlgrep '__ (__ : int) (__ : string)'
+#+end_example
+The _holes_ can be numbered, ~__1~, ~__2~, etc, to express repetitions of the same term. For example, the following query searches for a pattern matching on an option that sends ~Some x~ to ~Some x~ (ie reconstructing the same value):
+#+begin_example
+$ ocamlgrep 'match __ with Some __1 -> Some __1 | None -> __'
+#+end_example
+We can also look for applications of the polymorphic operator ~=~ applied to ~float~ arguments:
+#+begin_example
+$ ocamlgrep '(__ : float) = __'
+#+end_example
+Historically, this tool has been useful for large-scale refactorings and linting of our codebase. Nowadays, such refactorings can often be done using AI agents. However, the tool is still able to do things that seem a bit beyond of what AI agents can do today, eg to look for applications of polymorphic functions where one of the arguments is of a specific type. This was for example useful when [migrating](https://www.lexifi.com/blog/ocaml/floatarray-migration/) our codebase to ~no-flat-float-array~ mode, where we wanted to make sure that polymorphic array operations were not being applied to ~float array~ values.
+
+Happy grepping!
+
+Cheers,
+Nicolas
+
+[^1]: Only Dune projects are supported for now. Adding support for other build systems should not be very hard, issues and/or PRs are welcome.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>MirageOS on Unikraft</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/mirageos-on-unikraft/16975/3</cwn_url>
+      <cwn_who>Continuing this thread, shym announced</cwn_who>
+      <cwn_what>
+I’m happy to announce that OCaml/Unikraft 1.2.0 [has been released](https://github.com/ocaml/opam-repository/pull/30209) with:
+- support for OCaml 5.4.1 and 5.5.0,
+- a way to use fine-tuned Unikraft configurations when that’s needed,
+- a new version number scheme for some of the packages, to combine the OCaml/Unikraft version with the underlying Unikraft version.
+
+Happy unikerneling!
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>ppx_deriving_melange 0.1.0 - eq, ord, show, map, iter derivers for Melange</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-ppx-deriving-melange-0-1-0-eq-ord-show-map-iter-derivers-for-melange/18352/1</cwn_url>
+      <cwn_who>Atlas07 announced</cwn_who>
+      <cwn_what>
+Hi everyone,
+
+I'm happy to announce the first release of *ppx_deriving_melange*, a Melange-compatible subset of ~ppx_deriving~: https://github.com/ahrefs/ppx_deriving_melange
+
+*** Why
+
+The original ~ppx_deriving~ can't support Melange: it predates dune's Melange integration — it is distributed through findlib META files, and its generated code depends on a runtime library that isn't built in Melange mode. Melange can only link libraries that dune builds for it, so common patterns like ~\[@@deriving eq, show\]~ were off the table when writing frontend OCaml.
+
+~ppx_deriving_melange~ fills that gap: same derivers, same naming conventions and attributes, implemented on ppxlib and tested against Melange — and its generated code is self-contained, so nothing extra needs to link into your bundle.
+
+A key use case is *universal code* — libraries compiled both natively and to JavaScript. Put your shared types in a library with ~(modes :standard melange)~, derive once, and the exact same ~equal~/~compare~/~show~ functions run on the server and in the browser. (This is how the project tests itself: one test-case library exercised by OUnit natively and by node on the Melange side.)
+
+*** What you get
+
+#+begin_src ocaml
+type user = {
+
+  name : string;
+
+  roles : string list;
+
+}
+
+[@@deriving eq, ord, show]
+
+
+
+(* generates:
+
+   val equal_user : user -> user -> bool
+
+   val compare_user : user -> user -> int
+
+   val pp_user : Format.formatter -> user -> unit
+
+   val show_user : user -> string *)
+#+end_src
+
+Supported derivers in 0.1.0: ~eq~, ~iter~, ~map~, ~ord~, and ~show~, following the native ~ppx_deriving~ conventions — including the ~equal~, ~compare~, and ~printer~ attribute overrides, the ~with_path~ option for ~show~, tuples, records, (polymorphic) variants, options, lists, arrays, results, type parameters, and recursive type groups. The README documents the exact supported scope of each deriver.
+
+Two design points worth calling out:
+
+- *Self-contained generated code.* There is no runtime library: the generated functions only use the stdlib, so the ppx is a build-time dependency only.
+- *Bundle-size-aware ~show~.* Melange compiles ~Stdlib.Format~ into a lot of JavaScript, so ~show~ builds its string directly and only falls back to ~Format~ where the type requires it (custom printers, etc.). Code that only calls ~show~ doesn't pull Format into your bundle; ~pp~ stays fully Format-based and native-compatible.
+
+*** What's not there (yet)
+
+Some ~ppx_deriving~ derivers aren't implemented yet (~enum~, ~fold~, ~make~, ...), and a few type shapes are out of scope for now (~ref~, ~lazy_t~, ~nativeint~, functor-applied types). If you need one of these — or hit anything that behaves differently from native ~ppx_deriving~ — please open an issue; that's exactly the feedback that will drive what gets built next.
+
+*** Using it
+
+#+begin_example
+opam install ppx_deriving_melange
+#+end_example
+
+#+begin_example
+(library
+
+ (name my_frontend_lib)
+
+ (modes melange)
+
+ (preprocess
+
+  (pps ppx_deriving_melange)))
+#+end_example
+
+Thanks to the ~ppx_deriving~ authors — this project follows their design and behavior closely, and includes their license attribution — and to [davesnx](https://github.com/davesnx) for reviews and encouragement along the way.
+
+Feedback, issues, and deriver requests very welcome!
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>hegel 0.12.1</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-hegel-0-12-1/18358/1</cwn_url>
+      <cwn_who>Ethan Chou announced</cwn_who>
+      <cwn_what>
+Hello! I work at [Antithesis](https://antithesis.com), a deterministic simulation testing startup.
+
+Recently, we released Hegel for OCaml.
+
+Hegel is a family of PBT libraries based on Hypothesis, providing powerful, ergonomic property-based testing for many different languages. Hegel lets you declare data generation inline with your test code, and provides native support for stateful testing.
+
+The installation instructions can be found at the Github repository [here](https://github.com/hegeldev/hegel-ocaml). Click on the link in the about section in the repository to see the documentation sorry, I can't post more than two links yet). We encourage people to contribute!
+
+Here's an example Hegel test:
+
+#+begin_src ocaml
+let bad_map _ xs = xs
+
+let%hegel_test bad_map_vs_map tc =
+  let int_gen = integers () in
+  let int_fn_gen = functions ~sexp_of_arg:Core.Int.sexp_of_t ~returns:int_gen () in
+  let f = draw_silent tc int_fn_gen
+  and xs = draw tc (lists int_gen ()) in
+  require_equal
+    tc
+    (Core.List.sexp_of_t Core.Int.sexp_of_t)
+    (bad_map f xs) (List.map f xs)
+#+end_src
+
+prints (with colors in the terminal):
+
+#+begin_example
+--- Failure: bad_map_vs_map (examples/higher_order.ml:20) --------------
+Falsified after 2 test cases (0 discarded):
+
+xs = (0)
+f 0 = 1
+require_equal: values differ (- lhs / + rhs):
+(0)  (1)
+
+Exception: Failure("require_equal: values differ")
+rerun with: [@@failure_blobs [ "AAQAAAABAQAKAQAAAAABAAAKAQAAAAE=" ]]
+#+end_example
+
+Happy testing!
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>A small extension of Bigarray.Genarray adding iteration, mapping and folding</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-a-small-extension-of-bigarray-genarray-adding-iteration-mapping-and-folding/15005/7</cwn_url>
+      <cwn_who>Continuing this thread, NAlec announced</cwn_who>
+      <cwn_what>
+Just to let you know, it is now available as [GenArrayIter](https://ocaml.org/p/GenArrayIter/latest) opam package. PR welcome of course. 
+Documentation [here](https://heyji2.github.io/GenArrayIter/GenArrayIter/GenArrayIter/Iter/index.html)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OCaml Security Team, report for first half of 2026</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ocaml-security-team-report-for-first-half-of-2026/18366/1</cwn_url>
+      <cwn_who>Hannes Mehnert announced</cwn_who>
+      <cwn_what>
+Throughout the first half of 2026, the security team has worked on security advisories: the publishing pipeline (from report over communication and fixes, to the security vulnerability database - these days osv.dev and CVE).
+
+The team consists of:
+
+- Hannes Mehnert - @hannesm - individual, robur.coop
+- Mindy Preston - @yomimono - individual
+- Joe - @cfcs - individual
+- Edwin Török - @edwintorok - individual, Tarides
+- Nicolás Ojeda Bär - @nojb - LexiFi
+- Louis Roché - @Khady - ahrefs
+- Boning Dong - @bn-d - Bloomberg
+
+*** Vulnerability Database
+
+The public vulnerability database (https://github.com/ocaml/security-advisories) is established, and filled as well with old security advisories (from the MirageOS project, etc.). There is tooling via CI which generates a branch "generated-osv", which is a source for the Open Source Vulnerability database (https://osv.dev), run by Google. The direct link for all security advisories of the OCaml Security team is [here](https://osv.dev/list?ecosystem=opam).
+
+The tooling is available from https://github.com/hannesm/advisories.
+
+*** Audit Tooling
+
+Another utility to check your "opam switch" for installed vulnerable packages (using the above mentioned vulnerability database), has been developed - available at https://github.com/hannesm/opam-audit.
+
+*** Public Meetings
+
+On March 19th a public OCaml security meeting took place with 10 attendees. The meeting notes are available at https://pad.data.coop/7-Ic5rG6ToynsW02hJsndg
+
+*** Modification Policy of the opam-repository
+
+The Security Team proposed to make the immutability policy stricter (see https://github.com/ocaml/opam-repository/pull/29072) - which has been merged. So, any published opam package must not modify its sources (change tarball, add patches, modify build instructions, ...). Instead, a new version must be published. This makes the package URL (https://github.com/package-url/purl-spec) sensible and point to a precise source.
+
+*** Grant Proposals
+
+A call for contributions was opened until end of March 2026. The Security Team is impressed by the amount and quality of the proposals. Evaluation and finding funding for proposals is still ongoing. We have some preliminary decisions and will reach out to the applicants by the end of July 2026.
+
+*** Advisories
+
+So far, there have been 10 advisories (OSEC-2026-01 until OSEC-2026-10) published, and some more are worked on. Our primary communication channel is email, and we reach out to reports that we received GitHub by email. A [public mailing list](https://sympa.inria.fr/sympa/info/ocsf-ocaml-security-announcements) is available where security advisories are announced.
+
+They range from issues in the OCaml runtime (Marshal buffer over-read OSEC-2026-01 CVE-2026-28364, Bigarray.reshape interger overflow OSEC-2026-04 CVE-2026-34353, command injection on Windows via filename OSEC-2026-05 CVE-2026-41083), opam sandbox escape (OSEC-2026-03 CVE-2026-41082, OSEC-2026-10 CVE-2026-57825), insufficient certificate property checks (in tls, OSEC-2026-06 CVE-2026-45388, OSEC-2026-07 CVE-2026-45389), path traversal (in tar, OSEC-2026-08 CVE-2026-45390), memory exhaustion (unbounded memory usage in arp, OSEC-2026-02, infinite loop in albatross-console, OSEC-2026-09).
+
+The variety of reporters - 8 different people in 10 reports - is amazing. Thanks to all reporters, as well as the upstream developers. It has been a pleasure to coordinate the vulnerabilities.
+
+*** Future Plans
+
+The Security Team also hopes to publish security guides for OCaml programmers and project maintainers.
+
+*** Acknowledgements
+
+The Security Team is an initiative of the OCaml Software Foundation and is grateful to the OCSF and its sponsors for their support.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Dune Package Management Updates</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/dune-package-management-updates/18023/2</cwn_url>
+      <cwn_who>Continuing this thread, Shon announced</cwn_who>
+      <cwn_what>
+Hello! We have just made our roadmap for dune package management available on the wiki for dune: https://github.com/ocaml/dune/wiki/Dune-Pkg-Roadmap.
+
+*** About the roadmap
+
+This living document aims to set out and explain the current status and the planned trajectory of our ongoing work. It should help to convey both what what we are working on and why we think it is important. It is not heavy on technical details, but aims to give a high level view of the project trajectory. For technical details, please click thru to the tracking issues: they are are in varying stages of discovery, but some are very well developed or provide a view into the history of completed work on the milestone.
+
+We will keep this document up to date and it will be revised as needed, to keep our projections in line with our emerging understanding, and to incorporate feedback and guidance from interested stakeholders.
+
+*** Support for the relocatable compiler in dune package management is now available in dune 3.24
+
+As you will see on the roadmap, a substantial course of work led by @Alizter, and supported by @ElectreAAS (among others), has made the relocatable compiler available by default in dune package management, building on even more substantial prior work by  @dra27's. This makes use of David's overlay compiler packages to provide relocatability for previous recent compiler versions. 
+
+In my personal experience, this has made a decisive improvement in the the UX of setting up projects with dune package management, and came along with many additional fixes improving opam package compatibility.
+
+As a very welcome bonus, dune package management now supports the installation of packages that use symlinks in their sources!
+
+*** Input and contributions
+
+Please feel free to share any input or raise any questions! Input can be shared in this thread, or through our [documented channels for feedback](https://github.com/ocaml/dune/blob/main/CONTRIBUTING.md#sharing-feedback).
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>opam 2.6.0~alpha1</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-opam-2-6-0-alpha1/18372/1</cwn_url>
+      <cwn_who>Kate announced</cwn_who>
+      <cwn_what>
+Hi everyone,
+
+We are happy to announce the first alpha release of opam 2.6.0. This is the culmination of 2 years of team work requiring large internal changes, we hope you'll enjoy it.
+
+This version is an alpha, we invite users to test it to spot previously unnoticed bugs as we head towards the stable release.
+
+*** What’s new? Some highlights:
+
+- :money_bag: For people using the shell hooks, this release changed the way ~PATH~ is kept up-to-date from opam taking priority over any other elements of ~PATH~ by making sure to always be in front, to replacing the directory managed by opam in-place, keeping the order asked by the user. To benefit from this, make sure ~opam init --reinit -ni~ was ran once after upgrading to this version (automatically done by our install script if it detects an existing opam installation). ([#6859](https://github.com/ocaml/opam/pull/6859), [#6815](https://github.com/ocaml/opam/issues/6815)). /Thanks to [@gridbugs](https://github.com/gridbugs) for this contribution./
+
+- :wastebasket: Reduce the disk space usage of opam by removing the ~build~ directory as soon as possible and removing redundant archive caches. While the disk usage used by opam can be reduced over time while simply reinstalling packages, you can liberate some free GB in one go using ~opam clean --all-switches~. ([#6440](https://github.com/ocaml/opam/pull/6440), [#4056](https://github.com/ocaml/opam/issues/4056), [#5448](https://github.com/ocaml/opam/issues/5448))
+
+- :high_speed_train: Improve performance drastically on certain file-systems (e.g. NTFS on Windows or IO constrained machines) by changing the format HTTP repositories such as opam.ocaml.org are stored in internally. ([#6625](https://github.com/ocaml/opam/pull/6625), [#5346](https://github.com/ocaml/opam/issues/5346), [#5741](https://github.com/ocaml/opam/issues/5741), [#5648](https://github.com/ocaml/opam/issues/5648), [#5484](https://github.com/ocaml/opam/issues/5484), [#5559](https://github.com/ocaml/opam/issues/5559), [#3050](https://github.com/ocaml/opam/issues/3050), [#6974](https://github.com/ocaml/opam/issues/6974)).
+
+- :envelope_with_arrow: Add ~root~ and ~rootexec~ sections to ~.install~ files to install files from the root prefix ([#6938](https://github.com/ocaml/opam/pull/6938), [#6919](https://github.com/ocaml/opam/issues/6919)). *Thanks to [@WardBrian](https://github.com/WardBrian) for this contribution.*
+
+- :woman_technologist: Add a new ~--ignore-available-on~ argument to allow ignoring the ~available:~ field of certain packages ([#6836](https://github.com/ocaml/opam/pull/6836), [#5283](https://github.com/ocaml/opam/issues/5283)). *Thanks once-again to [@WardBrian](https://github.com/WardBrian) for this contribution.*
+
+- :ocean: Many more UI additions and improvements, bug fixes, …
+
+:open_book: You can read our [blog post](https://opam.ocaml.org/blog/opam-2-6-0-alpha1/) for more information about these changes and more, and for even more details you can take a look at the [release note](https://github.com/ocaml/opam/releases/tag/2.6.0-alpha1) or the [changelog](https://github.com/ocaml/opam/blob/2.6.0-alpha1/CHANGES).
+
+*** Try it!
+
+The upgrade instructions are unchanged:
+
+For Unix systems
+#+begin_example
+bash -c "sh &lt;(curl -fsSL https://opam.ocaml.org/install.sh) --version 2.6.0~alpha1"
+#+end_example
+or from PowerShell for Windows systems
+#+begin_example
+Invoke-Expression "&amp; { $(Invoke-RestMethod https://opam.ocaml.org/install.ps1) } -Version 2.6.0~alpha1"
+#+end_example
+Please report any issues to the [bug-tracker](https://github.com/ocaml/opam/issues).
+
+Happy hacking,
+&lt;&gt; &lt;&gt; The opam team &lt;&gt; &lt;&gt; :camel:
+
+---
+/Special thanks to the Haematology department and Bone Marrow Transplant Unit of the NHS Greater Glasgow for making this release possible &lt;3/
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>The little type that could too much</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/blog-the-little-type-that-could-too-much/18375/1</cwn_url>
+      <cwn_who>Raphaël Proust announced</cwn_who>
+      <cwn_what>
+I wrote a small blog post about how some types are intended for multiple use cases and it's not always grerat. It uses the Stdlib as a small example in the intro, but the real focus is on Lwt.
+
+https://tech.ahrefs.com/the-little-type-that-could-too-much-3f21c2e80430
+
+Feedback (on the post or on the points of Lwt that are discussed) is very welcome. I'll probably start working on improving the Lwt bits soon so let me know what you think.
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>
