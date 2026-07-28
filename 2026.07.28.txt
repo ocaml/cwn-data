@@ -1,0 +1,733 @@
+                          ━━━━━━━━━━━━━━━━━━━
+                           OCAML WEEKLY NEWS
+                          ━━━━━━━━━━━━━━━━━━━
+
+
+[Previous Week] [Up] [Next Week]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of July 21 to 28,
+2026.
+
+Table of Contents
+─────────────────
+
+Theo 0.1.0: a BDD library with theory support
+qiskit 2.0.1
+Wax 0.1.0: a Rust-like syntax for WebAssembly
+Cascade: A Typed CSS Toolkit in OCaml
+Dune 3.24
+ocaml-wire: a Binary wire format DSL with EverParse 3D output
+Eio 1.4 (effects-based concurrency library)
+ocaml-sbom 0.1.0
+Union-find-lattice library
+Challenging Claude's creativity with IFS fractals and OCaml
+Simple_http.1.1 available
+Old CWN
+
+
+[Previous Week] <https://alan.petitepomme.net/cwn/2026.07.21.html>
+
+[Up] <https://alan.petitepomme.net/cwn/index.html>
+
+[Next Week] <https://alan.petitepomme.net/cwn/2026.08.04.html>
+
+
+Theo 0.1.0: a BDD library with theory support
+═════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-theo-0-1-0-a-bdd-library-with-theory-support/18376/1>
+
+
+Jérôme Vouillon announced
+─────────────────────────
+
+  I'm pleased to announce the first release of [Theo], an OCaml library
+  for /Binary Decision Diagrams (BDDs)/.
+
+  BDDs give you a /canonical/ representation of boolean functions: two
+  logically equivalent formulas always produce the exact same structure,
+  so checking equivalence becomes a pointer comparison, O(1). Theo's key
+  extension is /theory support/: atoms aren't just boolean variables but
+  constraints like `ocaml >= 4.14' or `name = "foo"', and the engine
+  understands their semantics. This makes it practical for real-world
+  constraint problems.
+
+  For example, a package manager can ask whether `(ocaml >= 4.14 AND
+  dune >= 3.0) OR (ocaml >= 5.0)' is compatible with `ocaml < 5.0'. Theo
+  reasons about the version constraints directly: it knows `ocaml >=
+  4.14' is redundant when `ocaml >= 5.0' holds, detects that the second
+  disjunct contradicts `ocaml < 5.0', and can extract the simplest
+  satisfying assignment (`ocaml >= 4.14, dune >= 3.0').
+
+
+[Theo] <https://github.com/vouillon/theo>
+
+Highlights of the 0.1.0 release:
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  • Core BDD engine with hash-consing (via weak tables) and a canonical
+    negative-edge form
+  • Boolean operations: AND, OR, NOT, IMPLIES, EQUIV, XOR, plus
+    `exists~/~forall' quantifiers
+  • Pluggable theory support over linear orders and equality (booleans,
+    strings, integers, semantic versions), with a `Combine' functor to
+    mix theories in the same BDD
+  • `restrict' for partial evaluation under a set of external
+    constraints, and constraint introspection via pattern matching
+  • Minimal-witness extraction (shortest satisfying assignment) and
+    zero-allocation entailment checks (implication, disjointness,
+    exhaustiveness)
+  • Irredundant sum-of-products (Minato–Morreale) computation
+  • A property-based test suite
+
+  Some implementation details that may be of interest: memoization
+  caches are built on /ephemerons/, so cache entries are reclaimed
+  automatically once the BDD nodes they depend on become unreachable,
+  with no manual cache invalidation and no leaks. Theory-aware
+  simplification happens /during/ BDD construction, using atom ordering
+  to prune redundant bounds. The theory interface is a small
+  functor-based API, and the same `Syntax' functor produces both BDD
+  formulas and constraint lists.
+
+  I've written a [companion blog post] that walks through the main
+  ideas: hash-consing and ephemeron caches, theory-aware simplification,
+  and the algorithmic techniques behind `restrict', minimal witnesses,
+  and zero-allocation queries.
+
+  • Source: <https://github.com/vouillon/theo>
+  • API docs: <https://vouillon.github.io/theo/theo/Theo/>
+  • Install: `opam install theo'
+
+  Feedback and contributions welcome!
+
+
+[companion blog post] <https://vouillon.github.io/blog/posts/theo/>
+
+
+qiskit 2.0.1
+════════════
+
+  Archive: <https://discuss.ocaml.org/t/ann-qiskit-2-0-1/18378/1>
+
+
+Davide Gessa announced
+──────────────────────
+
+  I'm glad to announce the release of qiskit 2.0.1 , an Ocaml wrapper
+  for the Python quantum computing library "qiskit" form IBM. The latest
+  release add support for qiskit > 2.0, which includes some breaking
+  changes:
+
+  • IBMProvider becomes IBMRuntime
+  • Some gates addition and some gates removal
+
+  <https://opam.ocaml.org/packages/qiskit/qiskit.2.0.1/>
+
+  <https://github.com/dakk/caml_qiskit/>
+
+
+Wax 0.1.0: a Rust-like syntax for WebAssembly
+═════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/wax-0-1-0-a-rust-like-syntax-for-webassembly/18379/1>
+
+
+Jérôme Vouillon announced
+─────────────────────────
+
+  I'm happy to announce the first release of *Wax*, a toolchain that
+  gives WebAssembly a familiar, expression-oriented syntax. It's written
+  in OCaml and, as of 0.1.0, `wax' is available on the opam repository:
+
+  ┌────
+  │ opam install wax
+  └────
+
+  *Why I'm building it.* The `wasm_of_ocaml' runtime is currently about
+   23k lines of hand-written WebAssembly text (WAT, the official
+   human-readable text representation of WebAssembly). That is a lot of
+   code to maintain in a format that, while readable, is quite verbose:
+   it is built on S-expressions, and everything is explicit, from every
+   variable access down to every type. I'm developing Wax at Tarides to
+   address this, giving that runtime a more concise, type-checked syntax
+   that still compiles to exactly the same bytecode.
+
+  The WebAssembly text format spells everything out:
+
+  ┌────
+  │ (func $add (param $x i32) (param $y i32) (result i32)
+  │   (i32.add (local.get $x) (local.get $y)))
+  └────
+
+  Wax reads like a programming language:
+
+  ┌────
+  │ fn add(x: i32, y: i32) -> i32 {
+  │     x + y;
+  │ }
+  └────
+
+  Both compile to identical bytecode. The payoff grows with the program;
+  struct types, nullable references, casts, and loops stay readable
+  where the equivalent WAT sprawls:
+
+  ┌────
+  │ type list = { value: i32, next: &?list };
+  │ 
+  │ #[export = "sum"]
+  │ fn sum(l: &?list) -> i32 {
+  │     let total: i32 = 0;
+  │     while l is &list {
+  │         total += l!.value;
+  │         l = l!.next;
+  │     }
+  │     total;
+  │ }
+  └────
+
+  A few highlights:
+
+  • *Every direction.* All nine conversions between `wax', `wat', and
+     `wasm' work, including decompiling an arbitrary `.wasm' binary back
+     into readable Wax.
+  • *Full WebAssembly 3.0.* Garbage collection, exception handling, tail
+     calls, multiple and 64-bit memories, and SIMD, plus stack
+     switching, threads, wide arithmetic, and branch hints.
+  • *A real type checker.* Errors are caught before any output is
+     produced and reported with source context.
+  • *A toolchain, not just a compiler.* A formatter, a validator,
+     configurable lints, conditional compilation, source maps, and a
+     language server (LSP) with a VS Code extension and tree-sitter
+     grammar.
+
+  You can try it in your browser, no install required, on the
+  [playground]: type Wax and see the WAT and diagnostics live.
+
+  *This is an early, experimental release.* The syntax and the toolchain
+   are still evolving, and I expect rough edges. That is exactly why I'm
+   publishing it now: I'd be very interested in your feedback, whether
+   on the syntax, the ergonomics, missing features, or anything that
+   gets in your way. Bug reports and impressions are all very welcome.
+
+  • Docs: <https://ocsigen.org/wax/>
+  • Source: <https://github.com/ocsigen/wax>
+
+
+[playground] <https://ocsigen.org/wax/playground.html>
+
+
+Cascade: A Typed CSS Toolkit in OCaml
+═════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/cascade-a-typed-css-toolkit-in-ocaml/18383/1>
+
+
+Thomas Gazagnaire announced
+───────────────────────────
+
+  I'm happy to announce the first release of [cascade] available in opam
+  (`opam install cascade') and in brew (`brew install
+  samoht/tap/cascade').
+
+  Cascade is a library:
+
+  • a typed AST to represent CSS documents;
+  • a set of (cascade-order preserving) transformations over that
+    AST. This includes: minification of (leaf) values (lots of fun with
+    colour-space coordinate), optimisations (aka semantic-preserving
+    node rewrites following the great [SatCSS paper]),
+    semantic-preserving canonisation, and [more];
+  • a diff function to compare those (optionally canonised) ASTs;
+  • an apply function to apply a CSS value to an HTML document as style
+    attributes, preserving the cascade-order.
+
+  But cascade is also a CLI tool! All of those operations are available
+  as subcommands (with `cascade fmt', `cascade diff' and `cascade
+  apply').
+
+  You can read more details here:
+  <https://gazagnaire.org/blog/2026-07-22-cascade-minify.html>
+
+  You are very welcome to report issues or discuss about ideas on the
+  [GH tracker].
+
+
+[cascade] <https://github.com/samoht/cascade>
+
+[SatCSS paper] <https://doi.org/10.1145/3310337>
+
+[more] <https://github.com/samoht/cascade/blob/main/lib/css.mli>
+
+[GH tracker] <https://github.com/samoht/cascade>
+
+
+Dune 3.24
+═════════
+
+  Archive: <https://discuss.ocaml.org/t/ann-dune-3-24/18316/2>
+
+
+Continuing this thread, Ali Caglayan announced
+──────────────────────────────────────────────
+
+  The Dune team is pleased to announce [the release of dune 3.24.1].
+
+  See [the full changelog] for all new features and fixes, and for
+  attribution to the contributors who made it all possible. Thank you,
+  contributors!
+
+  If you encounter a problem with this release, please report it in [our
+  issue tracker].
+
+
+[the release of dune 3.24.1]
+<https://github.com/ocaml/dune/releases/tag/3.24.1>
+
+[the full changelog] <https://github.com/ocaml/dune/releases/tag/3.24.1>
+
+[our issue tracker] <https://github.com/ocaml/dune/issues>
+
+
+ocaml-wire: a Binary wire format DSL with EverParse 3D output
+═════════════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-ocaml-wire-a-binary-wire-format-dsl-with-everparse-3d-output/18009/5>
+
+
+Continuing this thread, Thomas Gazagnaire announced
+───────────────────────────────────────────────────
+
+  I am happy to announce the release 1.1.0 of ocaml-wire on opam!
+
+  The release improves a few things:
+  • the generated, formally-verified parsers can now be cross-compiled
+    (including to ocaml-freestanding to be included in a unikernel). The
+    installed C headers are also now much smaller and only expose safe
+    entry point.
+  • ocaml-wire now use [<https://github.com/mirage/optint>] for uint32
+    fields. This helps to run the generated OCaml parsers/serialisers on
+    safely on js_of_ocaml/wasm_of_ocaml (which is useful to encode TCP
+    sequence numbers safely to run a full tcp/ip stack in wasm for
+    instance).
+  • parsing errors (in OCaml) are now much more precise and show the
+    codecs, field names and stream location.
+  • codecs are now safe to share across domains (each domain now have
+    their own scratch buffers)
+
+  The full changelog is available [here].
+
+
+[here] <https://github.com/parsimoni-labs/ocaml-wire/releases/tag/1.1.0>
+
+
+Eio 1.4 (effects-based concurrency library)
+═══════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-eio-1-4-effects-based-concurrency-library/18391/1>
+
+
+Thomas Leonard announced
+────────────────────────
+
+  [Eio 1.4] is now released and available from opam-repository.
+
+
+[Eio 1.4] <https://github.com/ocaml-multicore/eio/releases/tag/v1.4>
+
+About Eio
+╌╌╌╌╌╌╌╌╌
+
+  Eio provides an effects-based direct-style IO stack for OCaml 5. For
+  example, you can use Eio to read and write files, make network
+  connections, or perform CPU-intensive calculations, running multiple
+  operations at the same time. It aims to be easy to use, secure, well
+  documented, and fast. A generic cross-platform API is implemented by
+  optimised backends for different platforms.
+
+  Eio implements similar functionality to Lwt or Async, but using
+  effects rather than monadic concurrency. Eio and Lwt libraries can be
+  mixed freely using [lwt_eio], allowing programs to be converted to Eio
+  incrementally.
+
+  For a tutorial, see the [Eio README].
+
+
+[lwt_eio] <https://github.com/ocaml-multicore/lwt_eio>
+
+[Eio README]
+<https://github.com/ocaml-multicore/eio#eio--effects-based-parallel-io-for-ocaml>
+
+
+Highlights of the 1.4 release
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  • [Eio.Net] supports socket options (both the standard `Unix' ones and
+    many more, e.g. `TCP_KEEPINTVL').
+
+  • [Eio.Path] provides more file-system operations (`chmod', `chown',
+    `read_dir_entries', `with_dir_entries'). These all use the modern
+    `*at' system calls and `RESOLVE_BENEATH' to make it easy to restrict
+    path operations to a subtree (see `Path.with_subtree').
+
+  • [Eio_unix.Pty] adds pseudoterminal support (for writing terminal
+    emulators, SSH servers, etc).
+
+  The `Eio_linux' backend (which uses [io_uring] rather than traditional
+  POSIX system calls) now also supports `statx', `fallocate' and
+  `fdatasync'.
+
+  Important bug-fixes include a work-around for macOS `poll' failing for
+  certain devices, `Path.load' working on 0-length-but-not-empty files
+  (as found under `/proc' on Linux), better blocking behaviour with
+  FIFOs (named pipes), and a fix for Windows using 100% CPU in some
+  cases if an FD was used for both reading and writing.
+
+  Note: `Eio.Net.getaddrinfo' previously returned `[]' if there was an
+  error (following `Unix.getaddrinfo'), but now raises an exception with
+  details of the actual error.
+
+  For a full list of changes, see the [release notes].
+
+
+[Eio.Net] <https://ocaml-multicore.github.io/eio/eio/Eio/Net/index.html>
+
+[Eio.Path]
+<https://ocaml-multicore.github.io/eio/eio/Eio/Path/index.html>
+
+[Eio_unix.Pty]
+<https://ocaml-multicore.github.io/eio/eio/Eio_unix/Pty/index.html>
+
+[io_uring] <https://github.com/axboe/liburing>
+
+[release notes]
+<https://github.com/ocaml-multicore/eio/releases/tag/v1.4>
+
+
+ocaml-sbom 0.1.0
+════════════════
+
+  Archive: <https://discuss.ocaml.org/t/ann-ocaml-sbom-0-1-0/18393/1>
+
+
+Nicolas Ojeda Bar announced
+───────────────────────────
+
+  We are happy to announce the first public release of `ocaml-sbom', a
+  tool for generating Software Bills of Materials ([SBOMs]) for your
+  OPAM-based projects.
+
+  Software Bills of Materials are playing an increasingly important role
+  in enterprise and regulated environments where compliance and security
+  are priorities. Producing these reports by hand is impractical, so an
+  automated solution was needed. `ocaml-sbom' provides exactly that.
+
+  `ocaml-sbom' was developed by @mjambon as part of his collaboration
+  with LexiFi. We are releasing it as open source because we believe it
+  fills an unmet need and will be useful to the wider OCaml community.
+
+  <https://github.com/LexiFi/ocaml-sbom/releases>
+
+  The tool invokes `opam' at runtime and requires OPAM 2.2.0 or
+  later. To install it:
+
+  ┌────
+  │ $ opam install ocaml-sbom
+  └────
+
+  Generating an SBOM for your project is a two-step process. First,
+  generate the SBOM in `ocaml-sbom''s internal format (this is the
+  longer step). Run the command from the directory containing your
+  `*.opam' files:
+
+  ┌────
+  │ $ ocaml-sbom -o myproject.sbom
+  └────
+
+  Then export the SBOM to one of the supported standard formats (this
+  step is quick). Currently, CycloneDX 1.6, SPDX 2.3.1, and SPDX 3.0 are
+  supported. By default, `ocaml-sbom' exports to CycloneDX:
+
+  ┌────
+  │ $ ocaml-sbom export myproject.sbom -o myproject.cdx
+  └────
+
+  See the README or the `--help' output for more details.
+
+        *Note:* This is an initial release and should be treated
+         as such. We believe the tool is already useful and shows
+         considerable promise, but it still needs real-world
+         validation before it can be considered
+         production-ready. Feedback is very welcome.
+
+  Finally, I'd like to thank @mjambon for his work on this tool.
+
+  Happy SBOM-ing!
+
+  Cheers, Nicolas
+
+
+[SBOMs] <https://en.wikipedia.org/wiki/Software_supply_chain>
+
+
+Union-find-lattice library
+══════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-union-find-lattice-library/18394/1>
+
+
+Dorian Lesbre announced
+───────────────────────
+
+  I'm happy to announce the release of [union-find-lattice v0.1.0] to
+  opam ! This library provides a persistent union-find with fast
+  operations to compute the join, meet and inclusion of two union-find
+  instances (i.e. respectively the conjunction, disjunction and
+  implication of the represented equivalence relations).
+
+  These new algorithms are best explained in the [SAS 26 paper /A
+  Lattice of Union-Finds/] I co-wrote with @Matthieu_Lemerre. We hope to
+  use this data-structure to represent relations between variables in
+  program analysis, but there may well be other uses cases as well.
+
+  The core signature of the library is thus a functor of type:
+  ┌────
+  │ module UF(Node: NODE) = sig
+  │   type t
+  │ 
+  │   (** ==== Standard union-find operations ========= *)
+  │   val make: int -> t
+  │   val find: t -> Node.t
+  │   val union: t -> Node.t -> Node.t -> t
+  │   (** persistent union-find: union does not modify its argument *)
+  │ 
+  │   val check_related: t -> Node.t -> Node.t -> bool
+  │   (** [check_related t a b] is true IFF [a] and [b] are in the same class *)
+  │ 
+  │   (** ==== Lattice operations ====================== *)
+  │   (** Lattice operands run in O(d*alpha(n)) where 
+  │       - n is the number of nodes
+  │       - d is the difference between both arguments (nodes with different parents)
+  │       - alpha is the inverse Ackermann function *)
+  │ 
+  │ 
+  │   val join: t -> t -> t
+  │   (** [check_related (join u v) a v <=> check_related u a b && check_related v a b] *)
+  │ 
+  │   val meet: t -> t -> t
+  │   (** [check_related (meet u v) a v] is true IFF 
+  │       [a] and [b] are related in the transitive closure of [u] and [v], i.e.
+  │       there exists c1 .. cn, [check_related u a c1 && check_related v c1 c2 && .. && check_related u cn b] *)
+  │ 
+  │   val incl: t -> t -> bool
+  │   (** [incl uf_a uf_b] is lattice inclusion, [uf_a <= uf_b], i.e.
+  │       forall [x] [y], if [check_related uf_b x y] then [check_related uf_a x y] *)
+  │ end
+  └────
+
+  We provide multiple implementations of this signature:
+  • Internally, there three underlying data structure choices: *standard
+    arrays* (with explicit copy), *persistent arrays* (same speed as
+    array but pay a cost for all version switches) or *Patricia trees*
+    (using our [patricia-tree library], truly immutable but add a
+    log(nb_unions) cost to all operations).
+  • We include variants for *labeled union-find* (extension which
+    annotates the parent edges with a group of labels, it can represent
+    more complex relations like equality up-to a constant) see our [PLDI
+    25 paper, /Relational Abstractions based on Labeled Union-Find/] and
+    for *valued union-find*, where each class has a unique associated
+    value (values also have a lattice structure).
+
+
+[union-find-lattice v0.1.0] <https://codex.top/api/union-find-lattice/>
+
+[SAS 26 paper /A Lattice of Union-Finds/]
+<https://www.normalesup.org/~dlesbre/research/2026-sas-union-find-lattice.html.en>
+
+[patricia-tree library] <https://codex.top/api/patricia-tree/>
+
+[PLDI 25 paper, /Relational Abstractions based on Labeled Union-Find/]
+<https://www.normalesup.org/~dlesbre/research/2025-pldi-relational-abstractions-labeled-uf.html.en>
+
+
+Challenging Claude's creativity with IFS fractals and OCaml
+═══════════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/challenging-claudes-creativity-with-ifs-fractals-and-ocaml/18398/1>
+
+
+Cédric announced
+────────────────
+
+  Hello,
+
+  Back in 2010, during a functional programming course, I wrote a small
+  OCaml program that draws fractals with iterated function systems
+  (IFS), using the graphics library and the chaos game. It is one of my
+  oldest repositories still alive, and it had barely changed since:
+
+  <https://github.com/cedricbonhomme/iterated-function-systems>
+
+  Each fractal is just a record: a list of affine transforms with
+  cumulative weights, plus a viewport. The chaos game does the rest. The
+  Barnsley fern is twenty-four coefficients.
+
+  Last weekend I dusted it off, and as an experiment I asked Claude
+  Fable 5 to invent new IFS fractals rather than fix or refactor
+  anything. I wrote up the full story on my blog, but the parts that
+  might interest people here:
+
+  • The repo went from eleven predefined fractals to sixteen. The nicest
+    newcomer in my opinion is lace, Queen Anne's lace (wild carrot): an
+    umbel of umbels, where five transforms place shrunken rotated copies
+    of the whole plant on the rim of a dome and a sixth squashes
+    everything into the stem. Thirty-six numbers total:
+    ┌────
+    │ let lace =
+    │ { po = {x= -0.90 ; y= -0.55};
+    │ sz = {x= 1.80 ; y= 2.00};
+    │ lt = [{pb= 0.18; kf= [| 0.2649; 0.1408; -0.7048; -0.1408; 0.2649; 0.38|]};
+    │ {pb= 0.36; kf= [| 0.3493; 0.0871; -0.4302; -0.0871; 0.3493; 0.5013|]};
+    │ {pb= 0.54; kf= [| 0.38; 0.00; 0.00; 0.00; 0.38; 0.55|]};
+    │ {pb= 0.72; kf= [| 0.3493; -0.0871; 0.4302; 0.0871; 0.3493; 0.5013|]};
+    │ {pb= 0.90; kf= [| 0.2649; -0.1408; 0.7048; 0.1408; 0.2649; 0.38|]};
+    │ {pb= 1.00; kf= [| 0.02; 0.00; 0.00; 0.00; 0.55; 0.00|]}]};;
+    └────
+  • A sunflower built on phyllotaxis with only two transforms: one
+    rotates by the golden angle (137.508°) while contracting toward the
+    center, the other plants a bud at the rim. Because the golden angle
+    is the "most irrational" angle, the buds fill the disk evenly, just
+    like real seed heads.
+  • A fun negative result: I asked for the vegvísir, the Icelandic
+    stave. Strictly speaking an IFS cannot draw it, since the attractor
+    is a single self-similar set while the real symbol has a different
+    rune on each of its eight arms. The workaround was a non-contracting
+    map, a pure 45° rotation at scale 1.0 that draws nothing itself and
+    only distributes points across the eight arms, so the other
+    transforms only need to describe one arm. I had never thought of
+    using a measure-preserving map as a "symmetry map" like that.
+  • The takeaway I keep coming back to: plants make good IFS subjects
+    because they grow by iterating simple local rules, so their shape
+    literally is an attractor. Designed symbols resist because nobody
+    grew them.
+
+  The write-up with all the images is here:
+
+  <https://www.cedricbonhomme.org/2026/07/27/challenging-claude-with-ifs-fractals/>
+
+  If you want to play with it: opam install graphics ocamlfind, then in
+  the toplevel `#use "ifs_fractals.ml";; and draw lace 300000;;'.
+
+  I am curious whether others have used non-contracting symmetry maps in
+  IFS before, or have favorite attractors worth adding. And if anyone
+  remembers writing this kind of toy in an OCaml course, I would love to
+  hear about it. Pull-requests are of course welcome!
+
+  <https://us1.discourse-cdn.com/flex020/uploads/ocaml/original/2X/8/82d90e9430e26168eb5407d9df00211ad6bbe08a.png>
+
+
+Simple_http.1.1 available
+═════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/simple-http-1-1-available/18399/1>
+
+
+Christophe Raffalli announced
+─────────────────────────────
+
+  Dear Camlers,
+
+  *Announcing Simple_httpd 1.1*
+
+  I'm pleased to announce the release of *Simple_httpd 1.1*, a
+  lightweight but feature-rich HTTP/HTTPS server library for *OCaml 5*,
+  designed with a strong emphasis on *performance*, *simplicity*, and
+  *production use*.
+
+  It started as a fork of [tiny_httpd] to experiment with OCaml 5
+  domains and effects, Simple_httpd has now matured into a robust server
+  used to host real websites.
+
+  Documentation :
+  <https://raffalli.eu/simple_httpd/simple_httpd/index.html> (served by
+  simple_httpd, and containing nice benchmarks)
+
+  Github : <https://github.com/craff/simple_httpd>.
+
+
+[tiny_httpd] <https://github.com/c-cube/tiny_httpd>
+
+Highlights
+╌╌╌╌╌╌╌╌╌╌
+
+  • *Very fast*: built around Linux *epoll*, *eventfd*, OCaml 5
+     *domains* and *effects*, with careful attention to latency and
+     throughput. Benchmarks show excellent performance, competitive with
+     or exceeding traditional web servers for many workloads.
+
+  • *Production ready*: the server has been running real websites
+     reliably for months, validating both its performance and stability
+     in everyday use.
+
+  • *Compiled server-side templates*: `.chaml' files provide an OCaml
+     equivalent of PHP, except that templates are *compiled* rather than
+     interpreted, combining flexibility with native performance. It is
+     much faster than php.
+
+  • *Flexible routing*: requests can be dispatched not only by path and
+     HTTP method, but also by host name, address and port, making
+     virtual hosting straightforward.
+
+  • *Static and embedded resources*: serve files directly from the
+     filesystem, or package them into the executable using
+     `vfs_pack'. Compression is supported in both cases and small file
+     may even be cached in memory in the second case.
+
+  • *Built-in monitoring*: integrated status pages expose CPU usage,
+     memory consumption, active connections, file descriptors and logs,
+     making deployment and debugging much easier. We also provide server
+     sent event and websocket, with a full featured terminal as an
+     application.
+
+  • *Modern HTTP 1.1 features*: HTTPS, cookies, authentication, logging
+     with levels, and optional database integration through Caqti are
+     available out of the box. More are planned : anti attack!
+
+  Simple_httpd remains true to its original philosophy: provide a web
+  server that is *easy to use*, *easy to extend*, yet *fast enough for
+  demanding production applications*.
+
+  Feedback, bug reports and contributions are very welcome!
+
+
+Old CWN
+═══════
+
+  If you happen to miss a CWN, you can [send me a message] and I'll mail
+  it to you, or go take a look at [the archive] or the [RSS feed of the
+  archives].
+
+  If you also wish to receive it every week by mail, you may subscribe
+  to the [caml-list].
+
+  [Alan Schmitt]
+
+
+[send me a message] <mailto:alan.schmitt@polytechnique.org>
+
+[the archive] <https://alan.petitepomme.net/cwn/>
+
+[RSS feed of the archives] <https://alan.petitepomme.net/cwn/cwn.rss>
+
+[caml-list] <https://sympa.inria.fr/sympa/info/caml-list>
+
+[Alan Schmitt] <https://alan.petitepomme.net/>
