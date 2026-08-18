@@ -1,0 +1,318 @@
+<cwn>
+  <cwn_head>
+    <cwn_date>2026.08.18</cwn_date>
+    <cwn_prev>2026.08.11</cwn_prev>
+    <cwn_next>2026.08.25</cwn_next>
+    <cwn_date_text>August 11 to 18, 2026</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>Affect 0.0.0 – A streamlined and natural concurrency model for OCaml</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-affect-0-0-0-a-streamlined-and-natural-concurrency-model-for-ocaml/18451/1</cwn_url>
+      <cwn_who>Daniel Bünzli announced</cwn_who>
+      <cwn_what>
+Hello, 
+
+It's my pleasure to announce the first release of ~affect~:
+
+#+begin_quote
+Affect is a streamlined and natural concurrency model for OCaml.
+ 
+It provides parallel asynchronous functions and first-class synchronous actions to orchestrate them. The resulting concurrency model has structured cooperative concurrency, structured cancellation and structured effect handling.
+
+Affect is distributed under the ISC license. It has no dependencies. It optionally depends on the ~cmdliner~ library and the OCaml ~unix~ library.
+#+end_quote
+
+The goal of ~affect~ is to provide a short and ergonomic [concurrency model] and composable synchronization primitives to program parallel and concurrent systems in OCaml. It is:
+
+- Streamlined, because it strives to minimize the exposed abstractions, terminology and conceptual overhead.
+
+- Natural, because it bases its central concurrent computational abstraction on the substrate of the OCaml language: functions.
+
+If the now almost 40 years old [CML events] mean some thing to you, one way of seing affect is just: structured and cancellable parallel asynchronous function calls whose results can be synchronized with CML events (actions in affect).
+
+If CML events don't mean anything to you but Go channels do, then the take away is that those can be implemented with affect's first-class synchronous actions. However actions give you more than that. They give you a general composable synchronization mecanism which you can understand as:
+
+*** An extensible ~select~. 
+
+In affect you can for example select to wait between the [result](https://erratique.ch/software/affect/doc/Affect/Fun/Async/index.html#get_actions) of an asynchronous function, the [cancellation](https://erratique.ch/software/affect/doc/Affect/Fun/Async/index.html#cancellation_actions) of another one, a [timeout](https://erratique.ch/software/affect/doc/Affect_unix/Mtime/index.html#val-wait_for'), a [signal delivery](https://erratique.ch/software/affect/doc/Affect_unix/Unix/Signal/index.html#val-wait'), a set-once cell [becoming set](https://erratique.ch/software/affect/doc/Affect/Cell/Once/index.html#actions), a file descriptor [becoming readable](https://erratique.ch/software/affect/doc/Affect_unix/Unix/index.html#action) and a [funny primitive](https://erratique.ch/software/affect/doc/Affect/Action/Private/Action/Primitive/index.html) action of your own.
+
+The lock-free implemention of actions follows this 2009 [paper](https://doi.org/10.1145/1596550.1596588) with some ideas taken from the [Guile implementation](https://wingolog.org/archives/2017/06/29/a-new-concurrent-ml) of CML. Like the latter, one thing that affect does is to change the CML terminology. We find the event-based terminology to be *very* confusing for thinking about these mecanisms. To fully Milnerize OCaml, we drew inspiration from [CCS](https://en.wikipedia.org/wiki/Calculus_of_communicating_systems) and replaced event by /action/, and channel by /port/. See the [design notes](https://erratique.ch/software/affect/doc/design.html) for more information about these naming changes.
+
+Beyond trying to expose a clear and accessible concurrency model, what distinguishes affect from the first generation of OCaml 5 concurrency libraries is that:
+
+1. It fully embraces the new parallel nature of the OCaml runtime system and makes no distinction between concurrency and parallelism.
+   
+2. It exposes its high-level abstractions, namely first-class synchronous actions and asynchronous functions, for others to be handled. And these mechanisms being parallel-safe and lock-free, not much work is needed to integrate them, little constraints are imposed on the context where they can be used.
+
+This notably means that:
+
+- If you are unhappy about just using an invocation of the [built-in scheduler](https://erratique.ch/software/affect/doc/Affect/Fun/Async/index.html#running) in the main of your program or unhappy about using it at all, you can reasonably easily reclaim control over your application's concurrent and parallel architecture while still using eco-system libraries that would make use these abstractions. 
+  
+  For example [this test](https://github.com/dbuenzli/affect/blob/056f05931e54321b41f220afa756c7f77a18a2fc/test/test_thread.ml) has code and examples showing how to handle actions or running a root asynchronous function in a thread by yourself. Those can even interact with a parallel invocation of the built-in scheduler if that's your thing. This [other test](https://github.com/dbuenzli/affect/blob/cfc33ce71f1ec022e9ab1acf06cfa26f5766412e/test/test_multi_scheduler.ml#L36) shows that two instances of the scheduler can run along side, either in their isolate realm or even communicating via ports.
+
+- Since at some point it would be good to agree on more than bytes, it must be possible for existing schedulers to handle affect's high-level abstractions or a subset of them. For example to handle  actions, only a parallel-safe closure to schedule the work to unblock  in your scheduler has to be provided at action invocation handling time.
+
+TL;DR. You get a nice and ergonomic concurrency model *and* flexiblity.
+
+Regarding the release, while I think that affect is now finally conceptually well rooted, it's early time and it has not been used much. The aim of this first release was to have a fully working and usable implementation of a design that has been rotting for two years in a repo and in my thoughts. This means that in the current state:
+
+- You likely don't want to use it in production[^1]. 
+
+- Changes should still be expected. Especially if you fiddle with the private APIs. Early adopters and questions on this forum are welcome. Get in touch on the issue tracker if you are trying things and running into trouble.
+
+- The library will require the latest version of OCaml for a couple of releases.
+
+- One thing that didn't make it to the release is to replace the use of ~select(2)~ in the cooperative [~Unix~ compatibility module]. The initial plan was to use epoll/kqueue there, it's still the plan.
+
+- The current implementation went for clarity and correctness, if not naïvety. If you don't see shining performance, there are quite a few dimensions where it can be improved. Some structures can be specialized, more imperative data structures can be used (not always a win though), some atomics can perhaps be retracted, simplistic or dumb scheduling strategies can be made more complex, etc. And of course you can always BYOS (the mono-threaded implementation of the full model mentioned earlier [is ~100 loc](https://github.com/dbuenzli/affect/blob/cfc33ce71f1ec022e9ab1acf06cfa26f5766412e/test/test_thread.ml#L88-L201)).
+  
+  The code base should be reasonably approachable, for now it's 690 loc if you consider only the core modules for action and asynchronous functions; the parallel work stealing scheduler adds 380 more. But the devil is in the interleaving :–)
+
+Happarapyllecomputling!
+
+This first release was made possible thanks to a grant from the [OCaml Software Foundation](https://ocaml-sf.org/). I also thank my [donors](https://github.com/sponsors/dbuenzli) for their support. Everyone's support being essential for these bits to get worked on and be distributed.
+
+- Homepage: https://erratique.ch/software/affect
+- Docs: https://erratique.ch/software/affect/doc or ~odig doc affect~  
+- Install: ~opam install affect~ ([opam PR])  
+
+Best,
+
+Daniel
+
+[^1]: I'll be comfortable telling you to do so when I have an affect-based connector for my IO agnostic [HTTP library] deployed on a live system :-)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Slipshow!</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-slipshow/16337/26</cwn_url>
+      <cwn_who>Continuing this thread, Paul-Elliot announced</cwn_who>
+      <cwn_what>
+It is through the epic voice of an old bard that I announce the next release of Slipshow:
+
+*** Slipshow 0.12.0: The Lord of the Slips: The Two Editors
+
+The rivalry between the bearded Emacs users and the pointy-eared VS Code users has been pointlessly raging for ages now. Both factions wanted to prove their superiority as Slipshow editors, and claim the highest typo kill-count.
+
+Pointy-eared VS Code users had an official Slipshow extension, with a live preview that did not require the Slipshow binary. However, that embedded live preview had limitations, eg with multi-file presentations, and more importantly had no LSP support.
+
+Bearded Emacs users could use the built-in LSP client, ~eglot~. But without an official mode, it was impossible to extend the feature set beyond strict LSP.
+
+So, this release of Slipshow comes with two companions:
+
+- Slipshow's VS Code extension, available in [VS Code's](https://marketplace.visualstudio.com/items?itemName=Slipshow.slipshow) [Marketplaces](https://open-vsx.org/extension/Slipshow/slipshow) (and which now requires a slipshow binary)
+- Slipshow's Emacs [major mode](https://github.com/panglesd/slipshow-emacs-mode), installable with ~(use-package slipshow-mode :vc (:url "https://github.com/panglesd/slipshow-emacs-mode" :rev :newest))~
+
+They allow much more cooperation between the editor and the preview server. For instance, there is now a simple setting to choose between refreshing the preview on each keystroke, or on save. Two new commands are available to control the presentation directly from the editor.
+
+#+begin_quote
+One LSP to rule them all, one server to sync them,
+
+One keystroke to step through slips, and in the editor bind them.
+#+end_quote
+
+Another improvement worth mentioning is that the workflow for saving drawings has been greatly improved: You can now save your drawings simply by clicking the ~Save~ button, and they are now anchored where they are included (so, if your textual content changes, drawings are moved accordingly).
+
+#+begin_quote
+You shall not desynchronize text and drawing content!
+#+end_quote
+
+Here is a proof that both editors are great, where a drawing is recorded, saved, and content is added beforehand:
+
+#+attr_html: :width 80%
+https://github.com/user-attachments/assets/c4f0131d-7eda-4bdd-874e-50c1872580eb
+
+#+attr_html: :width 80%
+https://github.com/user-attachments/assets/d4164c3f-f63a-40fb-b03b-add4f0f32435
+
+
+And as always, thanks so much to NLNet for the support. The vast amount of time it took me to learn Emacs Lisp would not be reasonable without their generous support!
+
+(If you're a hairy-footed user of a third, just as great, editor and you'd like to join the Fellowslip, please get in contact, I'd be glad to have some help!)
+
+Here is the full changelog:
+
+*** Added
+
+- ~auto-continue~ attribute to automatically continue to the next action (#240)
+- a ~~duration:FLOAT~ argument to the ~step~ action. (#241)
+- LSP:
+  - Two commands to make the presentation preview go forward/backward from the
+    editor (#242)
+  - Consider ~.slp~ as input files. (#244)
+  - A configuration for refreshing the preview on each keystroke, or on
+    save. (#248)
+  - Watch dependencies for change and refresh preview (#252)
+
+*** Changed
+
+- Drawings are now saved through the preview server (#249, #254)
+- Drawings are anchored to the point where the drawing has been added. (#262)
+- Don't spam with notifications to tell about the URL of the slipshow server
+  (#265)
+
+*** Fixed
+
+- Fix action detection in LSP in multifile settings (#243)
+- Fix external themes in serve mode (#245)
+- Fix LSP preview with multiple files when some of them are not opened (#250)
+
+*** Docs
+
+- Greatly improve the quality of the English in documentation (#255, @Synchro)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>intel_hex.0.4</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-intel-hex-0-4/18456/1</cwn_url>
+      <cwn_who>Mikhail announced</cwn_who>
+      <cwn_what>
+#+attr_html: :width 80%
+https://camo.githubusercontent.com/c5d56dc1ed218120c9829bb9551857f4308de541f20f6d21a12959bf0abe1dde/68747470733a2f2f692e6962622e636f2f6b7668375034702f6c617374696865786c6f68676f2d3030312e706e67
+/is new pretty logo.../
+
+Yo! 
+
+I am happy to announce the new release of [Intel_hex](https://github.com/dx3mod/intel_hex) library. It is a Intel HEX manipulation library for parsing and generating Intel HEX (also known as IHEX) objects. This format is commonly used to represent compiled program code and data that is loaded into a microcontroller, flash memory, or ROM in embedded systems programming.
+
+This new version of the library has been completely rewritten, rethought and tested.
+
+*** In use
+
+Here is an example of how to create an Intel HEX file with test data and print it:
+
+#+begin_src ocaml
+Intel_hex.Record.
+[
+  Extended_linear_address 0x0F;
+  Data (0x0000, "Hello ");
+  Data (0x0007, "World!");
+  End_of_file;
+]
+|&gt; Intel_hex.Encode.into_string 
+|&gt; print_endline
+#+end_src
+#+begin_example
+:02000004000FEB
+:0600000048656C6C6F20E6
+:06000700576F726C6421CA
+:00000001FF
+#+end_example
+Also, you can read Intel HEX objects from any source, of course.
+#+begin_src ocaml
+In_channel.with_open_text "data.hex" Intel_hex.Decode.from_channel
+#+end_src
+#+begin_src ocaml
+- : Intel_hex.Object.t =
+[Intel_hex.Record.Extended_linear_address(0x000F);
+ Intel_hex.Record.Data(0x0000, "Hello ");
+ Intel_hex.Record.Data(0x0007, "World!");
+ Intel_hex.Record.End_of_file]
+#+end_src
+
+*** New features 
+
+[*Into/from blobs*](https://ocaml.org/p/intel_hex/latest/doc/intel_hex/Intel_hex/Object/index.html#from/into-to-linear-blob-memory)
+
+#+begin_src ocaml
+Intel_hex.Object.from_string ~block_size:6 "Hello World! I love it!"
+#+end_src
+#+begin_src ocaml
+- : Intel_hex.Object.t =
+[Intel_hex.Record.Data(0x0000, "Hello ");
+ Intel_hex.Record.Data(0x0006, "World!");
+ Intel_hex.Record.Data(0x000C, " I lov");
+ Intel_hex.Record.Data(0x0012, "e it!");
+ Intel_hex.Record.End_of_file]
+#+end_src
+
+*** Installation 
+
+You can install the ~intel_hex~ library using the [OPAM](https://opam.ocaml.org/) package manager or any other method you prefer.
+
+#+begin_example
+$ opam install intel_hex.0.4
+#+end_example
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Bisect_ppx_ng 3 -- fork of bisect_ppx</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/bisect-ppx-ng-3-fork-of-bisect-ppx/18459/1</cwn_url>
+      <cwn_who>Kakadu announced</cwn_who>
+      <cwn_what>
+Bisect_ppx_ng 3.0.0 [hit](https://github.com/ocaml/opam-repository/pull/30463) opam. While original [bisect_ppx](https://discuss.ocaml.org/t/bisect-ppx-ocaml-code-coverage-with-nice-html-reports/728)  is not upgraded for OCaml 5.5 I'm going to use my fork for calculating coverage.
+
+Please, test it and send your PRs to https://github.com/Kakadu/bisect_ppx_ng
+- It should work for 4.14, 5.3 - 5.5
+- ReasonML support could be broken
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OSEC-2026-17: mirage-crypto-ec: Timing leak in NIST elliptic curves scalar multiplication</cwn_title>
+      <cwn_who>Hannes Mehnert announced</cwn_who>
+      <cwn_what>
+A new security advisory is available. As usual, it can be found at 
+https://github.com/ocaml/security-advisories and 
+https://osv.dev/list?q=&amp;ecosystem=opam
+
+Best,
+
+Hannes
+
+#+begin_example
+id: OSEC-2026-17
+modified: "2026-08-17T09:45:00Z"
+published: "2026-08-17T09:45:00Z"
+severity: "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N"
+severity_score: "5.9 (Medium)"
+affected: "mirage-crypto-ec" {&gt;= "0.11.3" &amp; &lt; "2.4.0"}
+events: [
+   [
+     git "https://github.com/mirage/mirage-crypto" [
+       [fixed "1a61aeee7f593ec067612df1739ec905eab0450f"]
+     ]
+   ]
+]
+credits: [
+   [reporter "Eric Ebinger"]
+   [coordinator "Hannes Mehnert"]
+   [remediation_reviewer "Virgile Robles"]
+   [remediation_developer "Eric Ebinger"]
+]
+cwe: [ CWE-208 ]
+affected_bindings: [
+   "Mirage_crypto_ec.P256.Dh.share"
+   "Mirage_crypto_ec.P256.Dsa.generate"
+   "Mirage_crypto_ec.P256.Dsa.sign"
+   "Mirage_crypto_ec.P256.Dsa.pub_of_priv"
+   "Mirage_crypto_ec.P384.Dh.share"
+   "Mirage_crypto_ec.P384.Dsa.generate"
+   "Mirage_crypto_ec.P384.Dsa.sign"
+   "Mirage_crypto_ec.P384.Dsa.pub_of_priv"
+   "Mirage_crypto_ec.P521.Dh.share"
+   "Mirage_crypto_ec.P521.Dsa.generate"
+   "Mirage_crypto_ec.P521.Dsa.sign"
+   "Mirage_crypto_ec.P521.Dsa.pub_of_priv"
+  ]
+#+end_example
+
+*** Timing leak in NIST elliptic curves scalar multiplication
+
+The scalar multiplication includes pre-computed tables for speedup 
+(introduced in mirage-crypto-ec 0.11.3). The lookup algorithm for these 
+tables performs secret-dependent reads instead of scanning the entire table.
+
+**** Solution
+
+Instead of using the index ~n - 1~, where ~n~ is secret-dependent, use 
+~i - 1~, as done in the Go reference implementation. If ~n~ is 0, there 
+is a out-of-bounds read before the patch.
+
+**** Timeline
+- 2026-08-12: report by Eric Ebinger to security@ocaml.org
+- 2026-08-17: release of mirage-crypto-ec 2.4.0 and this advisory
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>
