@@ -1,0 +1,812 @@
+                          ━━━━━━━━━━━━━━━━━━━
+                           OCAML WEEKLY NEWS
+                          ━━━━━━━━━━━━━━━━━━━
+
+
+[Previous Week] [Up] [Next Week]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of August 25 to
+September 01, 2026.
+
+Table of Contents
+─────────────────
+
+Unhandled: a static checker for unhandled effects in OCaml 5, and a negative result
+The series of mirage-crypto* releases
+Rpmfile 1.0.0 and Bytream 0.2
+oxbow, a dynamic tiling window manager for the Wayland compositor River
+cdp 0.1.0 - typed Chrome DevTools Protocol libraries for OCaml
+Hardcaml Networking Library - Toy Project
+FUN OCaml 2027 in Bangalore, Jan 25-26 - Time to Send Talk and Workshop Proposals - Until Sep 30
+ease-caml - Easing library for OCaml
+opam 2.6.0~alpha1
+Old CWN
+
+
+[Previous Week] <https://alan.petitepomme.net/cwn/2026.08.25.html>
+
+[Up] <https://alan.petitepomme.net/cwn/index.html>
+
+[Next Week] <https://alan.petitepomme.net/cwn/2026.09.08.html>
+
+
+Unhandled: a static checker for unhandled effects in OCaml 5, and a negative result
+═══════════════════════════════════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/unhandled-a-static-checker-for-unhandled-effects-in-ocaml-5-and-a-negative-result/18474/1>
+
+
+Manish Paul announced
+─────────────────────
+
+  OCaml 5's effect handlers are untyped: the compiler does not check
+  that a performed effect is handled, so a missing handler compiles
+  cleanly and fails at run time with `Effect.Unhandled'. We have been
+  building a static checker for that, and we would like some criticism
+  of it, particularly of the parts we think are weakest.
+
+  *What it does.* It reads the compiler's own `.cmt' files, infers a
+  per-function effect set, propagates by call-graph fixpoint, subtracts
+  effects discharged at handler sites, and reports every `perform' that
+  can reach a program entry point unhandled. Findings come with a blame
+  path from entry to `perform', and with a generated witness program: we
+  synthesise it, compile it, run it, and only report the finding as
+  confirmed if the effect actually arrives at an outer boundary.
+
+  *How it is tested.* Differential testing against the runtime as
+  oracle: a generator emits programs, and we compare the checker's
+  prediction against what the compiled program actually does when
+  executed. Over 1000 generated programs, 0 false negatives. Branch-free
+  programs: 600, no false positives.  Branching programs: 400, 5.3%
+  false positives, from joining both arms of a conditional. The
+  witnesses deliberately do not parse the crash message.  Handy, since
+  5.4 stopped printing the effect payload for two of our test programs
+  and nothing broke.
+
+  *The negative result, which is the reason for this post.* We wanted to
+  show the checker catches crashes that really happened, so we built a
+  corpus of commits that fixed documented `Effect.Unhandled' problems
+  and analysed each parent commit. It caught 0 of 6. The cause turned
+  out to be that the modules the bugs lived in never compiled in our
+  environment, so the analyser was never shown the code. The batch
+  runner now reports "out of scope" separately from "missed" for exactly
+  this reason.
+
+  Then we ran it across every opam package depending on `eio',
+  `eio_main', `picos', `domainslib', `riot', `moonpool' or `miou',
+  giving 85 repositories after deduplicating by `dev-repo'. 38 of them
+  built far enough to analyse, 3,881 modules in total, and the tool
+  reported *31 escapes. Every single one was our own false positive.*
+  Four causes, each found by reading the code we had accused:
+
+  1. We modelled "calls anything under `Eio.'" as "requires an Eio
+     runtime".  Wrong for constructors and vtable builders:
+     `Eio.Flow.Pi.source', `Eio.Stream.create', `Eio.Condition.create',
+     `Eio.Buf_read.parse_string_exn'.
+  2. We applied that client-usage model to eio's *own* source, which is
+     a category error. eio does not need an Eio runtime to define
+     itself.
+  3. We did not see through application operators. `let@ env =
+        Eio_main.run in body' is `( let@ ) Eio_main.run (fun env ->
+        body)', and with the operator opaque the head of that
+        application is not `Eio_main.run', so the scheduler boundary
+        vanished and an entire program looked like it ran with no
+        runtime.  The fix is to read `%apply' and `%revapply' out of the
+        value description, which would also cover `@@', `|>', and
+        operators a project defines for itself.
+  4. We only recognised an `Effect.Unhandled' guard when it named the
+     exception.  picos writes it as a catch-all and says why:
+     ┌────
+     │ | exception _exn ->
+     │     (* This should only happen when not running under a scheduler.
+     │        However, we don't match on a specific exception, because it
+     │        depends on the OCaml version. *)
+     └────
+
+     We had recorded the same observation independently, and then
+     watched 5.4 stop printing the effect payload, which is the same
+     problem from the other side.
+
+  Causes 1 and 2 are fixed and regression-tested in both
+  directions. Causes 3 and 4 are diagnosed but not yet fixed: the
+  attempt broke the test suite and we reverted it rather than ship a red
+  one, so they are written up in `docs/LIMITATIONS.md' with the forester
+  and picos source that produced them.  Twenty-five escapes fixed, six
+  remaining and explained.
+
+  *Every escape this tool has ever reported on third-party code has
+  turned out to be our own false positive. We have not found a real bug
+  in anyone's code.* We would rather say that plainly than imply
+  otherwise.
+
+  If there is a transferable lesson it is probably that one: a checker
+  pointed at real code for the first time is mostly measuring itself,
+  and the only way to tell the difference is to read the source you just
+  accused.
+
+  *What we would like criticism of.*
+
+  • Is the library-contract output useful to you? On picos it produces:
+    ┌────
+    │ module Picos
+    │   Picos.Trigger.await                may perform {Picos.Trigger.Await}
+    │   Picos.Fiber.current                may perform {Picos.Fiber.Current}
+    │   Picos.Fiber.spawn                  may perform {Picos.Fiber.Spawn}
+    │   Picos.Fiber.yield                  may perform {Picos.Fiber.Yield}
+    │   Picos.Fiber.Maybe.to_fiber_or_current may perform {Picos.Fiber.Current}
+    │   Picos.Fiber.Maybe.or_current       may perform {Picos.Fiber.Current}
+    │   Picos.Fiber.Maybe.current_if       may perform {Picos.Fiber.Current}
+    │   Picos.Fiber.Maybe.current_and_check_if may perform {Picos.Fiber.Current, ...unknown}
+    │ 
+    │ module Picos_std_event__Event
+    │   Picos_std_event__Event.sync        may perform {Picos.Trigger.Await, ...unknown}
+    │   Picos_std_event__Event.select      may perform {Picos.Trigger.Await, ...unknown}
+    │ 
+    │ module Picos_std_structured__Run
+    │   Picos_std_structured__Run.spawn    may perform {Picos.Fiber.Spawn, ...unknown}
+    └────
+
+    `...unknown' in a set means the contract is incomplete at that
+    function because it calls something we have no `.cmt' for; we would
+    rather show that than round it down to a clean-looking set.
+
+    Is a machine-checked statement of "what this library asks its
+    callers to handle" worth having in a README or in CI?
+
+  • What shapes do we miss? We know about effects performed inside
+    `effc' branch bodies, dynamically built handler records, and
+    closures that reach a call site through a data structure (no 0-CFA
+    yet). We would like to hear about the ones we do not know about.
+
+  • The scheduler model, meaning which entry point installs handlers for
+    which family of effects, is data rather than analysis, and lives in
+    `models/schedulers.conf'. The eio entries are cited to specific
+    lines. The riot, moonpool and miou entries are *guesses* and
+    labelled as such. Corrections very welcome.
+
+  • Has anyone actually hit an `Effect.Unhandled' crash in production?
+    We are short of real examples and would take any pointer, including
+    "we hit it and the cause was something your design cannot see".
+
+  Requires OCaml 5.3 or later, since `Texp_match' only grows its
+  effect-case list in 5.3. CI runs 5.3 and 5.4.
+
+  Repository: <https://github.com/manishpaulish/unhandled>
+
+  Happy to be told the approach is wrong.
+
+
+The series of mirage-crypto* releases
+═════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/the-series-of-mirage-crypto-releases/18476/1>
+
+
+Hannes Mehnert announced
+────────────────────────
+
+  Dear everyone,
+
+  it is my delight to release mirage-crypto* in version 2.4.1
+  (<https://github.com/ocaml/opam-repository/pull/30568>). There have
+  been a series of releases since late July with 2.2.0. The reasoning
+  behind is that several people used LLM to find some issues in the
+  implementation that we are fixing in the process. It is likely
+  there'll be more releases. We try to limit the releases we cut during
+  each month. Me as a maintainer of that package is as well at the edge
+  of what I can do (time-wise – please consider donating at
+  <https://robur.coop/#contact> or via GitHub spoinsors – in the case
+  you use this piece of software). Even more appreciated would be jump
+  in, read code, review pull requests when they come in, contribute code
+  cleanups (please don't submit your LLM generated improvements
+  directly, but do careful reviews of them). Especially since now
+  everyone is on the red team.
+
+  The performance of mirage-crypto has decreased due to added checks,
+  but only in a small margin as far as I can observe on hardware that I
+  use. Feel free to conduct your own benchmarks (there is bench/speed.ml
+  available), and propose improvements.
+
+  Now, the changes range between fixes and cleanups to has a published
+  advisory. There's not always a clear border. The full list can be
+  found in the CHANGES file, or in the commit history. I encourage
+  everyone to update to the latest release, and not use any previous
+  release. As mentioned, some advisories are out, and for other fixes we
+  think they may not need an advisory (although it may be that other
+  implementations issues advisories for such fixes, so please be careful
+  – you can as well submit PRs to ocaml/security-advisories if you think
+  some specific fixes are important enough to get an advisory).
+
+  The fixes in more detail follow. Thanks to Eric Ebinger, Thomas
+  Gazagnaire, and Anil Madhavapeddy for the reports. And to Tarides for
+  make it possible that I spend some time on reviewing, merging, and
+  releasing mirage-crypto.
+
+
+mirage-crypto-ec
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  • timing attack on NIST lookup tables
+    <https://osv.dev/vulnerability/OSEC-2026-17>
+    <https://github.com/mirage/mirage-crypto/commit/1a61aeee7f593ec067612df1739ec905eab0450f>
+  • now uses blinding <https://github.com/mirage/mirage-crypto/pull/285>
+  • do not accept point at infinity as ECDSA key
+    <https://osv.dev/vulnerability/OSEC-2026-13>
+    <https://github.com/mirage/mirage-crypto/commit/ca84f5ee8ede80bd1dd2aa4cd7cc90197752184e>
+  • return early from scalar_mult in ED25519
+    <https://github.com/mirage/mirage-crypto/commit/3b4ba91799700561509d0c6a2de81ed249d7b2b1>
+  • X25519 compare in constant time
+    <https://github.com/mirage/mirage-crypto/commit/1aa4cf5e4c92dcb3edfa83b971e569fa05b8f47d>
+  • properly encode the compressed point 0
+    <https://github.com/mirage/mirage-crypto/commit/94cba54d8dbb5701c3bd7e1317b3f3987c1871e2>
+
+
+mirage-crypto
+╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  • decrypt only after AEAD tag has been verified
+    <https://osv.dev/vulnerability/OSEC-2026-12>
+    <https://github.com/mirage/mirage-crypto/commit/25e7570aec91e092b347561c23f84b6ec39e7163>
+  • more bounds checks
+    <https://github.com/mirage/mirage-crypto/pull/281>
+    <https://github.com/mirage/mirage-crypto/pull/290>
+    <https://github.com/mirage/mirage-crypto/commit/1f0bf67044e67cf6e46911fcd77a0ff706b6c3e7>
+    <https://osv.dev/vulnerability/OSEC-2026-15>
+    <https://github.com/mirage/mirage-crypto/commit/7b5650b72314d65602d0baccbf83ad3013cb37d4>
+  • avoid unaligned access
+    <https://github.com/mirage/mirage-crypto/pull/292>
+  • reject bad ChaCha20 keys
+    <https://github.com/mirage/mirage-crypto/commit/7f505b0dc232805c0c725e99b5fbfa49b1be7c7e>
+  • avoid padding when adata is aligned
+    <https://github.com/mirage/mirage-crypto/commit/999cac90f0de1e4b36451807c0e0dbee6edfde06>
+  • avoid too long CCM messages
+    <https://github.com/mirage/mirage-crypto/pull/304>
+  • AEAD ciphers avoid counter wrapping
+    <https://github.com/mirage/mirage-crypto/pull/305>
+    <https://github.com/mirage/mirage-crypto/pull/306>
+    <https://github.com/mirage/mirage-crypto/pull/304>
+
+
+mirage-crypto-rng
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  • the entropy harvesting test is now executed at initialization time
+    of mirage-crypto-mkernel and mirage-crypto-rng-mirage
+    <https://github.com/mirage/mirage-crypto/pull/282>
+  • fix entropy source IDs
+    <https://github.com/mirage/mirage-crypto/commit/86161d1f51fd748038d917a69490eba714bb60d5>
+  • urandom RNG make it so that a fork doesn't repeat numbers
+    <https://github.com/mirage/mirage-crypto/pull/302>
+  • detect RDSEED properly
+    <https://github.com/mirage/mirage-crypto/commit/0f858a9e165c004e716761385284aadc119b7006>
+
+
+mirage-crypto-pk
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  • DSA avoid division by 0
+    <https://github.com/mirage/mirage-crypto/pull/289>
+  • RSA avoid Invalid_argument when message is 2
+    <https://osv.dev/vulnerability/OSEC-2026-14>
+    <https://github.com/mirage/mirage-crypto/commit/a0f59a0c90eb067505b55a03d3bb104eacd6dd33>
+  • fix hardcoded DH groups
+    <https://github.com/mirage/mirage-crypto/pull/297>
+  • fix decoding of OAEP without a separator
+    <https://github.com/mirage/mirage-crypto/commit/eca6fb33e44bfa374d4c625fa6295670efe7040b>
+
+
+Rpmfile 1.0.0 and Bytream 0.2
+═════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-rpmfile-1-0-0-bytream-0-2/18477/1>
+
+
+Mikhail announced
+─────────────────
+
+  Yo!
+
+  I am happy to announce the first major release of the [Rpmfile]
+  library (for parsing RPM files) and a minor update of the [Bytream]
+  library (streaming bytes and crunching them last library).
+
+  ┌────
+  │ let () = 
+  │   let metadata = 
+  │     In_channel.with_open_bin 
+  │       "hello.rpm" 
+  │       Rpmfile.Reader.from_channel_without_payload 
+  │   in
+  │ 
+  │   let name, release = Rpmfile.View.(name metadata, release metadata) in 
+  │   Printf.printf "%s.%s\n" name release
+  │   (* hello.1.3 *)
+  └────
+
+
+[Rpmfile] <https://github.com/dx3mod/rpmfile>
+
+[Bytream] <https://github.com/dx3mod/bytream>
+
+Changes
+╌╌╌╌╌╌╌
+
+  • Rpmfile reader has been moved from Angstrom library to Bytream
+    library. The biggest change in this version is the start of using
+    the Bytream library to read RPM files from input/output streams
+  • Added CPIO archive reader (does not automatically decompress RPM
+    file's payload, you will need to do that yourself)
+
+
+Not done yet
+╌╌╌╌╌╌╌╌╌╌╌╌
+
+  • Signatures verification
+  • Payload decompression
+  • Digests
+
+
+oxbow, a dynamic tiling window manager for the Wayland compositor River
+═══════════════════════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-oxbow-a-dynamic-tiling-window-manager-for-the-wayland-compositor-river/18484/1>
+
+
+Cole announced
+──────────────
+
+  Hello!
+
+  I'm excited to share a project I've been working on for the past few
+  months, [oxbow].
+
+  It's heavily inspired by my time using dwm, with some ideas taken from
+  other window managers like Hyprland and Niri. Features include:
+
+  • Per-tag configuration (layout, mfact, gaps, etc.)
+  • Tiling layouts including even, diminish, dwindle, spiral, deck, and
+    monocle
+  • Niri-ish scrolling in four orientations
+  • "alt-tab"-like overview
+  • Pure floating layout; oxbow respects native drag and resize requests
+    on windows, making floating mode feel more natural
+  • Popular dwm patches such as scratchpads, sticky windows, window
+    swallowing, and gaps
+  • Regex-based window rules to configure initial tags, output, size,
+    position, and more
+  • IPC control via `oxctl' to configure all of the above, query state,
+    and subscribe to events
+
+  oxbow is packaged in opam, but you can also install it with Nix/NixOS.
+
+  You may notice this is my first post; that is because this project is
+  my first venture into OCaml! I wrote oxbow to be the window manager
+  I've always wanted, but also to learn OCaml. I've really enjoyed the
+  experience, and I plan to use OCaml in a few other projects. I've done
+  my best to take advantage of OCaml's strengths, but I'm fully open to
+  any suggestions/PRs/etc. to improve the internals or any other aspect
+  of oxbow.
+
+  Thank you for having me!
+
+
+[oxbow] <https://oxbow-wm.readthedocs.io>
+
+
+cdp 0.1.0 - typed Chrome DevTools Protocol libraries for OCaml
+══════════════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-cdp-0-1-0-typed-chrome-devtools-protocol-libraries-for-ocaml/18486/1>
+
+
+Atlas07 announced
+─────────────────
+
+  Hi everyone,
+
+  I'm happy to announce the first release of [ocaml-cdp] - typed OCaml
+  libraries for the [Chrome DevTools Protocol].
+
+
+[ocaml-cdp] <https://github.com/ahrefs/ocaml-cdp>
+
+[Chrome DevTools Protocol]
+<https://chromedevtools.github.io/devtools-protocol/>
+
+Why
+╌╌╌
+
+  CDP lets a program control a real Chrome: open pages, run JavaScript,
+  take screenshots, render PDFs, watch network traffic.  OCaml had no
+  CDP library. `ocaml-cdp' fills that gap: it turns the official
+  protocol definitions into typed OCaml modules, so the compiler checks
+  every command, event, and field.
+
+
+What you get
+╌╌╌╌╌╌╌╌╌╌╌╌
+
+  Three packages:
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   Package    Where                            What it is                                                                                      
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   `cdp'      opam                             Typed protocol domains: records, enums, commands, events, with JSON codecs. Transport-agnostic. 
+   `cdp-gen'  opam                             The generator CLI: protocol JSON in, OCaml out. Any revision, your own domain selection.        
+   `cdp-lwt'  GitHub only for now (see below)  The client: launches or attaches to a Chrome and drives it over `libcurl' WebSockets.           
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  `cdp' ships 10 domains (Browser, DOM, Debugger, Emulation, IO,
+  Network, Page, Runtime, Security, Target); the generator covers all
+  58.
+
+  Here is the full round trip: launch a headless Chrome, open a page,
+  read its title back:
+
+  ┌────
+  │ let%lwt chrome = Cdp_lwt.Chrome.launch () in
+  │ let%lwt transport = Cdp_lwt.Curl_transport.connect ~url:chrome.ws_url () in
+  │ let connection = Cdp_lwt.Connection.create transport in
+  │ let call ?session command = Cdp_lwt.Connection.call connection ?session command in
+  │ let%lwt created =
+  │   call (Cdp.Target.Create_target.command (Cdp.Target.Create_target.make_params ~url:"about:blank" ()))
+  │ in
+  │ let%lwt attached =
+  │   call (Cdp.Target.Attach_to_target.command
+  │           (Cdp.Target.Attach_to_target.make_params ~target_id:created.target_id ~flatten:true ()))
+  │ in
+  │ let session = attached.session_id in
+  │ let%lwt () = call ~session (Cdp.Page.Enable.command (Cdp.Page.Enable.make_params ())) in
+  │ let loaded = Cdp_lwt.Connection.next_event connection ~session Cdp.Page.Load_event_fired.event in
+  │ let%lwt _nav =
+  │   call ~session (Cdp.Page.Navigate.command
+  │                    (Cdp.Page.Navigate.make_params ~url:"https://ocaml.org" ()))
+  │ in
+  │ let%lwt _fired = loaded in
+  │ let%lwt evaluated =
+  │   call ~session (Cdp.Runtime.Evaluate.command (Cdp.Runtime.Evaluate.make_params ~expression:"document.title" ()))
+  │ in
+  └────
+
+
+Why cdp-lwt is not on opam yet
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  `cdp-lwt' uses libcurl's WebSocket API through the `curl'
+  bindings. That API is on ocurl's master branch, but not in any ocurl
+  release yet. `cdp-lwt' builds fine from a clone (its opam file pins
+  ocurl master). As soon as ocurl makes a release, `cdp-lwt' follows
+  onto opam.
+
+
+Hardcaml Networking Library - Toy Project
+═════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/hardcaml-networking-library-toy-project/18488/1>
+
+
+Bohdan Purtell announced
+────────────────────────
+
+General Kenobi
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  Greetings.
+
+  My name is Bo Purtell, and I'm an aspiring senior at the University of
+  Florida.
+
+  Wanted to share a little project I've been working on over the course
+  of the last year being a small networking stack for the `hardcaml'
+  ecosystem for hardware development with OCaml! The project is still in
+  it's infancy stages right now, but I've validated out a 10/100Mb
+  duplex interface with very loose IPv4 and UDP support, and I'm
+  currently wrapping up a PCS layer for 64/66b BASE-R encodings for 10G
+  applications. A tad limited with my servers getting moved all the way
+  back to Florida (from Cali) though, and I lost one of my regression
+  machines in the move so going to have to go dive into docker stuff
+  again - bleh.
+
+  <https://github.com/LeEmperor/hardcaml_networking>
+
+
+It's All Math
+╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  I fear that I cannot go back to writing SystemVerilog the same way
+  anymore given the wonderful levels of abstraction that I was able to
+  get away with in OCaml. I firmly believe that my thinking of how
+  "state" is represented, and the fact that I could reach for
+  mathematical terminology when I went to describe an OCaml construct
+  helped me immensely in being able to reason about some of these
+  systems as I was constructing them. Helps with verification to an
+  extent too.
+
+
+Challenges
+╌╌╌╌╌╌╌╌╌╌
+
+  The biggest challenge I faced was the structuring of my verification
+  suites and testing. There are a few floating hardcaml projects around,
+  but trying to integrate around the expect test framework was a tad
+  difficult since said examples are quite poor in demonstrating
+  re-usable architecture or integration testing. I had thoughts that
+  `Alcotest' might be used for larger integration suites, but I feel
+  it's philosophy goes against what a standard expect test is even
+  shooting at doing. Ultimately, expect tests pushed me to Emacs (from
+  Neovim), as expect tests and `tuareg' fit nicely together - if I had
+  to go pasting s-expressions again from the terminal I probably
+  would've imploded. The change is definitely interesting, but well
+  worth it in terms of configurability and OCaml support.
+
+  `Quickcheck' tests were quite nifty as well, but I was flying
+  completely blind on using those, as there are seldom examples for any
+  properly-sized projects release. It was nice to see that alot of my
+  own UVM-based idioms that I am familiar with translated somewhat well
+  with the `Observation.t' and `Snapshot.t' formations, but it would
+  still be nice to see what actual production-grade hardcaml
+  verification looks like. Wish there were formal verif examples as well
+  as I have been firmly grasped by the formal-verif-bug, but only a few
+  dronings in dead branches were all I could muster.
+
+
+In Space!
+╌╌╌╌╌╌╌╌╌
+
+  Truly a bummer that no functional languages will ever see industry
+  use. With that in mind, after wrapping up a double-internship stint
+  Spring & Summer I can finally claim that some nonzero amount of
+  Hardcaml is flying in Space!  If anyone has any questions feel free to
+  shoot me a message here or on LinkedIn!
+
+  PS : if anyone is familiar with proper hardcaml-based verification,
+  could I beg for a quick chat on how integration tests would even work
+  with expect systems? Do I just chuck a gigantic 300-line s-expression
+  into the expected field? Surely not. Does `Alcotest' even enter the
+  vocabulary for such things then?
+
+
+FUN OCaml 2027 in Bangalore, Jan 25-26 - Time to Send Talk and Workshop Proposals - Until Sep 30
+════════════════════════════════════════════════════════════════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/fun-ocaml-2027-in-bangalore-jan-25-26-time-to-send-talk-and-workshop-proposals-until-sep-30/18490/1>
+
+
+Sabine Schmaltz announced
+─────────────────────────
+
+  Hi everyone!
+
+  We are super excited to announce that [FP Launchpad] is hosting **FUN
+  OCaml 2027 in Bangalore**! This will be the very first edition of FUN
+  OCaml (and the first major OCaml conference) in India.
+
+  FUN OCaml 2027 is a two-day open source hacking event dedicated to
+  OCaml enthusiasts and professionals, focusing on the real-world impact
+  of OCaml and bringing our global community together.
+
+  *Event Details*
+  • *Dates:* January 25-26, 2027
+  • *Location:* MLR Convention Centre, Brigade Millennium Campus, JP
+     Nagar 7th Phase, Bangalore
+  • *Format:* Day 1 is dedicated to talks (including a keynote,
+     live-streamed online), and Day 2 features hands-on workshops and
+     collaborative hacking.
+
+  *Call for Participation (CFP) is Open!*
+
+  The call is open through *September 30*. We welcome submissions from
+  all experience levels - whether you are a first-time speaker, industry
+  practitioner, academic researcher, or open source maintainer.
+
+  Topics we are especially excited about:
+  • How you use OCaml in your business or personal projects
+  • OCaml libraries, frameworks, and tools in the ecosystem
+  • Hands-on demonstrations that inspire people to hack on Day 2
+  • Deep dives into actual code and the reasoning behind design
+    decisions
+  • Experience reports and lessons learned
+
+  All talks will be live-streamed and uploaded to watch.ocaml.org and
+  [FUN OCaml's YouTube channel].
+
+  • *Submit your proposal:* <https://fun-ocaml.com/> (or directly via
+     the [CFP submission link])
+  • *Stay updated:* Follow FUN OCaml on its various social channels and
+     join the FUN OCaml Discord server (see website).
+
+  We can't wait to see your proposals and look forward to welcoming you
+  to Bangalore!
+
+  *Note:* A major reason why we've chosen to host FUN OCaml in India
+   this year is that we will (a) have an easy time getting the event
+   fully booked, with both students and professionals, and (b) will be
+   able to again afford high production quality recordings. We expect
+   higher demand and more participants for the OCaml beginners
+   workshop. At the same time, we understand that traveling to India is
+   less ideal than traveling in the EU.
+
+  As a speaker, if there's any concern about funding travel, please
+  check the box in the CFP form to apply for financial assistance. Also,
+  send your proposals early, so that you can start visa application (we
+  provide visa support) as soon as your session is accepted.
+
+
+[FP Launchpad] <https://fplaunchpad.org/>
+
+[FUN OCaml's YouTube channel] <https://www.youtube.com/@FUNOCaml>
+
+[CFP submission link]
+<https://cfp.fun-ocaml.com/fun-ocaml-2027-bengaluru/cfp>
+
+
+ease-caml - Easing library for OCaml
+════════════════════════════════════
+
+  Archive:
+  <https://discuss.ocaml.org/t/ann-ease-caml-easing-library-for-ocaml/18494/1>
+
+
+Christopher Sumnicht announced
+──────────────────────────────
+
+  Hi everyone,
+
+  I am happy to introduce: [ease-caml] (on [opam]) - an easing library
+  for OCaml.
+
+
+[ease-caml] <https://github.com/Modular-Game-Components/ease-caml>
+
+[opam] <https://opam.ocaml.org/packages/ease-caml/>
+
+Why?
+╌╌╌╌
+
+  In video games you often want to manage animations and
+  transitions. Usually this requires deforming a floating point value
+  from one value to another (often continuously) over time so that an
+  object moves from one place to another. Such a deformation is often
+  referred to as an easing or tween. It can be hard to keep track of
+  tweens. In Lua, there are various libraries like hump.timer and Flux
+  which help manage and organize the tweens you have made so you can
+  easily create different kinds and have a single source of updating
+  them. ease-caml is inspired by those libraries and is intended to help
+  with OCaml game development.
+
+  Also, I mentioned games above: Whether you use SDL, Raylib, or pretty
+  much anything else, you can use this library. It just requires an
+  update loop.
+
+
+Example
+╌╌╌╌╌╌╌
+
+  Here is a small example of a bouncing ball (uses raylib-ocaml).
+
+  ┌────
+  │ type circle =
+  │ {
+  │   r: float;
+  │   x: float;
+  │   y: float ref;
+  │ }
+  │ 
+  │ let ball : circle = { r = 40.0; x = 400.0; y = ref ~-.40.0 }
+  │ let ty = Tween.make_tween ball.y 225.0 ~ef:Easers.bounce 1.0
+  │ let tm = Tween.new_manager ()
+  │ 
+  │ let setup () =
+  │   Raylib.init_window 800 450 "simple_tween";
+  │   Raylib.set_target_fps 60;
+  │   Tween.add ty tm
+  │ 
+  │ let rec loop () =
+  │   if Raylib.window_should_close () then Raylib.close_window ()
+  │   else (
+  │     let open Raylib in
+  │     Tween.update tm (get_frame_time ());
+  │     begin_drawing ();
+  │     clear_background Color.raywhite;
+  │     draw_circle_v (Vector2.create ball.x !(ball.y)) ball.r Color.maroon;
+  │     end_drawing ();
+  │     loop ()
+  │   )
+  │ 
+  │ let () = setup () |> loop
+  └────
+
+  (Note as a new user I cannot put more than 2 links. If you need help
+  finding hump.timer, Flux, or raylib-ocaml, please let me know!)
+
+
+opam 2.6.0~alpha1
+═════════════════
+
+  Archive: <https://discuss.ocaml.org/t/ann-opam-2-6-0-alpha1/18372/4>
+
+
+Continuing this thread, Kate announced
+──────────────────────────────────────
+
+  Hot on the heels of beta1, we are happy to announce the release of
+  opam 2.6.0~beta2.
+
+  This version is a beta, we invite users to test it to spot previously
+  unnoticed bugs as we head towards the stable release.
+
+
+Main changes compared to 2.6.0~beta1
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  :hourglass_done: The main change is a fix of a performance regression
+  compared to opam 2.5, where opam project trees were scanned for
+  nothing, when pinning them, making commands such as `opam install
+  –deps-only .` excruatingly slow on large projects ([#7098])
+
+
+  :open_book: You can read our [blog post] for more information about
+  these changes and more, and for even more details you can take a look
+  at the [release note] or the [changelog].
+
+
+[#7098] <https://github.com/ocaml/opam/issues/7098>
+
+[blog post] <https://opam.ocaml.org/blog/opam-2-6-0-beta2/>
+
+[release note] <https://github.com/ocaml/opam/releases/tag/2.6.0-beta2>
+
+[changelog] <https://github.com/ocaml/opam/blob/2.6.0-beta2/CHANGES>
+
+
+Try it!
+╌╌╌╌╌╌╌
+
+  The upgrade instructions are unchanged:
+
+  For Unix systems
+  ┌────
+  │ bash -c "sh <(curl -fsSL https://opam.ocaml.org/install.sh) --version 2.6.0~beta2"
+  └────
+  or from PowerShell for Windows systems
+  ┌────
+  │ Invoke-Expression "& { $(Invoke-RestMethod https://opam.ocaml.org/install.ps1) } -Version 2.6.0~beta2"
+  └────
+  Please report any issues to the [bug-tracker].
+
+  Happy hacking, <> <> The opam team <> <> :camel:
+
+
+[bug-tracker] <https://github.com/ocaml/opam/issues>
+
+
+Old CWN
+═══════
+
+  If you happen to miss a CWN, you can [send me a message] and I'll mail
+  it to you, or go take a look at [the archive] or the [RSS feed of the
+  archives].
+
+  If you also wish to receive it every week by mail, you may subscribe
+  to the [caml-list].
+
+  [Alan Schmitt]
+
+
+[send me a message] <mailto:alan.schmitt@polytechnique.org>
+
+[the archive] <https://alan.petitepomme.net/cwn/>
+
+[RSS feed of the archives] <https://alan.petitepomme.net/cwn/cwn.rss>
+
+[caml-list] <https://sympa.inria.fr/sympa/info/caml-list>
+
+[Alan Schmitt] <https://alan.petitepomme.net/>
