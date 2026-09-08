@@ -1,0 +1,668 @@
+#+OPTIONS: ^:nil
+#+OPTIONS: html-postamble:nil
+#+OPTIONS: num:nil
+#+OPTIONS: toc:nil
+#+OPTIONS: author:nil
+#+HTML_HEAD: <style type="text/css">#table-of-contents h2 { display: none } .title { display: none } .authorname { text-align: right }</style>
+#+HTML_HEAD: <style type="text/css">.outline-2 {border-top: 1px solid black;}</style>
+#+TITLE: OCaml Weekly News
+[[https://alan.petitepomme.net/cwn/2026.09.01.html][Previous Week]] [[https://alan.petitepomme.net/cwn/index.html][Up]] [[https://alan.petitepomme.net/cwn/2026.09.15.html][Next Week]]
+
+Hello
+
+Here is the latest OCaml Weekly News, for the week of September 01 to 08, 2026.
+
+#+TOC: headlines 1
+
+
+* Working in the OCaml compilers backend
+:PROPERTIES:
+:CUSTOM_ID: 1
+:END:
+Archive: https://discuss.ocaml.org/t/working-in-the-ocaml-compilers-backend/18499/1
+
+** Zane Hambly announced
+
+
+Hello! long time lurker, first time caller here. 
+
+I've been working in the OCaml backend mainly in native emission and ~asmcomp~ swapping out calls to C for instructions for each architecture the compiler supports. Some of the work was sponsored by OCSF but I have also been trying to make myself useful in other projects too. 
+
+I have done a full write up on my [[https://zanehambly.com/ocaml][website]].
+
+Because my work has also involved adding native atomics, I've been doing litmus testing on OCaml's memory model. If you are interested in seeing the results, I've also added a page [[https://zanehambly.com/reference/ocaml-atomics][here]]. This is something I plan on updating from time to time alongside some other tests I have planned. I have access to a whole pile of machines so I might as well use them!
+
+I come mainly from a hobbyist and historical computing background and have used OCaml extensively to help me in those endeavours. I plan on continuing my work on the compiler so you may see me around reviewing pull requests or sending my own in. If you have any questions, please feel free to ask! 
+
+Thanks,
+
+Zane
+      
+
+
+
+* forcamla 0.4.0 - Simple Functional Reactive Programming
+:PROPERTIES:
+:CUSTOM_ID: 2
+:END:
+Archive: https://discuss.ocaml.org/t/ann-forcamla-0-4-0-simple-functional-reactive-programming/18501/1
+
+** Christopher Sumnicht announced
+
+
+Hi everyone,
+
+I also made this package a bit ago (didn't know about discuss.ocaml.org until yesterday) called [[https://github.com/rxdt-labs/forcamla][forcamla]] ([[https://opam.ocaml.org/packages/forcamla/][opam]]). You can think of it like a very powerful spreadsheet editor. In particular, in forcamla we /equate/ variables instead of /assign/ them. forcamla also combines the power of spreadsheets with event listeners to organize program execution.
+
+*** A Small Example
+
+#+begin_src ocaml
+open Formula (* To use formula *)
+
+let x = v 2 (* Create an integer term called x *)
+let y = v 2 (* Create an integer term called y *)
+let z = x + y
+let () = x =: 3 (* Set x to 3, and z now is 5 *)
+#+end_src
+
+Observe there is no need to reassign ~z~. It was /equated/ to ~x + y~ and will always update whenever ~x~ or ~y~ change.
+
+*** Event Listeners
+
+You can also construct event listeners using this framework. Here is a small game example to illustrate this:
+
+#+begin_src ocaml
+open Formula
+
+type hero =
+{
+  (* A bunuch of fields *)
+  health: int formula
+}
+
+let player =
+{
+  (* Assign the fields *)
+  health = v 3; (* Give health a value of something, say 3 in this case. *)
+}
+
+let game_over () = print_endline "Game Over!"
+let () = when_satisfied (player.health =? 0) game_over
+#+end_src
+
+Then you can do this:
+
+#+begin_src ocaml
+let () = player.health =: !(player.health - c 1) (* Nothing happens yet! player.health is 2 now. *)
+let () = player.health =: !(player.health - c 1) (* Nothing happens yet! player health is 1 now. *)
+let () = player.health =: !(player.health - c 1) (* Now something happens! player.health is 0 and "Game Over!" is printed to the screen! *)
+#+end_src
+
+*** Why?
+
+I originally designed forcamla for games but I realized it is just a useful organizational tool in general. It is similar to Jane Street's [[https://github.com/janestreet/incremental][Incremental]] but forcamla prioritizes ergonomics over efficiency.
+      
+
+
+
+* Typegist 0.0.0
+:PROPERTIES:
+:CUSTOM_ID: 3
+:END:
+Archive: https://discuss.ocaml.org/t/ann-typegist-0-0-0/18503/1
+
+** Daniel Bünzli announced
+
+
+Hello, 
+
+It's my pleasure to announce the first release of ~typegist~: 
+
+#+begin_quote
+Typegist represents the essence of OCaml types as values.
+This dynamic type representation can be used to devise generic type-indexed functions – value serializers, printers, parsers, differs, random generators, editors, ffi glue, etc. Any accessible type can be described up to the limits defined by its public interface.
+Typegist does not model OCaml's type language in full detail, but focuses on a core structural subset decorated with typed-indexed metadata to provide an ergonomic interface for both producers and processors of the representation.
+Typegist is distributed under the ISC license. It has no dependencies. 
+#+end_quote
+
+As mentioned above these values only partially model OCaml's type definition language, that's the reason why they are ~Type.Gist.t~ and not ~Type.Repr.t~ values. You should see typegist as a data interfacing language for your types rather than a faithful or canonical representation of your types (which I find less useful in practice).
+
+The representation special cases and annotates some of the ~Stdlib~ types: being too generic and losing all semantics in favour of generalized abstract non-sense is undesirable when you interface with other systems. For example. You want ~list~ values to show up as arrays in JSON, not as nested cons case objects. You want ~None~ to map to ~null~ not to a constant case object. You want ~string~ values that hold textual data to show up as plain JSON strings rather than hex digits or base64. Etc.
+
+This means that part of [[https://erratique.ch/software/typegist/doc/Typegist/Type/Gist/Expr/index.html][the representation]] is decidedly ad-hoc. It balances precision and genericity while making it [[https://erratique.ch/software/typegist/doc/cookbook.html#generic_funs_template][reasonably easy]] to devise your own gist processors without getting bogged into pointless details of OCaml's type expression language.
+
+So next time it's time for you to write an ~M.pp : t Fmt.t~ function, write an ~M.gist : t Type.Gist.t~ instead. You'll get your printer and [[https://erratique.ch/software/typegist/doc/Typegist/Fun/Generic/index.html][more]]. A companion release of ~jsont~ was made with the new optional ~jsont.typegist~ library that [[https://erratique.ch/software/jsont/doc/Jsont_typegist/index.html][translates]] type gists into ~jsont~ JSON types for your JSON serialization pleasure (if that exists).
+
+While I don't expect typegist to change much, it hasn't been used in anger yet – but I'll waste no time. It's again a design that has been rotting for too long in a repo. This means that changes in the representation could still occur based on feedback if more precision is needed or better representation are found. However I'd expect such changes to mostly affect gist processors. Get in touch on the issue tracker if you run into difficulties or improvements.
+
+I have no plan to propose any mean to automate gist derivations from type definitions, but some people have expressed interest in doing that in the past.
+
+Happy typed-indexed programming!
+
+This first release was made possible thanks to a grant from the [[https://ocaml-sf.org/][OCaml Software Foundation]]. I also thank my [[https://github.com/sponsors/dbuenzli][donors]] for their support.
+
+- Homepage: https://erratique.ch/software/typegist
+- Docs: https://erratique.ch/software/typegist/doc or ~odig doc typegist~  
+- Install: ~opam install typegist~ ([opam PR])  
+
+Best,
+
+Daniel
+
+---
+P.S. The API makes use – for good – of every new type gimick that was introduced in OCaml 5.5 :–)
+      
+
+
+
+* Dependent if expressions without dependent types
+:PROPERTIES:
+:CUSTOM_ID: 4
+:END:
+Archive: https://discuss.ocaml.org/t/dependent-if-expressions-without-dependent-types/18506/1
+
+** Didier Wenzek announced
+
+
+This [[https://haskellforall.com/2026/09/dependent-if-expressions][post on Haskell for all]]
+shows an insighful use of Church encoding to implement dependent if expressions without dependent types.
+
+The following OCaml code type checks and works:
+
+#+begin_src ocaml
+# let example bool = if_then_else bool 5 "hi!";;
+
+# example t;;
+ - : int = 5
+# example f;;
+- : string = "hi!"
+# example (f && t);;
+- : string = "hi!"
+# example (f || t);;
+- : int = 5
+# example (not t);;
+- : string = "hi!"
+#+end_src
+
+This is simply based on Hindley-Milner type inference, with a single trick
+that is to be not too restrictive on the type for Church encoded booleans.
+
+Where the first idea to Church encode booleans would be to restrict the ~then~ and ~else~ cases to be the same
+(using a record to encode the forall type):
+
+#+begin_src ocaml
+type bool = { check : 'a. 'a -> 'a -> 'a; }
+#+end_src
+
+Dependent if expressions require a liberal definition:
+
+#+begin_src ocaml
+type bool = { check : 'a 'b 'c. 'a -> 'b -> 'c; }
+#+end_src
+
+And this is what is inferred when no type is enforced
+(ignoring the fact we get then weakly polymorphic types instead of forall types):
+
+#+begin_src ocaml
+let t if_branch else_branch = if_branch
+let f if_branch else_branch = else_branch
+
+let if_then_else bool if_branch else_branch = bool if_branch else_branch
+
+let (&&) a b if_branch else_branch = a (b if_branch else_branch) else_branch
+let (||) a b if_branch else_branch = a if_branch (b if_branch else_branch)
+let not a if_branch else_branch = a else_branch if_branch
+#+end_src
+
+I encourage you read the full post, this is a really nice read.
+      
+
+
+
+* Caps 0.1.0, a capability type system and library for OCaml
+:PROPERTIES:
+:CUSTOM_ID: 5
+:END:
+Archive: https://discuss.ocaml.org/t/ann-caps-0-1-0-a-capability-type-system-and-library-for-ocaml/18507/1
+
+** Yoann Padioleau announced
+
+
+Hi everyone,
+
+I am pleased to announce the first release of the caps library, which
+allows you to use /capability types/ in your OCaml programs (and
+libraries).
+
+The main idea is that after you used this library, your functions
+can have signatures like
+
+#+begin_src ocaml
+val foo: < Cap.network; Cap.stdout; Cap.random; .. > ->
+  int -> float
+#+end_src
+
+meaning this function requires the /network/, /stdout/, and /random/
+capabilities to work. The signature reveals the internal /effect/
+this function has and the kind of system calls it internally does (or its callees),
+
+I designed this library while working at Semgrep on the semgrep codebase
+and it was useful to /sandbox/ or control parts of the codebase so
+that young engineers would not call dangerous functions in certain parts.
+It is I think even more useful in the new coding-agent era to control
+in the signature the code generated by AI.
+
+For more information you can see my talk at the OCaml 2026 workshop here:
+https://www.youtube.com/watch?v=4t_2wLz9EOo as well as
+the corresponding slides https://aryx.github.io/ocaml-caps/caps.html (using
+the super cool Slipshow presentation tool announced here a few times).
+See also the project page at https://github.com/aryx/ocaml-caps
+
+You can easily play with it by installing it via opam:
+
+#+begin_example
+$ opam update
+$ opam install caps
+#+end_example
+
+Happy to answer questions.
+      
+
+
+
+* bstr, slice and bin (bigstring, encoders and decoders for binary formats)
+:PROPERTIES:
+:CUSTOM_ID: 6
+:END:
+Archive: https://discuss.ocaml.org/t/ann-bstr-slice-bin-bigstring-encoders-decoders-for-binary-formats/18509/1
+
+** Calascibetta Romain announced
+
+
+I am delighted to announce the release of [[https://github.com/robur-coop/bstr][~bstr.0.1.0~]], as well as ~bin.0.1.0~ and ~slice.0.1.0~. These releases are the result of a synthetic work between several libraries, aimed at bringing together everything that might be useful to us in implementing formats and protocols within [[https://robur.coop][our cooperative]]. In particular, these libraries offer:
+- a comprehensive module for manipulating what are known as _bigstrings_ (replacing [[https://github.com/inhabitedtype/bigstringaf][bigstringaf]] - because the name of that library is too long)
+- a library providing access to bigstrings and bytes (in short, [[https://github.com/robur-coop/bstr/blob/b427711671c1654df37550849efe5265c866ebcc/lib/slice.mli#L1][an abstraction]] of [[https://github.com/mirage/ocaml-cstruct][ocaml-cstruct]])
+- finally, a library for describing binary formats from which one can derive an encoder and a decoder (in the spirit of what [[https://github.com/mirage/repr][repr]] can offer)
+
+For those who want to understand the benefits of bigstrings, I’ve previously shared my thoughts on the subject [[https://discuss.ocaml.org/t/buffered-io-bytes-vs-bigstring/8978/3?u=dinosaure][here]]. Although we’ve since backtracked on the use of ~ocaml-cstruct~, particularly for performance reasons (see [[https://blog.robur.coop/articles/miragevpn-performance.html][this article]]), bigstrings remain useful in certain cases: they should, fundamentally, be used wisely.
+
+Particular attention has been paid to performance using [[https://github.com/mirage/bechamel][~bechamel~]] (for micro-benchmarking), and we can draw a few conclusions from this:
+- ~bstr~ has the edge over ~bigstringaf~ as it uses tags that did not exist at the time ~bigstringaf~ was developed
+  |      | bstr   | bigstringaf |
+  |------|--------|-------------|
+  | blit | 4.4ns  | 4.8ns       |
+  | sub  | 15.4ns | 18.9ns      |
+- ~slice.bstr~ performs like ~ocaml-cstruct~ (which was to be expected)
+- ~bin~ challenges hand-written code in terms of decoding
+  |      | bin    | hand-written (~ocaml-cstruct~) | ~repr~ | ~angstrom~ |
+  |------|--------|--------------------------------|-|-|
+  | ipv4 | 11.9ns | 11.9ns                         | 93.9ns | 136ns |
+  #+begin_src ocaml
+let bin =
+  let fn vihl tos total_length id ff ttl protocol checksum src dst =
+    { version= vihl lsr 4; ihl= vihl land 0x0f; tos; total_length; id
+    ; flags= ff lsr 13; frag_offset= ff land 0x1fff; ttl; protocol; checksum
+    ; src; dst }
+  in
+  let open Bin in
+  record ~name:"ipv4" fn
+  |+ field ~name:"vihl" uint8 (fun t -> (t.version lsl 4) lor t.ihl)
+  |+ field ~name:"tos" uint8 (fun t -> t.tos)
+  |+ field ~name:"total_length" beuint16 (fun t -> t.total_length)
+  |+ field ~name:"id" beuint16 (fun t -> t.id)
+  |+ field ~name:"flags_frag" beuint16 (fun t ->
+      (t.flags lsl 13) lor t.frag_offset)
+  |+ field ~name:"ttl" uint8 (fun t -> t.ttl)
+  |+ field ~name:"protocol" uint8 (fun t -> t.protocol)
+  |+ field ~name:"checksum" beuint16 (fun t -> t.checksum)
+  |+ field ~name:"src" beint32 (fun t -> t.src)
+  |+ field ~name:"dst" beint32 (fun t -> t.dst)
+  |> sealr
+
+let cstruct cs =
+  let vihl = Cstruct.get_uint8 cs 0 in
+  let tos = Cstruct.get_uint8 cs 1 in
+  let total_length = Cstruct.BE.get_uint16 cs 2 in
+  let id = Cstruct.BE.get_uint16 cs 4 in
+  let ff = Cstruct.BE.get_uint16 cs 6 in
+  let ttl = Cstruct.get_uint8 cs 8 in
+  let protocol = Cstruct.get_uint8 cs 9 in
+  let checksum = Cstruct.BE.get_uint16 cs 10 in
+  let src = Cstruct.BE.get_uint32 cs 12 in
+  let dst = Cstruct.BE.get_uint32 cs 16 in
+  { version= vihl lsr 4; ihl= vihl land 0x0f; tos; total_length; id
+  ; flags= ff lsr 13; frag_offset= ff land 0x1fff; ttl; protocol; checksum
+  ; src; dst }
+  #+end_src
+
+These libraries were driven by the ambition to provide a coherent and consistent set of libraries, particularly for working with bigarrays, whilst making few compromises in terms of performance. [[https://github.com/dinosaure/buffet][Several attempts]] were made to experiment with functors, GADTs, ADTs and even higher-kinded polymorphism... (even with capabilities).
+
+The result is that a _poor man’s functor_ appears to be sufficient, along with a few tweaks (notably to avoid a few ~caml_apply2~ calls), to achieve something that is fairly competitive compared to hand-written code.
+
+These libraries also encapsulate what may have been missing and/or emerged within the community when it came to working with bigstrings. I have personally contributed to improving these libraries without being entirely satisfied with them: hence the emergence of ~bstr~ in particular. A considerable amount of effort has been put into documenting these libraries and into testing them. Fuzzers are also available to verify certain assertions regarding ~bin~ (such as isomorphism).
+
+These libraries are currently in use, and this version is certainly not the final one. Indeed, we will continue to improve them as we use them (particularly with regard to the implementation of protocols and formats in OCaml).
+
+If you appreciate our work, you can make a donation [[https://github.com/sponsors/robur-coop][via GitHub]] or directly to [[https://robur.coop/#donate][our charity]]. Bighappy hacking!
+      
+
+
+
+* OCaml 5.5.1 released
+:PROPERTIES:
+:CUSTOM_ID: 7
+:END:
+Archive: https://discuss.ocaml.org/t/ocaml-5-5-1-released/18510/1
+
+** octachron announced
+
+
+We have the pleasure of celebrating the birthday of Giovanni Girolamo Saccheri
+by announcing the release of OCaml version 5.5.1.
+
+This patch-level release fixes a major type system bug for module-dependent
+functions and also contains two security fixes for the runtime: one in the 
+Marshal module, another inside the loading of bytecode.
+
+At a less severe level, this release also fixes two bugs in the runtime for
+concurrent programs, another runtime bug for musl users; and a handful of other
+bugs.
+
+The release also restores support for cloning the compiler on macOS.
+
+Overall, we are strongly advising you to switch to OCaml 5.5.1 if you were
+already using OCaml 5.5.0.
+
+
+The full list of bug fixes is available below for more details.
+
+Happy hacking,
+-- Florian Angeletti, for the OCaml team.
+
+*** Installation Instructions
+
+The base compiler can be installed as an opam switch with the following commands:
+
+#+begin_example
+    opam update
+    opam switch create 5.5.1
+#+end_example
+
+The source code for the release is also directly available on:
+
+- GitHub: https://github.com/ocaml/ocaml/archive/5.5.1.tar.gz)
+- Inria archive: https://caml.inria.fr/pub/distrib/ocaml-5.5/ocaml-5.5.1.tar.gz
+
+*** Changes compared to OCaml 5.5.0
+
+**** Type system
+
+- [[https://github.com/ocaml/ocaml/issues/14891][14891]], [[https://github.com/ocaml/ocaml/issues/14982][14982]]: fix scope error leading to an erroneous typechecking for
+  non-dependent application of module-dependent function in presence of
+  dependent first-class module types:
+  #+begin_src ocaml
+  module type T = sig module type S end
+  let f (module M:T) (m: (module M.S)) = m
+  module type P = sig type 'a t end
+  let error =
+    f (module struct module type S = P end) (module List)
+  #+end_src
+  (Florian Angeletti, report by Hazem ElMasry, review by Gabriel Scherer)
+
+**** Runtime
+
+- [[https://github.com/ocaml/ocaml/issues/14872][14872]]: harden loading of bytecode executable files against corrupted
+  or malicious files having 2^29 TOC entries or more.
+  (Xavier Leroy, review by Nicolás Ojeda Bär)
+
+- [[https://github.com/ocaml/ocaml/issues/15019][15019]]: ~Marshal.from_{string,bytes}~: guard against overflow in
+  the computation of the total data length.
+  (Xavier Leroy, report by Akshay Singh, review by Nicolás Ojeda Bär
+  and Antonin Décimo)
+
+- [[https://github.com/ocaml/ocaml/issues/14933][14933]]: Respect ~sysconf(_SC_SIGSTKSZ)~ when choosing the size for the
+  alternate signal stack, avoiding fatal errors when linked against musl libc on
+  some Intel CPUs.
+  (Nat Mote, review by Florian Angeletti and Miod Vallat)
+
+- [[https://github.com/ocaml/ocaml/issues/14940][14940]], fix a memory leak in the OCaml runtime by bounding the size
+  of the internal cache of stacks.
+  (Vesa Karvonen, Florian Angeletti, review by Gabriel Scherer)
+
+- [[https://github.com/ocaml/ocaml/issues/15029][15029]]: Fix a regression on Windows where an OCaml thread that never
+  yielded voluntarily would keep the runtime lock forever, so that the other
+  threads of its domain never ran. Preemptive switching between systhreads had
+  no effect; only explicit calls to ~Thread.yield~ or blocking sections would
+  let other threads run.
+  (Nicolás Ojeda Bär, report by Daniel Larraz, review by Antonin Décimo)
+
+**** Build system
+
+- [[https://github.com/ocaml/ocaml/issues/14883][14883]], [[https://github.com/ocaml/ocaml/issues/14884][14884]]: fix Windows cross-compilation with older mingw32-gcc versions
+  (Brian Ward, review by Antonin Décimo and Stefan Muenzel)
+
+- [[https://github.com/ocaml/ocaml/issues/14871][14871]], [[https://github.com/ocaml/ocaml/issues/14914][14914]]: Ignore OCAMLTOP_INCLUDE_PATH during the build.
+  (David Allsopp, report by Andreas Rossberg, review by Florian Angeletti)
+
+- [[https://github.com/ocaml/ocaml/issues/14901][14901]], [[https://github.com/ocaml/ocaml/issues/14923][14923]]: Fix the generated installation script to cope with macOS's
+  geriatric version of bash when executing in opam's sandbox.
+  (David Allsopp, report by Julian Fondren and Sacha-Élie Ayoun, investigation
+   and initial fix by Kate Deplaix, review by Florian Angeletti)
+
+- [[https://github.com/ocaml/ocaml/issues/14989][14989]]: Improve build reproducibility by letting only otherlibs/{str,unix}
+  build their own .cmi and .cmx. The generic %.cmi/%.cmx rules of the root
+  Makefile were racing with them under make -j and recorded a different source
+  path, which changed the interface digest (and, through it, most other compiled
+  artefacts) as well as the debug info packed into str.a and unix.a.
+  (Bernhard M. Wiedemann, review by David Allsopp and Stefan Muenzel)
+
+**** User interface
+
+- [[https://github.com/ocaml/ocaml/issues/14881][14881]], [[https://github.com/ocaml/ocaml/issues/14882][14882]]: fix printing of external types that are subject to module
+  constraints.
+  (Stefan Muenzel, review by Florian Angeletti)
+
+**** Runtime events library
+
+- [[https://github.com/ocaml/ocaml/issues/14966][14966]]: add the missing EV_MINOR_EPHE_CLEAN constructor to
+  Runtime_events.runtime_phase, introduced in [[https://github.com/ocaml/ocaml/issues/13643][13643]]. The runtime has emitted
+  this phase since 5.4, when a minor collection has to clean locked ephemerons,
+  but the OCaml type had no constructor for it, so consumers were handed an
+  out-of-range value and crashed when matching on it.
+  (Tim McGilchrist, review by Florian Angeletti)
+
+- [[https://github.com/ocaml/ocaml/issues/14969][14969]]: Fix the units of the runtime events counter EV_C_MINOR_ALLOCATED_WORDS
+  to report as the number of words of minor heap consumed, including headers.
+  (Tim McGilchrist, review by Nicolás Ojeda Bär)
+      
+
+
+
+* Slipshow!
+:PROPERTIES:
+:CUSTOM_ID: 8
+:END:
+Archive: https://discuss.ocaml.org/t/ann-slipshow/16337/29
+
+** Continuing this thread, Paul-Elliot announced
+
+
+Another release was just [[https://github.com/ocaml/opam-repository/pull/30652][merged]] in opam!
+
+Did you notice the trembling glass of water? That's the next release of Slipshow that I'm announcing:
+
+*** Slipshow 0.13.0: Juraslip Park
+
+While digging in decades-old software, I found bugs that contained the DNA of the now extinct Keynoplodocus, Googloslideraptor, and last but not least, Powerpointaurus Rex.
+
+By merging it in Slipshow's own DNA, I was able to bring back to life features long forgotten by every modern software (like Slipshow): the ability to place elements in your presentation using the mouse.
+
+#+attr_html: :width 80%
+https://github.com/user-attachments/assets/2330aab5-ee28-4248-b215-66920cb1c7ff
+
+The main new attraction of this release is the "GUI mode".
+
+Until now, Slipshow placed every element for you, based on what it is (a title, a paragraph, a block) with CSS as escape hatch. This is the "What You See Is What You Mean" model. In "What You See Is What You Get", by contrast, you directly edit the rendered content and lay your elements out there, usually with the mouse.
+
+The best of both (Jurassic) worlds would be "What You See Is What You Want": deciding per element which of the two modes you prefer.
+
+Just as some frogs can change sex in a single-sex environment, a Slipshow element can now turn from WYSIWYM to WYSIWYG and be placed with the mouse, with a single ~gui~ attribute:
+
+#+begin_example
+    {gui}
+    Drag me, resize me.
+#+end_example
+
+Other notable improvements include Ctrl+clicking on the rendered content to get to the source, the addition of the [[https://tachyons.io/][Tachyons]] CSS framework, more consistent shortcuts, and some quality of life improvements in the drawing editor.
+
+As usual, I thank all [[https://github.com/panglesd/slipshow/graphs/contributors?from=5%2F30%2F2026][contributors]] 💚, my [[https://github.com/sponsors/panglesd/][sponsor]] ❤️, and [[https://nlnet.nl/project/Slipshow/][NLnet for a generous grant]] 💝 that made all this work possible!
+
+Here is the full changelog:
+
+*** Added
+
+- "What You See Is What You Want": positions any "GUI" element absolutely, by
+  dragging it in the preview! Supports moving, redimensioning and scaling
+  elements. (#270)
+- "Go to source" by ~Ctrl~+clicking (or ~Cmd~+clicking on Mac) anywhere in the
+  preview. (#270)
+- Added [[https://tachyons.io/][tachyons]] support (#278)
+
+*** Changed
+
+- Improved toolbar and shortcut consistency, notably in recording manager mode,
+  ~Shift+R~ now closes the recording manager (previously it started a
+  recording). ~Shift+S~ is used to start a recording. (#270)
+- Diagnostics on ~slipshow compile~ are sorted by location (#277)
+- Improve location of "Wrong Type" diagnostic (#277)
+- Hint that step counter and toc entries are clickable. (#278)
+- Pressing play in drawing editor when the cursor is at the end of the recording
+  now replays from the beginning. (#278)
+- Round sub-millisecond time precision in drawing editor. (#278)
+
+*** Fixed
+
+- LSP:
+  - Respect UTF-16 position encoding when it is the only one supported by the
+    editor. (#270)
+  - Fix a bug in detection of element at cursor, and one in locations of "glued"
+    attribute, in effect improving hover and highlight reliability. (#270)
+  - Fix ~go_next~ / ~go_previous~ doing nothing in "refresh on save"
+    mode. (#270)
+  - Fix frontmatter error sometimes not being reported (#277)
+- Fix locations reported for frontmatter ~attributes:~. (#271)
+- Fix drawings being drawn behind positioned elements. (#270)
+- Fixed standalonity of html by embedding mono fonts (#272)
+- Resolution of css and js files in frontmatter are now relative to the file
+  they are in (and not to the root file). (#271)
+- LSP: correctly refresh on changes on files mentioned in frontmatter (such as
+  css and js files). (#271)
+- Improve uri vs local path detection. (#271)
+- Improve locations of errors in ~css:~ and ~js:~ frontmatter fields. (#271)
+- Allow spaces and tabs after frontmatter delimiters. (#275)
+- Fix drawing replay in editor stuck on a pause. (#278)
+- Fix last point of a stroke not being displayed when the recording ends at this
+  time. (#278)
+- Group a slide's entrance with its own heading in the table of contents (#273)
+
+*** Docs
+
+- Added documentation on the new GUI mode (#270)
+      
+
+
+
+* ocp-indent 1.10.0
+:PROPERTIES:
+:CUSTOM_ID: 9
+:END:
+Archive: https://discuss.ocaml.org/t/ann-ocp-indent-1-10-0/18513/1
+
+** Nathan Rebours announced
+
+
+Here at OCamlPro we're happy to announce the release of ~ocp-indent.1.10.0~.
+
+The full release notes are available [[https://github.com/OCamlPro/ocp-indent/releases/tag/1.10.0][here]] if you want the detailed version.
+
+The main feature of this release is the support for new OCaml language features
+from 5.3 effect patterns to 5.5 ~let type~ or ~let class~. All new syntax
+introduced in the last 3 minor compiler releases are now properly supported. 
+
+It also comes with new yet long awaited features such as a ~--check~ mode which
+simply verifies whether the input file is correctly indented and a complementary
+~--strict~ flag which makes ~ocp-indent~ warnings fatal, both intended for CI
+use.
+
+As usual there's also a bunch of bug fixes: ~-~ is now correctly accepted as a
+positional argument for ~<stdin>~ input, ~strict_with~ behaviour has been
+improved to be consistent across types and type extensions and starred comments
+are now correctly indented.
+
+We'd like to thank Ahrefs who's funded this release through their [[https://discuss.ocaml.org/t/ahrefs-grant-program-for-ocaml/17604][grant
+program]]!
+
+May your .ml files be properly indented :pray:
+      
+
+
+
+* Intel ISA specification interpreter/compiler is written in OCaml
+:PROPERTIES:
+:CUSTOM_ID: 10
+:END:
+Archive: https://discuss.ocaml.org/t/intel-isa-specification-interpreter-compiler-is-written-in-ocaml/18515/1
+
+** Edwin Török announced
+
+
+Intel has recently published a beta executable specification for its ISA: https://intel.github.io/SDM/announcement/2026/08/20/announce-preview.html . Although approximations for an ISA specification have existed before (e.g. in [[https://github.com/rems-project/sail-x86-from-acl2][ACL2 or SAIL]]), they were constructed based on the manual in prose form (which [[https://github.com/zwegner/x86-sat][had bugs in the past]]). Having the specification published in an executable language (and hopefully tested!) by the vendor itself is a welcome improvement.
+
+Even better, I just noticed that the [[https://github.com/IntelLabs/isa-tools][interpreter/compiler]] for the specification language is written in OCaml!
+      
+
+
+
+* TyXML 5.0.0
+:PROPERTIES:
+:CUSTOM_ID: 11
+:END:
+Archive: https://discuss.ocaml.org/t/ann-tyxml-5-0-0/18516/1
+
+** Vincent Balat announced
+
+
+We are happy to announce *TyXML 5.0.0*, a major release. TyXML builds HTML and SVG documents whose validity is checked by the OCaml type system: an element the specification does not allow in a given position does not typecheck. The library now follows the current specifications, the WHATWG living standard for HTML and SVG 2 with the Filter Effects module, where SVG support had not moved since SVG 1.1.
+
+Highlights:
+
+- *HTML*: popover, invoker commands, microdata, declarative shadow DOM and CSS shadow parts, ~loading~/~decoding~/~fetchpriority~, ~blocking~, the new elements ~s~, ~bdi~, ~search~, ~data~, ~slot~ and ~track~, the event handler attributes that were missing (the pointer family, clipboard, ~ontoggle~, ~onscrollend~ and friends), and content models brought in line with the standard.
+- *SVG*: ~mask~ was declared in ~Svg_types~ but the element itself was missing, ~feMerge~ could be given no child because ~feMergeNode~ did not exist, and about thirty presentation attributes had a type tag but no function to produce them. All of those are in, together with the SVG 2 additions, ARIA support, the SVG 2 link attributes, and content models widened to SVG 2.
+- *The PPX and JSX syntaxes*: no camel case SVG attribute was recognised, so ~viewBox~, ~stdDeviation~, ~preserveAspectRatio~ and most others were rejected, which means most real SVG could not be written with the PPX at all. Whitespace between SVG tags is also ignored now where the content model does not accept text, so indented SVG typechecks.
+- *Constructs that no program could actually use* are fixed: ~area~ had no ~href~ and its tag was in no content model, so a ~map~ containing areas fitted nowhere; ~symbol~ accepted no core attributes, hence no ~id~ and no way to reference it; the ~li~ children of ~menu~ could not be built. Several attribute names were also emitted misspelled, which is worse than a compile error since the output looks fine. Breaking changes worth knowing about: ~hidden~ and ~contenteditable~ take an enumerated argument, the URL-valued attributes go through ~Xml.uri~, SVG documents are printed without the SVG 1.1 doctype, ~Wrapped_functions~ has four new functions for implementers of the functorial interface, and the build requires OCaml 4.08, dune 3.18 and ppxlib 0.36.
+
+#+begin_example
+opam install tyxml
+#+end_example
+
+- Blog post with the details: https://ocsigen.org/blog/posts/tyxml-5.0.0.html
+- Changelog: https://github.com/ocsigen/tyxml/blob/master/CHANGES.md
+- Manual and API: https://ocsigen.org/tyxml/latest/
+
+Thanks to everyone who contributed to this release, in particular Hugo Heuzard, Martin Bodin, toastal, Sylvain Boilard, rand00, Sora Morimoto, Patrick Ferris and Gabriel Radanne. Bug reports and pull requests are welcome on https://github.com/ocsigen/tyxml.
+      
+
+
+
+* Old CWN
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+If you happen to miss a CWN, you can [[mailto:alan.schmitt@polytechnique.org][send me a message]] and I'll mail it to you, or go take a look at [[https://alan.petitepomme.net/cwn/][the archive]] or the [[https://alan.petitepomme.net/cwn/cwn.rss][RSS feed of the archives]].
+
+If you also wish to receive it every week by mail, you may subscribe to the [[https://sympa.inria.fr/sympa/info/caml-list][caml-list]].
+
+#+BEGIN_authorname
+[[https://alan.petitepomme.net/][Alan Schmitt]]
+#+END_authorname
