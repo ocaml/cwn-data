@@ -1,0 +1,1168 @@
+<cwn>
+  <cwn_head>
+    <cwn_date>2026.10.27</cwn_date>
+    <cwn_prev>2026.10.20</cwn_prev>
+    <cwn_next>2026.11.03</cwn_next>
+    <cwn_date_text>October 20 to 27, 2026</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>uniker.nl - Unikernels in OCaml</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-uniker-nl-unikernels-in-ocaml/18625/1</cwn_url>
+      <cwn_who>Calascibetta Romain announced</cwn_who>
+      <cwn_what>
+We are delighted to announce the launch of our new website: [uniker.nl](https://uniker.nl/). This website embodies our new approach to developing unikernels with OCaml 5. It offers a new way of developing unikernels and now places just as much emphasis on the deployment and use of unikernels. The website features a comprehensive [tutorial](https://uniker.nl/introduction/) and resources to help you get to grips with our new ecosystem, providing a _first entry point_ for anyone interested in unikernels in OCaml.
+
+The content of this site is available [here](https://github.com/robur-coop/uniker.nl), is powered by the excellent [YOCaml](https://yocaml.github.io/tutorial/index.html) project, and is deployed using our [immuable](https://github.com/dinosaure/immuable) unikernel.
+
+*** Our new ecosystem
+
+We were able to present our new workflow at the [OCaml Workshop 2026](https://ocaml.org/ocaml-workshop-2026) ([slides](https://docs.google.com/presentation/d/1bOXJAPEEjPBx_8i0frThKhLpHd8C7-EPRczEQjvz6JU/edit?slide=id.g3f7268904c5_0_1#slide=id.g3f7268904c5_0_1)) and our approach can be summarised in two main points:
+- the development of unikernels
+- the deployment of unikernels and their uses
+
+**** To develop unikernels
+
+Our co-operative has been developing unikernels for quite a few years now. [Our blog](https://blog.robur.coop/) showcases some of the ones we use for our infrastructure. Based on our experience, we are well aware of the constraints and limitations of what we can achieve when it comes to developing an application in the form of a unikernel. The best-known constraint we have accepted is not to require the POSIX interface (nor to attempt to replicate it) in terms of protocols and formats. One of the rules still adhered to today is, amongst other things, [not to depend on I/O or a scheduler](https://discuss.ocaml.org/t/on-concurrency-models/15899/13)[1](https://discuss.ocaml.org/t/why-ocsigen-is-staying-on-lwt-for-now/18318/27) when providing implementations.
+
+Building on this experience, we have been able to develop protocols and formats that are currently being used by others in contexts other than unikernels.
+
+However, we have also seen the limits of what we can achieve, particularly with what MirageOS currently offers. With this in mind, and upon further reflection on the constraints we face when developing unikernels (particularly regarding cross-compilation), we have decided to structure the development of unikernels using two tools: [~unic~](how to infer dependencies and _vendor_ them) and [~mfetch~](how to vendor dependencies).
+
+**** [~unic~](https://github.com/robur-coop/unic): how to infer dependencies and _vendor_ them
+
+One constraint we face with unikernels is the need to recompile C files with specific options so that they do not depend on what already exists on the host system. The approach taken by MirageOS 3 was to distribute the result of this specific compilation within libraries that contain C stubs (such as [~digestif~](https://github.com/mirage/digestif) or [~mirage-crypto~](https://github.com/mirage/mirage-crypto)). The problem is that we were forcing users of these libraries to install [~ocaml-solo5~](https://github.com/mirage/ocaml-solo5) in order to obtain a compilation environment for C files specific to [Solo5](https://github.com/solo5/solo5), our core component for producing unikernels.
+
+MirageOS 4 then arrived with ~dune~ and its contexts, allowing us to achieve a consistent compilation environment for C files. However, this approach introduced new a constraint: all dependencies of our unikernels had to use ~dune~, which is *legitimately* not the case in the OCaml ecosystem.
+
+It is for this reason that we decided to refine the need to recompile some of our libraries a little further and, finally, to be able to capitalise on a key advantage of [~ocaml-solo5~](https://github.com/mirage/ocaml-solo5), namely that compiling OCaml files with this compiler produces exactly the same result as if you were using your host OCaml compiler: in other words, and as has been the case from the beginning, we strictly only need to cross-compile the C files.
+
+It is therefore at the intersection of these two features (only needing to cross-compile the C files and being able to reuse libraries written in pure OCaml and compiled with the host compiler) that we can offer users the ability to write this sort of code without involving any maintenance work on libraries that do not use ~dune~ and without necessarily having to recompile everything:
+
+#+begin_src shell
+$ opam install unic
+$ cat &gt;main.ml&lt;&lt;EOF
+> open Digestif
+
+> let () = Mkernel.run [] @@ fun () ->
+>   Fmt.pr "%a\n%!" SHA1.pp (SHA1.digest_string "Hello World!")
+> EOF
+$ unic infer -r .
+Module Digestif is provided by several ocamlfind packages:
+  [0] digestif.c
+  [1] digestif.ocaml
+Pick one [0-1]: 0
+digestif
+mkernel
+$ opam source digestif
+$ opam source mkernel
+$ dune build
+$ solo5-hvt -- _build/solo5/main.exe --solo5:quiet
+2ef7bde608ce5404e97d5f042f95f89f1c232871Solo5
+#+end_src
+
+~unic~ is therefore a tool capable of inferring the dependencies of an OCaml project without using a specific build system, and of calculating what needs to be cross-compiled (in this case ~digestif~ and ~mkernel~ but not ~fmt~) to produce a unikernel. The project serves our purpose first and foremost, but it is worth noting that it can also be useful when compiling statically linked
+executables.
+
+This tool offers a whole range of sub-tools for analysing META files, viewing an artefact from different perspectives (its module name, its ~ocamlfind~ package name and its OPAM package name) or analysing OCaml artefacts (such as ~*.cmxa~ files).
+
+We would particularly like to thank @Octachron for his [~codept~](https://github.com/Octachron/codept) project (on which ~unic~ is based) and for working with us to improve it.
+
+**** [~mfetch~](https://github.com/robur-coop/mfetch): how to vendor dependencies
+
+Having identified more precisely which dependencies need to be cross-compiled, we now need to download these dependencies. Although ~opam source~ does the job very well, we wanted a tool that could download the source code from various types of source, such as:
+- from a _tarball_, as is usually the case
+- but also from a Git repository
+- or even from a specific location on your file system
+
+That is why we developed ~mfetch~, which allows you to download software sources based on information provided by OPAM or the user, and to create a ~vendors~ folder containing all these sources.
+
+#+begin_src shell
+$ unic infer -r . -o _mfetch
+$ mfetch --with-dune-file
+ digestif                 │██████████████████│    3.1 MiB /    3.1 MiB    5.9 MiB/s 
+ mkernel                  │██████████████████│   37.3 KiB /   37.3 KiB    3.4 MiB/s 
+
+digestif                         ok
+mkernel                          ok
+$ dune build
+#+end_src
+
+~mfetch~ also allows you to check whether you have modified any of the source files (for a bug fix) or to generate a ~*.locked~ file so that you can then verify the reproducibility of your unikernel using our other tool [~orb~](https://github.com/robur-coop/orb). The tool itself is not revolutionary, but it helps to streamline the workflow.
+
+#+begin_src shell
+$ mfetch status
+digestif                         ok
+mkernel                          ok
+$ mfetch lock
+2 sources locked into _mfetch.locked
+#+end_src
+
+**** Libraries for OCaml 5
+
+Our new workflow now uses OCaml 5. As well as updating the basic building blocks required to produce unikernels with OCaml 5, we have also developed a series of libraries that primarily enable us to take advantage of effects. Furthermore, over the past several years we have developed:
+- [Miou](https://discuss.ocaml.org/t/ann-miou-a-simple-scheduler-for-ocaml-5/12963), our scheduler for OCaml 5
+- [~mkernel~](https://github.com/robur-coop/mkernel), a derivative of our Miou scheduler designed to handle the I/O provided by Solo5
+- [~mnet~](https://discuss.ocaml.org/t/ann-mnet-a-new-tcp-ip-stack-for-unikernels-in-ocaml/17851), a reimplementation of the TCP/IP stack (using [~utcp~](https://github.com/robur-coop/utcp)) in OCaml with effects
+- and plenty of other libraries such as [~mhttp~](https://github.com/robur-coop/mhttp), [~msendmail~](https://github.com/robur-coop/colombe), [~mfat~](https://github.com/robur-coop/mfat), [~vifu~](https://github.com/robur-coop/vif), etc.
+
+These libraries, currently used by some of our deployed unikernels, allow us to offer developers a _direct-style_ approach to implementing their unikernels.
+
+But what is key to take away from this emerging ecosystem is the retrospective analysis of past projects to ensure we do not repeat the same mistakes. We very quickly realised that it could be very difficult to migrate existing libraries using [~lwt~](https://github.com/ocsigen/lwt) (the MirageOS scheduler) to Miou (or any other scheduler using effects). We therefore took the opportunity not only to propose a _direct-style_ approach using Miou, but also to rethink the implementation of our libraries in light of what we've learnt from deploying unikernels with MirageOS. We have paid particular attention to memory usage, to avoiding known CVEs from our previous implementations (as we are also part of the OCaml security team), and also to offering an alternative API that does not systematically rely on functors.
+
+The approach is still experimental, as we need to consolidate this new ecosystem across several layers, but we are firmly convinced (based on what we've observed in our deployed unikernels) that these new implementations are significantly better than what we used in the past.
+
+**** To deploy unikernels
+
+The other side of unikernels is deployment. Indeed, it is not just a matter of developing unikernels (and making their development easier) but also of deploying and using them. Our main objective remains to replace existing services with unikernels (name servers, websites, time servers, etc.), and the way to compete with existing infrastructure is to actively deploy and use our unikernels.
+
+That is why we have developed two projects:
+- [Albatross](https://github.com/robur-coop/albatross), an OCaml service for launching unikernels
+- [Aussi](https://github.com/robur-coop/aussi), an OCI runtime for Solo5
+
+We mainly use Albatross in conjunction with our infrastructure for verifying the reproducibility of our unikernels: [builds.robur.coop](https://builds.robur.coop). In this way, we can trace the dependencies of the unikernels - particularly their CVEs - and ensure supply-chain security.
+
+Next comes deployment, and we are therefore seeking to integrate our unikernels into existing infrastructure and provide ways of monitoring them, in particular using [InfluxDB](https://www.influxdata.com/), [Telegraf](https://www.influxdata.com/time-series-platform/telegraf/) and [Grafana](https://grafana.com/).
+
+This is how we are able to offer services such as (note that some haven't yet been ported to ~mkernel~/~mnet~, but will be soon):
+- simple websites such as our https://blog.robur.coop/ (using [~unipi~](https://github.com/robur-coop/unipi) or [~immuable~](https://github.com/dinosaure/immuable))
+- domain name management for domains such as ~robur.coop~, ~reyn.ir~ or ~din.osau.re~ (via our [primary](https://github.com/robur-coop/dns-primary-git/) DNS server and [secondary](https://git.robur.coop/robur/dns-secondary/) server)
+- a VPN service, whether using [MirageVPN](https://github.com/robur-coop/miragevpn) or [Zostera](https://github.com/robur-coop/zostera)
+- a time server (using [Chaos](https://github.com/robur-coop/chaos)): https://chaos.osau.re/
+- a [CalDAV](https://github.com/robur-coop/caldav) calendar system
+- [a mailing list](https://mailingl.st) using the [~ptt~](https://github.com/robur-coop/ptt) project
+- a TLS termination proxy such as [~tlstunnel~](https://github.com/robur-coop/tlstunnel) or [~contruno~](https://github.com/robur-coop/contruno) (used by sherlocode.com)
+- and many more!
+
+It is therefore through actual use that we improve our unikernels and the libraries that depend on them. That is why part of our tutorial also focuses on deploying unikernels, so that you can use them and help us with your feedback.
+
+Finally, we are also proposing a project called [Mollymawk](https://mollymawk.robur.coop/), designed to simplify the deployment of unikernels via a web interface, so that, in future, we can offer access to our infrastructure to anyone who wishes to use it (and we would like to thank @kit-ty-kate for their various attempts).
+
+*** About us
+
+Finally, none of this would be possible without our co-operative and the way we organise our work. You can view the details of our finances [here](https://blog.robur.coop/articles/finances.html). We accept donations and have recently secured funding from NLnet. Private companies such as [Ahrefs](https://ahrefs.com/) and [Tarides](https://tarides.com/) also sponsor our work. We also have partnerships with [OCamlPro](https://ocamlpro.com) and the [OCaml Foundation](https://ocaml-sf.org/). And we contribute to the OCaml ecosystem on a daily basis by working with individuals and companies.
+
+You can find more details on [our website](https://robur.coop/). We would like to emphasise that it is thanks to our structure (that of an association) that we are able to carry out this work, and we would like to thank our sponsors.
+
+*** Unikernels and MirageOS
+
+Enthusiasts may wonder what the advantage of our approach is compared to MirageOS, a unikernel project that remains active thanks to our maintenance work. Our approach is characterised by five points that we have identified as glass ceilings to the adoption of unikernels:
+- the first concerns the use of [~ocaml-cstruct~](https://github.com/mirage/ocaml-cstruct). The fundamental issue remains the use of ~bigarray~ as _buffer_ instead of ~bytes~/~string~. Our experience whilst developing [MirageVPN](https://github.com/robur-coop/miragevpn) has shown us that using ~cstruct~ as a systematic library for the _buffer_ concept across our entire ecosystem was our biggest *penalty* in terms of throughput for our unikernel. This is why we decided not only to develop [~bstr~](https://github.com/robur-coop/bstr) and [~slice~](https://github.com/robur-coop/bstr), but also to rewrite the majority of our libraries by replacing ~cstruct~ with ~bytes~/~string~ (this was the case for [~ocaml-tls~](https://github.com/mirleft/ocaml-tls/pull/497), [~mirage-crypto~](https://github.com/mirage/mirage-crypto/pull/214), [~ocaml-dns~](https://github.com/mirage/ocaml-dns/pull/351) and, more recently, [~awa-ssh~](https://github.com/mirage/awa-ssh/pull/85) and [~utcp~](https://github.com/robur-coop/utcp/pull/55)). The conclusion is quite simple: it is not a question of stopping using bigarray, but rather of not making their use systematic in our APIs.
+- the second point concerns the use of functors to express the devices required by the unikernel. The approach of reusing interfaces to inject specific implementations that concretize these devices via functors may seem appealing, but the maintenance cost of such an ecosystem—constrained by interfaces that are no longer really up to date with new concepts—has led us into [absurd situations](https://github.com/robur-coop/dnsvizor/blob/83b32596c4a08c080067e1cd36fe5788b90cdd78/unikernel.ml#L610-L631) whenever we've needed to develop more specific unikernels tailored to our requirements. Once again, the rule is not to stop using functors, but not to make their use systematic.
+- the third point concerns the compilation of unikernels. MirageOS relies on a workaround that, even today, integrates very poorly with ~dune~; this can be defined as: _multi-stage compilation_, where a code-generation phase is required depending on the desired _target_. This way of structuring the workflow with a set of dependencies dictated by the tool explicitly restricts the developer in what they wish to do and how they wish to do it. Although there are constraints on compiling a unikernel (such as not using the ~Unix~ module), our cooperative has decided to provide *informative* (and not prescriptive) tools that assist (but do not force) the user in designing their unikernel (furthermore, we are also delighted to introduce [~unic~](https://github.com/robur-coop/unic) and [~mfetch~](https://github.com/robur-coop/mfetch)). The key point of our new approach is to ensure that it is the user who has the final say, rather than the tool (in this case, ~mirage~), in the development of unikernels.
+  
+  It is very intricate on what the ~mirage~ tool does, including generation of functor applications and some initialization stubs, as well as opam version constraints (since the functors and initialization functions may change in new opam packages). The ~mirage~ tool has a closed world assumption, and it is hard to use a package not known by ~mirage~ - it is as well very hard to use ~js_of_ocaml~ in a ~mirage~ unikernel.
+- the fourth point concerns the maintenance of this ecosystem, and specifically the maintenance of the tools and libraries on which MirageOS relies. Furthermore, we have experienced some disappointments with ~opam-monorepo~, and we are finding, day by day, that it is becoming increasingly difficult to update ~mirage-tcpip~ in line with OCaml 5. Our involvement in the OCaml security team has also led us to wish to deprecate certain libraries due to a lack of maintenance. We are therefore refocusing our ecosystem on what our co-operative produces and maintains.
+- Finally, the last point concerns our work with the community, which remains unchanged despite the emergence of AI. We have observed a certain abusive use of AI to solve non-existent problems relating to unikernels, which, in our view, undermines our credibility regarding the security, maintenance and quality of our software. In this regard, we are trying to distance ourselves from those who prefer _vibe-coding_ rather than deployment. This approach is reflected in our use of the [AGPL](https://www.gnu.org/licenses/agpl-3.0.en.html) as our licence (whilst offering the option of dual licensing) and a [POLICY](https://github.com/Solo5/solo5/blob/main/AI.md) regarding the use of AI.
+
+All of this has led us to propose MirageOS 5, which represents a fundamental departure from the factors that characterised the failure of MirageOS 4 (for which I was the release manager). It is therefore, having acknowledged this defeat (and analysed it), that we are proposing a new approach to creating and deploying unikernels: [uniker.nl](https://uniker.nl/).
+
+As regards the projects associated with the MirageOS project, we will, of course, continue to maintain some of them, whilst at the same time offering more up-to-date solutions to those who use some of our libraries. We would also be delighted to help anyone wishing to migrate to our new libraries and tools; we are (as we always have been) available to assist.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Announcing segmap, a fast data structure for renamings</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-announcing-segmap-a-fast-data-structure-for-renamings/18626/1</cwn_url>
+      <cwn_who>François Pottier announced</cwn_who>
+      <cwn_what>
+Hello! I am happy to announce ~segmap~. This OCaml library implements *segment maps*, a purely functional data structure that represents an increasing function of the natural numbers into the natural numbers. This data structure offers efficient support for many operations, including lookup, reverse lookup, horizontal and vertical displacements, insertion at the front end, composition, meet, and join. This data structure may be useful in proof assistants, compilers, and symbolic computation systems where variables are encoded as de Bruijn indices or co-de Bruijn indices.
+
+The data structure is described in [this paper](https://cambium.inria.fr/~fpottier/publis/fpottier-segmap.pdf), and [the documentation of the library](https://cambium.inria.fr/~fpottier/segmap/doc/segmap/Segmap/) is available online.
+
+#+begin_example
+  opam update
+  opam install segmap
+#+end_example
+
+Happy hacking,
+FP.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>hexen.0.1</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-hexen-0-1/18627/1</cwn_url>
+      <cwn_who>Mikhail announced</cwn_who>
+      <cwn_what>
+Yo!
+
+I needed to decode the hexadecimal substring, so I wrote [Hexen](https://github.com/dx3mod/hexen), yet another library for encoding and decoding hexadecimal byte sequences.
+
+The main goal of this library is to provide a flexible API for encoding and decoding substrings into any destination (bytes or buffers).
+
+*** Usage
+
+Hexen provides high-level functions like ~encode~ and ~decode~ for quick encoding and decoding of strings or substrings.
+
+#+begin_src ocaml
+Hexen.encode "Hello World";;
+(* - : string = "48656c6c6f20576f726c64" *)
+
+Hexen.decode "48656c6c6f20576f726c64";;
+(* - : string = "Hello World" *)
+#+end_src
+
+#+begin_src ocaml
+Hexen.encode_substring "Hello World" 0 5;;
+(* - : string = "48656c6c6f" *)
+
+Hexen.decode_substring "48656c6c6f20576f726c64" 0 10;;
+(* - : string = "Hello" *)
+#+end_src
+
+Also, Hexen provides functions to encode and decode strings or substrings directly into existing buffers or bytes.
+
+#+begin_src ocaml
+let buffer = Buffer.create 16 in
+
+Hexen.encode_to_buffer "Hello" buffer;
+Hexen.encode_substring_to_buffer "Hello World" 5 6 buffer;
+
+let bytes = Bytes.create 12 in 
+Hexen.decode_into (Buffer.contents buffer) 0 bytes 0 22;
+Bytes.set bytes 11 '!';
+
+bytes
+(* - : bytes = Bytes.of_string "Hello World!" *)
+#+end_src
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>intel_hex.1.0</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-intel-hex-1-0/18628/1</cwn_url>
+      <cwn_who>Mikhail announced</cwn_who>
+      <cwn_what>
+Yo!
+
+I am happy to announce the first major release of the [Intel HEX manipulation library](https://github.com/dx3mod/intel_hex).
+
+Intel HEX format is commonly used to represent compiled program code and data that is loaded into a microcontroller, flash memory, or ROM in embedded systems programming.
+
+And now you can work with it in pure OCaml!
+
+*** Changes
+
+- Redesign API;
+- Added ~Memory~ module to process memory images of your firmwares;
+- Instead of using the ~ohex~ package, we start use [hexen](https://discuss.ocaml.org/t/ann-hexen-0-1/18627/1) for encoding and decoding hexadecimals;
+
+*** In use
+
+The library provides a simple API for parsing and creating Intel HEX files. To create an Intel HEX file, you can use the following code:
+#+begin_src ocaml
+Intel_hex.Record.
+[
+  Extended_linear_address 0x0F;
+  Data (0x0000, "Hello ");
+  Data (0x0007, "World!");
+  End_of_file;
+]
+|> Intel_hex.Object.to_string
+|> print_endline
+#+end_src
+#+begin_example
+:02000004000FEB
+:0600000048656C6C6F20E6
+:06000700576F726C6421CA
+:00000001FF
+#+end_example
+
+And to parse a string containing an Intel HEX file:
+
+#+begin_src ocaml
+":0600000048656C6C6F20E6\n:06000700576F726C6421CA"
+|> Intel_hex.Object.of_string
+(* - : Intel_hex.Object.t =
+  [ Intel_hex.Record.Data (0, "Hello "); 
+    Intel_hex.Record.Data (7, "World!") ] *)
+#+end_src
+
+However, the library also provides a module for working with memory images built from Intel HEX files or other sources.
+
+#+begin_src ocaml
+Intel_hex.Memory.of_string ~block_size:6 "Hello World!"
+(* - : Intel_hex.Memory.t =
+ [ Intel_hex.Memory.Segment(0x0000, "Hello ");
+   Intel_hex.Memory.Segment(0x0006, "World!") ] *)
+#+end_src
+
+For more details, see the [API reference](https://ocaml.org/p/intel_hex/latest/doc/index.html).
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Js_of_ocaml / Wasm_of_ocaml 6.5</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-js-of-ocaml-wasm-of-ocaml-6-5/18632/1</cwn_url>
+      <cwn_who>Hhugo announced</cwn_who>
+      <cwn_what>
+I'm pleased to announce the joint release of js_of_ocaml and wasm_of_ocaml 6.5.0, compilers from OCaml bytecode to JavaScript and WebAssembly.
+
+This release brings together more than 130 pull requests (about 400 commits) from 7 contributors since 6.4.0. Highlights:
+
+- *OCaml 5.6* support.
+- *OxCaml*: improved support.
+- *Introcaml*: experimental support for [Introcaml](https://discuss.ocaml.org/t/ann-introcaml-alpha-polymorphic-printing-and-introspection-for-ocaml/18407) (OCaml values shown in OCaml syntax in Chrome DevTools).
+- *Faster compilation*: about 25–30% faster on large programs.
+- *Smaller output*: binary constants are emitted as base64 and the generated JavaScript is tighter (the toplevel example goes from 13.6 MB to 9.0 MB).
+- *wasm_of_ocaml*: BLAKE2 and zstd (~Digest.BLAKE2*~, compressed marshaled values) no longer require multi-memory support, so they work in Safari; plus faster runtime primitives and better sourcemaps.
+- *Effects*: better code with ~--effects=cps~ and ~--effects=double-translation~
+- *New web API bindings*: WebGL2, Web Crypto, Service Workers, Clipboard, Notification, FontFace, and more. The toplevel can run in a Web Worker.
+- Many bug fixes ...
+
+Breaking changes: ~js_of_ocaml-lwt.logger~ is removed (~lwt_log~ is deprecated), the ~Typed_array.float{32,64}Array_fromArray~ signatures changed.
+
+Contributors to this release: Vincent Balat, Frédéric Bour, Shon Feder, habakan, Hugo Heuzard, Robin Ricard and Jérôme Vouillon. Thank you all!
+
+See the [documentation](https://ocsigen.org/js_of_ocaml/) and the [full changelog](https://github.com/ocsigen/js_of_ocaml/blob/master/CHANGES.md). Please report any issue on [GitHub](https://github.com/ocsigen/js_of_ocaml/issues).
+
+It should soon be avaible on opam (https://github.com/ocaml/opam-repository/pull/30987)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>TIFF Inspector: an ocaml-tiff based inspector, with an in-browser OCaml playground</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/tiff-inspector-an-ocaml-tiff-based-inspector-with-an-in-browser-ocaml-playground/18634/1</cwn_url>
+      <cwn_who>Ridwan Adebosin announced</cwn_who>
+      <cwn_what>
+Hi everyone,
+
+I've been building *TIFF Inspector*, a tool for looking inside TIFF files
+(directories, tags, storage layout, samples and planes), built on
+[geocaml/ocaml-tiff](https://github.com/geocaml/ocaml-tiff).
+
+- Live: https://tiff-inspector.onrender.com/
+- Code: https://github.com/RidwanAdebosin/tiff-inspect (MIT)
+
+It comes as a CLI, an HTTP API and a web UI. Every reported value says where it
+came from: read from the file, a spec default, or absent. Nothing is guessed.
+
+*** What might interest OCaml folks
+
+*ocaml-tiff fixes.* Testing on unusual files turned up a few issues, which I
+fixed in a vendored copy:
+
+- BigTIFF entries with several small values stored inline (for example
+  BitsPerSample=[8,8,8], as GDAL writes them) were unreadable.
+- Classic TIFF offsets of 2 GiB and above were sign-extended.
+- SampleFormat stored at an offset rather than inline was not read.
+- Entry introspection, so tools can see field types and counts.
+
+*Independent test fixtures.* There are 21 small TIFFs generated by a separate
+Python writer that shares no code with the parser, plus golden outputs. They
+might be useful to ocaml-tiff as a conformance set, if the maintainers want them.
+
+*An in-browser playground.* At ~/playground~ you can write OCaml and run it
+against ocaml-tiff and the inspector core on sample files, with no install. It's
+the toplevel compiled with js_of_ocaml (about 1.3 MB gzipped), running in a web
+worker. ~;;~ is optional, and compile errors are underlined in the editor.
+
+To get there I wrote JavaScript implementations of the C primitives used by
+~bstr~ and ~checkseum~. I'd be glad to offer them upstream if that's useful.
+
+*The server.* It uses OCaml 5 with Eio and cohttp-eio. Each upload is
+inspected in a separate process with time and memory limits, with rate limiting
+and graceful shutdown. It runs in Docker on a free Render instance.
+
+*** Feedback welcome
+
+- Does the JSON report shape work for other geospatial tooling?
+- geocaml maintainers: would you prefer the fixes as one PR or several small ones?
+- Any TIFFs that inspect wrongly. Issues with a sample file are gold.
+
+Thanks for reading!
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OCaml 5.5.2 released</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ocaml-5-5-2-released/18638/1</cwn_url>
+      <cwn_who>octachron announced</cwn_who>
+      <cwn_what>
+We have the pleasure of celebrating the anniversary of the first powered flight in Europe by announcing the release of OCaml 5.5.2.
+
+OCaml 5.5.2 fixes various minor security issues, two rare miscompilations, a configuration issue with future versions of macOS, and one runtime events library issue.
+
+Overall, if you were already using any versions of OCaml 5.5, we are advising you to switch to OCaml 5.5.2 .
+
+The full list of bug fixes is available below for more details.
+
+Happy hacking,
+-- Florian Angeletti, for the OCaml team.
+
+*** Installation Instructions
+
+The base compiler can be installed as an opam switch with the following commands:
+
+#+begin_example
+    opam update
+    opam switch create 5.5.2
+#+end_example
+
+The source code for the release is also directly available on:
+
+- GitHub: https://github.com/ocaml/ocaml/archive/5.5.2.tar.gz
+- Inria archive: https://caml.inria.fr/pub/distrib/ocaml-5.5/ocaml-5.5.2.tar.gz
+
+*** Bug Fixes
+
+- [#15045](https://github.com/ocaml/ocaml/issues/15045): Atomic loads whose results are unused should not be removed
+  during dead-code elimination.
+  (Xavier Clerc, review by Steven Dolan and KC Sivaramakrishnan)
+
+- [#15067](https://github.com/ocaml/ocaml/issues/15067), [#15071](https://github.com/ocaml/ocaml/issues/15071): Fix detection of functions available in the future on macOS.
+  (Antonin Décimo, review by Nicolás Ojeda Bär and Damien Doligez)
+
+- [#15112](https://github.com/ocaml/ocaml/issues/15112), OSEC-2026-22: ~Unix.map_file~: protect against overflow
+  when computing the data size.
+  (Xavier Leroy and Nicolás Ojeda Bär, review by Nicolás Ojeda Bär
+  and Edwin Török)
+
+- [#15113](https://github.com/ocaml/ocaml/issues/15113), OSEC-2026-21: ~Str.string_partial_match~: make sure captured groups
+  are valid.
+  (Xavier Leroy, review by Nicolás Ojeda Bär and Edwin Török)
+
+- [#15115](https://github.com/ocaml/ocaml/issues/15115), OSEC-2026-23: Fix multiple issues in demarshaling
+  (~Marshal.from_{channel,string,bytes}~)
+  (Xavier Leroy, review by Nicolás Ojeda Bär)
+
+- [#15133](https://github.com/ocaml/ocaml/issues/15133), OSEC 2026-24: Multiple issues in command quoting on Windows
+  (Xavier Leroy and Nicolás Ojeda Bär, review by Nicolás Ojeda Bär)
+
+- [#15119](https://github.com/ocaml/ocaml/issues/15119), OSEC-2026-25: Harden decoding of runtime events messages from
+  ring buffers.
+  (Sadiq Jaffer, report by Hannes Mehnert, review by Olivier Nicole and
+  Edwin Török)
+
+- [#15177](https://github.com/ocaml/ocaml/issues/15177), OSEC-2026-26: Maintain custom events cache integrity.
+  (Sadiq Jaffer, report by Hannes Mehnert, review by Edwin Török)
+
+- [#15043](https://github.com/ocaml/ocaml/issues/15043), [#15076](https://github.com/ocaml/ocaml/issues/15076): runtime events library, fix an infinite loop when a user
+  event is larger than half the ring buffer.
+  (Tim McGilchrist, review by Sadiq Jaffer)
+
+- [#15185](https://github.com/ocaml/ocaml/issues/15185), [#15187](https://github.com/ocaml/ocaml/issues/15187): fix a pattern-matching miscompilation on certain
+  combinations of immediate ranges and redundant patterns
+  (Gabriel Scherer, report by Alperer Keleş,
+   review by Vincent Laviron and Florian Angeletti)
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>bytream.0.4</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-bytream-0-4/18639/1</cwn_url>
+      <cwn_who>Mikhail announced</cwn_who>
+      <cwn_what>
+Yo! 
+
+I am happy to announce the next version of the [Bytream](https://github.com/dx3mod/bytream) library, which allows streaming bytes and processing them with low memory allocation. This release includes many important updates.
+
+*** Changes 
+
+- Now, ~Bytream~ for slices uses the [Slice](https://ocaml.org/p/slice/latest) library from the [Bstr](https://ocaml.org/p/bstr/latest) project instead of its own ~~buffer, ~offset, ~length~ labeled tuples, which require OCaml version 5.2 or higher;
+
+  #+begin_src ocaml
+  let of_channel ?(io_buffer_size = 4096) ic =
+    let buffer = Bstr.create io_buffer_size in
+  
+    let reader () =
+      match In_channel.input_bigarray ic buffer 0 io_buffer_size with
+      | 0 -> raise End_of_file
+      | len -> Slice_bstr.make ~len buffer
+    in
+  
+    make reader
+  #+end_src
+
+- Added ~bytream.ozstd~ for Zstandard compression and decompression via the [ozstd](https://github.com/dx3mod/ozstd) library;
+
+  #+begin_src ocaml
+  let output_compressed_string out_stream = 
+    let out_stream = Bytream_ozstd.Out.make ~compression_level:3 out_stream in 
+    Bytream.Out.output_string out_stream "Cras pulvinar sollicitudin nulla quis tempor.";
+    Bytream.Out.flush out_stream
+  
+  let input_decompressed_line in_stream = 
+    let in_stream = Bytream_ozstd.In.make in_stream in 
+    Bytream.In.input_line in_stream
+  #+end_src
+
+- Added ~bytream.bin~ for declarative encoding and decoding bytes via the [Bin](https://ocaml.org/p/bin/latest) library;
+
+  #+begin_src ocaml
+  type point = { x : int; y : int }
+  
+  let point = 
+    let open Bin in 
+    record (fun x y -> { x; y })
+    |+ field neint16 (fun t -> t.x)
+    |+ field neint16 (fun t -> t.y)
+    |> sealr
+  
+  let _ = 
+    (* ... *)
+    let p = Bytream_bin.In.input in_stream point in 
+    Bytream_bin.Out.output out_stream point { p with y = p.y * 2 }
+  #+end_src
+
+*** Credits 
+
+I would like to express my special gratitude to [Robur Coop](https://robur.coop) for their libraries ([Bstr](https://ocaml.org/p/bstr/latest), [Slice](https://ocaml.org/p/slice/latest), [Bin](https://ocaml.org/p/bin/latest), etc.), which are very closely integrated into my projects such as [Bytream](https://github.com/dx3mod/bytream), [ozstd](https://github.com/dx3mod/ozstd) and other. Thanks! 
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>First release of spvec</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-first-release-of-spvec/18641/1</cwn_url>
+      <cwn_who>François Pottier announced</cwn_who>
+      <cwn_what>
+I am pleased to announce the first release of ~spvec~. This small OCaml library implements /semi-persistent vectors/. In other words, it offers vectors that support just two operations, namely ~push~ and ~get~, and that appear to be persistent (immutable), but must be used according to a restricted discipline. Thanks to this restriction, an efficient implementation, based on a mutable vector, is possible. One might say that this library offers mutable vectors disguised as persistent vectors, with a simple and safe API.
+
+Two submodules are offered, ~Spvec.Safe~ and ~Spvec.Unsafe~. The /safe/ variant detects misuses of the library at runtime. The /unsafe/ variant is faster, but does not detect misuses; it should be used only if and when the user's code is believed to be correct.
+
+For more details, see the [documentation](https://cambium.inria.fr/~fpottier/spvec/doc/spvec/).
+
+#+begin_example
+  opam update
+  opam install spvec
+#+end_example
+
+Happy hacking,
+FP.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>ocaml-emcc: compile OCaml programs with their C stubs to WebAssembly</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-ocaml-emcc-compile-ocaml-programs-with-their-c-stubs-to-webassembly/18649/1</cwn_url>
+      <cwn_who>rboud announced</cwn_who>
+      <cwn_what>
+Hi everyone,
+
+I've been working on a tool called ocaml-emcc, and it's now in a state where other people could try it: https://github.com/rboudrouss/ocaml-emcc
+
+The idea is pretty simple. Instead of compiling OCaml to JS or wasm, I compile ~ocamlrun~ with emscripten, compile all the C stubs of the program and its dependencies with emcc, and link the whole thing into one module. Nothing has to be rewritten in JavaScript. zarith, sqlite3, camlzip, cryptokit, mirage-crypto, ctypes bindings and so on "just" work, and so does your own C.
+
+The obvious downside is that it's bytecode running in an interpreter, so it's a lot slower than js_of_ocaml or wasm_of_ocaml. If your code is pure OCaml or its C stubs already have JavaScript implementations, use those instead. This is for the cases where the FFI part is the problem.
+
+Give it a shot!
+
+#+begin_example
+opam pin add ocaml-emcc git+https://github.com/rboudrouss/ocaml-emcc.git
+source /path/to/emsdk/emsdk_env.sh  # emcc in PATH (you need to install emscripten)
+ocaml-emcc build main.js     # in your dune project
+node main.js                 # or load main.js in a web page
+#+end_example
+
+The extension of the output decides what you get (see the README and emscripten's documentation for more flags):
+
+- ~main.js~: node and browsers
+- ~main.html~: the same, plus a minimal page
+- ~main.wasm~: a standalone module, which still imports a few emscripten functions
+- ~main.wasm --wasi~: imports only WASI functions, so it runs on wasmtime or node's WASI
+
+It's still a prototype, so there are rough edges, if you try it on something and it breaks, I'd really like to hear about it. Packages that don't build are exactly what I'm looking for right now. Feel free to propose/ask for new recipes too.
+
+This started as an attempt to compile [MOPSA](https://gitlab.com/mopsa/mopsa-analyzer), a static analyzer written in OCaml, to wasm. It turned out to be really hard because of how much FFI it relies on (apron, gmp, clang's frontend…). I eventually got it [working](https://mopsawasm.rboud.com) by patching both OCaml and MOPSA's sources, and gave a talk about it at the [OCaml Workshop 2026](https://ocaml.org/ocaml-workshop-2026/schedule). Since then I've been turning that work into a general tool, and it turns out to generalize quite well, so here it is.
+
+I'm curious to hear what people would use it for, especially if you have an OCaml project that never made it to the browser because of its C dependencies.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>New release of snkv-ocaml 0.3.0 — OCaml bindings for SNKV with HNSW vector search</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-new-release-of-snkv-ocaml-0-3-0-ocaml-bindings-for-snkv-with-hnsw-vector-search/18650/1</cwn_url>
+      <cwn_who>Tomasz Barański announced</cwn_who>
+      <cwn_what>
+Hi, everyone!
+
+I’m happy to announce snkv-ocaml 0.3.0, OCaml bindings for SNKV, a persistent, ACID key-value store built on SQLite’s B-tree engine. SNKV provides key-value storage, column families, TTL, authenticated encryption, transactions, iterators, and runtime statistics. 
+
+snkv-ocaml 0.3.0 is available in opam. This release corresponds to upstream SNKV v0.8.2, and supports HNSW-based vector search over vectors stored in the same database.
+
+Links:
+
+- Repository: https://codeberg.org/tomaszb/snkv-ocaml
+- OPAM: https://opam.ocaml.org/packages/snkv/
+- Changelog: https://codeberg.org/tomaszb/snkv-ocaml/src/branch/main/CHANGELOG.md
+- Upstream SNKV: https://github.com/hash-anu/snkv
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Building TIFF Inspector: Exploring OCaml, TIFF Internals, and an In-Browser Playground</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/building-tiff-inspector-exploring-ocaml-tiff-internals-and-an-in-browser-playground/18655/1</cwn_url>
+      <cwn_who>RidwanAdebsoin announced</cwn_who>
+      <cwn_what>
+Hi everyone!
+
+I've been building *TIFF Inspector*, a tool for looking inside TIFF files (directories, tags, storage layout, samples and planes), built on [geocaml/ocaml-tiff](https://github.com/geocaml/ocaml-tiff).
+
+- *Live:* [TIFF Inspector](https://tiff-inspector.onrender.com/)
+- *Code:* [GitHub repository](https://github.com/RidwanAdebosin/tiff-inspect) (MIT)
+
+It comes as a CLI, an HTTP API and a web UI. Every reported value says where it came from: read from the file, a spec default, or absent. Nothing is guessed.
+
+*** What might interest OCaml folks
+
+*ocaml-tiff fixes.* Testing on unusual files turned up a few issues, which I fixed in a vendored copy:
+
+- BigTIFF entries with several small values stored inline (for example, ~BitsPerSample=[8,8,8]~, as GDAL writes them) were unreadable.
+- Classic TIFF offsets of 2 GiB and above were sign-extended.
+- ~SampleFormat~ stored at an offset rather than inline was not read.
+- Entry introspection, so tools can see field types and counts.
+
+*Independent test fixtures.* There are 21 small TIFFs generated by a separate Python writer that shares no code with the parser, plus golden outputs. They might be useful to ~ocaml-tiff~ as a conformance set, if the maintainers want them.
+
+*An in-browser playground.* At ~/playground~, you can write OCaml and run it against ~ocaml-tiff~ and the inspector core on sample files, with no install. It's the toplevel compiled with ~js_of_ocaml~ (about 1.3 MB gzipped), running in a web worker. ~;;~ is optional, and compile errors are underlined in the editor.
+
+To get there, I wrote JavaScript implementations of the C primitives used by ~bstr~ and ~checkseum~. I'd be glad to offer them upstream if that's useful.
+
+*The server.* It uses OCaml 5 with Eio and cohttp-eio. Each upload is inspected in a separate process with time and memory limits, with rate limiting and graceful shutdown. It runs in Docker on a free Render instance.
+
+*** Feedback welcome
+
+- Does the JSON report shape work for other geospatial tooling?
+- ~geocaml~ maintainers: would you prefer the fixes as one PR or several small ones?
+- Any TIFFs that inspect incorrectly? Issues with a sample file are gold.
+
+Thanks for reading!
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>stele 0.1.0: syntax-error messages for Menhir grammars</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-stele-0-1-0-syntax-error-messages-for-menhir-grammars/18657/1</cwn_url>
+      <cwn_who>Jérôme Vouillon announced</cwn_who>
+      <cwn_what>
+I'm happy to announce the first release of [stele](https://github.com/vouillon/stele), a tool that writes the syntax-error messages of a Menhir grammar for you.
+
+A Menhir parser that meets bad input raises ~Error~, which says where the parse failed but not why. Menhir can show a real message instead, but only if you write one for every error state (every point where the parse can get stuck). A realistic grammar has hundreds of them, and they go stale as the grammar changes.
+
+stele generates them at build time, from ~menhir --list-errors~ and the grammar's ~.cmly~. With a few aliases and one ~%on_error_reduce~ annotation, the calculator from the tutorial reports:
+
+#+begin_example
+Error: Assuming that the statements are complete, expecting '}'.
+ --> stray.calc:1:6
+1 | { 1; ) }
+  ·      ^
+  ·   ^^ these statements
+  · ^ This '{' opens the enclosing construct.
+#+end_example
+
+What you get:
+
+- *A message for every error state*, saying what could come next. Each list is checked against the parser's tables, so a message never offers a token the parser would reject in that state.
+- *Location hints*: the opening delimiter the input is still inside, and the construct the parser assumed complete. A small runtime library, ~stele.runtime~, turns these into source spans when the parser fails. It depends only on ~menhirLib~, so it works under js_of_ocaml and wasm_of_ocaml. stele leaves the rendering to you; [Grace](https://github.com/johnyob/grace) works well.
+- *Better wording when you want it*: a small config file gives readable names and groups tokens ("an operator"), and an overrides file holds hand-written messages for the few states that need one. Stale entries in either fail the build.
+
+stele builds on François Pottier's [/Reachability and Error Diagnosis in LR(1) Parsers/](https://dl.acm.org/doi/10.1145/2892208.2892224) (CC 2016), the paper behind ~--list-errors~. It automates the work the paper did by hand for CompCert's parser. It started inside the [Wax](https://github.com/ocsigen/wax) toolchain, where it produces the error messages of both its grammars.
+
+To try it:
+
+#+begin_example
+opam install stele
+#+end_example
+
+It needs OCaml ≥ 4.14 and menhir ≥ 20260122. The [tutorial](https://github.com/vouillon/stele/blob/main/TUTORIAL.md) takes a small calculator grammar from "Syntax error" to the full setup in ten stages. Its final state is a runnable example to copy.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OSEC-2026-21: Str partial-match stale capture registers underflow</cwn_title>
+      <cwn_who>Hannes Mehnert announced</cwn_who>
+      <cwn_what>
+Dear everyone,
+
+a new advisory was published for the OCaml runtime. Below is the 
+advisory, you can as well find it at 
+https://github.com/ocaml/security-advisories and 
+https://osv.dev/list?q=&amp;ecosystem=opam
+
+Best,
+
+Hannes
+
+#+begin_example
+id: OSEC-2026-21
+modified: "2026-10-26T15:15:00+01:00"
+published: "2026-10-23T22:30:00+01:00"
+severity: 
+"CVSS:4.0/AV:L/AC:L/AT:N/PR:N/UI:N/VC:N/VI:L/VA:H/SC:N/SI:N/SA:N/E:P/AU:Y/R:U"
+severity_score: "5.5 (Medium)"
+affected: "ocaml" {&lt; "5.5.2"}
+events: [
+   [
+     git "https://github.com/ocaml/ocaml" [
+       [fixed "824dadcbde77aea27d84b8d70a72442b8fcb344a"]
+     ]
+   ]
+   [
+     git "https://github.com/ocaml/ocaml" [
+       [fixed "feccd4744ebe25b90208e569d03efd514b964dce"]
+     ]
+   ]
+]
+credits: [
+   [reporter "Anthropic"]
+   [coordinator "Hannes Mehnert"]
+   [coordinator "Edwin Török"]
+   [remediation_reviewer "Nicolás Ojeda Bär"]
+   [remediation_reviewer "Edwin Török"]
+   [remediation_developer "Xavier Leroy"]
+]
+cwe: [ CWE-122 ]
+affected_bindings: ["Str.string_partial_match" "Str.replace_matched" 
+"Str.global_replace" "Str.replace_first" ]
+#+end_example
+
+*Str partial-match stale capture registers underflow*
+
+ANT-2026-KKC4QS4S Str partial-match stale capture registers underflow
+
+~Str.string_partial_match~ records the beginning and end of a captured 
+group.
+There was an implicit assumption that ~beginning &lt;= end~.
+However if it reached the end of the matched string but not the end of 
+the regexp, it was possible for the beginning of the group to be matched 
+at iteration N of the star operator, and the end of the group to be 
+matched at iteration N-1, resulting in ~beginning > end~.
+~Str.matched_group~ is safe, it fails with an ~Invalid_argument~ on 
+groups with ~beginning > end~, but ~Str.replace_matched~ can crash, 
+trying to memcpy ~end - beginning~ bytes.
+
+The example in the ANT is ~ab~ partially matched against ~\(\(a\)b\)+~. 
+Group 2 has ~beginning = 2~ and ~end = 1~.
+
+*** Fix
+
+The fix is to record groups with ~beginning > end~ as not matched.
+
+*** Am I affected?
+
+All of the following conditions are necessary:
+   * you need to use ~Str.string_partial_match~
+     * if you don't use this function you are not affected
+   * you need to use one of ~Str.{replace_matched,global_replace,replace_first}~ on the same regexp after a call to ~Str.string_partial_match~.
+     * If you use ~Str.group_beginning~ and ~Str.group_end~ and do your own string manipulation that is safe, because the String module would raise on out of bounds accesses. Similarly ~Str.matched_group~ is safe (uses ~String~ functions in its OCaml implementation)
+   * the match replacement must reference a group > 0
+     * if the replacement string argument is fixed, and doesn't reference any groups, or references only group 0, then you are not affected
+   * the referenced replacement group must be under a repetition operator in the original regexp
+     * if there is no repetition operator in the regexp, or there are no groups under the repetition operator then you are not affected
+
+For example ~{|\(\(a\)b\)+|}~ as the regular expression in a call to 
+~Str.string_partial_match~, followed by a reference to ~\2~ in the 
+argument of ~Str.replace_matched~ could be affected.
+
+*** Timeline
+
+- 2026-08-24: vulnerability was found
+- 2026-08-27: forwarded report to security@ocaml.org
+- 2026-09-29: fix merged to trunk
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OSEC-2026-22: Integer overflow in Unix.map_file</cwn_title>
+      <cwn_who>Hannes Mehnert announced</cwn_who>
+      <cwn_what>
+Dear everyone,
+
+a new advisory was published for the OCaml runtime. Below is the 
+advisory, you can as well find it at 
+https://github.com/ocaml/security-advisories and 
+https://osv.dev/list?q=&amp;ecosystem=opam
+
+Best,
+
+Hannes
+
+#+begin_example
+id: OSEC-2026-22
+modified: "2026-10-23T22:30:00+01:00"
+published: "2026-10-23T22:30:00+01:00"
+severity: 
+"CVSS:4.0/AV:L/AC:L/AT:N/PR:N/UI:N/VC:L/VI:L/VA:H/SC:N/SI:N/SA:N/E:P"
+severity_score: "5.5 (Medium)"
+affected: "ocaml" {&lt; "5.5.2"}
+events: [
+   [
+     git "https://github.com/ocaml/ocaml" [
+       [fixed "de57bb4f59c3302260aaeaaa4dfee12695597d25"]
+     ]
+   ]
+   [
+     git "https://github.com/ocaml/ocaml" [
+       [fixed "ff978d2139ba638886c2565f2d86c0ee265840a5"]
+     ]
+   ]
+]
+credits: [
+   [reporter "Anthropic"]
+   [coordinator "Hannes Mehnert"]
+   [coordinator "Edwin Török"]
+   [remediation_reviewer "Nicolás Ojeda Bär"]
+   [remediation_reviewer "Edwin Török"]
+   [remediation_developer "Xavier Leroy"]
+]
+cwe: [ CWE-190 ]
+affected_bindings: ["Unix.map_file"]
+#+end_example
+
+*Integer overflow in Unix.map_file*
+
+ANT-2026-6W9NPC2Q mmap dimension product integer overflow
+
+*** Fix
+
+Use ~caml_umul_overflow~ instead of ~*~ when multiplying bigarray 
+dimensions, which detects integer overflows and raise ~Failure~.
+Negative positions are also rejected by raising ~Invalid_argument~.
+
+*** Am I affected?
+
+If either the dimensions or the file size in a call to ~Unix.map_file~ 
+from your code is user controllable then you are potentially affected.
+
+*** Score notes
+
+The vulnerability is in a library, and the CVSS score is calculated 
+[under worst case 
+assumptions](https://www.first.org/cvss/v4.0/user-guide#Assessing-Vulnerabilities-in-Software-Libraries-and-Similar). 
+For an actual application the score will depend on how much an attacker 
+can control the input to this function (if at all).
+
+*** Timeline
+
+- 2026-08-24: vulnerability was found
+- 2026-08-27: forwarded report to security@ocaml.org
+- 2026-09-29: fix merged to trunk
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OSEC-2026-23: Multiple issues in Marshal</cwn_title>
+      <cwn_who>Hannes Mehnert announced</cwn_who>
+      <cwn_what>
+Dear everyone,
+
+a new advisory was published for the OCaml runtime. Below is the 
+advisory, you can as well find it at 
+https://github.com/ocaml/security-advisories and 
+https://osv.dev/list?q=&amp;ecosystem=opam
+
+Best,
+
+Hannes
+
+#+begin_example
+id: OSEC-2026-23
+modified: "2026-10-23T22:30:00+01:00"
+published: "2026-10-23T22:30:00+01:00"
+severity: "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N"
+severity_score: "6.8"
+affected: "ocaml" {&lt; "5.5.2"}
+aliases: [ CVE-2026-28364 ]
+events: [
+   [
+     git "https://github.com/ocaml/ocaml" [
+       [fixed "7da997d28b1ac57dd3a7108a865b327493fd4239"]
+     ]
+   ]
+   [
+     git "https://github.com/ocaml/ocaml" [
+       [fixed "709b0ab93e53d54297b42d897d74dced1e9c75a5"]
+     ]
+   ]
+]
+credits: [
+   [reporter "Anthropic"]
+   [coordinator "Hannes Mehnert"]
+   [coordinator "Edwin Török"]
+   [remediation_reviewer "Nicolás Ojeda Bär"]
+   [remediation_developer "Xavier Leroy"]
+]
+cwe: [ CWE-126 CWE-502 CWE-754]
+affected_bindings: ["Marshal.from_channel" "Marshal.from_bytes" 
+"Marshal.from_string" "input_value" ]
+#+end_example
+
+*Multiple issues in Marshal*
+
+Several issues have been discovered in the Marshal module:
+
+ANT-2026-K7NTK0FT Stale obj_counter across unmarshal calls enables 
+null/freed intern_obj_table indexing
+
+ANT-2026-2NJYQWEX Custom block size wraparound in CODE_CUSTOM_LEN 
+allocation
+
+ANT-2026-PJC00M7X Unmarshaler accepts forged Closure_tag metadata 
+without validation
+
+This is a followup for 
+[OSEC-2026-01](https://osv.dev/vulnerability/OSEC-2026-01)
+
+Corrupted or malicious marshaled data that causes undefined behaviour in 
+the runtime system when unmarshaled. input_value should either fail 
+cleanly or produce a well-formed OCaml object, without corrupting the 
+runtime system.
+
+Consequently, this excludes well-formed marshaled data that produces an 
+OCaml object that is not of the type expected by the OCaml code and 
+causes the Ocaml code to crash or misbehave.
+
+*** Am I affected?
+
+If you use one of the affected bindings ~Marshal.from_channel~, 
+~Marshal.from_bytes~, ~Marshal.from_string~, ~Stdlib.input_value~ (or a 
+wrapper in a library, such as ~Lwt_io.read_value~).
+
+Please note that Marshal is not type safe, and you have to be careful if 
+you use the deserialization on untrusted input (due to type confusion, 
+and remote code execution by design - you can use Marshal for code).
+
+It is recommended to use Marshal only for communication between trusted 
+processes.
+
+*** Timeline
+
+- 2026-08-24: vulnerability was found
+- 2026-08-27: forwarded report to security@ocaml.org
+- 2026-09-29: fix merged to trunk
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OSEC-2026-24: Multiple issues in command quoting on Windows</cwn_title>
+      <cwn_who>Hannes Mehnert announced</cwn_who>
+      <cwn_what>
+  Dear everyone,
+
+a new advisory was published for the OCaml runtime. Below is the 
+advisory, you can as well find it at 
+https://github.com/ocaml/security-advisories and 
+https://osv.dev/list?q=&amp;ecosystem=opam
+
+Best,
+
+Hannes
+
+#+begin_example
+id: OSEC-2026-24
+modified: "2026-10-23T22:30:00+01:00"
+published: "2026-10-23T22:30:00+01:00"
+severity: 
+"CVSS:4.0/AV:L/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N/E:P"
+severity_score: "7.3 (High)"
+aliases : [ CVE-2026-41083 ]
+affected: "ocaml" {&lt; "5.5.2"}
+events: [
+   [
+     git "https://github.com/ocaml/ocaml" [
+       [fixed "70a3a75c0bfb23d67ad5fe3e9c1ba9800d61feae"]
+     ]
+   ]
+   [
+     git "https://github.com/ocaml/ocaml" [
+       [fixed "0bbf8e5af985feb03a11a5ffe57d068373d09fd0"]
+     ]
+   ]
+]
+credits: [
+   [reporter "Anthropic"]
+   [coordinator "Hannes Mehnert"]
+   [coordinator "Edwin Török"]
+   [remediation_reviewer "Nicolás Ojeda Bär"]
+   [remediation_developer "Xavier Leroy"]
+]
+cwe: [ CWE-78 ]
+affected_bindings: ["Filename.quote_command"  "Unix.create_process" 
+"Unix.create_process_env" "Unix.open_process_args_in" 
+"Unix.open_process_args_out" "Unix.open_process_args_full"]
+#+end_example
+
+*Multiple issues in command quoting on Windows*
+
+ANT-2026-R7FKP7RG Win32 quote_cmd_filename misses pipe/redirect 
+metacharacters
+
+ANT-2026-SRZZ62SD Windows batch-file argument injection via 
+maybe_quote/make_cmdline
+
+ANT-2026-JPEWMPAB Win32 argument quoting leaves embedded CR/LF unescaped
+
+Also includes the fix for 
+[OSEC-2026-05](https://osv.dev/vulnerability/OSEC-2026-05)
+
+~Filename.quote_command~ returns a quoted command line, suitable for use 
+as an argument to ~Sys.command~, ~Unix.system~, and the 
+~Unix.open_process~ functions.
+However on Windows certain characters weren't properly escaped.
+
+~Unix.create_process~ can invoke ~.bat~ or ~.cmd~ programs on Windows, 
+and certain characters were accepted that cannot be quoted safely.
+
+*** Fix
+
+~Filename.quote_command~ has been updated to correctly quote arguments.
+~Unix.create_process*~ has been updated to reject arguments that cannot 
+be safely quoted by raising ~Failure~:
+#+begin_quote
+ if the program [prog] is a [.bat] or [.cmd]
+ script and either [prog] or [args] contain characters that cannot be
+ securely passed to a script, such as [" | &amp; , ; &lt; = &gt; ^ % "].
+ If you really need to pass these characters to a script, consider
+ using {!Unix.system} instead.
+#+end_quote
+
+*** Am I affected?
+
+If you use ~Filename.quote_command~ on Windows with user supplied arguments.
+If you use ~Unix.create_process*~ or ~Unix.open_process*~ on Windows 
+with ~.bat~ or ~.cmd~ programs, and user supplied arguments.
+
+*** Timeline
+
+- 2026-08-24: vulnerability was found
+- 2026-08-27: forwarded report to security@ocaml.org
+- 2029-09-05: fix merged to trunk
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OSEC-2026-25: Heap buffer overflow in the OCaml ~runtime_events~ consumer when parsing an oversized custom user event</cwn_title>
+      <cwn_who>Hannes Mehnert announced</cwn_who>
+      <cwn_what>
+Dear everyone,
+
+a new advisory was published for the OCaml runtime. Below is the 
+advisory, you can as well find it at 
+https://github.com/ocaml/security-advisories and 
+https://osv.dev/list?q=&amp;ecosystem=opam
+
+Best,
+
+Hannes
+
+#+begin_example
+id: OSEC-2026-25
+modified: "2026-10-23T22:30:00+01:00"
+published: "2026-10-23T22:30:00+01:00"
+severity: 
+"CVSS:4.0/AV:L/AC:L/AT:P/PR:L/UI:P/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N/E:P"
+severity_score: "4.5 (Medium)"
+affected: "ocaml" {&lt; "5.5.2"}
+events: [
+   [
+     git "https://github.com/ocaml/ocaml" [
+       [fixed "2247294d06464df0273479f41b0418655918da27"]
+     ]
+   ]
+   [
+     git "https://github.com/ocaml/ocaml" [
+       [fixed "9dcf0c86201cf5e8ece56c6bb5f61fc4d92fb74a"]
+     ]
+   ]
+]
+credits: [
+   [reporter "Anthropic"]
+   [coordinator "Hannes Mehnert"]
+   [coordinator "Edwin Török"]
+   [remediation_reviewer "Olivier Nicole"]
+   [remediation_reviewer  "Edwin Török"]
+   [remediation_developer "Sadiq Jaffer"]
+]
+cwe: [ CWE-20 CWE-122 ]
+affected_bindings: ["Runtime_events.read_poll" ]
+#+end_example
+
+*Heap buffer overflow in the OCaml ~runtime_events~ consumer when 
+parsing an oversized custom user event*
+
+ANT-2026-0JXJVEVY
+
+Custom events maintains a cache of user events, it is possible to have a 
+corrupt stream that has a valid message with one message type (which can 
+be custom/unit/span/int) and then has the same event with a different 
+message type.
+
+This would never be encountered in a real program but can lead to a crash.
+
+*** Fix
+
+Check message lengths for all runtime event types, report a corrupt 
+stream on mismatch.
+
+*** Am I affected?
+
+If the runtime events producer and consumer run in separate processes, 
+and the producer can be tricked into producing malformed data.
+
+*** Timeline
+
+- 2026-08-24: vulnerability was found
+- 2026-08-27: forwarded report to security@ocaml.org
+- 2027-09-05: fix merged to trunk
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OSEC-2026-26: runtime_events user event name-based type confusion</cwn_title>
+      <cwn_who>Hannes Mehnert announced</cwn_who>
+      <cwn_what>
+Dear everyone,
+
+a new advisory was published for the OCaml runtime. Below is the 
+advisory, you can as well find it at 
+https://github.com/ocaml/security-advisories and 
+https://osv.dev/list?q=&amp;ecosystem=opam
+
+Best,
+
+Hannes
+
+#+begin_example
+id: OSEC-2026-26
+modified: "2026-10-23T22:30:00+01:00"
+published: "2026-10-23T22:30:00+01:00"
+severity: 
+"CVSS:4.0/AV:L/AC:L/AT:P/PR:L/UI:P/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N/E:P"
+severity_score: "4.5 (Medium)"
+affected: "ocaml" {&lt; "5.5.2"}
+events: [
+   [
+     git "https://github.com/ocaml/ocaml" [
+       [fixed "ac2fae847a9c2c35ae3bba90a19adbe5d0cc6f59"]
+     ]
+   ]
+   [
+     git "https://github.com/ocaml/ocaml" [
+         [fixed "de10a6b03a471821cb0b868223e5331b919f48c0"]
+     ]
+   ]
+]
+credits: [
+   [reporter "Anthropic"]
+   [coordinator "Hannes Mehnert"]
+   [coordinator "Edwin Török"]
+   [remediation_reviewer  "Edwin Török"]
+   [remediation_developer "Sadiq Jaffer"]
+]
+cwe: [ CWE-20 CWE-122 ]
+affected_bindings: ["Runtime_events.read_poll"]
+#+end_example
+
+*runtime_events user event name-based type confusion*
+
+ANT-2026-DTBY2HWS
+
+Custom events maintains a cache of user events, it is possible to have a 
+corrupt stream that has a valid message with one message type (which can 
+be custom/unit/span/int) and then has the same event with a different 
+message type.
+
+This would never be encountered in a real program but can lead to a crash.
+
+*** Fix
+
+Validate event type against expected type, report a corrupt stream on 
+mismatch.
+
+*** Am I affected?
+
+If the runtime events producer and consumer run in separate processes, 
+and the producer can be tricked into producing malformed data.
+
+*** Timeline
+
+- 2026-08-24: vulnerability was found
+- 2026-08-27: forwarded report to security@ocaml.org
+- 2027-10-20: fix merged to trunk
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>
