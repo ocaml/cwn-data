@@ -1,0 +1,197 @@
+<cwn>
+  <cwn_head>
+    <cwn_date>2026.11.17</cwn_date>
+    <cwn_prev>2026.11.10</cwn_prev>
+    <cwn_next>2026.11.24</cwn_next>
+    <cwn_date_text>November 10 to 17, 2026</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>A Hardcaml port of Niklaus Wirth's Project Oberon RISC5 machine runs DOOM at 15 fps</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/a-hardcaml-port-of-niklaus-wirths-project-oberon-risc5-machine-runs-doom-at-15-fps/18768/1</cwn_url>
+      <cwn_who>zxygentoo announced</cwn_who>
+      <cwn_what>
+/Most of this work was done a couple of months back; only recently did I find the time to tidy things up. (I drafted this write-up myself; Claude Opus checked and polished it as I'm not a native English speaker.)/
+
+A Nexys 4 board with its LEDs lit, beside a monitor showing the Project Oberon desktop with DOOM's title screen in a viewer
+
+#+attr_html: :width 80%
+https://raw.githubusercontent.com/zxygentoo/oberon-risc-hardcaml/main/docs/oberon-on-nexys4.jpg
+
+I've always wanted to know more about Project Oberon, Wirth and Gutknecht's whole computer system (the CPU, the compiler, the OS), small enough for one person to understand, both its software and its hardware. With how far coding agents have come this year, there was really no reason to put it off any longer.
+
+It started with a Rust port of Peter De Wachter's oberon-risc-emu, just to give myself an excuse to read the code, implement it in another language (with the aid of a coding agent, of course), and try out some testing techniques like lockstep simulation.
+
+And things sort of got out of hand from there. Once the port worked, emulation wasn't enough for me, and if I was going to do it for real, Hardcaml was the obvious choice. So I bought a Nexys 4 FPGA dev board.
+
+But first came yet another port of the emulator, in OCaml this time. That was out of necessity rather than aesthetics: as an OCaml library, the emulator runs in the same process as the Hardcaml simulator, so the two can be checked against each other in lockstep, instruction by instruction. Its ~risc5_isa.mli~, the instruction type, later became what the DOOM compiler emits too.
+
+The ~/lib~ folder holds the port of the machine, mostly unit for unit against Wirth's Verilog, and ~/board/nexys-4~ holds the board layer for the Nexys 4.
+
+I'm new to this RTL thing, so a lot of thought went into verification:
+
+- unit and fuzz tests for each unit (and some waveform tests, which double as nice documentation)
+- lockstep simulation against the emulator
+- co-simulation against the original Verilog with Verilator, unit by unit and the core over a whole boot
+- equivalence proofs against the original Verilog with yosys and z3 wherever it's doable, which turned out to be most of the units (17 proofs in all)
+
+And, of course, it boots on real hardware, runs the Project Oberon image, and can rebuild the whole Oberon system on itself.
+
+Hardcaml itself was a joy to work in. A circuit is just an OCaml function from one interface record to another (~[@@deriving hardcaml]~ does the plumbing), every module has an ~.mli~ that owns its contract, and the tests sit next to the code as ~ppx_expect~ blocks, waveforms included, with QCheck for anything random. And because it's all just OCaml, the emulator, the simulator and the tests are one program, which makes the lockstep cheap.
+
+Then I decided to have some fun with the machine. After all, a self-respecting operating system has to run DOOM, right? XD
+
+The DOOM-on-Oberon project is not a C compiler for the RISC5 machine; it compiles just enough C for DOOM (by way of doomgeneric) to run:
+
+- parse the C with goblint-cil (the Goblint project's fork of CIL) and lower its IR into RISC5 instructions (there are very few of them)
+- a hand-rolled mini libc, very crude register allocation, and a malloc that doesn't even free (DOOM brings its own zone allocator anyway)
+- DOOM's hot paths are well known (~R_DrawColumn~, ~R_DrawSpan~, the dither, the frame copy), so I (well, the agent..) hand-wrote them in RISC5 assembly and they replace the compiled C at link time (this is the main /optimization/ of the /compiler/, if it qualifies as one)
+- a ~DOOM.Mod~ Oberon module loads the compiled blob and the WAD, then calls ~Tick~ once per frame and ~KeyIn~ for each key press
+
+And believe it or not, it ran, just not very fast: around 5 fps, so not playable.
+
+I tried a bunch of different things, and basically only two worked well:
+
+1. *A bigger CPU cache.* The board already had a 4 KiB instruction cache to hide the PSRAM latency, which is plenty for Oberon, but DOOM's renderer doesn't fit in it. Growing it to 16 KiB got it to around 8 fps.
+2. *Dithering in hardware.* After that, more than half of each frame went into dithering DOOM's 8-bit colour onto Oberon's 1-bit screen. It was already hand-written, and I couldn't make it any faster in software, so the obvious choice was to move it into hardware. I mean, I do have an FPGA with resources to spare. So I added ~halftone.mli~: an 8-bit display mode that dithers to monochrome at scan-out, with the tone table, threshold map and geometry all uploaded by the program. That got it to around 12 fps.
+
+With a hand-rolled frame copy and the clock nudged from 60 to 64 MHz (the original runs at 25), DOOM's timedemo now runs at 15 fps. It plays fullscreen, or in a window on the live Oberon desktop (that's the photo above). I consider this mission accomplished.
+
+On AI: agents were very helpful. Yes, they kind of like to write tasteless code, but if you take the time to set things up and lay down the initial patterns, they're pretty good at following them (with plenty of nagging, of course). And they make the tedious stuff tolerable: if I'd had to deal with Vivado through the GUI, I'd probably have quit halfway.
+
+I intend to keep learning and maintaining both the RTL and the emulator projects, so issues and PRs are welcome.
+
+All in all, a very fun project. Hardcaml is simple, powerful and elegant, and Project Oberon remains one of the most beautiful things in the history of computing. I hope I did it justice.
+
+- RTL: https://github.com/zxygentoo/oberon-risc-hardcaml
+- Emulator: https://github.com/zxygentoo/oberon-risc-emu-ocaml
+- DOOM: https://github.com/zxygentoo/DOOM-on-Oberon
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>mfetch, a simple tool to fetch your dependencies</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-mfetch-a-simple-tool-to-fetch-your-dependencies/18820/1</cwn_url>
+      <cwn_who>Calascibetta Romain announced</cwn_who>
+      <cwn_what>
+I am delighted to announce the release of [~mfetch.0.1.2~](https://github.com/robur-coop/mfetch), a tool that allows you to download the source code for your dependencies and install them in a ~vendors/~ directory (as well as to populate the ~dune~ file at the root of your project with the [~(vendored_dirs ...)~ directive](https://dune.readthedocs.io/en/stable/reference/dune/vendored_dirs.html)). ~mfetch~ was developed to streamline the development of our unikernels (whilst still allowing us to verify their reproducibility).
+
+The tool allows us to replace [~opam-monorepo~](https://github.com/tarides/opam-monorepo) (and eliminate the step of resolving version constraints, which OPAM already handles) and ~opam source~ (which is effective but limited in terms of source origins). In particular, it allows you to:
+- download source code from your local drive, a Git repository (and create a Git repository using ~git clone~) or directly from a published _tarball_
+- track any changes the developer makes to this source code (see ~mfetch status~)
+- and generate a lock file (in OPAM format) which helps verify the reproducibility of the targets using [~orb~](https://github.com/robur-coop/orb) (see ~mfetch lock~)
+
+For more details on how to use it, we recommend reading the [~README.md~](https://github.com/robur-coop/mfetch/README.md) and, with regard to unikernels, taking the time to read [our tutorial](https://uniker.nl/unikernels-and-libraries/) on the subject. Although the project has a fairly specific focus, we would be delighted to expand it to include other use cases that are not necessarily limited to unikernels (one example being cross-compilation in general using the ~dune-workspace~ file).
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Bootstrapping the OCaml compiler</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/bootstrapping-the-ocaml-compiler/18835/1</cwn_url>
+      <cwn_who>Vitor Sessak announced</cwn_who>
+      <cwn_what>
+Hi everyone!
+
+I recently needed to import the OCaml compiler to our company's large internal monorepo. OCaml, like many compilers, uses a pre-compiled blob for bootstrapping.
+
+I'm not a big fan of such binary blobs, so I prototyped a C++ OCaml interpreter that is expressive enough to bootstrap the compiler to fixpoint. Unlike camlboot, it is fast enough to become a common way of bootstrapping the compiler (it takes three minutes on my machine with 32 cores). It is not a real production OCaml interpreter, since it is much more permissive with types than a conforming interpreter should be. It uses the existing parsers from the [Tree-Sitter project](https://github.com/tree-sitter) and the code was written with significant AI assistance, but the code quality is pretty acceptable.
+
+Before I do a few more passes of improving the codebase, is there any interest in integrating this into the mainline OCaml compiler (either replacing the binary blobs or adding non-default support via optional configure flags)? The code can be found at [https://github.com/vitor1001/ocaml/tree/bootstrap](https://github.com/vitor1001/ocaml/tree/bootstrap).
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Dune 3.25</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-dune-3-25/18836/1</cwn_url>
+      <cwn_who>Shon announced</cwn_who>
+      <cwn_what>
+The Dune team is pleased to announce [the release of dune 3.25.0](https://github.com/ocaml/dune/releases/tag/3.25.0).
+
+Highlights of this release include:
+
+*** Breaking changes
+
+- Actions no longer see the shared install staging area (~_build/install/&lt;context&gt;/{bin,lib,lib/stublibs}~) on ~PATH~, ~OCAMLPATH~ and ~CAML_LD_LIBRARY_PATH~. An action's environment only contains the packages it declares with ~(deps (package &lt;pkg&gt;))~ (and their library closure, see below). Actions that rely on packages being visible (such as tests that ~#require~ the package under test from an mdx block, steps that run ~ocamlfind~, a nested ~dune~ build, or load a bytecode stub library) must now declare the package dependency explicitly. [ocaml/dune#14373](https://github.com/ocaml/dune/pull/14373), [ocaml/dune#16617](https://github.com/ocaml/dune/pull/16617).
+
+- The ~:~ character is now rejected in context names, to ensure they remain portable path components. [ocaml/dune#16085](https://github.com/ocaml/dune/pull/16085).
+
+- Generated files are now read-only even with Dune language versions before 2.4, regardless of whether the shared cache is enabled. Executable permissions are preserved. [ocaml/dune#16388](https://github.com/ocaml/dune/pull/16388)
+
+- In dune-project, (warnings (duplicate_deps ..)) requires a dune lang version of 3.22, instead of 3.18.1. [ocaml/dune#5696](https://github.com/ocaml/dune/pull/5696).
+
+- ~(env (env-vars ...))~ in a ~(context ...)~ stanza of ~dune-workspace~ now takes precedence over the root ~env~ stanza, as documented. This affects commands such as ~dune exec~; rules already used the documented order. [ocaml/dune#16290](https://github.com/ocaml/dune/pull/16290).
+
+*** Features
+
+- Added command, subcommand, and flag completion in the command line. Supported shells are ~bash~, ~zsh~, ~pwsh~, and ~fish~. See ~dune completion [shell] --help~. [ocaml/dune#14779](https://github.com/ocaml/dune/pull/14779), [ocaml/dune#15334](https://github.com/ocaml/dune/pull/15334).
+
+- Tab completion for ~dune promote~ now lists pending promotion files. [ocaml/dune#5338](https://github.com/ocaml/dune/pull/5338).
+
+- Add build time information to watch mode. [ocaml/dune#15384](https://github.com/ocaml/dune/pull/15384).
+
+- Display build duration and average process parallelism in the status line for batch builds. [ocaml/dune#15564](https://github.com/ocaml/dune/pull/15564).
+
+- Add ~(flags ...)~ to the ~ocamllex~ and ~ocamlyacc~ stanzas to pass custom options to parser generators. [ocaml/dune#15907](https://github.com/ocaml/dune/pull/15907).
+
+- Starting with Dune language 3.25, restrict sandboxed actions on Linux systems with Landlock ABI 3 or newer from writing outside their sandbox, temporary directory, action-trace directory, and ~/dev~. Set ~DUNE_CONFIG__LANDLOCK=disabled~ to opt out. [ocaml/dune#15858](https://github.com/ocaml/dune/pull/15858).
+
+*** Fixes
+
+- ~$ dune rpc build~ invocations no longer queue. All build requests are built in parallel. Watch servers started by ~$ dune exec --watch~ can now also handle forwarded build and runtest requests. [ocaml/dune#14954](https://github.com/ocaml/dune/pull/14954). ~dune rpc build~ also now exits with the proper code on completion. [ocaml/dune#15341](https://github.com/ocaml/dune/pull/15341).
+
+- Portable lock directories now select one package version across all requested platforms, and fail when no common version exists. [ocaml/dune#15982](https://github.com/ocaml/dune/pull/15982).
+
+---
+
+See [the full changelog](https://github.com/ocaml/dune/releases/tag/3.25.0) for all new features and fixes, and for attribution to the contributors who made it all possible. Thank you, contributors!
+
+If you encounter a problem with this release, please report it in [our issue tracker](https://github.com/ocaml/dune/issues).
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>New release of Merlin and OCaml LSP</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-new-release-of-merlin-ocaml-lsp/18846/1</cwn_url>
+      <cwn_who>Tim ats announced</cwn_who>
+      <cwn_what>
+I am very pleased to announce new releases of Merlin and OCaml LSP for OCaml 5.5.
+
+Merlin release features some bug fixes and improvements for some commands:
+- ~destruct~ should now work on let-binding patterns, allowing you to expand a wildcard in snippets of the form ~let _ = ... in~
+- ~selection-range~ command has been reworked in order to produce more intuitive results.
+- ~ocaml-index~ file should now be more compact to store, and the project index should be built more quickly thanks to changes in its file format 
+
+Some known bugs were also fixed:
+- Fix a caching issue making inconsistent compilation units stale
+- Ghost bindings should not be printed in the editor's outline
+- Fix a regression introduced by the recent improvement made in ocaml-index file handling
+
+OCaml LSP releases include numerous improvements and bug fixes, thanks to @rgrinberg's contributions.
+
+*Complete changelogs:*
+- [Merlin 5.9.1](https://github.com/ocaml/merlin/blob/main/CHANGES.md?plain=1#L8)
+- [OCaml LSP 1.28.1](https://github.com/ocaml/ocaml-lsp/blob/master/CHANGES.md?plain=1#L1)
+ 
+cc @vds @xvw @lyrm @panglesd @PizieDust
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Forester 6.0</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-forester-6-0/18850/1</cwn_url>
+      <cwn_who>Jon Sterling announced</cwn_who>
+      <cwn_what>
+Dear OCaml community,
+
+I'm really happy to be able to announce the release of Forester 6.0 (~forester~) on opam. This is a huge quality-of-life release with many improvements, but no (intentional) language changes. See the [release notes](https://www.forester-notes.org/VNQB/) for details.
+
+*A few highlights:*
+
+1. HTML is emitted instead of XML by default, but users who prefer the XML output can still get it using ~--emit-xml~. The reason for this change is that the major browser vendors have colluded to remove XSLT from the web platform, which has made Forester's prior design untenable as a default. We don't have any plans to remove XML support.
+2. Forester now ships bundled with a default "theme". If you are happy with the default output, then there is no need to have a ~theme~ directory in your forest anymore.
+3. Forester 6.0 is several times faster than Forester 5.0. This is due to our adoption of multicore OCaml.
+4. When the language server is connected, it automatically fires up a live preview server at ~localhost:8080~. The preview updates live while you are typing into your editor. Currently file watching is not supported, so only edits that pass through the LSP are reflected; this limitation will be lifted in a future release.
+
+This release is due primarily to the hard work of @kentookura over the past year, and it would not have been possible without the generous support of *Tarides* and the *OCaml Software Foundation*. I'm incredibly grateful for all the support.
+
+Best,
+Jon
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>
