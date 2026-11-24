@@ -1,0 +1,231 @@
+<cwn>
+  <cwn_head>
+    <cwn_date>2026.11.24</cwn_date>
+    <cwn_prev>2026.11.17</cwn_prev>
+    <cwn_next>2026.12.01</cwn_next>
+    <cwn_date_text>November 17 to 24, 2026</cwn_date_text>
+  </cwn_head>
+  <cwn_body>
+    <cwn_entry>
+      <cwn_title>console: making OCaml CLI tools look good!</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-console-making-ocaml-cli-tools-look-good/18671/8</cwn_url>
+      <cwn_who>Continuing this thread, Thomas Gazagnaire announced</cwn_who>
+      <cwn_what>
+I am glad to announce the ([about to be](https://github.com/ocaml/opam-repository/pull/31281)) release of [console 0.10.1](https://github.com/samoht/ocaml-console).
+
+Console is still a library to design beautiful dynamic CLI outputs, with a small collection of active widgets (trees, tables, progress bars, tasks, prompts, etc) that can be styled and composed freely. It aims to be similar in spirit to [Rich](https://github.com/textualize/rich) for python or [indicatif](https://docs.rs/indicatif/latest/indicatif/) for Rust.
+
+The new release comes with a few bug fixes but is focusing on expanding the supported platforms:
+
+- A new package, ~console-lwt,~ allows to run the exact same widgets using ~Lwt~ instead of ~eio~. This led to cleaning up the API to define new backends which is now becoming somewhat [smaller and better defined](https://github.com/samoht/ocaml-console/blob/main/lib/driver/console_driver.mli).
+- Themes are now easier to apply: a new ~Theme.set_program~ function changes the whole program theme and ~console.cli~ defines a reusable ~--theme~ CLI param to try out different themes easily.
+- Tasks and Display widget now work properly on multi-domain programs with a limited performance impact and a transparent API. Outputs are queued by domain and routed to the appropriate one (and dropped if flooded).
+- Windows is now an officially supported target. For now, the full test suite is running and passing in the CI, but actual positive or negative user reports on Windows would be very welcome! More work on improving this support is planned in the next releases.
+- Console 0.10.1 compiles and runs on OxCaml and this is tested in the CI.
+
+Full change logs here:
+- https://github.com/samoht/ocaml-console/blob/0.10.0/CHANGES.md
+- https://github.com/samoht/ocaml-console/blob/0.10.1/CHANGES.md
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>ocaml-emcc 1.0: OCaml programs and their C stubs to WebAssembly</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-ocaml-emcc-1-0-ocaml-programs-and-their-c-stubs-to-webassembly/18887/1</cwn_url>
+      <cwn_who>Réda Boudrouss announced</cwn_who>
+      <cwn_what>
+Hi everyone,
+
+A month ago I [announced ocaml-emcc](https://discuss.ocaml.org/t/ann-ocaml-emcc-compile-ocaml-programs-with-their-c-stubs-to-webassembly/18649) here. It compiles OCaml programs *together with their C stubs* to WebAssembly with emscripten. FFI-heavy libraries (zarith/gmp, camlidl and ctypes bindings...) then work in node, browsers and WASI hosts, without rewriting any stub in JavaScript. Version 1.0 is now in opam, and a lot has changed since that first post.
+
+https://github.com/rboudrouss/ocaml-emcc
+
+*** It is not slow anymore
+
+The first version ran the bytecode on an interpreter, so it was much slower than js_of_ocaml or wasm_of_ocaml. In 1.0 the default is to compile the bytecode to C with [c_of_ocaml](https://github.com/rboudrouss/C_of_ocaml), a fork of js_of_ocaml with a C backend. emcc then compiles that C together with the stubs. The result runs about as fast as wasm_of_ocaml, with modules 2 to 8 times smaller than in interpreted mode. Many thanks to the Ocsigen team, since js_of_ocaml's compiler does most of the work here. The interpreter is still there with ~--interpreted~ (for OCaml 4.08 to 4.13, for instance).
+
+*** Built with ocaml-emcc
+
+Two big projects show what this makes possible:
+
+- *[rocq-web](https://rocq.rboud.com/)* ([sources](https://github.com/rboudrouss/rocq-web)): the Rocq prover and its language server coq-lsp, running entirely in the browser. You get an IDE with goals, diagnostics, go to definition and multi-file projects, plus 57 libraries (Stdlib, Mathematical Components, Iris, Equations, MetaRocq...) whose OCaml plugins are loaded on demand.
+- *[Mopsa in the browser](https://mopsa.rboud.com/)* ([sources](https://github.com/rboudrouss/mopsa-emcc)): ocaml-emcc started with this one. [Mopsa](https://gitlab.com/mopsa/mopsa-analyzer) is a static analyzer for C and Python programs. Its C frontend relies on libclang, and its numeric domains on Apron, GMP and MPFR. All of that (Clang/LLVM included) is compiled to wasm and runs client-side.
+
+*** Install
+
+#+begin_src shell
+opam install ocaml-emcc
+source /path/to/emsdk/emsdk_env.sh   # emcc in PATH
+# c_of_ocaml is not in opam yet, see the README's quick start to build it
+ocaml-emcc build main.js             # in a dune project
+node main.js                         # or load main.js in a web page
+#+end_src
+
+*** New since the first announcement
+
+- *OCaml 5*: effect handlers. With ~--threads~, ~Thread~s and ~Domain~s are real threads and domains run in parallel (node, cross-origin isolated pages, wasmer...).
+- *wasm64* (~--target wasm64~): exactly the native 64-bit semantics (node 24, recent Chrome and Firefox).
+- *js_of_ocaml's library* (~Js~, ~Dom_html~, the ppx, js_of_ocaml-lwt, Brr) builds as is, so one program can use both the DOM and C stubs. (Note that calls between OCaml and JavaScript are much slower than with js_of_ocaml or wasm_of_ocaml)
+- *Plugins* loaded at run time, compiled separately and fetched only when needed: ~Emcc_dynlink.load_url~ in compiled mode, OCaml's own ~Dynlink~ of ~.cma~ files in interpreted mode.
+- *Deep recursion in browsers* despite their small stack with ~--jspi~ or ~--cps-stack~.
+- *More targets*: WASIX with sockets (~--wasix~, wasmer), and modules for symbolic execution with [owi](https://github.com/OCamlPro/owi) (~--owi~). (Support for owi's symbolic execution is still experimental, and needs [this PR](https://github.com/OCamlPro/owi/pull/1142))
+- *About a hundred builtin recipes* (gmp, OpenSSL, cairo, ffmpeg, sdl2, raylib, ncurses...). A project can add its own, which can also patch the OCaml code of a dependency. (This is how both projects above carry their patches without forking upstream)
+
+As before reports of packages with C stubs that don't build are very welcome, and feel free to suggest new features.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>ochre, a syntax highlighter for OCaml</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-ochre-a-syntax-highlighter-for-ocaml/18893/1</cwn_url>
+      <cwn_who>David Sancho announced</cwn_who>
+      <cwn_what>
+I'm happy to announce the first release of ochre (https://github.com/davesnx/ochre), a syntax highlighter for OCaml inspired by Shiki (https://shiki.style/).
+
+There was nothing like it in OCaml, and I needed one. The highlighting we have in our docs is often off, odoc colors code blocks in the browser with a highlight.js bundle from 2022 (11.7.0), and its OCaml and Reason grammars are a few regexes and contain issues, as well the ocaml.org website has no syntax highlight. 
+
+ochre uses the same TextMate grammars as VS Code, so it gets these right.
+
+#+attr_html: :width 80%
+https://us1.discourse-cdn.com/flex020/uploads/ocaml/original/2X/b/b521c2fde4d1bb75ae424ad80387c782e4d9eda3.gif
+
+fun addition was the LaTeX backend, so no excuses to have colorless snippets there, too!
+
+ochre ocaml file.ml --format latex --theme tokyonight > file.tex
+
+Here is a rendered PDF (https://davesnx.github.io/ochre/examples/latex-preview.pdf) with a few themes.
+
+---
+
+You can use it as CLI, or as a library:
+#+begin_src ocaml
+let theme = Ochre.Theme.nord in
+let highlighter = Ochre.load_from_files_exn ["path/to/ocaml.tmLanguage.json"] in
+let source_code = "..." in
+let html = Ochre.to_html highlighter ~theme ~lang:"ocaml" source_code
+#+end_src
+
+Let me know if you try and find any issue!
+
+Thanks
+      </cwn_what>
+      <cwn_who>Patrick Ferris then added</cwn_who>
+      <cwn_what>
+#+begin_quote
+There was nothing like it in OCaml
+#+end_quote
+
+This isn't quite true, I've been publishing [hilite](https://github.com/patricoferris/hilite) for the last four years which has, from the start, used the TextMate grammars from VSCode etc. In fact, if you [search ocaml.org for syntax highlighting](https://ocaml.org/packages/search?q=syntax+highlighting) it is the first thing that comes up. It is what powers the syntax highlighting on OCaml.org.
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Announcing the first release of Alice, a radical OCaml build system</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/announcing-the-first-release-of-alice-a-radical-ocaml-build-system/17472/46</cwn_url>
+      <cwn_who>Continuing this thread, Steve Sherratt announced</cwn_who>
+      <cwn_what>
+Announcing the release of Alice v0.6.0 which introduces config scripts, compiling bytecode programs, building packages containing a mix of C and OCaml, and accessing modules from the standard library like ~Unix~ and ~Str~. Read more [here](https://www.alicecaml.org/blog/alice-v0-6-0/).
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>Opam-repository: new PR check ~opam-review~</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/opam-repository-new-pr-check-opam-review/18895/1</cwn_url>
+      <cwn_who>Hannes Mehnert announced</cwn_who>
+      <cwn_what>
+Dear everyone,
+
+since one week there is a new GitHub action installed on ocaml/opam-repository: [opam-review](https://github.com/hannesm/opam-review). This does some checks of the (new or modified) opam file(s), both on its own, but also in the context of the opam-repository. The checks have been guided by the [policies](https://github.com/ocaml/opam-repository/tree/master/governance/policies), and also by observing issues in more than a decade of pull requests.
+
+The ~opam-review~ action posts a comment on each PR. The aim is to help opam-repository maintainers that the submitted PR conforms to the policies -- and also give PR authors a quick feedback where they can quickly fix some quirks.
+
+The implemented checks include:
+- if any version of the submitted opam file have a ~v~ prefix, warn if the new submission does not have a ~v~ prefix (https://github.com/ocaml/opam-repository/pull/31105)
+- newly packages should avoid the "ocaml" prefix and suffix
+- changes to a package source (modifying the checksums of archives or extra-sources, adding or removing extra-sources is prohibited)
+- warn if there is no ~x-maintenance-intent~ field, and error on parse error
+- the ~repo~ file is checked (https://github.com/ocaml/opam-repository/pull/26065)
+- ensure the license(s) is present and is compliant to SPDX
+- stick to newline line endings (prohibit carriage returns) https://github.com/ocaml/opam-repository/pull/30223
+- prohibit existence of ~pin-depends~
+- check that the path conforms to what we have in opam-repository: ~packages/$package-name/$package-version/opam~
+- warn if ~dev-repo~ or ~homepage~ changed from an earlier version (to avoid conflicts as in the base58 package)
+- removal of a package emits a warning
+
+The tool collects warnings and errors, and reports all of them on a per-opam-file basis. If all checks succeed, a green checkmark is posted.
+
+As mentioned above, please report (a) ideas what could be checked, and (b) malfunction of the tool, but as well (c) improvements to the output are very welcome. It is currently ~600 lines of OCaml code mainly using the opam API. This is not part of "opam-repo-ci", which already does some of these checks -- there are various reasons (both technical and social) behind that, including that opam-repo-ci can't post a comment on a PR.
+
+https://github.com/hannesm/opam-review
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>hermetic, eio-chaos, eio-fs, eio-net: using Eio capabilities for stress tests</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-hermetic-eio-chaos-eio-fs-eio-net-using-eio-capabilities-for-stress-tests/18896/1</cwn_url>
+      <cwn_who>Thomas Gazagnaire announced</cwn_who>
+      <cwn_what>
+Hi all,
+
+I'm happy to announce the release of a few packages to help write stress tests (like simulation of power cuts or network faults) for applications using [eio](https://github.com/ocaml-multicore/eio): 
+
+#+begin_example
+opam install eio-chaos eio-fs eio-net hermetic
+#+end_example
+
+This lets you write:
+
+#+begin_src ocaml
+let () =
+  Eio_chaos.run [ Eio_fs_chaos.disk (); Eio_net_chaos.network () ]
+  @@ fun env -> My_app.main env
+#+end_src
+
+~Eio_chaos~ is an extension of ~Eio_mock~ with the following behavior (roughly):
+- it first runs the application once to record a trace of all the I/O;
+- it then re-runs the application several times, and every time the application performs I/O it applies some "perturbation" to the answers (injecting filesystem or network faults), simulates crashes (and checks that the application can restart safely), etc.
+- All of this works only if your application is deterministic and so if all the I/O goes through Eio capabilities properly. To avoid mistakes I've also released [hermetic](https://github.com/samoht/ocaml-hermetic) which shadows the standard library to forbid calling functions with ambient capabilities. It's not perfect, as you can still call third-party libraries that do it, but in my experience it already removes a lot of cases!
+
+The ext4 disk model is inspired by [Ferrite](https://dl.acm.org/doi/10.1145/2872362.2872406) with a macOS variant. The network model is custom, but tries to reproduce Linux, macOS and Windows quirks.
+
+The same simulator can also be used to test the conformance of Eio devices by replaying a user-provided ~env#fs~ or ~env#net~ vs. recorded kernel traces in the spirit of [SibylFS](https://sibylfs.github.io/) and [NetSem](https://www.cl.cam.ac.uk/~pes20/Netsem/index.html). This helped find a few bugs in the OCaml Unix module and in Eio itself (which are being fixed pretty fast!).
+
+Finally [eio-fs](https://github.com/samoht/ocaml-eio-fs) and [eio-net](https://github.com/samoht/ocaml-eio-net) also provide in-memory implementations of those devices (that use the chaos framework to check for their own conformance) and a few more helpers, including a convenient ~eio-fs-crunch~ binary that embeds static files into an OCaml module exposing an in-memory ~env#fs~.
+
+You can read more [on my blog](https://gazagnaire.org/blog/2026-11-23-eio-fs-net.html). Feedback is welcome!
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>OUPS meetup december 2026</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/oups-meetup-december-2026/18899/1</cwn_url>
+      <cwn_who>ancolie announced</cwn_who>
+      <cwn_what>
+Hi everyone,
+
+The [november meetup](https://discuss.ocaml.org/t/oups-meetup-november-2026) was cancelled and is rescheduled for *the 2nd of December*.
+
+Please [register on meetup](https://www.meetup.com/ocaml-paris/events/317552551) so we know how many pizza we should order.
+
+Thanks!
+      </cwn_what>
+    </cwn_entry>
+    <cwn_entry>
+      <cwn_title>merge-fmt 0.5.1: resolve merge conflicts with code formatters</cwn_title>
+      <cwn_url>https://discuss.ocaml.org/t/ann-merge-fmt-0-5-1-resolve-merge-conflicts-with-code-formatters/18906/1</cwn_url>
+      <cwn_who>Hhugo announced</cwn_who>
+      <cwn_what>
+I'm happy to announce the release of merge-fmt 0.5.1.
+
+~merge-fmt~ resolves merge conflicts by formatting the versions of a file before merging them, so conflicts that only come from formatting differences disappear. It supports ~ocamlformat~, ~refmt~ and ~dune~, and works standalone, as a git mergetool or as a git merge driver.
+
+New since 0.4:
+
+- *Jujutsu support*: ~merge-fmt setup-jj-mergetool --update~, then ~jj resolve --tool merge-fmt~ (jj 0.33 or later).
+- *Windows and macOS* are now tested and supported.
+- *Safer merges*: the input files are left untouched, a formatter failure no longer fails the merge, and remaining conflicts are written to the output with their markers.
+- *Fixes*: conflicts are resolved in the whole repository when run from a subdirectory, file names with spaces work, and dune and Reason files are formatted correctly.
+
+If you set up a repository as a git mergetool with an older version, run ~merge-fmt setup-mergetool --update~ again there. merge-fmt now requires OCaml 4.14 and dune 3.15.
+
+    opam install merge-fmt
+
+Changelog: https://github.com/hhugo/merge-fmt/blob/main/CHANGES.md
+      </cwn_what>
+    </cwn_entry>
+  </cwn_body>
+</cwn>
